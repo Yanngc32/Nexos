@@ -1,0 +1,5 @@
+node_modules
+dist
+.nexo-test
+*.log
+apps/desktop/src-tauri/target

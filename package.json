@@ -1,0 +1,9 @@
+{
+  "name": "nexo",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "test": "pnpm --filter @nexo/daemon test",
+    "dev": "pnpm --filter @nexo/daemon dev"
+  }
+}
