@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; connect-src http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src http: https: about: data: blob:; font-src 'self'"
+    />
+    <title>Nexo</title>
+    <link rel="stylesheet" href="./node_modules/@xterm/xterm/css/xterm.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <aside class="side">
+      <div class="side-top">
+        <span class="word">Nexo</span>
+        <span class="side-top-acts">
+          <button
+            type="button"
+            id="btn-agents"
+            class="ghost"
+            data-ico="◉"
+            title="Agentes ativos (Ctrl+Shift+A)"
+            aria-expanded="false"
+          >
+            Agentes<span id="agents-badge" class="agents-badge hidden">0</span>
+          </button>
+          <button type="button" id="btn-palette" class="ghost" data-ico="⌘" title="Paleta (Ctrl+P)">Paleta</button>
+        </span>
+      </div>
+      <div class="repo-head">
+        <span class="repo-label">Repositórios</span>
+        <button type="button" id="btn-folder" class="ghost" title="Adicionar pasta">+</button>
+      </div>
+      <button type="button" id="btn-new" class="ghost new-thread" data-ico="✎">Nova conversa</button>
+      <div id="repo-tree" class="repo-tree" role="tree"></div>
+      <p id="threads-empty" class="empty hidden">Nenhum repositório. + abre uma pasta.</p>
+      <span id="project-path" class="hidden"></span>
+      <div id="svc-strip" class="svc-strip hidden">
+        <div class="svc-head">
+          <span class="repo-label">Serviços</span>
+          <button type="button" id="btn-svc-refresh" class="ghost" title="Atualizar status">⟳</button>
+        </div>
+        <ul id="svc-list" class="svc-list"></ul>
+        <div id="svc-empty" class="svc-empty hidden">
+          <p>Nenhum serviço declarado neste projeto.</p>
+          <button type="button" id="btn-svc-create" class="ghost">Pedir pro agente criar o nexo.json</button>
+        </div>
+        <p id="svc-error" class="svc-error hidden"></p>
+        <button type="button" id="btn-svc-trust" class="ghost svc-trust hidden" title="Libera o autostart declarado no nexo.json">
+          Confiar neste projeto
+        </button>
+      </div>
+      <div id="svc-log" class="svc-log hidden" role="dialog" aria-label="Log do serviço">
+        <div class="svc-log-head">
+          <span id="svc-log-title">Log</span>
+          <button type="button" id="btn-svc-log-close" class="ghost" title="Fechar (Esc)">✕</button>
+        </div>
+        <pre id="svc-log-body"></pre>
+      </div>
+      <div class="side-foot">
+        <span class="status" id="motor-status" data-on="0">Desligado</span>
+        <span class="foot-actions">
+          <button type="button" id="btn-focus" class="ghost" data-ico="⤢" title="Modo foco (Ctrl+Shift+F)">Foco</button>
+          <button type="button" id="btn-settings" class="ghost ico-only ico-gear" title="Configurações" aria-label="Configurações">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z" />
+            </svg>
+          </button>
+          <button type="button" id="btn-motor" class="ghost" data-ico="⏻">Ligar</button>
+        </span>
+      </div>
+      <div id="split-side" class="splitter" role="separator" aria-orientation="vertical" title="Arraste pra redimensionar"></div>
+    </aside>
+    <div class="work" id="work" data-view="file" data-side="0">
+      <section class="pane" id="pane-file">
+        <header class="mod-head">
+          <h1>Arquivos</h1>
+          <span id="file-cwd" class="mod-meta"></span>
+          <button type="button" id="btn-file-preview" class="ghost" title="Esconder prévia">Prévia</button>
+          <button type="button" id="btn-close-file" class="ghost mod-close" title="Fechar (volta só pro chat)">✕</button>
+        </header>
+        <div class="file-split" id="file-split">
+          <div class="file-tree" id="file-tree" role="tree"></div>
+          <pre class="file-preview" id="file-preview">Escolhe um arquivo na árvore.</pre>
+        </div>
+      </section>
+      <section class="pane hidden" id="pane-terminal">
+        <header class="mod-head">
+          <h1>Terminal</h1>
+          <span id="term-cwd" class="mod-meta"></span>
+          <button type="button" id="btn-term-kill" class="ghost" hidden>Parar</button>
+          <button type="button" id="btn-close-terminal" class="ghost mod-close" title="Fechar (volta só pro chat)">✕</button>
+        </header>
+        <div id="term" class="term"></div>
+        <pre id="term-out" class="term-out hidden"></pre>
+        <form id="term-form" class="term-form">
+          <span class="term-prompt">›</span>
+          <input id="term-cmd" type="text" autocomplete="off" spellcheck="false" placeholder="comando no projeto…" />
+          <button type="submit" class="primary">Rodar</button>
+        </form>
+      </section>
+      <section class="pane hidden" id="pane-browser">
+        <header class="mod-head">
+          <h1>Browser</h1>
+          <button type="button" id="btn-close-browser" class="ghost mod-close" title="Fechar (volta só pro chat)">✕</button>
+        </header>
+        <form id="browser-form" class="urlbar">
+          <button type="button" id="btn-browser-reload" class="ghost ico-only ico-reload" title="Reiniciar o browser" aria-label="Reiniciar o browser">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+              <path d="M21 3v6h-6" />
+            </svg>
+          </button>
+          <button type="button" id="btn-browser-hard-reload" class="ghost ico-only ico-wipe" title="Reiniciar limpando o cache" aria-label="Reiniciar limpando o cache">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M3 6h18" />
+              <path d="M8 6V4h8v2" />
+              <path d="M6 6l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" />
+              <path d="M10 11v6M14 11v6" />
+            </svg>
+          </button>
+          <input id="browser-url" type="text" inputmode="url" spellcheck="false" placeholder="https://…" />
+          <button type="submit" class="primary">Ir</button>
+        </form>
+        <div class="browser-stage">
+          <iframe id="browser-frame" title="Browser" src="about:blank"></iframe>
+          <div id="browser-fail" class="browser-fail hidden" role="alert">
+            <p id="browser-fail-msg"></p>
+            <p id="browser-fail-hint" class="browser-fail-hint"></p>
+            <div class="browser-fail-acts">
+              <button type="button" id="btn-browser-run" class="primary hidden"></button>
+              <button type="button" id="btn-browser-retry" class="ghost">Tentar de novo</button>
+              <button type="button" id="btn-browser-external" class="ghost hidden">Abrir no navegador</button>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="pane hidden" id="pane-canvas">
+        <header class="mod-head">
+          <h1>Canvas</h1>
+          <div class="canvas-tools">
+            <input type="color" id="canvas-color" value="#e8e8e8" title="Cor" />
+            <input type="range" id="canvas-size" min="1" max="16" value="2" title="Espessura" />
+            <button type="button" id="btn-canvas-clear" class="ghost">Limpar</button>
+          </div>
+          <button type="button" id="btn-close-canvas" class="ghost mod-close" title="Fechar (volta só pro chat)">✕</button>
+        </header>
+        <canvas id="sketch"></canvas>
+        <textarea id="canvas-note" rows="3" placeholder="Notas deste projeto…"></textarea>
+      </section>
+      <section class="pane hidden" id="pane-chat">
+        <div id="split-chat" class="splitter" role="separator" aria-orientation="vertical" title="Arraste pra redimensionar"></div>
+        <button type="button" id="btn-focus-exit" class="focus-exit hidden" title="Sair do foco (Esc)">⤡</button>
+        <header class="chat-head" id="chat-head">
+          <span class="crumb-ico" aria-hidden="true">▤</span>
+          <button type="button" id="crumb-repo" class="crumb-repo" title="Ver este projeto na barra esquerda">
+            Sem projeto
+          </button>
+          <span class="crumb-sep" aria-hidden="true">›</span>
+          <span class="crumb-thread" id="crumb-thread">Nenhuma conversa</span>
+        </header>
+        <div id="banner" class="banner hidden">Motor desligado. Liga pra conversar.</div>
+        <ol id="log" class="log"></ol>
+        <p id="chat-empty" class="empty sheet">Escolhe uma conversa à esquerda ou cria outra.</p>
+        <div id="meter" class="meter hidden">
+          <button
+            type="button"
+            id="meter-open"
+            class="meter-open"
+            aria-expanded="false"
+            aria-label="Uso da conta e janela de contexto"
+          >
+            <span class="quota" aria-hidden="true">
+              <span class="quota-wire" id="wire-5h-box"><span id="wire-5h"></span></span>
+              <span class="quota-wire" id="wire-7d-box"><span id="wire-7d"></span></span>
+            </span>
+            <span class="quota-pct" id="quota-pct">—</span>
+            <span class="ctx-dot" aria-hidden="true">
+              <svg viewBox="0 0 36 36">
+                <circle class="ring-bg" cx="18" cy="18" r="15.5"></circle>
+                <circle id="meter-ring" class="ring-fill" cx="18" cy="18" r="15.5"></circle>
+              </svg>
+              <span class="ctx-pct" id="meter-dot-pct">—</span>
+            </span>
+          </button>
+          <div id="meter-more" class="meter-more hidden" role="dialog" aria-label="Uso da conta">
+            <div class="meter-row">
+              <span class="meter-title">Janela de contexto</span
+              ><span class="meter-val" id="meter-ctx">—</span>
+            </div>
+            <div class="meter-bar"><span id="meter-fill" class="meter-fill"></span></div>
+            <p class="meter-sub">Seus limites de uso</p>
+            <div class="meter-row"><span>Limite de 5 horas</span><span id="lim-5h" class="meter-num">—</span></div>
+            <div class="meter-bar sm"><span id="lim-5h-fill" class="meter-fill"></span></div>
+            <div class="meter-row">
+              <span>Semanal · todos os modelos</span><span id="lim-7d" class="meter-num">—</span>
+            </div>
+            <div class="meter-bar sm"><span id="lim-7d-fill" class="meter-fill"></span></div>
+            <dl class="meter-facts">
+              <dt>Modelo</dt>
+              <dd id="fact-model">—</dd>
+              <dt>Esforço</dt>
+              <dd id="fact-effort">—</dd>
+              <dt>Modo</dt>
+              <dd id="fact-mode">—</dd>
+              <dt>Tokens desta conversa</dt>
+              <dd id="fact-tokens">—</dd>
+              <dt>Custo acumulado</dt>
+              <dd id="fact-cost">—</dd>
+              <dt>Sessão do CLI</dt>
+              <dd id="fact-session">—</dd>
+            </dl>
+            <button type="button" id="btn-meter-all" class="ghost meter-all-btn" aria-expanded="false">
+              Uso de todas as contas
+            </button>
+            <div id="meter-all" class="meter-all hidden"></div>
+          </div>
+        </div>
+        <div id="think-bar" class="think-bar hidden" aria-live="polite">
+          <span class="think-glyph" id="think-glyph">✳</span>
+          <span class="think-word" id="think-word">Pensando</span>
+          <span class="think-meta" id="think-meta"></span>
+        </div>
+        <div class="composer-wrap">
+          <div id="pet-stage" class="pet-stage" title="Motor desligado" data-state="off">
+            <img
+              id="pet-sprite"
+              class="pet-sprite"
+              src="./pets/nexo/128/off.png"
+              alt=""
+              width="56"
+              height="56"
+              draggable="false"
+              data-state="off"
+            />
+          </div>
+        <form id="composer">
+          <div id="slash-menu" class="slash-menu hidden" role="listbox" aria-label="Comandos"></div>
+          <div id="queue-strip" class="queue-strip hidden" aria-live="polite"></div>
+          <div id="attach-strip" class="attach-strip hidden" aria-live="polite"></div>
+          <textarea
+            id="input"
+            rows="3"
+            placeholder="Pergunta, pede mudança, ou descreve o que fazer…"
+            disabled
+          ></textarea>
+          <div class="bar">
+            <select id="profile-select" aria-label="Conta"></select>
+            <select id="model-select" aria-label="Modelo" title="Modelo do motor">
+              <option value="">Modelo: padrão</option>
+              <option value="opus">Opus</option>
+              <option value="sonnet">Sonnet</option>
+              <option value="haiku">Haiku</option>
+              <option value="fable">Fable</option>
+            </select>
+            <select id="mode-select" aria-label="Modo de permissão" title="Modo de permissão do motor">
+              <option value="">Modo: padrão</option>
+              <option value="auto" title="Claude gerencia decisões de permissão">Automático</option>
+              <option value="manual" title="Sempre perguntar antes de fazer alterações">Manual</option>
+              <option value="acceptEdits" title="Aceitar automaticamente todas as edições">Aceitar edições</option>
+              <option value="plan" title="Criar um plano antes de fazer alterações">Planejar</option>
+              <option value="bypassPermissions" title="Aceita todas as permissões">Ignorar permissões</option>
+            </select>
+            <label class="effort" title="Esforço de raciocínio (mais esforço = mais token e mais lento)">
+              <input type="range" id="effort-range" min="0" max="5" step="1" value="0" />
+              <span id="effort-label" class="effort-label">Esforço: padrão</span>
+            </label>
+            <button type="button" id="btn-login" class="ghost hidden">Login</button>
+            <button type="button" id="btn-import-login" class="ghost hidden">Já loguei</button>
+            <p id="profiles-empty" class="empty inline hidden">Sem contas</p>
+            <button
+              type="button"
+              id="btn-attach"
+              class="ghost ico-only"
+              title="Anexar imagem (ou Ctrl+V)"
+              aria-label="Anexar imagem"
+            >
+              📎
+            </button>
+            <input
+              type="file"
+              id="attach-input"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              multiple
+              hidden
+            />
+            <button type="button" id="btn-abort" class="ghost hidden">Parar</button>
+            <button type="submit" class="primary" id="btn-send" disabled>Enviar</button>
+          </div>
+        </form>
+        </div>
+      </section>
+    </div>
+    <div id="palette" class="palette hidden" role="dialog" aria-label="Paleta de módulos">
+      <div class="palette-card">
+        <div class="palette-head">
+          <input id="palette-q" type="search" placeholder="Abrir arquivo, URL, …" autocomplete="off" />
+          <button type="button" id="btn-palette-close" class="palette-x" title="Fechar (Esc)" aria-label="Fechar paleta">×</button>
+        </div>
+        <div class="palette-body">
+          <ul id="palette-list"></ul>
+          <div id="palette-preview" aria-live="polite">
+            <div data-preview="file" class="pal-mod">
+              <header>Prévia · Arquivos</header>
+              <ul id="pal-files"></ul>
+            </div>
+            <div data-preview="terminal" class="pal-mod hidden">
+              <header id="pal-cwd">Prévia · Terminal</header>
+              <pre id="pal-term"></pre>
+            </div>
+            <div data-preview="browser" class="pal-mod hidden">
+              <header id="pal-url">Prévia · Browser</header>
+              <iframe id="pal-frame" title="Prévia do browser" src="about:blank" tabindex="-1"></iframe>
+            </div>
+            <div data-preview="canvas" class="pal-mod hidden">
+              <header>Prévia · Canvas</header>
+              <canvas id="pal-sketch"></canvas>
+              <p id="pal-note" class="pal-note"></p>
+            </div>
+            <div data-preview="side-chat" class="pal-mod hidden">
+              <header>Prévia · Chat</header>
+              <ol id="pal-chat"></ol>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="login-modal" class="settings hidden" role="dialog" aria-labelledby="login-title">
+      <div class="settings-card">
+        <div class="settings-head">
+          <h2 id="login-title">Entrar na conta</h2>
+          <button type="button" id="btn-login-close" class="ghost">Fechar</button>
+        </div>
+        <p id="login-step" class="login-step">
+          Abrimos o navegador pra você autorizar. Se a página mostrar um código, cole aqui.
+        </p>
+        <label class="field">
+          <span>Página de autorização</span>
+          <div class="accent-row">
+            <input id="login-url" type="text" spellcheck="false" readonly />
+            <button type="button" id="btn-login-open" class="ghost">Abrir</button>
+          </div>
+        </label>
+        <label class="field">
+          <span>Código do callback</span>
+          <input id="login-code" type="text" spellcheck="false" autocomplete="off" placeholder="cole o código aqui" />
+        </label>
+        <p id="login-msg" class="login-msg hidden"></p>
+        <div class="accent-row">
+          <button type="button" id="btn-login-submit" class="primary">Entrar</button>
+          <button type="button" id="btn-login-terminal" class="ghost">Usar o terminal</button>
+        </div>
+      </div>
+    </div>
+    <div id="settings" class="settings hidden" role="dialog" aria-labelledby="settings-title">
+      <div class="set-card">
+        <nav class="set-nav" aria-label="Seções">
+          <div class="set-search">
+            <span class="set-search-ico" aria-hidden="true">⌕</span>
+            <input id="set-q" type="search" placeholder="Procurar" autocomplete="off" aria-label="Procurar configuração" />
+          </div>
+          <p class="set-nav-group">Configurações</p>
+          <button type="button" class="set-nav-item" data-panel="aparencia" data-on="1">
+            <span class="set-nav-ico" aria-hidden="true">◧</span>Aparência
+          </button>
+          <button type="button" class="set-nav-item" data-panel="contas">
+            <span class="set-nav-ico" aria-hidden="true">☰</span>Contas
+          </button>
+          <button type="button" class="set-nav-item" data-panel="fallback">
+            <span class="set-nav-ico" aria-hidden="true">⇅</span>Fallback
+          </button>
+        </nav>
+        <div class="set-body">
+          <div class="set-head">
+            <h2 id="settings-title">Configurações</h2>
+            <button type="button" id="btn-settings-close" class="ghost" title="Fechar (Esc)">✕</button>
+          </div>
+          <div class="set-scroll" id="set-scroll">
+            <section class="set-sec" data-panel="aparencia">
+              <h3>Aparência</h3>
+              <div class="set-row">
+                <div class="set-txt">
+                  <h4>Cor de destaque</h4>
+                  <p>Cor de botões, foco e cursor do terminal. Vale no app inteiro.</p>
+                </div>
+                <div class="set-ctl">
+                  <input type="color" id="accent-picker" value="#4d9cd6" aria-label="Cor de destaque" />
+                  <input type="text" id="accent-hex" value="#4d9cd6" spellcheck="false" maxlength="7" aria-label="Cor em hexadecimal" />
+                </div>
+              </div>
+              <div class="set-row">
+                <div class="set-txt">
+                  <h4>Paleta rápida</h4>
+                  <p>Atalhos para as cores mais usadas.</p>
+                </div>
+                <div class="set-ctl swatches" id="accent-swatches">
+                  <button type="button" data-accent="#4d9cd6" style="--swatch: #4d9cd6" title="Azul"></button>
+                  <button type="button" data-accent="#d7a441" style="--swatch: #d7a441" title="Âmbar"></button>
+                  <button type="button" data-accent="#7c5cbf" style="--swatch: #7c5cbf" title="Violeta"></button>
+                  <button type="button" data-accent="#5fae74" style="--swatch: #5fae74" title="Verde"></button>
+                  <button type="button" data-accent="#e06c75" style="--swatch: #e06c75" title="Rosa"></button>
+                  <button type="button" data-accent="#56b6c2" style="--swatch: #56b6c2" title="Ciano"></button>
+                </div>
+              </div>
+            </section>
+            <section class="set-sec hidden" data-panel="contas">
+              <h3>Contas</h3>
+              <div class="set-row">
+                <div class="set-txt">
+                  <h4>Nova conta</h4>
+                  <p>Um id curto (a-z, 0-9 e hífen) e o motor que ela usa.</p>
+                </div>
+                <div class="set-ctl">
+                  <input id="profile-id" type="text" spellcheck="false" placeholder="claude-trabalho" maxlength="40" aria-label="Id da conta" />
+                  <select id="profile-engine" aria-label="Motor">
+                    <option value="claude">Claude</option>
+                    <option value="codex">Codex</option>
+                    <option value="api">API (chat)</option>
+                    <option value="stub">Stub</option>
+                  </select>
+                </div>
+              </div>
+              <div class="set-row col hidden" id="api-fields">
+                <div class="set-txt">
+                  <h4>Credenciais da API</h4>
+                  <p>Só para o motor API: provider, modelo e chave. A chave fica no daemon, nunca na tela.</p>
+                </div>
+                <div class="set-ctl col">
+                  <input id="profile-provider" type="text" spellcheck="false" placeholder="anthropic" aria-label="Provider" />
+                  <input id="profile-model" type="text" spellcheck="false" placeholder="modelo" aria-label="Modelo" />
+                  <input id="profile-key" type="password" spellcheck="false" placeholder="api key" aria-label="Chave da API" />
+                </div>
+              </div>
+              <div class="set-row">
+                <div class="set-txt">
+                  <h4>Criar</h4>
+                  <p>Claude e Codex abrem o login logo depois de criar.</p>
+                  <p id="profile-add-err" class="set-err"></p>
+                </div>
+                <div class="set-ctl">
+                  <button type="button" id="btn-profile-add" class="primary profile-add">Criar e logar</button>
+                </div>
+              </div>
+              <div class="set-row col">
+                <div class="set-txt">
+                  <h4>Ferramentas liberadas</h4>
+                  <p>
+                    O motor roda sem canal de permissão: o que precisaria de aprovação (git push, gh,
+                    comando novo) é negado em silêncio. Libere só o necessário, separado por vírgula —
+                    ex.: <code>Bash(git *), Bash(gh *)</code>. Vale a partir do próximo motor
+                    (troca de conta, /clear ou reiniciar o motor).
+                  </p>
+                  <p id="allow-err" class="set-err"></p>
+                </div>
+                <div class="set-ctl col">
+                  <select id="allow-profile" aria-label="Conta"></select>
+                  <div id="allow-presets" class="allow-presets"></div>
+                  <details id="allow-adv" class="allow-adv">
+                    <summary>Avançado — padrão do CLI</summary>
+                    <input
+                      id="allow-tools"
+                      type="text"
+                      spellcheck="false"
+                      placeholder="Bash(docker *), WebFetch"
+                      aria-label="Padrões extras separados por vírgula"
+                    />
+                  </details>
+                  <button type="button" id="btn-allow-save" class="primary">Salvar</button>
+                </div>
+              </div>
+            </section>
+            <section class="set-sec hidden" data-panel="fallback">
+              <h3>Fallback</h3>
+              <div class="set-row">
+                <div class="set-txt">
+                  <h4>Troca de conta na quota</h4>
+                  <p>O que o Nexo faz quando a quota da conta ativa acaba.</p>
+                  <p id="switch-mode-err" class="set-err"></p>
+                </div>
+                <div class="set-ctl">
+                  <select id="switch-mode" aria-label="Modo de troca de conta">
+                    <option value="auto" title="Troca sozinho pela próxima conta da lista">
+                      Automático · troca sem perguntar
+                    </option>
+                    <option value="manual" title="Mostra o aviso e espera você decidir">
+                      Manual · pergunta antes de trocar
+                    </option>
+                    <option value="denied" title="Fica na conta estourada">
+                      Negado · não troca nem pergunta
+                    </option>
+                  </select>
+                </div>
+              </div>
+              <div class="set-row col">
+                <div class="set-txt">
+                  <h4>Ordem de fallback na quota</h4>
+                  <p>
+                    Quando houver troca, a próxima conta pronta desta lista é a escolhida — sozinho ou
+                    perguntando, conforme o modo acima.
+                  </p>
+                </div>
+                <ul id="fallback-list" class="order-list"></ul>
+              </div>
+            </section>
+          </div>
+          <p id="set-empty" class="set-empty hidden">Nada encontrado.</p>
+        </div>
+      </div>
+    </div>
+    <div id="agents-dock" class="agents-dock hidden" role="dialog" aria-label="Agentes">
+      <div class="agents-head">
+        <span class="agents-title" id="agents-title">Agentes</span>
+        <button type="button" id="btn-agents-close" class="ghost" title="Fechar (Esc)" aria-label="Fechar">✕</button>
+      </div>
+      <div class="agents-tabs" role="tablist">
+        <button type="button" id="tab-agents-run" class="agents-tab" role="tab" data-on="1">Rodando</button>
+        <button type="button" id="tab-agents-def" class="agents-tab" role="tab">Meus agentes</button>
+      </div>
+      <div id="agents-pane-run" class="agents-pane">
+        <ul id="agents-list" class="agents-list"></ul>
+        <p id="agents-empty" class="agents-empty">Nenhum agente rodando agora.</p>
+      </div>
+      <div id="agents-pane-def" class="agents-pane hidden">
+        <ul id="agent-defs" class="agents-list"></ul>
+        <p id="agent-defs-empty" class="agents-empty">
+          Nenhum agente criado. Um agente guarda conta, modelo e instruções próprias.
+        </p>
+        <form id="agent-form" class="agent-form hidden">
+          <div class="agent-form-row">
+            <label class="agent-f" for="agent-f-name">
+              <span>Nome</span>
+              <input id="agent-f-name" type="text" maxlength="60" placeholder="Revisor de PR" required />
+            </label>
+            <label class="agent-f agent-f-narrow" for="agent-f-id">
+              <span>id</span>
+              <input id="agent-f-id" type="text" maxlength="40" placeholder="revisor" required />
+            </label>
+            <label class="agent-f agent-f-color" for="agent-f-color">
+              <span>Cor</span>
+              <input id="agent-f-color" type="color" value="#4d9cd6" />
+            </label>
+          </div>
+          <label class="agent-f" for="agent-f-desc">
+            <span>Descrição</span>
+            <input id="agent-f-desc" type="text" maxlength="200" placeholder="Para que serve este agente" />
+          </label>
+          <div class="agent-form-row">
+            <label class="agent-f" for="agent-f-profile">
+              <span>Conta</span>
+              <select id="agent-f-profile"></select>
+            </label>
+            <label class="agent-f" for="agent-f-model">
+              <span>Modelo</span>
+              <input id="agent-f-model" type="text" list="agent-models" placeholder="padrão da conta" />
+              <datalist id="agent-models">
+                <option value="opus"></option>
+                <option value="sonnet"></option>
+                <option value="haiku"></option>
+                <option value="fable"></option>
+              </datalist>
+            </label>
+          </div>
+          <div class="agent-form-row">
+            <label class="agent-f" for="agent-f-effort">
+              <span>Esforço</span>
+              <select id="agent-f-effort">
+                <option value="">padrão</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+                <option value="xhigh">xhigh</option>
+                <option value="max">max</option>
+              </select>
+            </label>
+            <label class="agent-f" for="agent-f-mode">
+              <span>Permissão</span>
+              <select id="agent-f-mode">
+                <option value="">padrão</option>
+                <option value="auto">auto</option>
+                <option value="manual">manual</option>
+                <option value="acceptEdits">acceptEdits</option>
+                <option value="plan">plan</option>
+                <option value="bypassPermissions">bypassPermissions</option>
+              </select>
+            </label>
+          </div>
+          <label class="agent-f" for="agent-f-instructions">
+            <span>Instruções</span>
+            <textarea
+              id="agent-f-instructions"
+              rows="5"
+              maxlength="8000"
+              placeholder="Como este agente deve trabalhar. Vai no topo do contexto de toda conversa dele."
+            ></textarea>
+          </label>
+          <p id="agent-form-err" class="agent-form-err hidden"></p>
+          <div class="agent-form-acts">
+            <button type="submit" class="primary" id="btn-agent-save">Salvar</button>
+            <button type="button" class="ghost" id="btn-agent-cancel">Cancelar</button>
+            <button type="button" class="ghost danger" id="btn-agent-del">Excluir</button>
+          </div>
+        </form>
+        <div class="agents-foot">
+          <button type="button" class="primary" id="btn-agent-new">Novo agente</button>
+        </div>
+      </div>
+    </div>
+    <div id="toast" class="toast hidden" role="dialog">
+      <p id="toast-text"></p>
+      <div class="toast-actions">
+        <button type="button" id="toast-yes" class="primary">Trocar</button>
+        <button type="button" id="toast-no" class="ghost">Ficar</button>
+      </div>
+    </div>
+    <script src="./node_modules/@xterm/xterm/lib/xterm.js"></script>
+    <script src="./node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+    <script src="./renderer.js"></script>
+  </body>
+</html>

@@ -21,6 +21,14 @@ describe("router", () => {
     expect(suggestFallback("b", home)).toBeUndefined();
   });
 
+  it("sem fallbackOrder usa outro perfil ready", () => {
+    const home = tempHome();
+    addProfile({ id: "a", engine: "stub" }, home);
+    addProfile({ id: "b", engine: "stub" }, home);
+    saveConfig(home, { fallbackOrder: [] });
+    expect(suggestFallback("a", home)).toBe("b");
+  });
+
   it("pula unauthenticated", () => {
     const home = tempHome();
     addProfile({ id: "a", engine: "stub" }, home);

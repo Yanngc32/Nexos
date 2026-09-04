@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createThread, appendEvent, readThread, listThreads } from "../src/threads.ts";
+import { createThread, appendEvent, readThread, listThreads, removeThread } from "../src/threads.ts";
 import { addProfile } from "../src/profiles.ts";
 import { tempHome } from "./helpers.ts";
 
@@ -21,5 +21,13 @@ describe("threads", () => {
     const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
     appendEvent({ ts: "t", type: "assistant", threadId: t.id, text: "resp" }, home);
     expect(readThread(t.id, home).at(-1)).toMatchObject({ type: "assistant", text: "resp" });
+  });
+
+  it("removeThread apaga o jsonl", () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    removeThread(t.id, home);
+    expect(listThreads("/proj", home)).toHaveLength(0);
   });
 });

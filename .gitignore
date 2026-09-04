@@ -1,5 +1,36 @@
 node_modules
 dist
+out
 .nexo-test
 *.log
+*.tsbuildinfo
 apps/desktop/src-tauri/target
+
+# lixo de editor e de SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# segredo: nada disso entra no repo, nem por acidente
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.token
+keys.json
+.nexo/
+
+# atalho do Windows: aponta pra caminho absoluto da máquina de quem gerou
+*.lnk
+
+# arte do pet: só a pasta 128/ é usada em runtime (renderer.js -> PET_BASE).
+# O resto é fonte/rascunho de geração (masters em alta, backups, QA, scripts
+# Python de import) e não entra no repo.
+apps/desktop/pets/nexo/*.png
+apps/desktop/pets/nexo/*.py
+apps/desktop/pets/nexo/preview.html
+apps/desktop/pets/nexo/preview-gifs/
+apps/desktop/pets/nexo/_*/
+apps/desktop/pet.webp

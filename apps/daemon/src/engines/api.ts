@@ -15,6 +15,7 @@ export class ApiEngine implements Engine {
   private readonly home: string;
   private readonly profileId: string;
   private aborted = false;
+  private finished = false;
 
   constructor(opts: ApiEngineOpts) {
     this.home = opts.home;
@@ -24,6 +25,7 @@ export class ApiEngine implements Engine {
 
   async start(opts: StartOpts, onEvent: EngineHandler): Promise<void> {
     this.aborted = false;
+    this.finished = false;
     this.opts = opts;
     this.handler = onEvent;
   }
@@ -60,18 +62,29 @@ export class ApiEngine implements Engine {
       this.handler({ type: "quota" });
       return;
     }
+    if (res.status === 401 || res.status === 403) {
+      this.handler({ type: "auth", detail: `api ${res.status}: chave inválida ou sem acesso` });
+      return;
+    }
     if (!res.ok) {
       this.handler({ type: "error", message: `api ${res.status}` });
       return;
     }
+    if (this.aborted) return;
     const body = (await res.json()) as { content?: { type: string; text?: string }[] };
+    if (this.aborted || this.finished) return;
     const out = body.content?.filter((c) => c.type === "text").map((c) => c.text ?? "").join("") ?? "";
     if (out) this.handler({ type: "text", text: out });
+    this.finished = true;
     this.handler({ type: "done" });
   }
 
   async abort(): Promise<void> {
     this.aborted = true;
+    if (!this.finished) {
+      this.finished = true;
+      this.handler?.({ type: "done" });
+    }
   }
 }
 

@@ -1,9 +1,15 @@
 {
   "name": "nexo",
   "private": true,
+  "description": "Orquestrador local de agentes de código: daemon em 127.0.0.1 + app Electron.",
+  "license": "MIT",
   "packageManager": "pnpm@9.15.0",
+  "engines": { "node": ">=20" },
   "scripts": {
     "test": "pnpm --filter @nexo/daemon test",
-    "dev": "pnpm --filter @nexo/daemon dev"
+    "dev": "pnpm --filter @nexo/daemon dev",
+    "nexo": "pnpm --filter @nexo/daemon exec node ./scripts/nexo.mjs",
+    "up": "pnpm --filter @nexo/daemon exec node ./scripts/nexo.mjs up",
+    "desktop": "pnpm --filter @nexo/desktop dev"
   }
 }

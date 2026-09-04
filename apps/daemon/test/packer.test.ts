@@ -35,6 +35,23 @@ describe("pack", () => {
     expect(text).toContain("System: error boom");
   });
 
+  it("ignora tudo antes do último /clear", () => {
+    const events: ThreadEvent[] = [
+      ev({ ts, type: "user", threadId: tid, text: "mensagem antiga" }),
+      ev({ ts, type: "assistant", threadId: tid, text: "resposta antiga" }),
+      ev({ ts, type: "cleared", threadId: tid }),
+      ev({ ts, type: "user", threadId: tid, text: "mensagem nova" }),
+    ];
+    const { text } = pack(events, DEFAULT_CONFIG.pack, 8000);
+    expect(text).not.toContain("antiga");
+    expect(text).toContain("User: mensagem nova");
+  });
+
+  it("sem /clear, nada muda", () => {
+    const events: ThreadEvent[] = [ev({ ts, type: "user", threadId: tid, text: "oi" })];
+    expect(pack(events, DEFAULT_CONFIG.pack, 8000).text).toBe("User: oi");
+  });
+
   it("corta prefixo e reporta trimmed", () => {
     const events: ThreadEvent[] = [];
     for (let i = 0; i < 25; i++) {
