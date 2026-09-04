@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createApp } from "../src/http.ts";
 import { addProfile, engineEnv, getProfile } from "../src/profiles.ts";
@@ -496,5 +496,33 @@ describe("http", () => {
     expect(del.status).toBe(200);
     const again = await app.request(`/v1/threads/${t.id}`, { method: "DELETE", headers: hdr });
     expect(again.status).toBe(404);
+  });
+
+  /**
+   * O id da conversa vem do caminho da rota e virava nome de arquivo. Com `..`
+   * escapava do NEXO_HOME: a mensagem era gravada antes da validação e criava
+   * arquivo (e pasta) em qualquer lugar onde o daemon tenha escrita.
+   */
+  it("threadId com .. na rota não cria arquivo fora do home", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const app = createApp(home, token);
+    const fora = join(home, "..", "escapou.jsonl");
+    const res = await app.request("/v1/threads/..%2Fescapou/messages", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ text: "oi" }),
+    });
+    expect(res.status).toBe(400);
+    expect(existsSync(fora)).toBe(false);
+  });
+
+  it("perfil com .. na rota é 404, não erro de servidor", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const res = await app.request("/v1/profiles/..%2F..%2Fetc", {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(404);
   });
 });

@@ -23,10 +23,22 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 - CLI `nexo`: `up`, `down`, `profile`, `login`, `svc`, `thread`, `chat`, `switch`.
 - Windows: `run.bat` (instala dependências e abre o app) e `make-shortcut.ps1` (atalho sem console).
 - Licença MIT e README.
+- CI no GitHub Actions: `pnpm typecheck` + `pnpm test` em Linux e Windows, Node 20 e 22.
+- Scripts `pnpm typecheck` (por pacote, agregado na raiz) e `pnpm check` (typecheck + testes).
 
 ### Corrigido
 
 - `run.bat` apontava para um `run.vbs` que não existe; agora indica `make-shortcut.ps1 -Desktop`.
+- `tsc` não rodava em nenhum pacote: os imports mantêm a extensão `.ts` (exigência do runtime, que
+  consome os pacotes como fonte) sem `allowImportingTsExtensions` ligado, então a checagem morria
+  com ~60 erros `TS5097` antes de olhar uma linha de código — o `strict: true` era decorativo.
+  `tsconfig.base.json` passa a declarar `noEmit` + `allowImportingTsExtensions` (nada no
+  repositório compila; o tsc só checa) e as opções de emissão mortas (`declaration`, `outDir`,
+  `rootDir`) saíram.
+- Perfil rebaixado por recusa do servidor podia voltar a `ready` sozinho: o `mtime` da credencial
+  tem fração de milissegundo e o `authFailedAt` é ISO (milissegundo cheio), então um arquivo
+  escrito no mesmo milissegundo da recusa — antes dela — passava por "mais novo" e reabilitava o
+  perfil. O `mtime` agora é truncado antes da comparação.
 
 ### Alterado
 
@@ -42,6 +54,15 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   `Thumbs.db`).
 
 ### Segurança
+
+- Todo caminho derivado de um id (`threadPath`, `attachmentsDir`, `enginePidPath`, `profileDir`)
+  passa por `assertSlug` dentro do próprio construtor do caminho, e não só em alguns chamadores.
+  O `appendEvent` não validava: em `POST /v1/threads/<id>/messages` o evento do usuário era
+  gravado antes de `readThread` (que é quem validava), então um id como `..%2F..%2Fevil` criava
+  arquivo — e pasta, via `mkdirSync` recursivo — em qualquer lugar onde o daemon tem escrita,
+  fora do `NEXO_HOME`. Exigia o token bearer, mas escapava do diretório de estado. Consulta de
+  perfil com id fora do formato passa a responder 404 em vez de estourar. Coberto por teste no
+  nível da rota.
 
 - Processo filho de motor/login não herda mais o `CLAUDE_CONFIG_DIR`/`CODEX_HOME` da máquina que
   subiu o daemon (novo `engineSpawnEnv`). Antes, um perfil `codex` rodava com o

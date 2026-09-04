@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSyn
 import { dirname } from "node:path";
 import type { ThreadEvent } from "@nexo/shared";
 import { ensureHome, threadPath } from "./home.ts";
-import { assertSlug, newThreadId } from "./ids.ts";
+import { newThreadId } from "./ids.ts";
 import { getProfile } from "./profiles.ts";
 
 function nowIso(): string {
@@ -39,14 +39,12 @@ export function appendEvent(event: ThreadEvent, home: string): void {
 }
 
 export function removeThread(id: string, home: string): void {
-  assertSlug(id);
   const path = threadPath(id, home);
   if (!existsSync(path)) throw new Error(`thread não existe: ${id}`);
   rmSync(path);
 }
 
 export function readThread(id: string, home: string): ThreadEvent[] {
-  assertSlug(id);
   const path = threadPath(id, home);
   if (!existsSync(path)) throw new Error(`thread não existe: ${id}`);
   return readFileSync(path, "utf8")

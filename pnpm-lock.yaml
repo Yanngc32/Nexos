@@ -46,7 +46,11 @@ importers:
         specifier: ^33.4.5
         version: 33.4.11
 
-  packages/shared: {}
+  packages/shared:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
 
 packages:
 

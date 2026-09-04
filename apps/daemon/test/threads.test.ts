@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { createThread, appendEvent, readThread, listThreads, removeThread } from "../src/threads.ts";
 import { addProfile } from "../src/profiles.ts";
@@ -29,5 +31,14 @@ describe("threads", () => {
     const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
     removeThread(t.id, home);
     expect(listThreads("/proj", home)).toHaveLength(0);
+  });
+
+  it("threadId com .. não escreve fora do home", () => {
+    const home = tempHome();
+    const fora = join(home, "..", "escapou.jsonl");
+    expect(() =>
+      appendEvent({ ts: "t", type: "user", threadId: "../escapou", text: "x" }, home),
+    ).toThrow(/slug inválido/);
+    expect(existsSync(fora)).toBe(false);
   });
 });

@@ -7,6 +7,8 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "test": "pnpm --filter @nexo/daemon test",
+    "typecheck": "pnpm -r typecheck",
+    "check": "pnpm typecheck && pnpm test",
     "dev": "pnpm --filter @nexo/daemon dev",
     "nexo": "pnpm --filter @nexo/daemon exec node ./scripts/nexo.mjs",
     "up": "pnpm --filter @nexo/daemon exec node ./scripts/nexo.mjs up",

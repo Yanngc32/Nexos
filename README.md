@@ -23,9 +23,11 @@ pnpm install
 ## Uso
 
 ```bash
-pnpm up        # sobe o daemon (http://127.0.0.1:7432)
-pnpm desktop   # abre o app Electron
-pnpm test      # testes do daemon (vitest)
+pnpm up          # sobe o daemon (http://127.0.0.1:7432)
+pnpm desktop     # abre o app Electron
+pnpm test        # testes do daemon (vitest)
+pnpm typecheck   # tsc --noEmit nos pacotes TypeScript
+pnpm check       # typecheck + testes (é o que o CI roda)
 ```
 
 No Windows, `run.bat` instala as dependências se faltarem e abre o app.
@@ -53,6 +55,9 @@ apps/desktop     app Electron (main/preload/renderer)
 packages/shared  tipos e constantes compartilhados
 docs/            specs e plano de implementação
 ```
+
+Nenhum pacote compila: o daemon roda via `tsx` e o `@nexo/shared` é consumido como fonte
+(`exports` aponta para o `.ts`). O `tsc` existe só como checador (`pnpm typecheck`).
 
 ## Estado no disco
 

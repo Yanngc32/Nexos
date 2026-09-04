@@ -141,8 +141,14 @@ export function updateProfile(id: string, home: string, patch: ProfilePatch): Pr
   return next;
 }
 
+/** Consulta, não mutação: id fora do formato é "não existe", não erro. */
 export function getProfile(id: string, home: string): Profile | undefined {
-  const path = profileJsonPath(id, home);
+  let path: string;
+  try {
+    path = profileJsonPath(id, home);
+  } catch {
+    return undefined;
+  }
   if (!existsSync(path)) return undefined;
   return JSON.parse(readFileSync(path, "utf8")) as Profile;
 }
@@ -289,12 +295,18 @@ function credDir(profile: Profile, home: string): string {
   return extra.CLAUDE_CONFIG_DIR ?? extra.CODEX_HOME ?? "";
 }
 
-/** Credencial gravada depois da recusa do servidor = login novo, pode reabilitar. */
+/**
+ * Credencial gravada depois da recusa do servidor = login novo, pode reabilitar.
+ * O mtime tem fração de milissegundo e o `authFailedAt` é ISO (milissegundo
+ * cheio): sem truncar, um arquivo escrito no mesmo milissegundo da recusa —
+ * antes dela, portanto — passava por "mais novo" e reabilitava o perfil sozinho.
+ * Truncar erra pro lado seguro: fica unauthenticated até a próxima gravação.
+ */
 function credRenewedAfterFailure(profile: Profile, home: string): boolean {
   if (!profile.authFailedAt) return true;
   const failedAt = Date.parse(profile.authFailedAt);
   if (Number.isNaN(failedAt)) return true;
-  return scanCreds(credDir(profile, home)).newest > failedAt;
+  return Math.floor(scanCreds(credDir(profile, home)).newest) > failedAt;
 }
 
 function copyCredTree(src: string, dest: string, depth = 0): number {
