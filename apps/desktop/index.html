@@ -14,25 +14,40 @@
     <aside class="side">
       <div class="side-top">
         <span class="word">Nexo</span>
-        <span class="side-top-acts">
-          <button
-            type="button"
-            id="btn-agents"
-            class="ghost"
-            data-ico="◉"
-            title="Agentes ativos (Ctrl+Shift+A)"
-            aria-expanded="false"
-          >
-            Agentes<span id="agents-badge" class="agents-badge hidden">0</span>
-          </button>
-          <button type="button" id="btn-palette" class="ghost" data-ico="⌘" title="Paleta (Ctrl+P)">Paleta</button>
-        </span>
       </div>
+      <nav class="side-nav" aria-label="Ações">
+        <button type="button" id="btn-new" class="nav-item" title="Nova conversa">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+          </svg>
+          <span class="nav-label" id="new-label">Nova conversa</span>
+        </button>
+        <button type="button" id="btn-agents" class="nav-item" title="Agentes ativos (Ctrl+Shift+A)" aria-expanded="false">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <rect x="3" y="11" width="18" height="10" rx="2" />
+            <circle cx="12" cy="5" r="2" />
+            <path d="M12 7v4M8 16h.01M16 16h.01" />
+          </svg>
+          <span class="nav-label">Agentes</span>
+          <span id="agents-badge" class="agents-badge hidden">0</span>
+        </button>
+        <button type="button" id="btn-palette" class="nav-item" title="Paleta (Ctrl+P)">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+          </svg>
+          <span class="nav-label">Paleta</span>
+        </button>
+      </nav>
       <div class="repo-head">
         <span class="repo-label">Repositórios</span>
-        <button type="button" id="btn-folder" class="ghost" title="Adicionar pasta">+</button>
+        <button type="button" id="btn-folder" class="ghost repo-head-act ico-only" title="Adicionar pasta" aria-label="Adicionar pasta">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M4 20a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v3" />
+            <path d="M17 13v6M14 16h6" />
+          </svg>
+        </button>
       </div>
-      <button type="button" id="btn-new" class="ghost new-thread" data-ico="✎">Nova conversa</button>
       <div id="repo-tree" class="repo-tree" role="tree"></div>
       <p id="threads-empty" class="empty hidden">Nenhum repositório. + abre uma pasta.</p>
       <span id="project-path" class="hidden"></span>

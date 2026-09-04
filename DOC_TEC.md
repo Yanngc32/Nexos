@@ -76,9 +76,16 @@ Layout único: barra lateral fixa + área de trabalho que troca de painel.
 
 ### Barra lateral
 
-- **Repositórios** — árvore de pastas abertas; `+` abre uma pasta nova. A lista junta o que está
-  no `config.json` com o que as conversas gravadas revelam; esconder um repo vence a dedução.
-- **Nova conversa** e lista de threads do projeto, com marca de conversa ocupada.
+- **Ações** — lista plana de ícone + rótulo no topo: Nova conversa (segue o projeto ativo),
+  Agentes (`Ctrl+Shift+A`, com contador e ícone pulsando quando há agente ocupado) e
+  Paleta (`Ctrl+P`).
+- **Repositórios** — árvore de pastas abertas; o `+` do cabeçalho abre uma pasta nova e só aparece
+  no hover (na barra estreita fica sempre visível). A lista junta o que está no `config.json` com
+  o que as conversas gravadas revelam; esconder um repo vence a dedução. Cada repo usa ícone de
+  pasta aberta/fechada; o repo ativo marca a pasta com a cor de acento.
+- Lista de threads do projeto: uma linha por conversa, título truncado com o texto inteiro no
+  tooltip e horário à direita (substituído pelo `×` de apagar no hover). Conversa ocupada mostra
+  ponto pulsando e "trabalhando…".
 - **Serviços** — o que o `nexo.json` do projeto declara: status, start/stop/restart, log em
   overlay. Autostart só roda em projeto marcado como confiável (botão "Confiar neste projeto").
 - **Rodapé** — status do motor, ligar/desligar, modo foco, configurações.

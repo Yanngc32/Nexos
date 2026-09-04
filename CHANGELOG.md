@@ -30,6 +30,12 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Alterado
 
+- Barra lateral do app reorganizada: Nova conversa, Agentes e Paleta viraram uma lista plana de
+  ícone + rótulo no topo (SVG inline em vez de glifo), o `+` de adicionar pasta só aparece no
+  hover do cabeçalho, cada repositório ganhou ícone de pasta aberta/fechada em vez de triângulo
+  (o repo ativo marca a pasta com a cor de acento, sem fundo competindo com a conversa aberta) e
+  cada conversa passou de duas linhas para uma — título truncado com o texto inteiro no tooltip e
+  horário à direita. Cabe cerca do dobro de conversas na mesma altura.
 - Metadados de pacote para publicação do repositório: `license: MIT` nos quatro `package.json`,
   `description` e `engines.node >= 20` na raiz.
 - `.gitignore` cobre `*.tsbuildinfo` e lixo de editor/SO (`.vscode/`, `.idea/`, `.DS_Store`,

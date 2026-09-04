@@ -1181,9 +1181,10 @@ function setProjectLabel() {
   $("file-cwd").textContent = state.projectPath || "Sem pasta";
   $("term-cwd").textContent = state.projectPath || "Sem pasta";
   const novo = $("btn-new");
-  if (novo) {
+  const novoLabel = $("new-label");
+  if (novo && novoLabel) {
     // o botão cria a conversa em state.projectPath: o nome do projeto sai do implícito
-    novo.textContent = state.projectPath ? `Nova conversa em ${folderName(state.projectPath)}` : "Nova conversa";
+    novoLabel.textContent = state.projectPath ? `Nova conversa em ${folderName(state.projectPath)}` : "Nova conversa";
     novo.title = state.projectPath
       ? `Cria uma conversa em ${state.projectPath}`
       : "Abre um repositório com + primeiro";
@@ -2004,6 +2005,16 @@ function isBusy(t) {
   return state.agents.list.some((a) => a.threadId === t.id && a.busy);
 }
 
+/**
+ * Pasta fechada + pasta aberta no mesmo span: o CSS mostra uma das duas conforme
+ * `.repo[open]`, então abrir/fechar não precisa repintar a árvore.
+ */
+const REPO_ICO_HTML =
+  '<svg class="ico-shut" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+  '<path d="M4 20a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1Z" /></svg>' +
+  '<svg class="ico-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+  '<path d="M3 19V5a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v2" /><path d="M3 19l2.4-7.3A1 1 0 0 1 6.3 11H21l-2.4 7.3a1 1 0 0 1-.95.7H4a1 1 0 0 1-1-1Z" /></svg>';
+
 function renderRepoTree() {
   const tree = $("repo-tree");
   if (!tree) return;
@@ -2015,6 +2026,9 @@ function renderRepoTree() {
     det.open = state.reposOpen.has(normPath(path));
     det.dataset.on = samePath(path, state.projectPath) ? "1" : "0";
     const sum = document.createElement("summary");
+    const ico = document.createElement("span");
+    ico.className = "repo-ico";
+    ico.innerHTML = REPO_ICO_HTML;
     const name = document.createElement("span");
     name.className = "repo-name";
     name.textContent = folderName(path);
@@ -2029,7 +2043,7 @@ function renderRepoTree() {
       e.stopPropagation();
       void removeRepo(path);
     });
-    sum.append(name, forget);
+    sum.append(ico, name, forget);
     det.addEventListener("toggle", () => {
       if (det.open) state.reposOpen.add(normPath(path));
       else state.reposOpen.delete(normPath(path));
@@ -2064,6 +2078,8 @@ function renderRepoTree() {
       const title = document.createElement("span");
       title.className = "stub-title";
       title.textContent = t.preview || "Conversa nova";
+      // título é uma linha só e trunca: o texto inteiro fica no tooltip da linha
+      li.title = t.preview || "Conversa nova";
       const meta = document.createElement("span");
       meta.className = "stub-meta";
       meta.textContent = busy ? "trabalhando…" : ago(t.updatedAt);

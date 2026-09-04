@@ -142,6 +142,8 @@ body[data-focus="1"] .focus-exit {
 
 /* sidebar estreita: só ícones */
 body[data-side-mini="1"] .side .word,
+body[data-side-mini="1"] .side-top,
+body[data-side-mini="1"] .nav-label,
 body[data-side-mini="1"] .repo-label,
 body[data-side-mini="1"] #repo-tree,
 body[data-side-mini="1"] #threads-empty,
@@ -149,12 +151,26 @@ body[data-side-mini="1"] #motor-status {
   display: none;
 }
 
-body[data-side-mini="1"] .side-top,
 body[data-side-mini="1"] .repo-head,
 body[data-side-mini="1"] .side-foot {
   justify-content: center;
   padding-left: 4px;
   padding-right: 4px;
+}
+
+body[data-side-mini="1"] .side-nav {
+  padding: 10px 4px;
+}
+
+body[data-side-mini="1"] .nav-item {
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 4px;
+}
+
+/* na barra estreita o "+" é a única ação visível: não pode depender de hover */
+body[data-side-mini="1"] .repo-head-act {
+  opacity: 1;
 }
 
 /* texto do estado do motor: sobra pro leitor de tela quando o pet está visível */
@@ -264,9 +280,43 @@ body[data-side-mini="1"] .side .ico-only {
   white-space: nowrap;
 }
 
-.new-thread {
-  margin: 0 8px 8px;
+/* Bloco de ações: lista plana ícone + rótulo, sem cara de botão — o peso visual
+   fica pra árvore de repositórios, que é o conteúdo de verdade da barra. */
+.side-nav {
+  display: flex;
+  flex-direction: column;
+  padding: 0 6px 10px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
   text-align: left;
+  cursor: pointer;
+}
+
+.nav-item:hover:not(:disabled) {
+  background: #1f1f1f;
+}
+
+.nav-ico {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  color: var(--accent);
+}
+
+.nav-label {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -277,6 +327,22 @@ body[data-side-mini="1"] .side .ico-only {
   justify-content: space-between;
   align-items: center;
   padding: 2px 10px 0;
+}
+
+/* ação do cabeçalho só acende no hover: em repouso o "+" competia com os nomes */
+.repo-head-act {
+  opacity: 0;
+  padding: 2px 4px;
+}
+
+.repo-head:hover .repo-head-act,
+.repo-head:focus-within .repo-head-act {
+  opacity: 1;
+}
+
+.repo-head-act .ico {
+  width: 15px;
+  height: 15px;
 }
 
 .repo-label {
@@ -311,19 +377,30 @@ body[data-side-mini="1"] .side .ico-only {
   display: none;
 }
 
-.repo > summary::before {
-  content: "▸";
-  flex: 0 0 12px;
+/* Pasta aberta/fechada em vez de triângulo: lê mais rápido e marca o repositório
+   ativo sem um fundo que competisse com o destaque da conversa aberta. */
+.repo-ico {
+  display: inline-flex;
+  flex: 0 0 15px;
   color: var(--muted);
-  font-size: 11px;
 }
 
-.repo[open] > summary::before {
-  content: "▾";
+.repo-ico svg {
+  width: 15px;
+  height: 15px;
 }
 
-.repo[data-on="1"] > summary {
-  background: #1c1c1c;
+.repo-ico .ico-open,
+.repo[open] > summary .repo-ico .ico-shut {
+  display: none;
+}
+
+.repo[open] > summary .repo-ico .ico-open {
+  display: block;
+}
+
+.repo[data-on="1"] > summary .repo-ico {
+  color: var(--accent);
 }
 
 .repo-name {
@@ -391,7 +468,7 @@ body[data-side-mini="1"] .side .ico-only {
 
 .repo li {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
 }
 
@@ -402,7 +479,7 @@ body[data-side-mini="1"] .side .ico-only {
 
 .repo li .stub-meta {
   flex: 0 0 auto;
-  margin-top: 2px;
+  margin-top: 0;
   font-size: 12px;
 }
 
@@ -412,7 +489,6 @@ body[data-side-mini="1"] .side .ico-only {
   flex: 0 0 7px;
   width: 7px;
   height: 7px;
-  margin-top: 6px;
   border-radius: 50%;
   background: var(--accent);
   animation: run-dot-pulse 1.4s ease-in-out infinite;
@@ -425,10 +501,6 @@ body[data-side-mini="1"] .side .ico-only {
   border-radius: 50%;
   border: 1px solid var(--accent);
   animation: run-dot-halo 1.4s ease-out infinite;
-}
-
-.repo > summary .run-dot {
-  margin-top: 0;
 }
 
 .side li[data-busy="1"] .stub-meta {
@@ -458,7 +530,8 @@ body[data-side-mini="1"] .side .ico-only {
 
 @media (prefers-reduced-motion: reduce) {
   .run-dot,
-  .run-dot::after {
+  .run-dot::after,
+  #btn-agents[data-busy="1"] .nav-ico {
     animation: none;
   }
   .run-dot::after {
@@ -476,10 +549,11 @@ body[data-side-mini="1"] .side .ico-only {
 
 .side li {
   position: relative;
-  padding: 8px 28px 8px 10px;
-  border-radius: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
   cursor: pointer;
-  margin-bottom: 2px;
+  margin-bottom: 1px;
 }
 
 .side li:hover {
@@ -492,10 +566,11 @@ body[data-side-mini="1"] .side .ico-only {
 
 .thread-del {
   position: absolute;
-  top: 6px;
+  top: 50%;
   right: 4px;
-  min-width: 22px;
-  padding: 0 6px;
+  transform: translateY(-50%);
+  min-width: 20px;
+  padding: 0 5px;
   line-height: 1.4;
   opacity: 0;
 }
@@ -505,17 +580,23 @@ body[data-side-mini="1"] .side .ico-only {
   opacity: 1;
 }
 
+/* o × ocupa o lugar do horário no hover em vez de sobrepor os dois */
+.side li:hover .stub-meta,
+.side li:focus-within .stub-meta {
+  visibility: hidden;
+}
+
+/* Uma linha por conversa: o título trunca e o horário fica à direita, na mesma
+   linha. Cabe ~2× mais conversa na barra com a mesma informação. */
 .stub-title {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  display: block;
   overflow: hidden;
-  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
 }
 
 .stub-meta {
-  display: block;
-  margin-top: 4px;
   font-size: 12px;
   color: var(--muted);
 }
@@ -2736,24 +2817,16 @@ body[data-side-mini="1"] .svc-strip {
 
 /* ---------- painel de agentes ---------- */
 
-.side-top-acts {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-body[data-side-mini="1"] .side-top-acts {
-  flex-direction: column;
-  gap: 2px;
-}
-
 #btn-agents {
   position: relative;
 }
 
 #btn-agents[data-busy="1"] {
   color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+#btn-agents[data-busy="1"] .nav-ico {
+  animation: run-dot-pulse 1.4s ease-in-out infinite;
 }
 
 /* font-size própria: em barra estreita o pai vira font-size 0 e engoliria o número */
