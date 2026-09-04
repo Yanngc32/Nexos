@@ -7,7 +7,7 @@ import type { Engine, EngineHandler } from "./types.ts";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { attachmentsDir, enginePidPath } from "../home.ts";
 import { killTree } from "../kill-tree.ts";
-import { spawnCwd } from "../sandbox.ts";
+import { spawnCwd } from "../project-cwd.ts";
 import { agentOverrides } from "../agents.ts";
 import { engineEnv, engineSpawnEnv, getProfile } from "../profiles.ts";
 import { isNodeScript, spawnBin } from "../spawn-bin.ts";

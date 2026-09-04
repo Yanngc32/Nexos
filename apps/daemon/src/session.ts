@@ -10,7 +10,7 @@ import type { Engine } from "./engines/types.ts";
 import { applyLoginResult, credentialVerdict, getProfile, markAuthFailed } from "./profiles.ts";
 import { pack } from "./packer.ts";
 import { assertSwitch, suggestFallback } from "./router.ts";
-import { spawnCwd } from "./sandbox.ts";
+import { spawnCwd } from "./project-cwd.ts";
 import { activeProfileId, appendEvent, readThread, removeThread } from "./threads.ts";
 
 const TOKEN_CAP = 8000;
@@ -28,6 +28,9 @@ export type SessionEvent =
 /** Turno em voo: sobrevive à troca de conta pra a conta nova continuar de onde a antiga parou. */
 type PendingTurn = { text: string; partial: boolean };
 
+/** Como o turno acabou. Todo caminho que fecha um turno passa por `setTerminal`. */
+type Terminal = "done" | "quota" | "auth" | "error";
+
 type Live = {
   engine: Engine;
   profileId: string;
@@ -37,7 +40,9 @@ type Live = {
   pendingTurn: PendingTurn | null;
   retryCount: number;
   pendingQuota: boolean;
-  lastTerminal: "done" | "quota" | "auth" | "error" | null;
+  lastTerminal: Terminal | null;
+  /** Quem está esperando o fim do turno; liberados por `setTerminal`. */
+  terminalWaiters: Array<() => void>;
   /** Quando o turno em voo começou (ms). 0 = nenhum turno desde que o motor subiu. */
   startedAt: number;
   usage?: EngineEvent & { type: "usage" };
@@ -110,6 +115,23 @@ function emit(threadId: string, ev: SessionEvent): void {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+/**
+ * Fecha o turno e libera quem espera. Único lugar que *fecha* (só `sendTurn`
+ * zera, ao abrir o turno seguinte): marcar o fim sem acordar os waiters deixaria
+ * o dispatch parado até o timeout.
+ *
+ * Os waiters só resolvem promise, e promise resolvida continua em microtask —
+ * então quem chama isso no meio de um branch termina o branch inteiro antes do
+ * dispatch acordar, igual ao laço de polling que existia aqui. Se um dia um
+ * waiter passar a rodar trabalho síncrono, essa ordem muda.
+ */
+function setTerminal(live: Live, kind: Terminal): void {
+  live.lastTerminal = kind;
+  const waiters = live.terminalWaiters;
+  live.terminalWaiters = [];
+  for (const acorda of waiters) acorda();
 }
 
 export function createEngine(profile: Profile, projectPath: string, home: string): Engine {
@@ -185,6 +207,7 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
     retryCount: 0,
     pendingQuota: false,
     lastTerminal: null,
+    terminalWaiters: [],
     startedAt: 0,
   };
   lives.set(threadId, live);
@@ -272,13 +295,13 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     live.assistantBuf = "";
     live.pendingTurn = null;
     live.retryCount = 0;
-    live.lastTerminal = "done";
+    setTerminal(live, "done");
     emit(threadId, { ...ev, threadId });
     return;
   }
   if (ev.type === "quota") {
     live.pendingQuota = true;
-    live.lastTerminal = "quota";
+    setTerminal(live, "quota");
     if (live.assistantBuf && live.pendingTurn) live.pendingTurn.partial = true;
     if (live.assistantBuf) {
       appendEvent({ ts: nowIso(), type: "assistant", threadId, text: live.assistantBuf }, home);
@@ -308,7 +331,7 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     return;
   }
   if (ev.type === "auth") {
-    live.lastTerminal = "auth";
+    setTerminal(live, "auth");
     if (live.assistantBuf && live.pendingTurn) live.pendingTurn.partial = true;
     if (live.assistantBuf) {
       appendEvent({ ts: nowIso(), type: "assistant", threadId, text: live.assistantBuf }, home);
@@ -334,7 +357,7 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     return;
   }
   if (ev.type === "error") {
-    live.lastTerminal = "error";
+    setTerminal(live, "error");
     if (live.assistantBuf && live.pendingTurn) live.pendingTurn.partial = true;
     emit(threadId, { ...ev, threadId });
   }
@@ -358,13 +381,24 @@ export async function postMessage(
   });
 }
 
-async function waitTerminal(live: Live, ms = 15 * 60 * 1000): Promise<void> {
-  if (live.lastTerminal) return;
-  const start = Date.now();
-  while (!live.lastTerminal) {
-    if (Date.now() - start > ms) throw new Error("engine timeout");
-    await new Promise((r) => setTimeout(r, 20));
-  }
+/**
+ * Espera o turno fechar. O motor já é orientado a evento, então isso dorme até
+ * `setTerminal` acordar — antes era laço de 20 ms, ~45 mil despertares num turno
+ * de 15 minutos. O teto continua sendo erro: motor que não fecha trava a thread.
+ */
+function waitTerminal(live: Live, ms = 15 * 60 * 1000): Promise<void> {
+  if (live.lastTerminal) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const acorda = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      live.terminalWaiters = live.terminalWaiters.filter((w) => w !== acorda);
+      reject(new Error("engine timeout"));
+    }, ms);
+    live.terminalWaiters.push(acorda);
+  });
 }
 
 /**

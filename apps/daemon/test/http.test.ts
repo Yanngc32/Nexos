@@ -517,6 +517,19 @@ describe("http", () => {
     expect(existsSync(fora)).toBe(false);
   });
 
+  it("conversa sem projectPath é recusada em vez de nascer órfã", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const app = createApp(home, token);
+    const res = await app.request("/v1/threads", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ profileId: "p1" }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/projectPath/);
+  });
+
   it("perfil com .. na rota é 404, não erro de servidor", async () => {
     const home = tempHome();
     const app = createApp(home, token);

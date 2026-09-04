@@ -267,16 +267,17 @@ export function createApp(home: string, token: string): Hono {
   app.post("/v1/threads", async (c) => {
     const body = (await c.req.json()) as { projectPath: string; profileId?: string; agentId?: string };
     try {
+      // Sem pasta a conversa nasce órfã: some da listagem (que filtra por
+      // projectPath) e de /v1/projects, sem erro nenhum pra quem criou.
+      const projectPath = typeof body.projectPath === "string" ? body.projectPath.trim() : "";
+      if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
       // Com agente, a conta dele é o padrão — mas um profileId explícito ainda manda.
       const def = body.agentId ? getAgent(body.agentId, home) : undefined;
       if (body.agentId && !def) return c.json({ error: `agente não existe: ${body.agentId}` }, 400);
       const profileId = body.profileId || def?.profileId || "";
       if (!profileId) return c.json({ error: "profileId obrigatório" }, 400);
       return c.json(
-        createThread(
-          { projectPath: body.projectPath, profileId, ...(def ? { agentId: def.id } : {}) },
-          home,
-        ),
+        createThread({ projectPath, profileId, ...(def ? { agentId: def.id } : {}) }, home),
         201,
       );
     } catch (e) {

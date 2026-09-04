@@ -39,8 +39,17 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   tem fração de milissegundo e o `authFailedAt` é ISO (milissegundo cheio), então um arquivo
   escrito no mesmo milissegundo da recusa — antes dela — passava por "mais novo" e reabilitava o
   perfil. O `mtime` agora é truncado antes da comparação.
+- `POST /v1/threads` sem `projectPath` criava conversa órfã: ela some da listagem (que filtra por
+  pasta) e de `/v1/projects`, sem erro nenhum pra quem criou. Agora é 400.
 
 ### Alterado
+
+- `waitTerminal` (session.ts) dorme até o turno fechar em vez de acordar a cada 20 ms — eram ~45
+  mil despertares num turno de 15 minutos. `lastTerminal` só é fechado por `setTerminal`, que
+  libera quem espera; o teto de 15 min continua virando erro.
+- `src/sandbox.ts` virou `src/project-cwd.ts`. O módulo só resolve o `projectPath` pra usar de cwd
+  do motor e não confina nada — o nome prometia um limite que não existe. O confinamento real
+  continua onde sempre esteve: `boundPath` (main do Electron) e `assertInsideProject` (nexo.json).
 
 - Barra lateral do app reorganizada: Nova conversa, Agentes e Paleta viraram uma lista plana de
   ícone + rótulo no topo (SVG inline em vez de glifo), o `+` de adicionar pasta só aparece no

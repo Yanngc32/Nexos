@@ -4,7 +4,7 @@ import { describe, it, expect } from "vitest";
 import { addProfile, markReady, updateProfile } from "../src/profiles.ts";
 import { claudeEngine, parseCliLine } from "../src/engines/cli.ts";
 import { toolSummary } from "../src/engines/parse-claude.ts";
-import { spawnCwd } from "../src/sandbox.ts";
+import { spawnCwd } from "../src/project-cwd.ts";
 import { tempHome } from "./helpers.ts";
 import type { EngineEvent } from "@nexo/shared";
 
