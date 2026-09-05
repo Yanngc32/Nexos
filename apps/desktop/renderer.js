@@ -1,5 +1,6 @@
 import { createApiClient } from "./api.js";
 import { createFileTree } from "./file-tree.js";
+import { createServicesPanel } from "./services.js";
 import { escapeHtml, mdToHtml } from "./markdown.js";
 import {
   ago,
@@ -87,7 +88,6 @@ const state = {
   /** Fila pausada porque o turno acabou mal (quota/login/erro). */
   queuePaused: false,
   /** Serviços locais declarados no nexo.json do projeto. */
-  svc: { list: [], error: "", trusted: false, logId: "", abort: null, portes: {} },
   /**
    * Painel de agentes: um retrato por conversa com motor de pé, alimentado pelo
    * SSE global. É o que permite acompanhar duas contas trabalhando ao mesmo tempo.
@@ -1256,7 +1256,7 @@ function esconderFalhaBrowser() {
 function servicoDaUrl(href) {
   const porta = portaDaUrl(href);
   if (!porta) return null;
-  return state.svc.list.find((s) => s.portNumber === porta) ?? null;
+  return svcPanel.servicos().find((s) => s.portNumber === porta) ?? null;
 }
 
 
@@ -1269,7 +1269,7 @@ function mostrarFalhaBrowser({ msg, hint, url, externo }) {
   if (svc) {
     run.textContent = `Rodar "${svc.name}"`;
     run.onclick = async () => {
-      await acionarServico(svc.id, "start");
+      await svcPanel.acionar(svc.id, "start");
       // dá um tempo do servidor subir antes de recarregar
       setTimeout(reiniciarBrowser, 1200);
     };
@@ -2493,217 +2493,24 @@ async function doSwitch(id, reason) {
 
 /* ---------- serviços locais ---------- */
 
-function svcDotState(s) {
-  if (!s.url) return s.proc === "running" ? "up" : s.proc === "off" ? "" : "down";
-  if (s.proc !== "running") return "down";
-  // rodando: quem manda na bolinha é a porta responder ou não
-  return state.svc.portes[s.id] === "up" ? "up" : "waiting";
-}
-
-function paintServices() {
-  const strip = $("svc-strip");
-  const { list, error, trusted } = state.svc;
-  // Some sem projeto ou com motor desligado (aí a lista não é confiável: o "vazio"
-  // seria mentira). Antes eu escondia toda seção vazia "pra não poluir", e o efeito
-  // foi ninguém descobrir que serviços existem — agora o vazio aparece.
-  strip.classList.toggle("hidden", !state.projectPath || !state.ok);
-  $("svc-empty").classList.toggle("hidden", Boolean(list.length || error));
-  $("svc-error").textContent = error;
-  $("svc-error").classList.toggle("hidden", !error);
-  // só oferece confiar quando existe autostart declarado esperando liberação
-  const querAutostart = list.some((s) => s.autostart);
-  $("btn-svc-trust").classList.toggle("hidden", trusted || !querAutostart);
-
-  const ul = $("svc-list");
-  ul.replaceChildren();
-  for (const s of list) {
-    const li = document.createElement("li");
-    const dot = document.createElement("span");
-    dot.className = "svc-dot";
-    dot.dataset.state = svcDotState(s);
-    dot.title = s.proc === "exited" ? `saiu com código ${s.exitCode}` : s.proc;
-
-    const nome = document.createElement("span");
-    nome.className = "svc-name";
-    nome.textContent = s.name;
-    nome.title = `${s.cmd} (${s.cwd})`;
-    nome.addEventListener("click", () => void abrirLogServico(s.id, s.name));
-
-    const porta = document.createElement("span");
-    porta.className = "svc-port";
-    porta.textContent = s.portNumber ? String(s.portNumber) : "";
-
-    const acao = document.createElement("button");
-    acao.type = "button";
-    acao.className = "ghost svc-act";
-    const vivo = s.proc === "running";
-    acao.textContent = vivo ? "■" : "▶";
-    acao.title = vivo ? "Parar" : "Rodar";
-    acao.addEventListener("click", () => void acionarServico(s.id, vivo ? "stop" : "start"));
-
-    li.append(dot, nome, porta, acao);
-    if (s.url) {
-      const abrir = document.createElement("button");
-      abrir.type = "button";
-      abrir.className = "ghost svc-act";
-      abrir.textContent = "↗";
-      abrir.title = `Abrir ${s.url} no Browser`;
-      abrir.addEventListener("click", () => {
-        setBrowserUrl(s.url);
-        state.view = "browser";
-        applyWorkLayout();
-      });
-      li.append(abrir);
-    }
-    ul.append(li);
-  }
-}
-
-async function loadServices() {
-  if (!state.projectPath || !state.ok) {
-    state.svc.list = [];
-    paintServices();
-    return;
-  }
-  try {
-    const rel = await req(`/v1/services?projectPath=${encodeURIComponent(state.projectPath)}`);
-    state.svc.list = rel.services || [];
-    state.svc.error = rel.error || "";
-    state.svc.trusted = Boolean(rel.trusted);
-  } catch (e) {
-    // Nada de engolir: daemon antigo (sem a rota) parecia "projeto sem serviço".
-    state.svc.list = [];
-    state.svc.error = /404|not found/i.test(e.message || "")
-      ? "Motor antigo, sem suporte a serviços. Desliga e liga o motor pra recarregar."
-      : e.message || "não consegui ler os serviços";
-  }
-  paintServices();
-  void probeServices();
-  void autostartServices();
-}
-
-/**
- * Sobe o que o nexo.json marcou como autostart. O daemon ignora em projeto não
- * confiável, então chamar sempre é seguro; só vale a pena se há algo parado.
- */
-async function autostartServices() {
-  if (!state.svc.trusted) return;
-  if (!state.svc.list.some((s) => s.autostart && s.proc !== "running")) return;
-  try {
-    await req("/v1/services/autostart", {
-      method: "POST",
-      body: JSON.stringify({ projectPath: state.projectPath }),
-    });
-  } catch {
-    return;
-  }
-  const rel = await req(`/v1/services?projectPath=${encodeURIComponent(state.projectPath)}`);
-  state.svc.list = rel.services || [];
-  paintServices();
-  void probeServices();
-}
-
-/** Sonda a porta de cada serviço vivo: processo de pé ainda não quer dizer que atende. */
-async function probeServices() {
-  for (const s of state.svc.list) {
-    if (!s.url || s.proc !== "running") continue;
-    try {
-      const r = await req(`/v1/probe?url=${encodeURIComponent(s.url)}`);
-      state.svc.portes[s.id] = r.ok ? "up" : "down";
-    } catch {
-      state.svc.portes[s.id] = "down";
-    }
-  }
-  paintServices();
-}
-
-async function acionarServico(id, acao) {
-  try {
-    await req(`/v1/services/${encodeURIComponent(id)}/${acao}`, {
-      method: "POST",
-      body: JSON.stringify({ projectPath: state.projectPath }),
-    });
-  } catch (e) {
-    appendEvent({ type: "error", message: e.message || `não deu pra ${acao} ${id}` });
-  }
-  if (acao === "stop") delete state.svc.portes[id];
-  await loadServices();
-}
-
-async function abrirLogServico(id, nome) {
-  state.svc.logId = id;
-  $("svc-log-title").textContent = nome;
-  $("svc-log").classList.remove("hidden");
-  try {
-    const r = await req(`/v1/services/${encodeURIComponent(id)}/logs?projectPath=${encodeURIComponent(state.projectPath)}`);
-    $("svc-log-body").textContent = r.log || "(sem saída ainda)";
-  } catch {
-    $("svc-log-body").textContent = "(não consegui ler o log)";
-  }
-  const box = $("svc-log-body");
-  box.scrollTop = box.scrollHeight;
-}
-
-function fecharLogServico() {
-  state.svc.logId = "";
-  $("svc-log").classList.add("hidden");
-}
-
-/** SSE dos serviços: status muda sozinho quando um processo cai. */
-function listenServices() {
-  state.svc.abort?.abort();
-  if (!state.projectPath || !state.ok) return;
-  const ac = new AbortController();
-  state.svc.abort = ac;
-  fetch(api(`/v1/services/events?projectPath=${encodeURIComponent(state.projectPath)}`), {
-    headers: headers(),
-    signal: ac.signal,
-  })
-    .then(async (res) => {
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const chunks = buf.split("\n\n");
-        buf = chunks.pop() ?? "";
-        for (const chunk of chunks) {
-          const line = chunk.split("\n").find((l) => l.startsWith("data:"));
-          if (!line) continue;
-          const ev = JSON.parse(line.slice(5).trim());
-          if (ev.type === "status") {
-            state.svc.list = state.svc.list.map((s) => (s.id === ev.service.id ? ev.service : s));
-            if (ev.service.proc !== "running") delete state.svc.portes[ev.service.id];
-            paintServices();
-            if (ev.service.proc === "running") void probeServices();
-          }
-          if (ev.type === "log" && ev.id === state.svc.logId) {
-            const box = $("svc-log-body");
-            const colado = box.scrollTop + box.clientHeight >= box.scrollHeight - 8;
-            box.textContent += ev.chunk;
-            if (colado) box.scrollTop = box.scrollHeight;
-          }
-        }
-      }
-      religarServicos();
-    })
-    .catch(() => {
-      religarServicos();
-    });
-
-  function religarServicos() {
-    // mesmo defeito do SSE do chat: fim limpo do stream (daemon reiniciando)
-    // não pode deixar o status congelado até alguém recarregar a tela
-    if (state.svc.abort !== ac || !state.projectPath) return;
-    setTimeout(() => {
-      if (state.svc.abort !== ac || !state.projectPath || !state.ok) return;
-      void loadServices();
-      listenServices();
-    }, 1500);
-  }
-}
+const svcPanel = createServicesPanel({
+  req,
+  api,
+  headers,
+  getProjectPath: () => state.projectPath,
+  isOk: () => state.ok,
+  el: $,
+  // o painel não precisa saber o que é aba de browser nem log de chat
+  abrirNoBrowser: (url) => {
+    setBrowserUrl(url);
+    state.view = "browser";
+    applyWorkLayout();
+  },
+  aoErro: (message) => appendEvent({ type: "error", message }),
+});
+const loadServices = () => svcPanel.load();
+const listenServices = () => svcPanel.listen();
+const fecharLogServico = () => svcPanel.fecharLog();
 
 /* ---------- painel de agentes ---------- */
 
@@ -3233,7 +3040,7 @@ async function bindProject(path) {
   updatePalTerm();
   await loadFileTree();
   fecharLogServico();
-  state.svc.portes = {};
+  svcPanel.limparPortas();
   if (state.ok) await loadThreads();
   await loadServices();
   listenServices();
@@ -3331,18 +3138,7 @@ $("btn-svc-create").addEventListener("click", async () => {
 
 $("btn-svc-refresh").addEventListener("click", () => void loadServices());
 $("btn-svc-log-close").addEventListener("click", fecharLogServico);
-$("btn-svc-trust").addEventListener("click", async () => {
-  try {
-    await req("/v1/services/trust", {
-      method: "POST",
-      body: JSON.stringify({ projectPath: state.projectPath }),
-    });
-  } catch (e) {
-    appendEvent({ type: "error", message: e.message || "não deu pra confiar no projeto" });
-    return;
-  }
-  await loadServices();
-});
+$("btn-svc-trust").addEventListener("click", () => void svcPanel.confiar());
 $("btn-close-file").addEventListener("click", closeModule);
 $("btn-close-terminal").addEventListener("click", closeModule);
 $("btn-close-browser").addEventListener("click", closeModule);
