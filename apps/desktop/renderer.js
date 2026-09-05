@@ -2,8 +2,9 @@ import { createApiClient } from "./api.js";
 import { createFileTree } from "./file-tree.js";
 import { createServicesPanel } from "./services.js";
 import { aplicarNoRetrato } from "./agent-events.js";
+import { createAgentStudio } from "./agent-studio.js";
 import { lerEventos } from "./sse.js";
-import { escapeHtml, mdToHtml } from "./markdown.js";
+import { escapeHtml, renderMd } from "./markdown.js";
 import {
   ago,
   clip,
@@ -112,7 +113,6 @@ const state = {
     /** Aba visível do painel: "run" (rodando) ou "def" (meus agentes). */
     tab: localStorage.getItem("nexo.agentsTab") === "def" ? "def" : "run",
     /** id em edição no formulário; "" = criando; null = formulário fechado. */
-    editing: null,
   },
   /** Agente personalizado da conversa aberta; "" = conta pura. */
   agentId: "",
@@ -1172,6 +1172,7 @@ function applyWorkLayout() {
   $("pane-terminal").classList.toggle("hidden", state.view !== "terminal");
   $("pane-browser").classList.toggle("hidden", state.view !== "browser");
   $("pane-canvas").classList.toggle("hidden", state.view !== "canvas");
+  $("pane-agent").classList.toggle("hidden", state.view !== "agent");
   // Sem módulo aberto o chat vira o conteúdo principal — não depende de sideChat aqui.
   $("pane-chat").classList.toggle("hidden", !state.sideChat && !noModule);
 }
@@ -2053,10 +2054,6 @@ function flushStreamRender() {
   streamPending = null;
 }
 
-function renderMd(el, text) {
-  el.innerHTML = mdToHtml(text);
-  wireExternalLinks(el);
-}
 
 
 async function openThread(id) {
@@ -2495,6 +2492,31 @@ const svcPanel = createServicesPanel({
   },
   aoErro: (message) => appendEvent({ type: "error", message }),
 });
+/** Painel lateral fecha e a tela cheia assume: criar agente virou tela, não formulário. */
+function abrirEstudio(def) {
+  toggleAgents(false);
+  state.view = "agent";
+  applyWorkLayout();
+  agentStudio.abrir(def);
+}
+
+const agentStudio = createAgentStudio({
+  req,
+  api,
+  headers,
+  el: $,
+  getProjectPath: () => state.projectPath,
+  isOk: () => state.ok,
+  getProfiles: () => state.profiles,
+  lerEventos,
+  renderMd,
+  aoSalvar: () => loadAgentDefs(),
+  aoFechar: () => {
+    state.view = "none";
+    applyWorkLayout();
+  },
+});
+
 const loadServices = () => svcPanel.load();
 const listenServices = () => svcPanel.listen();
 const fecharLogServico = () => svcPanel.fecharLog();
@@ -2679,7 +2701,7 @@ function agentDefCard(d) {
   editar.type = "button";
   editar.className = "ghost";
   editar.textContent = "Editar";
-  editar.addEventListener("click", () => openAgentForm(d));
+  editar.addEventListener("click", () => abrirEstudio(d));
   acts.append(usar, editar);
 
   li.append(head, badges);
@@ -2706,89 +2728,11 @@ function fillAgentProfiles(escolhido) {
   if (escolhido) sel.value = escolhido;
 }
 
-function openAgentForm(def) {
-  state.agents.editing = def ? def.id : "";
-  fillAgentProfiles(def?.profileId || state.profileId);
-  $("agent-f-name").value = def?.name || "";
-  $("agent-f-id").value = def?.id || "";
-  // O id é a identidade gravada na conversa: renomear quebraria o vínculo.
-  $("agent-f-id").disabled = Boolean(def);
-  $("agent-f-color").value = def?.color || getComputedStyle(document.body).getPropertyValue("--accent").trim() || "#4d9cd6";
-  $("agent-f-desc").value = def?.description || "";
-  $("agent-f-model").value = def?.model || "";
-  $("agent-f-effort").value = def?.effort || "";
-  $("agent-f-mode").value = def?.permissionMode || "";
-  $("agent-f-instructions").value = def?.instructions || "";
-  $("btn-agent-del").classList.toggle("hidden", !def);
-  erroAgente("");
-  $("agent-form").classList.remove("hidden");
-  $("agent-f-name").focus();
-}
 
-function closeAgentForm() {
-  state.agents.editing = null;
-  $("agent-form").classList.add("hidden");
-  erroAgente("");
-}
 
-function erroAgente(msg) {
-  const p = $("agent-form-err");
-  p.textContent = msg;
-  p.classList.toggle("hidden", !msg);
-}
 
-/** Sugere um id a partir do nome enquanto o campo não foi tocado à mão. */
-function slugAgente(nome) {
-  return nome
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40);
-}
 
-async function saveAgentForm() {
-  const editando = state.agents.editing;
-  const id = editando || slugAgente($("agent-f-id").value || $("agent-f-name").value);
-  if (!id) return erroAgente("id inválido: use minúsculas, números, - e _");
-  const profileId = $("agent-f-profile").value;
-  if (!profileId) return erroAgente("Crie uma conta antes: Configurações → Nova conta.");
-  // Campo vazio é apagar de propósito — o motor trata "" como "voltar ao padrão".
-  const body = {
-    id,
-    name: $("agent-f-name").value.trim(),
-    description: $("agent-f-desc").value.trim(),
-    profileId,
-    model: $("agent-f-model").value.trim(),
-    effort: $("agent-f-effort").value,
-    permissionMode: $("agent-f-mode").value,
-    instructions: $("agent-f-instructions").value,
-    color: $("agent-f-color").value,
-  };
-  if (!body.name) return erroAgente("Nome obrigatório.");
-  try {
-    if (editando) await req(`/v1/agents/defs/${editando}`, { method: "PUT", body: JSON.stringify(body) });
-    else await req("/v1/agents/defs", { method: "POST", body: JSON.stringify(body) });
-  } catch (e) {
-    return erroAgente(e.message || "Falhou ao salvar.");
-  }
-  closeAgentForm();
-  await loadAgentDefs();
-}
 
-async function deleteAgentDef() {
-  const id = state.agents.editing;
-  if (!id) return;
-  if (!window.confirm(`Excluir o agente "${id}"? As conversas dele continuam, mas voltam ao padrão da conta.`)) return;
-  try {
-    await req(`/v1/agents/defs/${id}`, { method: "DELETE" });
-  } catch (e) {
-    return erroAgente(e.message || "Falhou ao excluir.");
-  }
-  closeAgentForm();
-  await loadAgentDefs();
-}
 
 async function novaConversaComAgente(d) {
   if (!state.projectPath) {
@@ -3943,22 +3887,8 @@ $("btn-agents").addEventListener("click", () => toggleAgents());
 $("btn-agents-close").addEventListener("click", () => toggleAgents(false));
 $("tab-agents-run").addEventListener("click", () => setAgentsTab("run"));
 $("tab-agents-def").addEventListener("click", () => setAgentsTab("def"));
-$("btn-agent-new").addEventListener("click", () => openAgentForm(null));
-$("btn-agent-cancel").addEventListener("click", () => closeAgentForm());
-$("btn-agent-del").addEventListener("click", () => void deleteAgentDef());
-$("agent-form").addEventListener("submit", (ev) => {
-  ev.preventDefault();
-  void saveAgentForm();
-});
-// id sugerido pelo nome só enquanto o campo não foi editado à mão.
-$("agent-f-name").addEventListener("input", () => {
-  const idInput = $("agent-f-id");
-  if (state.agents.editing || idInput.dataset.touched === "1") return;
-  idInput.value = slugAgente($("agent-f-name").value);
-});
-$("agent-f-id").addEventListener("input", () => {
-  $("agent-f-id").dataset.touched = $("agent-f-id").value ? "1" : "0";
-});
+$("btn-agent-new").addEventListener("click", () => abrirEstudio(null));
+agentStudio.ligar();
 setAgentsTab(state.agents.tab);
 
 $("btn-palette").addEventListener("click", () => handleMod("palette"));

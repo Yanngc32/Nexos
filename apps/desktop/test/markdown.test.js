@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { escapeHtml, mdInline, mdToHtml } from "../markdown.js";
+// @vitest-environment happy-dom
+import { describe, it, expect, vi } from "vitest";
+import { escapeHtml, mdInline, mdToHtml, renderMd, wireExternalLinks } from "../markdown.js";
 
 /*
  * Este módulo é a fronteira onde texto do modelo vira HTML no app. O CSP
@@ -119,5 +120,64 @@ describe("mdToHtml: blocos", () => {
 
   it("bloco de código sem fim fecha sozinho em vez de perder o resto", () => {
     expect(mdToHtml("```\nsem fim")).toBe("<pre><code>sem fim</code></pre>");
+  });
+});
+
+/*
+ * renderMd e wireExternalLinks moram juntas de propósito. Quando ficaram em
+ * módulos diferentes, o renderer passou a chamar uma função que não enxergava
+ * mais e TODO render de resposta estourava — sem nenhum teste pegar, porque não
+ * havia teste do renderer. Estes casos existem pra isso não repetir calado.
+ */
+describe("renderMd", () => {
+  it("põe o HTML do markdown dentro do elemento", () => {
+    const el = document.createElement("div");
+    renderMd(el, "# Oi\n\ntexto **forte**");
+    expect(el.querySelector("h3").textContent).toBe("Oi");
+    expect(el.querySelector("strong").textContent).toBe("forte");
+  });
+
+  it("substitui o conteúdo anterior em vez de acumular", () => {
+    const el = document.createElement("div");
+    renderMd(el, "primeiro");
+    renderMd(el, "segundo");
+    expect(el.textContent).toBe("segundo");
+  });
+
+  it("liga os links externos que acabou de criar", () => {
+    const el = document.createElement("div");
+    renderMd(el, "[x](https://exemplo.com)");
+    const abrir = vi.fn(() => Promise.resolve());
+    globalThis.window.nexo = { openExternal: abrir };
+    el.querySelector("a").dispatchEvent(new window.Event("click", { cancelable: true, bubbles: true }));
+    expect(abrir).toHaveBeenCalledWith("https://exemplo.com");
+  });
+
+  it("tag vinda do modelo não vira elemento", () => {
+    const el = document.createElement("div");
+    renderMd(el, "<script>alert(1)</script>");
+    expect(el.querySelector("script")).toBeNull();
+  });
+});
+
+describe("wireExternalLinks", () => {
+  it("só liga âncora marcada como externa", () => {
+    const el = document.createElement("div");
+    el.innerHTML = '<a href="https://a.b">sem marca</a>';
+    const abrir = vi.fn(() => Promise.resolve());
+    globalThis.window.nexo = { openExternal: abrir };
+    wireExternalLinks(el);
+    el.querySelector("a").dispatchEvent(new window.Event("click", { cancelable: true, bubbles: true }));
+    expect(abrir).not.toHaveBeenCalled();
+  });
+
+  it("sem a ponte do Electron o clique não estoura", () => {
+    const el = document.createElement("div");
+    el.innerHTML = '<a href="https://a.b" data-ext="1">x</a>';
+    globalThis.window.nexo = undefined;
+    wireExternalLinks(el);
+    expect(() =>
+      el.querySelector("a").dispatchEvent(new window.Event("click", { cancelable: true, bubbles: true })),
+    ).not.toThrow();
   });
 });

@@ -36,6 +36,21 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
   `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
   forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
+- Tela cheia de agente (`agent-studio.js`), no lugar do formulário espremido no painel lateral:
+  editor à esquerda, bancada de teste à direita. Abre pelo painel de agentes, em "Novo agente" ou
+  no lápis de um agente existente.
+- Modelos de criação inspirados nos formatos do ADK do Google (`agent-templates.js`): agente de
+  tarefa, pipeline sequencial, refinamento em laço, coordenador, revisor crítico e explicador de
+  código. O Nexo não orquestra sub-agentes — o motor é uma CLI em `--print`, um turno por vez —
+  então cada modelo dá a FORMA de trabalho pela instrução, e os que emprestam o nome de um agente
+  composto do ADK dizem, na própria tela, onde o mecanismo difere. Vender orquestração que não
+  existe seria mentira.
+- Bancada de teste com timeline por etapas (`agent-trace.js`): cada evento do motor vira uma etapa
+  com duração e barra proporcional, mais o total do turno em tempo, ferramentas, tokens, contexto e
+  custo. O tempo é o de chegada do evento (o stream não carrega carimbo de hora), e o token de cada
+  etapa vem marcado com `~` porque o motor reporta uso por requisição, não por etapa — o total do
+  turno, esse é exato. A conversa de teste é descartável: some ao limpar ou fechar, pra não encher
+  a lista de conversas do projeto.
 - `sse.js`: o laço de leitura de event-stream estava escrito três vezes (chat, serviços, agentes),
   cada cópia sem teste, com a mesma sutileza repetida — o `read()` corta onde quiser, então um
   evento pode chegar partido entre duas leituras. Virou uma função só, com 11 casos.
@@ -54,6 +69,11 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Corrigido
 
+- `renderMd` estava quebrado desde a extração do `markdown.js`: o `wireExternalLinks` foi junto
+  para o módulo novo sem ser exportado, e o renderer continuou chamando uma função que não
+  enxergava mais — todo render de resposta do modelo estourava. Não havia teste do renderer, então
+  passou calado. As duas funções agora moram juntas no `markdown.js`, exportadas, com teste de DOM
+  cobrindo o par.
 - `run.bat` apontava para um `run.vbs` que não existe; agora indica `make-shortcut.ps1 -Desktop`.
 - `tsc` não rodava em nenhum pacote: os imports mantêm a extensão `.ts` (exigência do runtime, que
   consome os pacotes como fonte) sem `allowImportingTsExtensions` ligado, então a checagem morria

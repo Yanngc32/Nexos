@@ -151,7 +151,7 @@ export function mdToHtml(src) {
 }
 
 /** Links do markdown abrem no navegador do sistema, não dentro do app. */
-function wireExternalLinks(root) {
+export function wireExternalLinks(root) {
   for (const a of root.querySelectorAll('a[data-ext="1"]')) {
     a.addEventListener("click", (e) => {
       e.preventDefault();
@@ -159,4 +159,16 @@ function wireExternalLinks(root) {
       if (/^https?:\/\//i.test(href)) void window.nexo?.openExternal?.(href).catch(() => {});
     });
   }
+}
+
+/**
+ * Renderiza markdown dentro de um elemento e liga os links externos.
+ *
+ * Mora aqui, e não no renderer, porque depende de `wireExternalLinks`: quando as
+ * duas ficaram em módulos diferentes o renderer chamou uma função que não
+ * enxergava mais, e todo render de resposta estourava. Juntas, não dá.
+ */
+export function renderMd(el, text) {
+  el.innerHTML = mdToHtml(text);
+  wireExternalLinks(el);
 }

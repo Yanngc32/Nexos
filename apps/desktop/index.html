@@ -165,6 +165,102 @@
         <canvas id="sketch"></canvas>
         <textarea id="canvas-note" rows="3" placeholder="Notas deste projeto…"></textarea>
       </section>
+      <section class="pane hidden" id="pane-agent">
+        <header class="mod-head">
+          <h1>Agente</h1>
+          <span id="ag-head-name" class="mod-meta"></span>
+          <span id="ag-dirty" class="ag-dirty hidden" title="Há mudanças não salvas">•</span>
+          <button type="button" id="btn-ag-save" class="primary">Salvar</button>
+          <button type="button" id="btn-ag-del" class="ghost danger">Excluir</button>
+          <button type="button" id="btn-close-agent" class="ghost mod-close" title="Fechar">✕</button>
+        </header>
+        <div class="ag-split">
+          <div class="ag-edit" id="ag-edit">
+            <section class="ag-sec" id="ag-tpl-sec">
+              <h2>Modelo de criação</h2>
+              <p class="ag-hint">
+                Formatos inspirados no ADK do Google. O Nexo não orquestra sub-agentes — cada
+                modelo dá a forma de trabalho pela instrução. Cada um explica onde difere.
+              </p>
+              <div class="ag-tpls" id="ag-tpls"></div>
+              <p class="ag-tpl-nota" id="ag-tpl-nota"></p>
+            </section>
+
+            <section class="ag-sec">
+              <h2>Identidade</h2>
+              <div class="ag-row">
+                <label class="ag-f"><span>Nome</span>
+                  <input id="ag-name" type="text" maxlength="60" placeholder="Revisor de PR" /></label>
+                <label class="ag-f ag-narrow"><span>id</span>
+                  <input id="ag-id" type="text" maxlength="40" placeholder="revisor" /></label>
+                <label class="ag-f ag-color"><span>Cor</span>
+                  <input id="ag-color" type="color" value="#4d9cd6" /></label>
+              </div>
+              <label class="ag-f"><span>Descrição</span>
+                <input id="ag-desc" type="text" maxlength="200" placeholder="Para que serve este agente" /></label>
+            </section>
+
+            <section class="ag-sec">
+              <h2>Motor</h2>
+              <div class="ag-row">
+                <label class="ag-f"><span>Conta</span><select id="ag-profile"></select></label>
+                <label class="ag-f"><span>Modelo</span>
+                  <input id="ag-model" type="text" list="ag-models" placeholder="padrão da conta" />
+                  <datalist id="ag-models">
+                    <option value="opus"></option><option value="sonnet"></option>
+                    <option value="haiku"></option><option value="fable"></option>
+                  </datalist></label>
+              </div>
+              <div class="ag-row">
+                <label class="ag-f"><span>Esforço</span>
+                  <select id="ag-effort">
+                    <option value="">padrão</option><option value="low">low</option>
+                    <option value="medium">medium</option><option value="high">high</option>
+                    <option value="xhigh">xhigh</option><option value="max">max</option>
+                  </select></label>
+                <label class="ag-f"><span>Permissão</span>
+                  <select id="ag-mode">
+                    <option value="">padrão</option><option value="auto">auto</option>
+                    <option value="manual">manual</option><option value="acceptEdits">acceptEdits</option>
+                    <option value="plan">plan</option><option value="bypassPermissions">bypassPermissions</option>
+                  </select></label>
+              </div>
+            </section>
+
+            <section class="ag-sec ag-sec-grow">
+              <h2>Instruções</h2>
+              <p class="ag-hint">Vai no topo do contexto de toda conversa deste agente.</p>
+              <textarea id="ag-instructions" maxlength="8000"
+                placeholder="Como este agente deve trabalhar."></textarea>
+              <p class="ag-gaps hidden" id="ag-gaps"></p>
+              <p class="ag-count" id="ag-count"></p>
+            </section>
+            <p class="ag-err hidden" id="ag-err"></p>
+          </div>
+
+          <div class="ag-bench" id="ag-bench">
+            <header class="ag-bench-head">
+              <h2>Bancada</h2>
+              <div class="ag-tabs">
+                <button type="button" id="ag-tab-steps" class="ag-tab" data-on="1">Etapas</button>
+                <button type="button" id="ag-tab-chat" class="ag-tab" data-on="0">Resposta</button>
+              </div>
+              <button type="button" id="btn-ag-clear" class="ghost" title="Limpar a conversa de teste">Limpar</button>
+            </header>
+            <p class="ag-bench-note" id="ag-bench-note"></p>
+            <div class="ag-bench-body">
+              <ol class="ag-steps" id="ag-steps"></ol>
+              <div class="ag-chat md hidden" id="ag-chat"></div>
+            </div>
+            <div class="ag-sum" id="ag-sum"></div>
+            <form class="ag-ask" id="ag-ask">
+              <textarea id="ag-prompt" rows="2" placeholder="Mensagem de teste para o agente…"></textarea>
+              <button type="submit" class="primary" id="btn-ag-run">Testar</button>
+              <button type="button" class="ghost hidden" id="btn-ag-stop">Parar</button>
+            </form>
+          </div>
+        </div>
+      </section>
       <section class="pane hidden" id="pane-chat">
         <div id="split-chat" class="splitter" role="separator" aria-orientation="vertical" title="Arraste pra redimensionar"></div>
         <button type="button" id="btn-focus-exit" class="focus-exit hidden" title="Sair do foco (Esc)">⤡</button>
@@ -542,81 +638,6 @@
         <p id="agent-defs-empty" class="agents-empty">
           Nenhum agente criado. Um agente guarda conta, modelo e instruções próprias.
         </p>
-        <form id="agent-form" class="agent-form hidden">
-          <div class="agent-form-row">
-            <label class="agent-f" for="agent-f-name">
-              <span>Nome</span>
-              <input id="agent-f-name" type="text" maxlength="60" placeholder="Revisor de PR" required />
-            </label>
-            <label class="agent-f agent-f-narrow" for="agent-f-id">
-              <span>id</span>
-              <input id="agent-f-id" type="text" maxlength="40" placeholder="revisor" required />
-            </label>
-            <label class="agent-f agent-f-color" for="agent-f-color">
-              <span>Cor</span>
-              <input id="agent-f-color" type="color" value="#4d9cd6" />
-            </label>
-          </div>
-          <label class="agent-f" for="agent-f-desc">
-            <span>Descrição</span>
-            <input id="agent-f-desc" type="text" maxlength="200" placeholder="Para que serve este agente" />
-          </label>
-          <div class="agent-form-row">
-            <label class="agent-f" for="agent-f-profile">
-              <span>Conta</span>
-              <select id="agent-f-profile"></select>
-            </label>
-            <label class="agent-f" for="agent-f-model">
-              <span>Modelo</span>
-              <input id="agent-f-model" type="text" list="agent-models" placeholder="padrão da conta" />
-              <datalist id="agent-models">
-                <option value="opus"></option>
-                <option value="sonnet"></option>
-                <option value="haiku"></option>
-                <option value="fable"></option>
-              </datalist>
-            </label>
-          </div>
-          <div class="agent-form-row">
-            <label class="agent-f" for="agent-f-effort">
-              <span>Esforço</span>
-              <select id="agent-f-effort">
-                <option value="">padrão</option>
-                <option value="low">low</option>
-                <option value="medium">medium</option>
-                <option value="high">high</option>
-                <option value="xhigh">xhigh</option>
-                <option value="max">max</option>
-              </select>
-            </label>
-            <label class="agent-f" for="agent-f-mode">
-              <span>Permissão</span>
-              <select id="agent-f-mode">
-                <option value="">padrão</option>
-                <option value="auto">auto</option>
-                <option value="manual">manual</option>
-                <option value="acceptEdits">acceptEdits</option>
-                <option value="plan">plan</option>
-                <option value="bypassPermissions">bypassPermissions</option>
-              </select>
-            </label>
-          </div>
-          <label class="agent-f" for="agent-f-instructions">
-            <span>Instruções</span>
-            <textarea
-              id="agent-f-instructions"
-              rows="5"
-              maxlength="8000"
-              placeholder="Como este agente deve trabalhar. Vai no topo do contexto de toda conversa dele."
-            ></textarea>
-          </label>
-          <p id="agent-form-err" class="agent-form-err hidden"></p>
-          <div class="agent-form-acts">
-            <button type="submit" class="primary" id="btn-agent-save">Salvar</button>
-            <button type="button" class="ghost" id="btn-agent-cancel">Cancelar</button>
-            <button type="button" class="ghost danger" id="btn-agent-del">Excluir</button>
-          </div>
-        </form>
         <div class="agents-foot">
           <button type="button" class="primary" id="btn-agent-new">Novo agente</button>
         </div>
