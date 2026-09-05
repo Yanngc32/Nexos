@@ -36,6 +36,14 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
   `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
   forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
+- `sse.js`: o laço de leitura de event-stream estava escrito três vezes (chat, serviços, agentes),
+  cada cópia sem teste, com a mesma sutileza repetida — o `read()` corta onde quiser, então um
+  evento pode chegar partido entre duas leituras. Virou uma função só, com 11 casos.
+- `agent-events.js`, `file-tree.js` e `services.js`: mais três módulos fora do `renderer.js`, que
+  saiu de 4.793 para 4.149 linhas. Os painéis passaram a ser donos do próprio estado (`state.svc`,
+  `state.fileSelected` e a constante do rabo de texto saíram do objeto global) e as saídas para a
+  UI entram como callback, pra não fechar ciclo de import. `apps/desktop` ganhou `happy-dom` para
+  testar código de DOM, ligado por docblock só nos arquivos que precisam.
 - `api.js`: o cliente HTTP do daemon saiu do `renderer.js` como fábrica (`createApiClient`), com
   `daemonInfo` e `fetch` entrando por parâmetro. `req` é a função mais chamada do app e não tinha
   teste nenhum, apesar de re-tentar em falha de conexão e em 401 — reiniciar o motor troca porta e
