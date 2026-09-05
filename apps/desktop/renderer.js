@@ -1,6 +1,8 @@
 import { createApiClient } from "./api.js";
 import { createFileTree } from "./file-tree.js";
 import { createServicesPanel } from "./services.js";
+import { aplicarNoRetrato } from "./agent-events.js";
+import { lerEventos } from "./sse.js";
 import { escapeHtml, mdToHtml } from "./markdown.js";
 import {
   ago,
@@ -2123,22 +2125,7 @@ function listenSse() {
     signal: ac.signal,
   })
     .then(async (res) => {
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const chunks = buf.split("\n\n");
-        buf = chunks.pop() ?? "";
-        for (const chunk of chunks) {
-          const line = chunk.split("\n").find((l) => l.startsWith("data:"));
-          if (!line) continue;
-          const ev = JSON.parse(line.slice(5).trim());
-          onLive(ev);
-        }
-      }
+      await lerEventos(res, onLive);
       religar();
     })
     .catch((e) => {
@@ -2514,8 +2501,6 @@ const fecharLogServico = () => svcPanel.fecharLog();
 
 /* ---------- painel de agentes ---------- */
 
-const AGENT_TAIL_CHARS = 400;
-
 async function loadAgents() {
   if (!state.ok) {
     state.agents.list = [];
@@ -2550,46 +2535,7 @@ function applyAgentEvent(ev) {
     agendarRetrato();
     return;
   }
-  switch (ev.type) {
-    case "text":
-      a.busy = true;
-      a.tail = (a.tail + ev.text).slice(-AGENT_TAIL_CHARS);
-      if (!a.startedAt) a.startedAt = Date.now();
-      break;
-    case "thinking":
-      a.busy = true;
-      if (!a.startedAt) a.startedAt = Date.now();
-      break;
-    case "session":
-      if (ev.model) a.model = ev.model;
-      break;
-    case "context":
-    case "usage":
-      if (ev.contextTokens) a.contextTokens = ev.contextTokens;
-      break;
-    case "switched":
-      a.profileId = ev.toProfileId;
-      a.pendingQuota = false;
-      break;
-    case "quota":
-      a.busy = false;
-      a.pendingQuota = true;
-      a.lastTerminal = "quota";
-      break;
-    case "auth":
-    case "error":
-      a.busy = false;
-      a.lastTerminal = ev.type === "auth" ? "auth" : "error";
-      break;
-    case "done":
-      a.busy = false;
-      a.pendingQuota = false;
-      a.lastTerminal = "done";
-      break;
-    default:
-      return;
-  }
-  schedulePaintAgents();
+  if (aplicarNoRetrato(a, ev)) schedulePaintAgents();
 }
 
 /** Coalesce: um turno em stream emite dezenas de eventos por segundo. */
@@ -2610,21 +2556,7 @@ function listenAgents() {
   fetch(api("/v1/agents/events"), { headers: headers(), signal: ac.signal })
     .then(async (res) => {
       if (!res.ok || !res.body) throw new Error(`agents sse ${res.status}`);
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const chunks = buf.split("\n\n");
-        buf = chunks.pop() ?? "";
-        for (const chunk of chunks) {
-          const line = chunk.split("\n").find((l) => l.startsWith("data:"));
-          if (!line) continue;
-          applyAgentEvent(JSON.parse(line.slice(5).trim()));
-        }
-      }
+      await lerEventos(res, applyAgentEvent);
       religarAgentes();
     })
     .catch((e) => {

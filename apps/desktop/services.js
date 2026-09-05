@@ -1,3 +1,5 @@
+import { lerEventos } from "./sse.js";
+
 /**
  * Painel de serviços locais do projeto (o que o `nexo.json` declara).
  *
@@ -226,23 +228,10 @@ export function createServicesPanel({
       signal: ac.signal,
     })
       .then(async (res) => {
-        const reader = res.body.getReader();
-        const dec = new TextDecoder();
-        let buf = "";
-        for (;;) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += dec.decode(value, { stream: true });
-          const chunks = buf.split("\n\n");
-          buf = chunks.pop() ?? "";
-          for (const chunk of chunks) {
-            const line = chunk.split("\n").find((l) => l.startsWith("data:"));
-            if (!line) continue;
-            const ev = JSON.parse(line.slice(5).trim());
-            if (ev.type === "status") aplicarStatus(ev);
-            if (ev.type === "log") aplicarLog(ev);
-          }
-        }
+        await lerEventos(res, (ev) => {
+          if (ev.type === "status") aplicarStatus(ev);
+          if (ev.type === "log") aplicarLog(ev);
+        });
         religar();
       })
       .catch(() => {
