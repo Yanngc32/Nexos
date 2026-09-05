@@ -25,6 +25,12 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 - Licença MIT e README.
 - CI no GitHub Actions: `pnpm typecheck` + `pnpm test` em Linux e Windows, Node 20 e 22.
 - Scripts `pnpm typecheck` (por pacote, agregado na raiz) e `pnpm check` (typecheck + testes).
+- Primeiros testes do app: `apps/desktop/markdown.js` saiu do `renderer.js` pra módulo próprio e
+  ganhou 21 casos (`pnpm --filter @nexo/desktop test`), com foco em injeção — tag do modelo vira
+  texto, `javascript:`/`data:`/`file:` não viram âncora, aspas não escapam do `href`, bloco de
+  código é escapado. É o ponto onde texto do modelo vira HTML na janela; o CSP é a segunda linha
+  de defesa, a primeira é escapar antes de formatar, e agora existe teste que trava essa ordem.
+  `pnpm test` na raiz passou a rodar os dois pacotes.
 
 ### Corrigido
 
@@ -47,6 +53,9 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 - `waitTerminal` (session.ts) dorme até o turno fechar em vez de acordar a cada 20 ms — eram ~45
   mil despertares num turno de 15 minutos. `lastTerminal` só é fechado por `setTerminal`, que
   libera quem espera; o teto de 15 min continua virando erro.
+- `renderer.js` passou a ser carregado como `type="module"` no `index.html`, primeiro passo pra
+  quebrar o arquivo (4.793 linhas) em módulos testáveis. Verificado no app de verdade: o import
+  sobre `file://` funciona no Electron 33 e o renderer segue executando até o fim.
 - `src/sandbox.ts` virou `src/project-cwd.ts`. O módulo só resolve o `projectPath` pra usar de cwd
   do motor e não confina nada — o nome prometia um limite que não existe. O confinamento real
   continua onde sempre esteve: `boundPath` (main do Electron) e `assertInsideProject` (nexo.json).

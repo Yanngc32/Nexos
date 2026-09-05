@@ -45,6 +45,9 @@ importers:
       electron:
         specifier: ^33.4.5
         version: 33.4.11
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)
 
   packages/shared:
     devDependencies:

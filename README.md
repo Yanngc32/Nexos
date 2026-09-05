@@ -25,7 +25,7 @@ pnpm install
 ```bash
 pnpm up          # sobe o daemon (http://127.0.0.1:7432)
 pnpm desktop     # abre o app Electron
-pnpm test        # testes do daemon (vitest)
+pnpm test        # testes do daemon e do app (vitest)
 pnpm typecheck   # tsc --noEmit nos pacotes TypeScript
 pnpm check       # typecheck + testes (é o que o CI roda)
 ```
@@ -51,7 +51,7 @@ nexo switch <perfil> --thread <id>
 
 ```
 apps/daemon      servidor HTTP (Hono) + CLI + motores
-apps/desktop     app Electron (main/preload/renderer)
+apps/desktop     app Electron (main/preload/renderer + módulos do renderer)
 packages/shared  tipos e constantes compartilhados
 docs/            specs e plano de implementação
 ```
