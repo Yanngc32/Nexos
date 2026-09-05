@@ -1,3 +1,4 @@
+import { createApiClient } from "./api.js";
 import { escapeHtml, mdToHtml } from "./markdown.js";
 import {
   ago,
@@ -27,8 +28,6 @@ const MODULES = [
 ];
 
 const state = {
-  port: 7432,
-  token: "",
   ok: false,
   projectPath: localStorage.getItem("nexo.project") || "",
   threadId: localStorage.getItem("nexo.thread") || "",
@@ -117,73 +116,17 @@ const state = {
   agentId: "",
 };
 
-function headers() {
-  return { authorization: `Bearer ${state.token}`, "content-type": "application/json" };
-}
-
-function api(path) {
-  return `http://127.0.0.1:${state.port}${path}`;
-}
-
-/** Relê porta e token do motor: eles mudam quando o daemon reinicia. */
-async function renovarCredenciais() {
-  try {
-    const info = await window.nexo.daemonInfo();
-    const mudou = info.port !== state.port || info.token !== state.token;
-    state.port = info.port;
-    state.token = info.token;
+const { api, aplicar: aplicarInfoDoMotor, headers, renovarCredenciais, req, reqBlob } = createApiClient({
+  daemonInfo: () => window.nexo.daemonInfo(),
+  // porta e token ficam no cliente; "o motor está de pé?" a UI lê em dezenas de pontos
+  onInfo: (info) => {
     state.ok = info.ok;
-    return mudou || info.ok;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Uma re-tentativa em dois casos, ambos sem efeito no servidor: falha de
- * conexão (a requisição não chegou) e 401 (token antigo depois de reiniciar o
- * motor). Sem isso, qualquer reinício do daemon virava "Failed to fetch" na
- * cara do usuário até o próximo poll.
- */
-async function req(path, opts = {}) {
-  const chamar = () => fetch(api(path), { ...opts, headers: { ...headers(), ...opts.headers } });
-  let res;
-  try {
-    res = await chamar();
-  } catch (e) {
-    if (!(await renovarCredenciais())) {
-      throw new Error("O motor não está respondendo. Liga o motor e tenta de novo.");
-    }
-    try {
-      res = await chamar();
-    } catch {
-      throw new Error("O motor não está respondendo. Liga o motor e tenta de novo.");
-    }
-  }
-  if (res.status === 401) {
-    await renovarCredenciais();
-    res = await chamar().catch(() => res);
-  }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || res.statusText);
-  return data;
-}
+  },
+});
 
 const IMAGE_MIMES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 const ATTACH_MAX_BYTES = 10 * 1024 * 1024;
 const ATTACH_MAX_PER_MESSAGE = 6;
-
-/** Igual ao req, mas devolve bytes: anexo não é JSON. */
-async function reqBlob(path) {
-  const chamar = () => fetch(api(path), { headers: { authorization: `Bearer ${state.token}` } });
-  let res = await chamar();
-  if (res.status === 401) {
-    await renovarCredenciais();
-    res = await chamar();
-  }
-  if (!res.ok) throw new Error(`anexo ${res.status}`);
-  return res.blob();
-}
 
 function trackLogUrl(blob) {
   const url = URL.createObjectURL(blob);
@@ -1755,9 +1698,7 @@ function pickModule(id) {
 
 async function refreshDaemon() {
   const info = await window.nexo.daemonInfo();
-  state.port = info.port;
-  state.token = info.token;
-  state.ok = info.ok;
+  aplicarInfoDoMotor(info);
   // preserva o "falando": o poll não pode derrubar o estado no meio da resposta
   setMotor(info.ok, info.ok && state.talking);
   if (!info.ok) {

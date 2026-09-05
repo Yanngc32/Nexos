@@ -36,6 +36,13 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
   `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
   forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
+- `api.js`: o cliente HTTP do daemon saiu do `renderer.js` como fábrica (`createApiClient`), com
+  `daemonInfo` e `fetch` entrando por parâmetro. `req` é a função mais chamada do app e não tinha
+  teste nenhum, apesar de re-tentar em falha de conexão e em 401 — reiniciar o motor troca porta e
+  token. Agora são 23 casos cobrindo os dois retries, credencial nova na re-tentativa, corpo não
+  JSON, 204 sem corpo e o erro do servidor virando mensagem. Porta e token deixaram o objeto
+  `state` e passaram a viver só dentro do cliente; `state.ok`, que a UI lê em ~28 pontos, continua
+  onde estava e é alimentado por um callback. As 49 chamadas de `req` não mudaram.
 
 ### Corrigido
 
