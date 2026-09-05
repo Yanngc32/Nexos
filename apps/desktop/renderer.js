@@ -1,4 +1,17 @@
 import { escapeHtml, mdToHtml } from "./markdown.js";
+import {
+  ago,
+  clip,
+  elapsed,
+  fmtDetail,
+  fmtReset,
+  fmtTokens,
+  fmtWhen,
+  folderName,
+  normPath,
+  samePath,
+} from "./format.js";
+import { portaDaUrl, safeUrl } from "./url.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -297,28 +310,9 @@ async function fillShot(img, file, threadId) {
   }
 }
 
-function folderName(p) {
-  if (!p) return "Nenhum projeto";
-  const parts = p.split(/[/\\]/).filter(Boolean);
-  return parts.at(-1) || p;
-}
 
-function ago(ts) {
-  if (!ts) return "";
-  const s = Math.max(0, (Date.now() - new Date(ts).getTime()) / 1000);
-  if (s < 45) return "agora";
-  if (s < 3600) return `${Math.max(1, Math.floor(s / 60))}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  return `${Math.floor(s / 86400)}d`;
-}
 
-function normPath(p) {
-  return String(p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-}
 
-function samePath(a, b) {
-  return Boolean(a && b && normPath(a) === normPath(b));
-}
 
 function hydrateRepos() {
   let repos = [];
@@ -554,29 +548,7 @@ function dragSplitter(handleId, onMove) {
   });
 }
 
-function fmtTokens(n) {
-  const v = Number(n) || 0;
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(v % 1_000_000 === 0 ? 0 : 1)}M`;
-  if (v >= 1000) return `${(v / 1000).toFixed(v >= 100_000 ? 1 : 1)}k`;
-  return String(v);
-}
 
-/** Igual ao painel do Claude Code: contagem curta pra hoje, dia da semana pra depois. */
-function fmtReset(unixSeconds) {
-  const ms = Number(unixSeconds) * 1000;
-  if (!ms || Number.isNaN(ms)) return "";
-  const diff = ms - Date.now();
-  if (diff <= 0) return "Reinicia agora";
-  if (diff < 24 * 3600_000) {
-    const h = Math.floor(diff / 3600_000);
-    const m = Math.round((diff % 3600_000) / 60_000);
-    return h ? `Reinicia em ${h} h ${m} min` : `Reinicia em ${m} min`;
-  }
-  const d = new Date(ms);
-  const dia = d.toLocaleDateString("pt-BR", { weekday: "short" });
-  const hora = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  return `Reinicia ${dia}, ${hora}`;
-}
 
 function setBar(fillId, ratio) {
   const el = $(fillId);
@@ -1284,20 +1256,6 @@ function storeKey(kind) {
   return `nexo.${kind}:${state.projectPath || "_none"}`;
 }
 
-function safeUrl(raw) {
-  const t = String(raw || "").trim();
-  if (!t) return "about:blank";
-  let u = t;
-  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(u)) u = "https://" + u;
-  try {
-    const parsed = new URL(u);
-    if (parsed.protocol === "http:" || parsed.protocol === "https:") return parsed.href;
-    if (parsed.protocol === "about:") return "about:blank";
-  } catch {
-    /* ignore */
-  }
-  return "about:blank";
-}
 
 function setBrowserUrl(raw, persist = true) {
   const href = safeUrl(raw);
@@ -1358,14 +1316,6 @@ function servicoDaUrl(href) {
   return state.svc.list.find((s) => s.portNumber === porta) ?? null;
 }
 
-function portaDaUrl(href) {
-  try {
-    const u = new URL(href);
-    return u.port ? Number(u.port) : u.protocol === "https:" ? 443 : 80;
-  } catch {
-    return 0;
-  }
-}
 
 function mostrarFalhaBrowser({ msg, hint, url, externo }) {
   $("browser-fail-msg").textContent = msg;
@@ -1779,10 +1729,6 @@ function renderPalChat() {
   }
 }
 
-function clip(s, n) {
-  const t = String(s || "");
-  return t.length > n ? t.slice(0, n) + "…" : t;
-}
 
 function openPalette() {
   state.paletteOpen = true;
@@ -2358,17 +2304,6 @@ function pausarFila(motivo) {
   });
 }
 
-function fmtDetail(d) {
-  if (d == null || d === "") return "";
-  if (typeof d === "object") {
-    return fmtDetail(d.message || d.result || d.detail || d.type);
-  }
-  const s = String(d).replace(/\[object Object\]/gi, " ").replace(/\s+/g, " ").trim();
-  if (/rate_limit/i.test(s) && !/you've hit your|session limit|resets /i.test(s)) {
-    return "Limite de uso do Claude (rate limit). Espera um pouco ou troca de conta.";
-  }
-  return s;
-}
 
 function onLive(ev) {
   if (ev.type === "text") {
@@ -3050,12 +2985,6 @@ function agentesAtivos() {
   return state.agents.list.filter((a) => a.busy || a.pendingQuota);
 }
 
-function elapsed(startedAt) {
-  if (!startedAt) return "";
-  const s = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
-  if (s < 60) return `${s}s`;
-  return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}`;
-}
 
 function toggleAgents(want) {
   state.agents.open = want === undefined ? !state.agents.open : Boolean(want);
@@ -3773,11 +3702,6 @@ function accountRows(a) {
   return rows;
 }
 
-function fmtWhen(iso) {
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return iso;
-  return new Date(ms).toLocaleString("pt-BR");
-}
 
 async function runSlash(text) {
   const [raw, ...rest] = text.slice(1).split(/\s+/);

@@ -31,6 +31,11 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   código é escapado. É o ponto onde texto do modelo vira HTML na janela; o CSP é a segunda linha
   de defesa, a primeira é escapar antes de formatar, e agora existe teste que trava essa ordem.
   `pnpm test` na raiz passou a rodar os dois pacotes.
+- Mais dois módulos saídos do `renderer.js`, também só recorte: `format.js` (helpers puros de
+  exibição e normalização de caminho) e `url.js` (`safeUrl`/`portaDaUrl`). `safeUrl` decide o que
+  o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
+  `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
+  forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
 
 ### Corrigido
 
