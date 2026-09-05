@@ -1,4 +1,5 @@
 import { createApiClient } from "./api.js";
+import { createFileTree } from "./file-tree.js";
 import { escapeHtml, mdToHtml } from "./markdown.js";
 import {
   ago,
@@ -64,7 +65,6 @@ const state = {
   reposOpen: new Set(),
   threadsByRepo: {},
   setPanel: "aparencia",
-  fileSelected: "",
   fileCache: null,
   termBuf: "",
   termRunning: false,
@@ -1309,96 +1309,13 @@ function loadBrowser() {
   setBrowserUrl(localStorage.getItem(storeKey("browser")) || "about:blank", false);
 }
 
-async function loadFileTree() {
-  await fillTree($("file-tree"), ".");
-}
-
-async function fillTree(container, rel) {
-  container.replaceChildren();
-  if (!window.nexo?.listDir) {
-    const p = document.createElement("p");
-    p.className = "tree-empty";
-    p.textContent = "API de arquivos indisponível.";
-    container.append(p);
-    return;
-  }
-  if (!state.projectPath) {
-    const p = document.createElement("p");
-    p.className = "tree-empty";
-    p.textContent = "Abre um projeto na barra esquerda.";
-    container.append(p);
-    return;
-  }
-  let data;
-  try {
-    data = await window.nexo.listDir(rel);
-  } catch (e) {
-    const p = document.createElement("p");
-    p.className = "tree-empty";
-    p.textContent = e.message || "Não deu pra listar.";
-    container.append(p);
-    return;
-  }
-  if (!data.entries.length) {
-    const p = document.createElement("p");
-    p.className = "tree-empty";
-    p.textContent = "Pasta vazia.";
-    container.append(p);
-    return;
-  }
-  for (const ent of data.entries) {
-    if (ent.dir) {
-      const det = document.createElement("details");
-      const sum = document.createElement("summary");
-      sum.textContent = ent.name;
-      const kids = document.createElement("div");
-      det.append(sum, kids);
-      det.addEventListener("toggle", () => {
-        if (det.open && !det.dataset.loaded) {
-          det.dataset.loaded = "1";
-          void fillTree(kids, ent.path);
-        }
-      });
-      container.append(det);
-    } else {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "tree-file";
-      btn.textContent = ent.name;
-      btn.dataset.path = ent.path;
-      btn.dataset.on = ent.path === state.fileSelected ? "1" : "0";
-      btn.addEventListener("click", () => void openFile(ent.path));
-      container.append(btn);
-    }
-  }
-}
-
-async function openFile(rel) {
-  state.fileSelected = rel;
-  for (const btn of $("file-tree").querySelectorAll("button.tree-file")) {
-    btn.dataset.on = btn.dataset.path === rel ? "1" : "0";
-  }
-  const preview = $("file-preview");
-  preview.textContent = "Lendo…";
-  try {
-    const data = await window.nexo.readFile(rel);
-    if (data.dir) {
-      preview.textContent = "Pasta — abre na árvore.";
-      return;
-    }
-    if (data.tooBig) {
-      preview.textContent = `${rel}\n\nArquivo grande demais para prévia (${Math.round(data.size / 1024)} KB).`;
-      return;
-    }
-    if (data.binary) {
-      preview.textContent = `${rel}\n\nBinário — sem prévia.`;
-      return;
-    }
-    preview.textContent = data.text || "(vazio)";
-  } catch (e) {
-    preview.textContent = e.message || "Falha ao ler.";
-  }
-}
+const fileTree = createFileTree({
+  nexo: () => window.nexo,
+  getProjectPath: () => state.projectPath,
+  treeEl: () => $("file-tree"),
+  previewEl: () => $("file-preview"),
+});
+const loadFileTree = () => fileTree.load();
 
 let palFilesSeq = 0;
 async function refreshPalFiles() {
@@ -3304,7 +3221,7 @@ async function bindProject(path) {
   localStorage.setItem("nexo.project", path);
   setProjectLabel();
   state.fpThreads = "";
-  state.fileSelected = "";
+  fileTree.limparSelecao();
   state.fileCache = null;
   $("file-preview").textContent = "Escolhe um arquivo na árvore.";
   await window.nexo.setProject?.(path);
