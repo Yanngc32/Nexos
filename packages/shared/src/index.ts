@@ -197,6 +197,15 @@ export type ThreadEvent =
       profileId: string;
       /** Agente personalizado que rege a conversa; vazio = conta pura. */
       agentId?: string;
+      /**
+       * Run de time que criou esta conversa, e qual passo dele. Fica no meta
+       * porque é verdade sobre a conversa, não sobre o run: a lista de threads
+       * precisa saber disso sem varrer todos os runs do disco.
+       */
+      runId?: string;
+      runStep?: number;
+      /** Rótulo do run (time + objetivo), pra lista agrupar sem consultar o run. */
+      runTitle?: string;
     }
   | { ts: string; type: "user"; threadId: string; text: string; attachments?: Attachment[] }
   | { ts: string; type: "assistant"; threadId: string; text: string }

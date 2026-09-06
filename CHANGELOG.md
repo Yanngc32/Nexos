@@ -36,6 +36,31 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
   `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
   forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
+- Painel flutuante (botão "Painel", Ctrl+Shift+W, ou a bandeja): janela própria, sem moldura,
+  sempre por cima, com o passo do run em andamento, quantas conversas estão trabalhando, os anéis de
+  quota por conta e o custo acumulado contra o teto. Janela separada e não um canto da principal
+  porque o ponto dele é aparecer quando o Nexo NÃO está na frente — um time roda por minutos
+  enquanto você está no editor, e painel embutido some junto com a janela.
+  Ele mede o próprio conteúdo e pede a altura ao processo principal: altura fixa sobraria vazio com
+  um run só e cortaria linha com quatro contas. Abre onde estava da última vez, não rouba foco
+  (`showInactive`) e não entra na barra de tarefas nem no Alt+Tab.
+  **Poll de 2s, não SSE, e é escolha:** cada fonte tem um stream próprio e nenhuma tem um agregado;
+  três streams vivos pra uma faixa de 200px custariam mais que um GET contra um daemon da mesma
+  máquina. Com o motor desligado o poll afrouxa pra 8s. Poll que falha não apaga a tela — o retrato
+  anterior continua até a próxima resposta, senão o painel piscaria a cada soluço.
+  Conta que nunca rodou um turno fica de fora dos anéis: anel vazio pareceria "quota sobrando", que
+  é o oposto de "não sei". O relógio para no fim do run, em vez de crescer pra sempre depois de
+  acabar.
+- Conversas de um run agrupadas na barra lateral. Um time cria uma conversa por passo, e o
+  supervisor cria quantas quiser: soltas, dez linhas do mesmo run afogavam a lista e empurravam pra
+  baixo o que a pessoa estava usando. O run vira uma pasta, fechada por padrão, na posição da
+  conversa mais recente dele; dentro, a ordem é a do RUN (passo 1, 2, 3), não a de atualização. Run
+  de um passo só não vira pasta — a pasta a mais só esconderia.
+  O carimbo (`runId`, `runStep`, `runTitle`) vai no `thread_meta` na criação da conversa: é verdade
+  sobre a conversa, e sem ele a lista teria que abrir todo `run.json` do disco pra montar um
+  cabeçalho. Junto veio o título por passo ("Leitor · passo 2"), que substitui o preview do primeiro
+  pedido — nos passos de time esse pedido é o bloco inteiro de instruções, e a lista ficava com
+  várias linhas idênticas começando em "# Objetivo do time".
 - Retomada de run parado (`POST /v1/runs/:id/resume`, botão "Retomar" na tela do time): continua de
   onde parou, sem refazer o que já ficou `done`. A quota daquele passo já foi gasta e o artefato está
   no disco — refazer cobraria de novo por um resultado que já existe, e ainda daria um resultado

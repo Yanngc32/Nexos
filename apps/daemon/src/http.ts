@@ -208,6 +208,9 @@ export function createApp(home: string, token: string): Hono {
         preview: head?.preview ?? "",
         updatedAt: head?.updatedAt ?? "",
         engine: getProfile(a.profileId, home)?.engine ?? "",
+        // de qual run de time esta conversa é passo; o painel usa pra não
+        // contar duas vezes o que já aparece como passo do run
+        ...(head?.runId ? { runId: head.runId } : {}),
         // Nome e cor vêm daqui pro painel não ter que cruzar duas listas.
         ...(def ? { agentName: def.name, ...(def.color ? { agentColor: def.color } : {}) } : {}),
       };

@@ -143,6 +143,7 @@ function spawnNexoLogin(id) {
 
 let win;
 let tray;
+let widget;
 let projectRoot = "";
 let shellChild = null;
 
@@ -296,7 +297,11 @@ async function runShot(target) {
     }
     await new Promise((r) => setTimeout(r, Number(process.env.NEXO_SHOT_JS_WAIT ?? 1200)));
   }
-  const img = await win.webContents.capturePage();
+  // NEXO_SHOT_ALVO=widget (dev): fotografa o painel flutuante em vez da janela
+  // principal — ele é outra BrowserWindow e não sai na foto da primeira.
+  const alvoWc =
+    process.env.NEXO_SHOT_ALVO === "widget" && widget && !widget.isDestroyed() ? widget.webContents : win.webContents;
+  const img = await alvoWc.capturePage();
   writeFileSync(target, img.toPNG());
   console.log("[shot]", target);
   app.exit(0);
@@ -357,10 +362,111 @@ function createWindow() {
     else if (k === "j" && !input.shift && !input.alt) mod = "terminal";
     else if (k === "b" && input.shift) mod = "browser";
     else if (k === "s" && input.shift) mod = "side-chat";
+    else if (k === "w" && input.shift) {
+      event.preventDefault();
+      toggleWidget();
+      return;
+    }
     if (!mod) return;
     event.preventDefault();
     if (!win.webContents.isDestroyed()) win.webContents.send("nexo:mod", mod);
   });
+}
+
+/*
+ * Painel flutuante: janela própria, sem moldura, sempre por cima.
+ *
+ * Janela separada e não um canto da principal porque o ponto dele é aparecer
+ * quando o Nexo NÃO está na frente — um time roda por minutos enquanto você
+ * está no editor. Painel embutido some junto com a janela e não resolveria
+ * nada.
+ *
+ * Ela não entra na barra de tarefas nem no Alt+Tab: é um enfeite de canto de
+ * tela, não uma janela pra alternar.
+ */
+
+const WIDGET_W = 264;
+const WIDGET_H_INICIAL = 150;
+/** Não deixa um conteúdo estranho esticar o painel até virar uma segunda janela. */
+const WIDGET_H_MAX = 420;
+
+function widgetStatePath() {
+  return join(app.getPath("userData"), "widget.json");
+}
+
+/** Onde o painel estava e se estava aberto. Some junto com o userData, e tudo bem. */
+function readWidgetState() {
+  try {
+    const raw = JSON.parse(readFileSync(widgetStatePath(), "utf8"));
+    const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+    return { x: num(raw?.x), y: num(raw?.y), aberto: raw?.aberto === true };
+  } catch {
+    return { aberto: false };
+  }
+}
+
+function saveWidgetState(patch) {
+  try {
+    writeFileSync(widgetStatePath(), JSON.stringify({ ...readWidgetState(), ...patch }), "utf8");
+  } catch {
+    // posição é conveniência: não poder gravar não é motivo pra derrubar nada
+  }
+}
+
+function createWidget() {
+  if (widget && !widget.isDestroyed()) return widget;
+  const salvo = readWidgetState();
+  widget = new BrowserWindow({
+    width: WIDGET_W,
+    height: WIDGET_H_INICIAL,
+    ...(salvo.x === undefined || salvo.y === undefined ? {} : { x: salvo.x, y: salvo.y }),
+    show: false,
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    title: "Nexo — painel",
+    webPreferences: {
+      preload: join(here, "preload.mjs"),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  // "floating" mantém acima de janela normal sem cobrir menu do sistema
+  widget.setAlwaysOnTop(true, "floating");
+  widget.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  widget.loadFile(join(here, "widget.html"));
+  widget.on("moved", () => {
+    if (widget?.isDestroyed()) return;
+    const [x, y] = widget.getPosition();
+    saveWidgetState({ x, y });
+  });
+  widget.on("closed", () => {
+    widget = null;
+  });
+  return widget;
+}
+
+function showWidget() {
+  const w = createWidget();
+  // showInactive: o painel não rouba o foco de quem está digitando em outro app
+  w.showInactive();
+  saveWidgetState({ aberto: true });
+}
+
+function hideWidget() {
+  if (widget && !widget.isDestroyed()) widget.hide();
+  saveWidgetState({ aberto: false });
+}
+
+function toggleWidget() {
+  if (widget && !widget.isDestroyed() && widget.isVisible()) hideWidget();
+  else showWidget();
 }
 
 function createTray() {
@@ -372,6 +478,7 @@ function createTray() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Abrir", click: () => win?.show() },
+      { label: "Painel flutuante", click: () => toggleWidget() },
       { label: "Ligar motor", click: () => spawnNexo(["up"]).unref() },
       { label: "Desligar motor", click: () => spawnNexo(["down"]).unref() },
       { type: "separator" },
@@ -412,6 +519,26 @@ app.whenReady().then(() => {
     return { ok: true };
   });
   handle("profile:login", (_e, id) => spawnNexoLogin(id));
+  handle("widget:toggle", () => {
+    toggleWidget();
+    return { ok: true };
+  });
+  handle("widget:hide", () => {
+    hideWidget();
+    return { ok: true };
+  });
+  /**
+   * O painel mede o próprio conteúdo e pede a altura. Sem isso ele teria altura
+   * fixa: sobraria vazio com um run só, ou cortaria linha com quatro contas.
+   */
+  handle("widget:resize", (event, altura) => {
+    const alvo = Math.round(Number(altura));
+    if (!widget || widget.isDestroyed()) return { ok: false };
+    if (event.sender !== widget.webContents) return { ok: false };
+    if (!Number.isFinite(alvo) || alvo <= 0) return { ok: false };
+    widget.setSize(WIDGET_W, Math.min(WIDGET_H_MAX, alvo));
+    return { ok: true };
+  });
   /**
    * Limpa o cache HTTP da sessão e, quando a URL é de um site, também o
    * service worker e o Cache Storage daquela origem — é o que segura preview
@@ -527,6 +654,8 @@ app.whenReady().then(() => {
   void ensureDaemon();
   createWindow();
   createTray();
+  // reabre onde estava: painel que some a cada reinício não serve de painel
+  if (!SHOT && readWidgetState().aberto) showWidget();
 });
 
 app.on("before-quit", () => killShell());

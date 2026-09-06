@@ -264,6 +264,17 @@ function reabrirSupervisor(run: Run): void {
   delete chefe.outputChars;
 }
 
+/**
+ * Rótulo do run pra lista de conversas: o nome do time e o começo do objetivo.
+ * Vai carimbado em cada conversa do run porque a lista não conhece runs — sem
+ * isso ela teria que abrir todo `run.json` do disco pra montar um cabeçalho.
+ */
+function rotuloDoRun(run: Run, home: string): string {
+  const time = getTeam(run.teamId, home);
+  const objetivo = run.goal.replace(/\s+/g, " ").slice(0, 60);
+  return `${time?.name ?? run.teamId} · ${objetivo}`;
+}
+
 /** Última fala do assistente na conversa — é a saída do passo. */
 function saidaDaThread(threadId: string, home: string): string {
   const eventos = readThread(threadId, home);
@@ -381,7 +392,17 @@ async function executarPasso(
   }
 
   const { id: threadId } = createThread(
-    { projectPath: cwd ?? run.projectPath, profileId: agente.profileId, agentId: agente.id },
+    {
+      projectPath: cwd ?? run.projectPath,
+      profileId: agente.profileId,
+      agentId: agente.id,
+      runId: run.id,
+      runStep: step.index,
+      runTitle: rotuloDoRun(run, home),
+      // sem título, a lista mostraria o pedido inteiro do passo — várias linhas
+      // idênticas começando em "# Objetivo do time"
+      title: `${agente.name} · passo ${step.index + 1}`,
+    },
     home,
   );
   step.threadId = threadId;
@@ -641,7 +662,18 @@ async function rodarSupervisor(run: Run, teto: number, home: string): Promise<vo
   const retomando = Boolean(chefe.threadId && readThread(chefe.threadId, home).length);
   const threadId = retomando
     ? (chefe.threadId as string)
-    : createThread({ projectPath: run.projectPath, profileId: agente.profileId, agentId: agente.id }, home).id;
+    : createThread(
+        {
+          projectPath: run.projectPath,
+          profileId: agente.profileId,
+          agentId: agente.id,
+          runId: run.id,
+          runStep: 0,
+          runTitle: rotuloDoRun(run, home),
+          title: `${agente.name} · supervisor`,
+        },
+        home,
+      ).id;
   chefe.threadId = threadId;
   chefe.status = "running";
   if (!chefe.startedAt) chefe.startedAt = nowIso();

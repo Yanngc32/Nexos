@@ -1,0 +1,230 @@
+/*
+ * Painel flutuante. Fica por cima de tudo, então cada pixel custa: só entra o
+ * que responde "está andando?", "quanto falta de quota?" e "quanto já custou?".
+ *
+ * A janela é transparente e sem moldura; o cartão abaixo é a única coisa
+ * desenhada. Por isso o `body` não pode ter fundo nenhum, e o arredondamento
+ * mora no cartão.
+ */
+
+:root {
+  --bg: #16161a;
+  --line: #2b2b31;
+  --text: #e8e8ea;
+  --muted: #8b8b95;
+  --accent: #4d9cd6;
+  --ok: #4bb96f;
+  --warn: #d8a13a;
+  --bad: #d65c5c;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  font: 12px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--text);
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+.card {
+  margin: 6px;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 26px rgb(0 0 0 / 45%);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+/* A faixa inteira arrasta a janela — é a única forma de mover uma janela sem moldura. */
+.grip {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  -webkit-app-region: drag;
+}
+
+.off {
+  color: var(--bad);
+  font-size: 11px;
+}
+
+/* Botão dentro de área arrastável só clica se sair dela. */
+.x {
+  -webkit-app-region: no-drag;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+.x:hover {
+  color: var(--text);
+}
+
+.bloco + .bloco {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.obj {
+  margin: 0 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linha {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quem {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.num {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.dot[data-on="1"] {
+  background: var(--ok);
+  animation: pulsa 1.4s ease-in-out infinite;
+}
+
+.dot[data-erro="1"] {
+  background: var(--bad);
+  animation: none;
+}
+
+@keyframes pulsa {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* Movimento constante incomoda quem só quer o painel de canto de olho. */
+@media (prefers-reduced-motion: reduce) {
+  .dot[data-on="1"] {
+    animation: none;
+  }
+}
+
+.barra {
+  height: 3px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background: #26262c;
+  overflow: hidden;
+}
+
+.barra > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.25s;
+}
+
+.sub {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.aneis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.anel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* O anel é um conic-gradient: sem SVG, sem biblioteca, e reflete 0..1 direto. */
+.arco {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: conic-gradient(var(--cor) calc(var(--pct) * 1%), #26262c 0);
+  position: relative;
+}
+
+.arco::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+.anel-txt {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.anel-id {
+  max-width: 78px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.anel-pct {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.vazio {
+  margin: 2px 0 0;
+  color: var(--muted);
+}
+
+.hidden {
+  display: none !important;
+}

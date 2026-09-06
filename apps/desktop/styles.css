@@ -466,6 +466,56 @@ body[data-side-mini="1"] .side .ico-only {
   padding: 4px 10px;
 }
 
+/* Pasta dos passos de um run. O li perde o flex do irmão pra caber o details. */
+.repo li.run-group-li {
+  display: block;
+  padding: 0;
+}
+
+.run-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  list-style: none;
+}
+
+.run-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.run-group > summary::before {
+  content: "▸";
+  flex: 0 0 auto;
+  font-size: 9px;
+  transition: transform 0.12s;
+}
+
+.run-group[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.run-group > summary:hover {
+  color: var(--text);
+}
+
+.run-group > summary .stub-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-group > ul {
+  margin: 0 0 2px 12px;
+  padding: 0;
+  border-left: 1px solid var(--line);
+}
+
 .repo li {
   display: flex;
   align-items: center;

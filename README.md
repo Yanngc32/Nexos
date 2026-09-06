@@ -108,6 +108,13 @@ git branch -D nexo/<run>/1-<ag>     # descartar
 Projeto que não é repositório git roda igual, mas sem isolamento: os membros paralelos dividem a
 mesma pasta e vão se atropelar se escreverem arquivo. O run registra isso, e a tela avisa.
 
+## Painel flutuante
+
+`Ctrl+Shift+W`, o botão **Painel** no rodapé ou a bandeja abrem uma janela pequena que fica sempre
+por cima: passo do run em andamento, conversas trabalhando, quota por conta e custo acumulado. Ela
+existe pra responder "está andando?" sem trazer o Nexo pra frente — um time roda por minutos
+enquanto você está no editor. Arraste pela faixa do título; ela reabre onde estava.
+
 ## Segurança
 
 - O daemon só escuta em `127.0.0.1`. Toda rota `/v1/*` exige `Authorization: Bearer <token>`,

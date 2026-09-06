@@ -12,7 +12,15 @@ function nowIso(): string {
 export type CreatedThread = { id: string };
 
 export function createThread(
-  input: { projectPath: string; profileId: string; title?: string; agentId?: string },
+  input: {
+    projectPath: string;
+    profileId: string;
+    title?: string;
+    agentId?: string;
+    runId?: string;
+    runStep?: number;
+    runTitle?: string;
+  },
   home: string,
 ): CreatedThread {
   ensureHome(home);
@@ -27,6 +35,9 @@ export function createThread(
     profileId: input.profileId,
     ...(input.title ? { title: input.title } : {}),
     ...(input.agentId ? { agentId: input.agentId } : {}),
+    ...(input.runId ? { runId: input.runId } : {}),
+    ...(input.runStep === undefined ? {} : { runStep: input.runStep }),
+    ...(input.runTitle ? { runTitle: input.runTitle } : {}),
   };
   appendEvent(meta, home);
   return { id };
@@ -61,6 +72,10 @@ export type ThreadHead = {
   updatedAt: string;
   /** Agente personalizado da conversa, quando ela nasceu de um. */
   agentId?: string;
+  /** Run de time que criou esta conversa; a lista agrupa os passos por ele. */
+  runId?: string;
+  runStep?: number;
+  runTitle?: string;
 };
 
 /** Cabeçalho de uma conversa só. `undefined` = arquivo ilegível ou sem meta. */
@@ -79,10 +94,19 @@ export function threadHead(id: string, home: string): ThreadHead | undefined {
     id,
     projectPath: meta.projectPath,
     profileId: activeProfileId(events),
+    /*
+     * Título posto na criação ganha do primeiro pedido. Vale pros passos de
+     * time: o pedido deles é o bloco inteiro de instruções, e mostrá-lo deixava
+     * a lista com várias linhas idênticas começando em "# Objetivo do time".
+     */
     preview:
-      firstUser && firstUser.type === "user" ? firstUser.text.replace(/\s+/g, " ").slice(0, 72) : "Conversa nova",
+      meta.title ||
+      (firstUser && firstUser.type === "user" ? firstUser.text.replace(/\s+/g, " ").slice(0, 72) : "Conversa nova"),
     updatedAt: last?.ts ?? meta.ts,
     ...(meta.agentId ? { agentId: meta.agentId } : {}),
+    ...(meta.runId ? { runId: meta.runId } : {}),
+    ...(meta.runStep === undefined ? {} : { runStep: meta.runStep }),
+    ...(meta.runTitle ? { runTitle: meta.runTitle } : {}),
   };
 }
 

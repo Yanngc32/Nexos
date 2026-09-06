@@ -5,6 +5,7 @@ import { aplicarNoRetrato } from "./agent-events.js";
 import { createAgentStudio } from "./agent-studio.js";
 import { createTeamStudio } from "./team-studio.js";
 import { lerEventos } from "./sse.js";
+import { agruparConversas } from "./thread-groups.js";
 import { escapeHtml, renderMd } from "./markdown.js";
 import {
   ago,
@@ -68,6 +69,8 @@ const state = {
   repos: [],
   hiddenRepos: new Set(),
   reposOpen: new Set(),
+  /** Grupos de run abertos na lista. Só em memória: é estado da sessão, não preferência. */
+  runsOpen: new Set(),
   threadsByRepo: {},
   setPanel: "aparencia",
   fileCache: null,
@@ -1883,7 +1886,8 @@ function renderRepoTree() {
       dot.title = "Agente trabalhando neste repositório";
       sum.insertBefore(dot, forget);
     }
-    for (const t of list) {
+    /** Uma linha de conversa. Serve solta na lista e dentro do grupo de um run. */
+    const linhaDeConversa = (t) => {
       const li = document.createElement("li");
       li.dataset.on = t.id === state.threadId ? "1" : "0";
       const busy = isBusy(t);
@@ -1913,7 +1917,49 @@ function renderRepoTree() {
         li.prepend(dot);
       }
       li.addEventListener("click", () => void openThreadInRepo(path, t.id));
-      ul.append(li);
+      return li;
+    };
+
+    /**
+     * Passos de um run entram numa pasta só. Soltos, um time de dez passos
+     * afogava a lista e empurrava pra baixo a conversa que a pessoa estava
+     * usando. Fechada por padrão: o interesse ali é o resultado, não cada passo.
+     */
+    const grupoDeRun = (g) => {
+      const sub = document.createElement("details");
+      sub.className = "run-group";
+      sub.open = state.runsOpen.has(g.runId);
+      sub.addEventListener("toggle", () => {
+        if (sub.open) state.runsOpen.add(g.runId);
+        else state.runsOpen.delete(g.runId);
+      });
+      const cab = document.createElement("summary");
+      const nome = document.createElement("span");
+      nome.className = "stub-title";
+      nome.textContent = g.titulo;
+      cab.title = g.titulo;
+      const quantos = document.createElement("span");
+      quantos.className = "stub-meta";
+      quantos.textContent = `${g.threads.length} passos`;
+      cab.append(nome, quantos);
+      // fechado, o ponto sobe pro cabeçalho pra atividade não sumir da lista
+      if (g.threads.some(isBusy)) {
+        const dot = document.createElement("span");
+        dot.className = "run-dot";
+        dot.title = "Um passo deste time está trabalhando";
+        cab.prepend(dot);
+      }
+      const dentro = document.createElement("ul");
+      for (const t of g.threads) dentro.append(linhaDeConversa(t));
+      sub.append(cab, dentro);
+      const li = document.createElement("li");
+      li.className = "run-group-li";
+      li.append(sub);
+      return li;
+    };
+
+    for (const item of agruparConversas(list)) {
+      ul.append(item.tipo === "run" ? grupoDeRun(item) : linhaDeConversa(item.thread));
     }
     det.append(sum, ul);
     tree.append(det);
@@ -3052,6 +3098,7 @@ document.addEventListener("click", (e) => {
 });
 
 $("btn-focus").addEventListener("click", () => setFocus(document.body.dataset.focus !== "1"));
+$("btn-widget").addEventListener("click", () => void window.nexo.toggleWidget());
 $("btn-focus-exit").addEventListener("click", () => setFocus(false));
 $("btn-file-preview").addEventListener("click", () => setFilePreview($("file-split").dataset.preview === "0"));
 $("btn-browser-retry").addEventListener("click", reiniciarBrowser);
