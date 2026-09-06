@@ -24,6 +24,19 @@ export function aplicarEventoDeRun(run, ev) {
       run.status = "running";
       return true;
 
+    /**
+     * Passo que nasceu no meio do run: só o supervisor produz isso, porque só
+     * nele a lista não sai pronta do daemon. Anexar pelo índice do próprio
+     * evento — e não empurrar no fim — mantém o array alinhado com o do daemon
+     * mesmo se um evento chegar fora de ordem.
+     */
+    case "step_add": {
+      if (!ev.step || !run.steps) return false;
+      if (run.steps[ev.step.index]) return false;
+      run.steps[ev.step.index] = ev.step;
+      return true;
+    }
+
     case "step_start": {
       const passo = run.steps?.[ev.index];
       if (!passo) return false;

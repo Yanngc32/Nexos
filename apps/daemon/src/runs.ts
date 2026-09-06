@@ -13,6 +13,16 @@ import { getAgent } from "./agents.ts";
 import { runDir, runsRoot } from "./home.ts";
 import { newRunId } from "./ids.ts";
 import { abortThread, getLive, postMessage } from "./session.ts";
+import {
+  lerDecisao,
+  listarDisponiveis,
+  pedidoDeCorrecao,
+  pedidoDeFalha,
+  pedidoDeVolta,
+  pedidoInicial,
+  type Decisao,
+  type Disponivel,
+} from "./supervisor.ts";
 import { getTeam } from "./teams.ts";
 import { createThread, readThread, threadUsage } from "./threads.ts";
 import { commitarTrabalho, criarWorktree, nomeDoBranch, podeIsolar, removerWorktree, temMudanca } from "./worktree.ts";
@@ -22,8 +32,8 @@ import { commitarTrabalho, criarWorktree, nomeDoBranch, podeIsolar, removerWorkt
  *
  * O daemon orquestra de FORA: cria a conversa do membro, manda o pedido, espera
  * o turno fechar, lê a saída final e alimenta o próximo. Nada disso exige canal
- * de volta nem ferramenta nova no motor — é por isso que o pipeline vem antes do
- * supervisor, que precisaria decidir quem age no meio do turno.
+ * de volta nem ferramenta nova no motor — vale inclusive pro supervisor, que
+ * responde a ordem em texto e tem o daemon executando por ele.
  *
  * O que passa entre membros é ARTEFATO, não transcrição: cada passo grava a
  * saída inteira num arquivo do run e o seguinte recebe um trecho no pedido mais
@@ -97,6 +107,11 @@ export function runAtivo(id: string): boolean {
   return vivos.has(id);
 }
 
+/** Alguém pediu pra parar? O run some de `vivos` só quando termina de verdade. */
+function abortado(id: string): boolean {
+  return vivos.get(id)?.abortado === true;
+}
+
 function texto(value: unknown, campo: string, max: number): string {
   if (typeof value !== "string") throw badRequest(`${campo} inválido`);
   const t = value.trim();
@@ -133,6 +148,13 @@ export function criarRun(input: StartRunInput, home: string): Run {
     if (!getAgent(m.agentId, home)) throw badRequest(`agente não existe: ${m.agentId}`);
   }
 
+  /**
+   * No supervisor a lista de passos NÃO sai pronta: quem trabalha, e quantas
+   * vezes, é ele que decide durante o run. O único passo conhecido de antemão é
+   * o dele, e os demais são anexados conforme ele chama (evento `step_add`).
+   */
+  const membros = time.topology === "supervisor" ? time.members.slice(0, 1) : time.members;
+
   const run: Run = {
     id: newRunId(),
     teamId,
@@ -140,10 +162,11 @@ export function criarRun(input: StartRunInput, home: string): Run {
     goal,
     status: "running",
     createdAt: nowIso(),
-    steps: time.members.map((m, index) => ({
+    steps: membros.map((m, index) => ({
       index,
       agentId: m.agentId,
       ...(m.papel ? { papel: m.papel } : {}),
+      ...(time.topology === "supervisor" ? { supervisor: true as const } : {}),
       status: "pending" as const,
     })),
   };
@@ -177,8 +200,12 @@ function motivoDoFim(threadId: string, home: string): string {
   return "turno não terminou";
 }
 
-/** O que um passo produziu, pronto pra virar entrada de outro. */
-type Entrada = { agentId: string; papel?: string; texto: string; arquivo: string };
+/**
+ * O que um passo produziu, pronto pra virar entrada de outro. O supervisor usa
+ * a mesma estrutura pro pedido que ele mesmo escreve — daí `arquivo` poder vir
+ * vazio (não há artefato de uma ordem) e `titulo` poder trocar o rótulo.
+ */
+type Entrada = { agentId: string; papel?: string; texto: string; arquivo: string; titulo?: string };
 
 /**
  * Pedido de um membro: objetivo do run, o papel dele e o que veio antes.
@@ -193,7 +220,8 @@ function montarPedido(run: Run, step: RunStep, entradas: Entrada[]): string {
   const partes = [`# Objetivo do time\n${run.goal}`];
   if (step.papel) partes.push(`# Seu papel\n${step.papel}`);
   if (entradas.length === 1) {
-    partes.push(blocoDeEntrada(entradas[0] as Entrada, "Entrada (saída do passo anterior)"));
+    const unica = entradas[0] as Entrada;
+    partes.push(blocoDeEntrada(unica, unica.titulo ?? "Entrada (saída do passo anterior)"));
   } else if (entradas.length > 1) {
     partes.push(`# Entradas (${entradas.length} membros trabalharam em paralelo)`);
     for (const e of entradas) {
@@ -207,8 +235,9 @@ function blocoDeEntrada(e: Entrada, titulo: string): string {
   const cortado = e.texto.length > TRECHO_CHARS;
   return (
     `${titulo}\n${e.texto.slice(0, TRECHO_CHARS)}` +
-    (cortado ? `\n\n[cortado — o texto inteiro está em ${e.arquivo}]` : "") +
-    `\n\nArquivo com a entrada completa: ${e.arquivo}`
+    // sem artefato (pedido do supervisor) não há caminho pra apontar
+    (cortado && e.arquivo ? `\n\n[cortado — o texto inteiro está em ${e.arquivo}]` : "") +
+    (e.arquivo ? `\n\nArquivo com a entrada completa: ${e.arquivo}` : "")
   );
 }
 
@@ -324,9 +353,9 @@ async function rodarPipeline(run: Run, teto: number, home: string): Promise<void
 /**
  * Fan-in: todos menos o último ao mesmo tempo, o último junta.
  *
- * Os paralelos rodam no MESMO diretório do projeto. Enquanto não houver
- * isolamento por worktree, membro que escreve arquivo sobrescreve o vizinho —
- * a topologia serve pra trabalho de leitura (analisar, revisar, pesquisar).
+ * Cada paralelo ganha uma árvore de trabalho própria quando o projeto é
+ * repositório git (ver `prepararArvores`). Sem git eles dividem a pasta e quem
+ * escreve arquivo sobrescreve o vizinho — o run registra isso em `isolationOff`.
  *
  * Falha de um paralelo não cancela os outros: eles já estão em voo e a quota já
  * foi gasta. Deixa terminar, e só então o agregador é pulado.
@@ -366,6 +395,188 @@ async function rodarFanIn(run: Run, teto: number, home: string): Promise<void> {
   }
 }
 
+
+/* ---------- supervisor ---------- */
+
+/** Anexa um passo que nasceu no meio do run. Só o supervisor produz isso. */
+function anexarPasso(run: Run, agentId: string, papel: string | undefined, home: string): RunStep {
+  const step: RunStep = {
+    index: run.steps.length,
+    agentId,
+    ...(papel ? { papel } : {}),
+    status: "pending",
+  };
+  run.steps.push(step);
+  saveRun(run, home);
+  emit(run, { type: "step_add", runId: run.id, step });
+  return step;
+}
+
+/**
+ * Um turno do supervisor, na conversa dele. A conversa é a MESMA do começo ao
+ * fim: é o que faz ele lembrar do que já mandou fazer sem o daemon reenviar o
+ * histórico a cada decisão.
+ *
+ * O uso é relido inteiro a cada turno porque `threadUsage` soma a conversa —
+ * então `costUsd` do passo do supervisor é o acumulado das decisões, não o da
+ * última.
+ */
+async function turnoDoSupervisor(run: Run, step: RunStep, pedido: string, home: string): Promise<string | null> {
+  try {
+    await postMessage(step.threadId as string, pedido, home);
+  } catch (e) {
+    step.error = (e as Error).message || "falhou ao pedir a decisão";
+    return null;
+  }
+  const uso = threadUsage(step.threadId as string, home);
+  step.costUsd = uso.costUsd;
+  step.tokens = uso.input + uso.output;
+  step.decisoes = (step.decisoes ?? 0) + 1;
+  saveRun(run, home);
+  if (getLive(step.threadId as string)?.lastTerminal !== "done") {
+    step.error = motivoDoFim(step.threadId as string, home);
+    return null;
+  }
+  return saidaDaThread(step.threadId as string, home);
+}
+
+/**
+ * Pede uma decisão e insiste UMA vez se a resposta não der pra usar.
+ *
+ * Uma, e não zero: modelo que devolve o JSON dentro de uma explicação é comum, e
+ * derrubar o run inteiro por formatação desperdiçaria tudo que já foi gasto.
+ * Uma, e não N: se ele não acerta com o pedido de correção na mão, insistir só
+ * queima quota — a decisão do que fazer volta pra quem está olhando.
+ */
+async function pedirDecisao(
+  run: Run,
+  step: RunStep,
+  pedido: string,
+  membros: Disponivel[],
+  home: string,
+): Promise<{ ok: true; d: Decisao } | { ok: false; motivo: string }> {
+  let texto = await turnoDoSupervisor(run, step, pedido, home);
+  if (texto === null) return { ok: false, motivo: step.error ?? "o supervisor não respondeu" };
+  let lido = lerDecisao(texto, membros);
+  if (lido.ok) return lido;
+
+  texto = await turnoDoSupervisor(run, step, pedidoDeCorrecao(lido.erro), home);
+  if (texto === null) return { ok: false, motivo: step.error ?? "o supervisor não respondeu" };
+  lido = lerDecisao(texto, membros);
+  if (lido.ok) return lido;
+  return { ok: false, motivo: `o supervisor não respondeu no formato: ${lido.erro}` };
+}
+
+/**
+ * Supervisor: o primeiro membro decide quem trabalha, um de cada vez, até
+ * encerrar.
+ *
+ * Diferente das outras topologias, o teto de passos aqui é a única coisa entre
+ * um objetivo mal escrito e um laço que gira gastando quota — o supervisor pode
+ * chamar o mesmo membro pra sempre. Por isso ele vê quantas chamadas restam, e
+ * o run para no teto mesmo que ele não queira parar.
+ *
+ * Falha de membro NÃO derruba o run: quem decide o que fazer com ela é o
+ * supervisor, que é justamente quem tem contexto pra isso. É o oposto do
+ * pipeline, onde não há ninguém pra decidir e seguir seria produzir sobre nada.
+ */
+async function rodarSupervisor(run: Run, teto: number, home: string): Promise<void> {
+  const chefe = run.steps[0];
+  const time = getTeam(run.teamId, home);
+  if (!chefe || !time) return;
+
+  const equipe = time.members.slice(1);
+  const membros = listarDisponiveis(
+    equipe.map((m) => getAgent(m.agentId, home)),
+    equipe.map((m) => m.papel),
+  );
+  if (!membros.length) {
+    falharPasso(run, chefe, "o time não tem ninguém pro supervisor chamar", home);
+    run.status = "error";
+    run.error = chefe.error;
+    return;
+  }
+
+  const agente = getAgent(chefe.agentId, home);
+  if (!agente) {
+    falharPasso(run, chefe, `agente não existe: ${chefe.agentId}`, home);
+    run.status = "error";
+    run.error = chefe.error;
+    return;
+  }
+
+  const { id: threadId } = createThread(
+    { projectPath: run.projectPath, profileId: agente.profileId, agentId: agente.id },
+    home,
+  );
+  chefe.threadId = threadId;
+  chefe.status = "running";
+  chefe.startedAt = nowIso();
+  saveRun(run, home);
+  emit(run, { type: "step_start", runId: run.id, index: 0, agentId: chefe.agentId, threadId });
+
+  const restam = (): number => Math.max(0, teto - run.steps.length);
+  let pedido = pedidoInicial(run.goal, chefe.papel, membros, restam());
+
+  for (;;) {
+    const parar = motivoDeParar(run, run.steps.length, teto);
+    if (parar) return fecharSupervisor(run, chefe, parar, home);
+
+    const decisao = await pedirDecisao(run, chefe, pedido, membros, home);
+    if (!decisao.ok) {
+      // abort derruba o turno em voo, e a resposta truncada chega aqui como
+      // erro de formato: o motivo verdadeiro é o abort, não o JSON quebrado
+      return fecharSupervisor(run, chefe, abortado(run.id) ? "abortado" : decisao.motivo, home);
+    }
+
+    const d = decisao.d;
+    if (d.acao === "encerrar") {
+      chefe.artifact = gravarArtefato(run, chefe, d.resumo, home);
+      chefe.outputChars = d.resumo.length;
+      chefe.status = "done";
+      chefe.endedAt = nowIso();
+      // O supervisor decidir seguir depois de um membro falhar é trabalho dele,
+      // não sobra de erro: o run fecha em `done` mesmo com passo `error` no meio.
+      run.status = "done";
+      saveRun(run, home);
+      emit(run, { type: "step_done", runId: run.id, index: 0, step: chefe });
+      return;
+    }
+
+    const alvo = equipe.find((m) => m.agentId === d.membro);
+    const step = anexarPasso(run, d.membro, alvo?.papel, home);
+    const ordem: Entrada = {
+      agentId: chefe.agentId,
+      texto: d.pedido,
+      arquivo: "",
+      titulo: "# Pedido do supervisor",
+    };
+    const saida = await executarPasso(run, step, [ordem], home);
+    pedido = saida
+      ? pedidoDeVolta(step.agentId, saida.texto, saida.arquivo, restam(), TRECHO_CHARS)
+      : pedidoDeFalha(step.agentId, step.error ?? "falhou sem motivo", restam());
+  }
+}
+
+/**
+ * Fecha o passo do supervisor quando o run parou por fora da vontade dele —
+ * teto, orçamento, abort ou resposta inutilizável. `pararRun` não serve aqui:
+ * ele marca o passo como `skipped`, e o supervisor rodou.
+ */
+function fecharSupervisor(run: Run, chefe: RunStep, motivo: string, home: string): void {
+  chefe.endedAt = nowIso();
+  if (motivo === "abortado") {
+    chefe.status = "done";
+    run.status = "aborted";
+  } else {
+    chefe.status = "error";
+    chefe.error = motivo;
+    run.status = "error";
+    run.error = motivo;
+  }
+  saveRun(run, home);
+  emit(run, { type: "step_done", runId: run.id, index: chefe.index, step: chefe });
+}
 
 /**
  * Uma árvore de trabalho por membro paralelo.
@@ -449,6 +660,7 @@ export async function executarRun(run: Run, home: string): Promise<Run> {
 
   try {
     if (time?.topology === "fanin") await rodarFanIn(run, teto, home);
+    else if (time?.topology === "supervisor") await rodarSupervisor(run, teto, home);
     else await rodarPipeline(run, teto, home);
 
     if (run.status === "running") {

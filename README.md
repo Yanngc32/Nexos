@@ -3,8 +3,8 @@
 Orquestrador local de agentes de código. Um daemon roda em `127.0.0.1`, fala com CLIs de
 agente já instaladas na máquina (Claude Code, Codex) ou com API, e um app Electron serve
 de interface: chat, árvore de arquivos, terminal, preview, gestão de serviços do projeto,
-criação de agentes com bancada de teste e times que rodam esses agentes em sequência ou em
-paralelo.
+criação de agentes com bancada de teste e times que rodam esses agentes em sequência, em
+paralelo ou sob um supervisor que decide quem trabalha.
 
 Tudo é local: nenhum dado sai da máquina além do que a própria CLI do agente já manda pro
 provedor dela.
@@ -78,6 +78,19 @@ Tudo fica em `~/.nexo` (ou `NEXO_HOME`):
 | `run/` | PIDs do daemon e dos motores |
 
 Nada disso está no repositório — e não deve ser commitado.
+
+### Como um time trabalha
+
+| topologia | quem roda | pra quê |
+| --- | --- | --- |
+| sequência | um por vez, a saída de um vira a entrada do próximo | escrever e depois revisar |
+| paralelo | todos menos o último ao mesmo tempo; o último junta | várias leituras independentes do mesmo código |
+| supervisor | o primeiro decide quem chamar, uma rodada por vez, até encerrar | trabalho cujo caminho não dá pra escrever antes |
+
+O supervisor não age no meio do turno dele: ele responde a ordem em texto, o daemon executa e
+volta com o resultado no turno seguinte da mesma conversa. Isso custa **um turno por decisão** e
+o número de rodadas é ele quem escolhe — use `maxSteps` no orçamento do run pra fechar a conta.
+Em compensação roda em qualquer motor, inclusive nos que não falam MCP.
 
 ### O que o Nexo escreve no SEU repositório
 

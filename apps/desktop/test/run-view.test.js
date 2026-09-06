@@ -180,3 +180,46 @@ describe("rotuloDoPasso", () => {
     expect(rotuloDoPasso(undefined)).toBe("na fila");
   });
 });
+
+describe("passo que nasce no meio do run (supervisor)", () => {
+  function supervisor() {
+    return {
+      id: "r-1",
+      status: "running",
+      createdAt: iso(0),
+      steps: [{ index: 0, agentId: "chefe", status: "running", supervisor: true }],
+    };
+  }
+
+  it("step_add anexa o passo que o daemon acabou de criar", () => {
+    const r = supervisor();
+    const novo = { index: 1, agentId: "a2", status: "pending" };
+    expect(aplicarEventoDeRun(r, { type: "step_add", runId: "r-1", step: novo })).toBe(true);
+    expect(r.steps).toHaveLength(2);
+    expect(r.steps[1]).toEqual(novo);
+  });
+
+  it("step_add repetido não duplica nem sobrescreve o que já andou", () => {
+    const r = supervisor();
+    aplicarEventoDeRun(r, { type: "step_add", runId: "r-1", step: { index: 1, agentId: "a2", status: "pending" } });
+    aplicarEventoDeRun(r, { type: "step_start", runId: "r-1", index: 1, threadId: "t-2" });
+    expect(aplicarEventoDeRun(r, { type: "step_add", runId: "r-1", step: { index: 1, agentId: "a2", status: "pending" } })).toBe(
+      false,
+    );
+    expect(r.steps[1].status).toBe("running");
+  });
+
+  it("step_add de outro run é ignorado", () => {
+    const r = supervisor();
+    expect(aplicarEventoDeRun(r, { type: "step_add", runId: "r-9", step: { index: 1, agentId: "x", status: "pending" } })).toBe(
+      false,
+    );
+    expect(r.steps).toHaveLength(1);
+  });
+
+  it("o supervisor conta no resumo como qualquer passo", () => {
+    const r = supervisor();
+    aplicarEventoDeRun(r, { type: "step_add", runId: "r-1", step: { index: 1, agentId: "a2", status: "done", tokens: 10 } });
+    expect(resumoDoRun(r, T0 + 1000)).toMatchObject({ total: 2, concluidos: 1, tokens: 10 });
+  });
+});

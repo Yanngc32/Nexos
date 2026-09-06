@@ -322,19 +322,21 @@ export type TeamMember = {
  * `fanin`: todos menos o último rodam AO MESMO TEMPO, e o último recebe a saída
  * de todos pra juntar. Quem agrega é o último da lista — a ordem continua sendo
  * a semântica, como no pipeline.
+ * `supervisor`: o PRIMEIRO da lista não trabalha — ele decide, a cada rodada,
+ * qual dos outros chamar e com que pedido, até dizer que acabou. A ordem dos
+ * demais não importa aqui: quem escolhe é ele.
  *
- * As duas o daemon executa de fora, sem exigir nada do motor. Supervisor (um
- * membro decidindo quem age no meio do turno) precisaria de canal de volta e
- * fica pra quando existir.
+ * As três o daemon executa de fora, sem exigir nada do motor: o supervisor
+ * responde a ordem em texto e o daemon é quem a executa, no turno seguinte da
+ * mesma conversa. Custa um turno por decisão e roda em qualquer motor.
  *
- * ATENÇÃO no `fanin`: os membros paralelos rodam no MESMO diretório do projeto,
- * ao mesmo tempo. Enquanto não houver isolamento por worktree, um time de
- * fan-in com membros que ESCREVEM arquivo vai ter um sobrescrevendo o outro.
- * Para leitura — analisar, revisar, pesquisar — é seguro, e é pra isso que ele
- * serve hoje.
+ * No `fanin` os paralelos ganham árvore de trabalho própria (`git worktree`)
+ * quando o projeto é repositório git; sem git eles dividem a mesma pasta e um
+ * sobrescreve o outro. No `supervisor` isso não aparece: ele chama um membro de
+ * cada vez, e todos trabalham na pasta do projeto.
  */
-export type TeamTopology = "pipeline" | "fanin";
-export const TEAM_TOPOLOGIES: TeamTopology[] = ["pipeline", "fanin"];
+export type TeamTopology = "pipeline" | "fanin" | "supervisor";
+export const TEAM_TOPOLOGIES: TeamTopology[] = ["pipeline", "fanin", "supervisor"];
 
 export type TeamDef = {
   id: string;
@@ -377,6 +379,14 @@ export type RunStep = {
   costUsd?: number;
   tokens?: number;
   error?: string;
+  /**
+   * Passo que DECIDE em vez de trabalhar (topologia `supervisor`). Fica aberto o
+   * run inteiro, numa conversa só, e o custo dele é a soma das decisões — por
+   * isso a tela precisa saber que ele não é um passo comum.
+   */
+  supervisor?: true;
+  /** Quantas decisões esse supervisor já tomou. */
+  decisoes?: number;
 };
 
 export type RunStatus = "running" | "done" | "error" | "aborted";
@@ -412,6 +422,12 @@ export type Run = {
 
 export type RunEvent =
   | { type: "run_start"; runId: string; teamId: string }
+  /**
+   * Passo que nasceu no meio do run. Só o `supervisor` produz isso: nas outras
+   * topologias a lista de passos já sai pronta do `criarRun`, e a tela pode
+   * confiar no índice. Vem antes do `step_start` do mesmo índice.
+   */
+  | { type: "step_add"; runId: string; step: RunStep }
   | { type: "step_start"; runId: string; index: number; agentId: string; threadId: string }
   | { type: "step_done"; runId: string; index: number; step: RunStep }
   | { type: "run_end"; runId: string; status: RunStatus; error?: string };

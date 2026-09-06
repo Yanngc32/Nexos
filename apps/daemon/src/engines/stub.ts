@@ -8,6 +8,15 @@ export class StubEngine implements Engine {
   private handler?: EngineHandler;
   private aborted = false;
   private finished = false;
+  /**
+   * Falas roteirizadas, na ordem. Toda linha `STUB:<texto>` que chegar num
+   * pedido entra nesta fila e sai como resposta de um turno seguinte.
+   *
+   * Existe pro supervisor: ele precisa de respostas DIFERENTES em turnos
+   * seguidos da mesma conversa (chamar fulano, depois encerrar), e o eco não dá
+   * isso. A fila é por instância do motor, então cada conversa tem a sua.
+   */
+  private roteiro: string[] = [];
 
   constructor(readonly cwd: string) {
     this.lastCwd = cwd;
@@ -23,6 +32,15 @@ export class StubEngine implements Engine {
   async send(text: string): Promise<void> {
     this.lastSend = text;
     if (this.aborted || !this.handler) return;
+    for (const linha of text.split("\n")) {
+      if (linha.startsWith("STUB:")) this.roteiro.push(linha.slice(5).trim());
+    }
+    const roteirizada = this.roteiro.shift();
+    if (roteirizada !== undefined) {
+      this.handler({ type: "text", text: roteirizada });
+      this.handler({ type: "done" });
+      return;
+    }
     if (text === "QUOTA") {
       this.handler({ type: "quota" });
       return;

@@ -70,8 +70,15 @@ describe("times", () => {
   it("recusa topologia que não existe", () => {
     const home = base();
     expect(() =>
-      saveTeam({ id: "t", name: "T", topology: "supervisor", members: [{ agentId: "escritor" }] }, home),
+      saveTeam({ id: "t", name: "T", topology: "democracia", members: [{ agentId: "escritor" }] }, home),
     ).toThrow(/topologia inválida/);
+  });
+
+  it("supervisor sozinho é recusado: ele não trabalha, chama", () => {
+    const home = base();
+    expect(() =>
+      saveTeam({ id: "t", name: "T", topology: "supervisor", members: [{ agentId: "escritor" }] }, home),
+    ).toThrow(/pelo menos um membro além dele/);
   });
 
   it("recusa id fora do formato e nome vazio", () => {

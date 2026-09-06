@@ -108,6 +108,11 @@ export function saveTeam(input: TeamInput, home: string): TeamDef {
   const topology = input.topology === undefined ? (atual?.topology ?? "pipeline") : limparTopologia(input.topology);
   const members = input.members === undefined ? atual?.members : limparMembros(input.members, home);
   if (!members?.length) throw badRequest("time precisa de pelo menos um membro");
+  // O supervisor não trabalha, chama: sozinho ele não teria ninguém pra chamar
+  // e o run morreria no primeiro turno, depois de já ter gasto ele.
+  if (topology === "supervisor" && members.length < 2) {
+    throw badRequest("supervisor precisa de pelo menos um membro além dele");
+  }
 
   const def: TeamDef = {
     id,

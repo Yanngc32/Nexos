@@ -444,3 +444,168 @@ describe("isolamento no fan-in", () => {
     expect(metaJunta).toMatchObject({ type: "thread_meta", projectPath: projeto });
   });
 });
+
+/*
+ * O supervisor precisa responder DIFERENTE em turnos seguidos da mesma conversa
+ * — chamar fulano, depois encerrar — e o eco do stub não dá isso. As linhas
+ * `STUB:` no objetivo viram a fila de falas daquele motor (ver stub.ts): cada
+ * conversa nova captura a fila do pedido que recebe, então o supervisor consome
+ * o roteiro na ordem e cada membro consome uma cópia, sem atrapalhar.
+ */
+describe("supervisor", () => {
+  function timeSup(membros: Array<{ agentId: string; papel?: string }>, home: string) {
+    return saveTeam({ id: "t", name: "T", topology: "supervisor", members: membros }, home);
+  }
+
+  const chamar = (membro: string, pedido = "faz isso") =>
+    `STUB:{"acao":"chamar","membro":"${membro}","pedido":"${pedido}"}`;
+  const encerrar = (resumo = "acabou") => `STUB:{"acao":"encerrar","resumo":"${resumo}"}`;
+
+  function roteiro(...falas: string[]): string {
+    return ["objetivo do time", ...falas].join("\n");
+  }
+
+  it("chama quem ele escolheu e encerra quando quer", async () => {
+    const home = base();
+    timeSup([{ agentId: "a1" }, { agentId: "a2" }], home);
+    const run = await rodar(home, roteiro(chamar("a2"), encerrar("relatório final")));
+    expect(run.status).toBe("done");
+    expect(run.steps.map((s) => [s.agentId, s.status])).toEqual([
+      ["a1", "done"],
+      ["a2", "done"],
+    ]);
+    expect(run.steps[0]?.supervisor).toBe(true);
+    expect(readFileSync(run.steps[0]!.artifact!, "utf8")).toBe("relatório final");
+  });
+
+  it("o run nasce só com o passo do supervisor: os outros ele decide durante", () => {
+    const home = base();
+    timeSup([{ agentId: "a1" }, { agentId: "a2" }], home);
+    const run = criarRun({ teamId: "t", projectPath: "/p", goal: "x" }, home);
+    expect(run.steps).toHaveLength(1);
+    expect(run.steps[0]?.agentId).toBe("a1");
+  });
+
+  it("o pedido do supervisor chega no membro, junto do objetivo", async () => {
+    const home = base();
+    timeSup([{ agentId: "a1" }, { agentId: "a2" }], home);
+    const run = await rodar(home, roteiro(chamar("a2", "lê o config"), encerrar()));
+    const recebido = readThread(run.steps[1]!.threadId!, home).find((e) => e.type === "user") as {
+      text: string;
+    };
+    expect(recebido.text).toContain("# Objetivo do time");
+    expect(recebido.text).toContain("# Pedido do supervisor");
+    expect(recebido.text).toContain("lê o config");
+    // pedido do supervisor não tem artefato: não pode apontar pra arquivo nenhum
+    expect(recebido.text).not.toContain("Arquivo com a entrada completa");
+  });
+
+  it("o supervisor vê a lista de quem pode chamar, com papel", async () => {
+    const home = base();
+    timeSup([{ agentId: "a1" }, { agentId: "a2", papel: "olha o banco" }], home);
+    const run = await rodar(home, roteiro(encerrar()));
+    const pedido = readThread(run.steps[0]!.threadId!, home).find((e) => e.type === "user");
+    expect(pedido).toMatchObject({ text: expect.stringContaining("- a2 — A2: olha o banco") });
+    // ele mesmo não está na lista: supervisor que se chama vira laço
+    expect((pedido as { text: string }).text).not.toContain("- a1 —");
+  });
+
+  it("o resultado do membro volta pro supervisor na MESMA conversa", async () => {
+    const home = base();
+    timeSup([{ agentId: "a1" }, { agentId: "a2" }], home);
+    const run = await rodar(home, roteiro(chamar("a2"), encerrar()));
+    const falas = readThread(run.steps[0]!.threadId!, home).filter((e) => e.type === "user");
+    expect(falas).toHaveLength(2);
+    expect((falas[1] as { text: string }).text).toContain("# Resultado de a2");
+    // o segundo pedido não repete o objetivo: a conversa é a mesma, isso seria pago duas vezes
+    expect((falas[1] as { text: string }).text).not.toContain("# Objetivo do time");
+  });
+
+  it("o custo do supervisor é o acumulado das decisões, não o da última", async () => {
+    const home = base();
+    timeSup([{ agentId: "a1" }, { agentId: "a2" }], home);
+    const run = await rodar(home, roteiro(chamar("a2"), chamar("a2"), encerrar()));
+    expect(run.steps[0]?.decisoes).toBe(3);
+    expect(run.steps).toHaveLength(3);
+  });
+
+  it("resposta fora do formato ganha UMA correção, e a segunda derruba o run", async () => {
+    const home = base();
+    timeSup([{ agentId: "a1" }, { agentId: "a2" }], home);
+    const run = await rodar(home, roteiro("STUB:não vou responder em JSON", "STUB:continuo sem JSON"));
+    expect(run.status).toBe("error");
+    expect(run.error).toMatch(/não respondeu no formato/);
+    expect(run.steps[0]?.decisoes).toBe(2);
+  });
+
+  it("uma correção basta: JSON no meio de texto é aceito", async () => {
+    const home = base();
+    timeSup([{ agentId: "a1" }, { agentId: "a2" }], home);
+    const run = await rodar(home, roteiro(`STUB:claro! {"acao":"encerrar","resumo":"ok"} espero ter ajudado`));
+    expect(run.status).toBe("done");
+    expect(run.steps[0]?.decisoes).toBe(1);
+  });
+
+  it("membro fora do time é recusado em vez de adivinhado", async () => {
+    const home = base();
+    timeSup([{ agentId: "a1" }, { agentId: "a2" }], home);
+    const run = await rodar(home, roteiro(chamar("fantasma"), encerrar("depois da correção")));
+    // a correção entrou e ele encerrou: nenhum passo de trabalho foi criado
+    expect(run.status).toBe("done");
+    expect(run.steps).toHaveLength(1);
+    expect(run.steps[0]?.decisoes).toBe(2);
+  });
+
+  it("membro que falha volta pro supervisor decidir, e não derruba o run", async () => {
+    const home = base();
+    addProfile({ id: "morto", engine: "claude" }, home, { skipBinCheck: true });
+    saveAgent({ id: "quebra", name: "Quebra", profileId: "morto" }, home);
+    timeSup([{ agentId: "a1" }, { agentId: "quebra" }], home);
+    const run = await rodar(home, roteiro(chamar("quebra"), encerrar("segui sem ele")));
+    expect(run.status).toBe("done");
+    expect(run.steps[1]?.status).toBe("error");
+    const falas = readThread(run.steps[0]!.threadId!, home).filter((e) => e.type === "user");
+    expect((falas[1] as { text: string }).text).toContain("quebra falhou");
+  });
+
+  it("o teto de passos para o laço mesmo com o supervisor querendo seguir", async () => {
+    const home = base();
+    timeSup([{ agentId: "a1" }, { agentId: "a2" }], home);
+    // três chamadas roteirizadas, teto de 3 passos (supervisor + 2 membros)
+    const run = await rodar(home, roteiro(chamar("a2"), chamar("a2"), chamar("a2"), encerrar()), {
+      maxSteps: 3,
+    });
+    expect(run.status).toBe("error");
+    expect(run.error).toMatch(/teto de 3 passos/);
+    expect(run.steps).toHaveLength(3);
+    expect(run.steps[0]?.status).toBe("error");
+  });
+
+  it("time sem ninguém além do supervisor é recusado na criação do time", () => {
+    const home = base();
+    expect(() => timeSup([{ agentId: "a1" }], home)).toThrow(/pelo menos um membro além dele/);
+  });
+
+  it("passo que nasce no meio do run é anunciado antes de começar", async () => {
+    const home = base();
+    timeSup([{ agentId: "a1" }, { agentId: "a2" }], home);
+    const run = criarRun(
+      { teamId: "t", projectPath: "/p", goal: roteiro(chamar("a2"), encerrar()) },
+      home,
+    );
+    const vistos: string[] = [];
+    const onEv = (ev: { type: string }) => vistos.push(ev.type);
+    runsBus.on(run.id, onEv);
+    await executarRun(run, home);
+    runsBus.off(run.id, onEv);
+    expect(vistos).toEqual([
+      "run_start",
+      "step_start",
+      "step_add",
+      "step_start",
+      "step_done",
+      "step_done",
+      "run_end",
+    ]);
+  });
+});

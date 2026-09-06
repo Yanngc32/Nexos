@@ -75,10 +75,31 @@ export function createTeamStudio({
     "pra você revisar. Se o projeto não for um repositório git, todos escrevem na mesma pasta " +
     "ao mesmo tempo e vão se atropelar.";
 
+  /**
+   * O supervisor gasta um turno por decisão e escolhe quantas rodadas quer — o
+   * custo não sai da contagem de membros, como nas outras duas. Quem monta o
+   * time precisa saber disso antes de rodar, não depois da fatura.
+   */
+  const AVISO_SUPERVISOR =
+    "O PRIMEIRO da lista não trabalha: ele decide, a cada rodada, qual dos outros chamar. " +
+    "Cada decisão é um turno dele, então o time gasta mais que o número de membros — e quantas " +
+    "rodadas vão acontecer é ele que escolhe. Use o teto de passos pra fechar a conta.";
+
+  const AVISOS = { fanin: AVISO_FANIN, supervisor: AVISO_SUPERVISOR };
+
+  /** O que a ORDEM da lista significa muda com a topologia — dizer só uma seria mentira nas outras duas. */
+  const ORDEM = {
+    pipeline: "Roda um por vez, de cima pra baixo: a saída de cada um vira a entrada do próximo.",
+    fanin: "Todos menos o último rodam ao mesmo tempo; o ÚLTIMO recebe a saída de todos pra juntar.",
+    supervisor: "O PRIMEIRO decide e não trabalha. A ordem dos outros não importa: quem escolhe é ele.",
+  };
+
   function aoMudar() {
-    const paralelo = el("tm-topology").value === "fanin";
-    el("tm-aviso").textContent = paralelo ? AVISO_FANIN : "";
-    el("tm-aviso").classList.toggle("hidden", !paralelo);
+    const topologia = el("tm-topology").value;
+    const aviso = AVISOS[topologia] ?? "";
+    el("tm-ordem").textContent = ORDEM[topologia] ?? "";
+    el("tm-aviso").textContent = aviso;
+    el("tm-aviso").classList.toggle("hidden", !aviso);
     el("tm-dirty").classList.toggle("hidden", !sujo());
     el("btn-tm-run").textContent = sujo() ? "Salvar e rodar" : "Rodar";
     el("tm-head-name").textContent = el("tm-name").value || (editando ? editando : "novo");
@@ -95,9 +116,13 @@ export function createTeamStudio({
       const li = doc.createElement("li");
       li.className = "tm-member";
 
+      const chefia = i === 0 && el("tm-topology").value === "supervisor";
       const n = doc.createElement("span");
       n.className = "tm-member-n";
-      n.textContent = `${i + 1}`;
+      // a posição 1 muda de significado no supervisor: dizer só "1" esconderia
+      // que esse membro não vai trabalhar
+      n.textContent = chefia ? "sup" : `${i + 1}`;
+      if (chefia) n.title = "Decide quem trabalha; não executa";
 
       const sel = doc.createElement("select");
       sel.className = "tm-member-agent";
@@ -211,6 +236,9 @@ export function createTeamStudio({
     if (!id) return erro("id inválido: use minúsculas, números, - e _"), false;
     if (!v.name.trim()) return erro("Nome obrigatório."), false;
     if (!v.members.length) return erro("O time precisa de pelo menos um membro."), false;
+    if (v.topology === "supervisor" && v.members.length < 2) {
+      return erro("O supervisor não trabalha, chama: o time precisa de mais alguém além dele."), false;
+    }
     const body = { ...v, id, name: v.name.trim(), description: v.description.trim() };
     try {
       if (editando) await req(`/v1/teams/${editando}`, { method: "PUT", body: JSON.stringify(body) });
@@ -275,11 +303,11 @@ export function createTeamStudio({
 
       const n = doc.createElement("span");
       n.className = "ag-step-n";
-      n.textContent = `#${i + 1}`;
+      n.textContent = s.supervisor ? "sup" : `#${i + 1}`;
 
       const ico = doc.createElement("span");
       ico.className = "ag-step-ico";
-      ico.textContent = { done: "✓", running: "▸", error: "✕", skipped: "–" }[s.status] ?? "·";
+      ico.textContent = s.supervisor ? "⌘" : ({ done: "✓", running: "▸", error: "✕", skipped: "–" }[s.status] ?? "·");
 
       const nome = doc.createElement("span");
       nome.className = "ag-step-name";
@@ -288,7 +316,10 @@ export function createTeamStudio({
 
       const det = doc.createElement("span");
       det.className = "ag-step-det";
-      det.textContent = s.error || s.papel || rotuloDoPasso(s);
+      // o supervisor fica aberto o run inteiro: "rodando" não diria nada. O que
+      // conta nele é quantas decisões já custaram.
+      const decidiu = s.decisoes ? `${s.decisoes} decisõe${s.decisoes > 1 ? "s" : ""}` : "decidindo";
+      det.textContent = s.error || (s.supervisor ? decidiu : s.papel || rotuloDoPasso(s));
 
       const barra = doc.createElement("span");
       barra.className = "ag-step-bar";

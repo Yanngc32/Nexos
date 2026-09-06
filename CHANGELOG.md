@@ -36,6 +36,29 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
   `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
   forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
+- Topologia `supervisor` no time: o PRIMEIRO membro não trabalha — ele decide, a cada rodada, qual
+  dos outros chamar e com que pedido, até dizer que acabou. A lista de passos deixa de sair pronta
+  do `criarRun`: nasce só com o dele, e os demais são anexados durante o run (evento `step_add`).
+  **Não é MCP, de propósito.** O supervisor não age no meio do turno dele: responde a ordem em JSON,
+  o turno fecha, o daemon chama o membro e volta com o resultado no turno seguinte da MESMA conversa
+  — então ele lembra do que já mandou fazer sem o daemon reenviar histórico. Custa um turno por
+  decisão; em troca roda em qualquer motor, inclusive nos que não falam MCP (`api`, `stub`), sem
+  processo novo nem credencial saindo do daemon. MCP passa a ser otimização, não pré-requisito.
+  Três decisões que o código registra:
+  - **Formato fechado, leitura tolerante.** Cerca de código, texto em volta e exemplo antes da
+    resposta são aceitos (pega o último objeto balanceado); id de membro fora do time é RECUSADO,
+    porque adivinhar quem ele quis dizer é pior que perguntar. Resposta inutilizável ganha uma
+    correção — uma, não zero (derrubar o run por formatação desperdiçaria o que já foi gasto) e não
+    N (insistir depois do pedido de correção na mão só queima quota).
+  - **Falha de membro volta pro supervisor**, e não derruba o run: quem tem contexto pra decidir o
+    que fazer com ela é ele. É o oposto do pipeline, onde não há ninguém pra decidir.
+  - **O teto de passos é a única trava contra o laço**: o supervisor pode chamar o mesmo membro pra
+    sempre. Ele vê quantas chamadas restam a cada turno, e o run para no teto mesmo que ele não
+    queira parar.
+  Time de supervisor exige pelo menos um membro além dele — sozinho, o run morreria no primeiro
+  turno depois de já ter gasto esse turno. A tela mostra `sup` no lugar do número, avisa que o custo
+  não sai da contagem de membros, e o texto sobre o que a ORDEM da lista significa passou a mudar
+  com a topologia (dizia só o do pipeline, o que já era falso no fan-in).
 - Isolamento por `git worktree` nos membros paralelos do fan-in: cada um ganha uma árvore própria
   do repositório, num branch `nexo/<run>/<n>-<agente>`, então dois agentes escrevendo o mesmo
   arquivo ao mesmo tempo deixaram de se destruir. A árvore sai do disco no fim do run; o branch
@@ -61,10 +84,9 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   em ordem, cada um com um papel — o mesmo agente pode ocupar papéis diferentes em times diferentes
   sem virar dois agentes. Rotas: `/v1/teams` (CRUD) e `/v1/runs` (criar, consultar, abortar, SSE de
   progresso).
-  As topologias (`pipeline` e, depois, `fanin`) o daemon executa de FORA — cria a conversa do
-  membro, manda o pedido, espera o turno fechar, lê a saída e alimenta o próximo. Não exigem canal
-  de volta nem ferramenta nova no motor, então cabem no que já existe. Supervisor (um membro
-  decidindo quem age no meio do turno) precisaria disso e fica pra quando existir.
+  As topologias o daemon executa de FORA — cria a conversa do membro, manda o pedido, espera o
+  turno fechar, lê a saída e alimenta o próximo. Não exigem canal de volta nem ferramenta nova no
+  motor, então cabem no que já existe (vale também pro `supervisor`, adicionado depois).
   O que passa entre membros é artefato, não transcrição: cada passo grava a saída inteira em
   `~/.nexo/runs/<run>/passo-N-<agente>.md` e o seguinte recebe um trecho no pedido mais o caminho do
   arquivo. Falha PARA o run em vez de pular ou repetir — o passo seguinte receberia entrada vazia e
