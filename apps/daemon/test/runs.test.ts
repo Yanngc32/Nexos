@@ -6,7 +6,15 @@ import { describe, it, expect } from "vitest";
 import { addProfile } from "../src/profiles.ts";
 import { removeAgent, saveAgent } from "../src/agents.ts";
 import { saveTeam } from "../src/teams.ts";
-import { criarRun, executarRun, getRun, listRuns, resetRunsForTest, runsBus } from "../src/runs.ts";
+import {
+  criarRun,
+  executarRun,
+  getRun,
+  listRuns,
+  resetRunsForTest,
+  retomarRun,
+  runsBus,
+} from "../src/runs.ts";
 import { readThread } from "../src/threads.ts";
 import { tempHome } from "./helpers.ts";
 
@@ -607,5 +615,161 @@ describe("supervisor", () => {
       "step_done",
       "run_end",
     ]);
+  });
+});
+
+describe("retomada", () => {
+  /** Perfil que sempre falha: é o jeito de parar um run no meio, sem mock. */
+  function quebrado(home: string) {
+    addProfile({ id: "morto", engine: "claude" }, home, { skipBinCheck: true });
+    saveAgent({ id: "quebra", name: "Quebra", profileId: "morto" }, home);
+  }
+
+  /** Faz o agente voltar a funcionar, pra retomada ter o que concluir. */
+  function conserta(home: string) {
+    saveAgent({ id: "quebra", name: "Quebra", profileId: "p1" }, home);
+  }
+
+  it("não refaz o que já ficou pronto, e conclui o resto", async () => {
+    const home = base();
+    quebrado(home);
+    time([{ agentId: "a1" }, { agentId: "quebra" }, { agentId: "a2" }], home);
+    const parado = await rodar(home, "marcador-42");
+    expect(parado.status).toBe("error");
+    const threadDoPrimeiro = parado.steps[0]!.threadId;
+
+    conserta(home);
+    const run = await executarRun(retomarRun(parado.id, home), home);
+    expect(run.status).toBe("done");
+    // o passo 1 não rodou de novo: mesma conversa, mesmo artefato
+    expect(run.steps[0]?.threadId).toBe(threadDoPrimeiro);
+    expect(run.steps.map((s) => s.status)).toEqual(["done", "done", "done"]);
+  });
+
+  it("a saída do passo já feito alimenta o retomado, lida do artefato", async () => {
+    const home = base();
+    quebrado(home);
+    time([{ agentId: "a1" }, { agentId: "quebra" }], home);
+    const parado = await rodar(home, "marcador-42");
+    conserta(home);
+    const run = await executarRun(retomarRun(parado.id, home), home);
+    const segundo = readFileSync(run.steps[1]!.artifact!, "utf8");
+    expect(segundo).toContain("Entrada (saída do passo anterior)");
+    expect(segundo).toContain("marcador-42");
+  });
+
+  it("o gasto das tentativas anteriores continua contando no orçamento", async () => {
+    const home = base();
+    quebrado(home);
+    time([{ agentId: "a1" }, { agentId: "quebra" }], home);
+    const parado = await rodar(home);
+    const gastoDoPrimeiro = parado.steps[0]!.costUsd ?? 0;
+    const run = retomarRun(parado.id, home);
+    // o passo 1 ficou done: o custo dele segue no passo, não vira histórico
+    expect(run.gastoAnterior).toBe(0);
+    expect(run.steps[0]?.costUsd).toBe(gastoDoPrimeiro);
+    // o passo que falhou foi zerado, e o que ele custou virou histórico do run
+    expect(run.steps[1]?.status).toBe("pending");
+    expect(run.steps[1]?.threadId).toBeUndefined();
+  });
+
+  it("o teto de passos novo substitui o antigo", async () => {
+    const home = base();
+    time([{ agentId: "a1" }, { agentId: "a2" }], home);
+    const parado = await rodar(home, "x", { maxSteps: 1 });
+    expect(parado.error).toMatch(/teto de 1 passos/);
+    const run = await executarRun(retomarRun(parado.id, home, { maxSteps: 5 }), home);
+    expect(run.status).toBe("done");
+    expect(run.budget?.maxSteps).toBe(5);
+  });
+
+  it("retomar sem orçamento novo tira o teto antigo em vez de parar na mesma linha", async () => {
+    const home = base();
+    time([{ agentId: "a1" }, { agentId: "a2" }], home);
+    const parado = await rodar(home, "x", { maxSteps: 1 });
+    const run = await executarRun(retomarRun(parado.id, home), home);
+    expect(run.budget).toBeUndefined();
+    expect(run.status).toBe("done");
+  });
+
+  it("recusa run que não existe, que terminou ou que ainda roda", async () => {
+    const home = base();
+    time([{ agentId: "a1" }], home);
+    expect(() => retomarRun("r-fantasma", home)).toThrow(/não existe/);
+    const feito = await rodar(home);
+    expect(() => retomarRun(feito.id, home)).toThrow(/terminou/);
+  });
+
+  it("conta as tentativas", async () => {
+    const home = base();
+    quebrado(home);
+    time([{ agentId: "quebra" }], home);
+    const parado = await rodar(home);
+    expect(parado.tentativas).toBeUndefined();
+    expect(retomarRun(parado.id, home).tentativas).toBe(2);
+  });
+
+  describe("no fan-in", () => {
+    it("o paralelo que deu certo não roda de novo; o agregador recebe os dois", async () => {
+      const home = base();
+      quebrado(home);
+      saveAgent({ id: "juntar", name: "Juntar", profileId: "p1" }, home);
+      saveTeam(
+        { id: "t", name: "T", topology: "fanin", members: [{ agentId: "a1" }, { agentId: "quebra" }, { agentId: "juntar" }] },
+        home,
+      );
+      const parado = await rodar(home);
+      expect(parado.steps.map((s) => s.status)).toEqual(["done", "error", "skipped"]);
+      const threadDoBom = parado.steps[0]!.threadId;
+
+      conserta(home);
+      const run = await executarRun(retomarRun(parado.id, home), home);
+      expect(run.status).toBe("done");
+      expect(run.steps[0]?.threadId).toBe(threadDoBom);
+      const relatorio = readFileSync(run.steps[2]!.artifact!, "utf8");
+      // as duas entradas chegaram, na ordem do time, mesmo com uma vinda do disco
+      expect(relatorio).toContain("2 membros trabalharam em paralelo");
+      expect(relatorio.indexOf("## a1")).toBeLessThan(relatorio.indexOf("## quebra"));
+    });
+  });
+
+  describe("no supervisor", () => {
+    function timeSup(membros: Array<{ agentId: string }>, home: string) {
+      return saveTeam({ id: "t", name: "T", topology: "supervisor", members: membros }, home);
+    }
+
+    it("o supervisor volta na MESMA conversa, lembrando do que já mandou fazer", async () => {
+      const home = base();
+      timeSup([{ agentId: "a1" }, { agentId: "a2" }], home);
+      const parado = await rodar(
+        home,
+        ['objetivo', 'STUB:{"acao":"chamar","membro":"a2","pedido":"parte 1"}'].join("\n"),
+        { maxSteps: 2 },
+      );
+      expect(parado.status).toBe("error");
+      const conversa = parado.steps[0]!.threadId;
+
+      const run = await executarRun(retomarRun(parado.id, home, { maxSteps: 6 }), home);
+      expect(run.steps[0]?.threadId).toBe(conversa);
+      const falas = readThread(conversa!, home).filter((e) => e.type === "user");
+      // o pedido de retomada não repete objetivo nem lista: a conversa é a mesma
+      const retomada = falas.find((f) => (f as { text: string }).text.includes("run foi retomado"));
+      expect(retomada).toBeTruthy();
+      expect((retomada as { text: string }).text).not.toContain("# Objetivo do time");
+    });
+
+    it("o passo do membro que já rodou continua no run depois da retomada", async () => {
+      const home = base();
+      timeSup([{ agentId: "a1" }, { agentId: "a2" }], home);
+      const parado = await rodar(
+        home,
+        ['objetivo', 'STUB:{"acao":"chamar","membro":"a2","pedido":"parte 1"}'].join("\n"),
+        { maxSteps: 2 },
+      );
+      const run = retomarRun(parado.id, home, { maxSteps: 6 });
+      expect(run.steps).toHaveLength(2);
+      expect(run.steps[1]?.status).toBe("done");
+      expect(run.steps[0]?.status).toBe("pending");
+    });
   });
 });

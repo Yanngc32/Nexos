@@ -32,7 +32,7 @@ import {
 } from "./session.ts";
 import { threadReport } from "./usage-report.ts";
 import { getTeam, listTeams, removeTeam, saveTeam, type TeamInput } from "./teams.ts";
-import { abortarRun, criarRun, executarRun, getRun, listRuns, runsBus } from "./runs.ts";
+import { abortarRun, criarRun, executarRun, getRun, listRuns, retomarRun, runsBus } from "./runs.ts";
 import {
   autostartServices,
   listServices,
@@ -582,6 +582,24 @@ export function createApp(home: string, token: string): Hono {
     const run = getRun(c.req.param("id"), home);
     if (!run) return c.json({ error: "not found" }, 404);
     return c.json(run);
+  });
+
+  /**
+   * Retoma de onde parou. Mesma forma do POST: responde o retrato do run antes
+   * de disparar, e o progresso sai pelo SSE. O `budget` do corpo SUBSTITUI o
+   * antigo — retomar com o mesmo teto que parou o run pararia na mesma linha.
+   */
+  app.post("/v1/runs/:id/resume", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { budget?: unknown };
+    try {
+      const run = retomarRun(c.req.param("id"), home, body.budget);
+      const retomado = structuredClone(run);
+      void executarRun(run, home);
+      return c.json(retomado);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
   });
 
   app.post("/v1/runs/:id/abort", async (c) => {

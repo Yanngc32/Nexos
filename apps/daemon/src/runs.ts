@@ -18,6 +18,7 @@ import {
   listarDisponiveis,
   pedidoDeCorrecao,
   pedidoDeFalha,
+  pedidoDeRetomada,
   pedidoDeVolta,
   pedidoInicial,
   type Decisao,
@@ -176,6 +177,93 @@ export function criarRun(input: StartRunInput, home: string): Run {
   return run;
 }
 
+/**
+ * Põe um run parado pra rodar de novo, de onde ele parou.
+ *
+ * O que já ficou `done` NÃO é refeito: a quota daquele passo já foi gasta e o
+ * artefato está no disco — refazer cobraria de novo por um resultado que já
+ * existe, e ainda daria um resultado diferente do que os passos seguintes viram.
+ * O que é refeito é o que falhou, foi pulado ou ficou preso em `running` (motor
+ * derrubado no meio).
+ *
+ * O orçamento novo SUBSTITUI o antigo, e é obrigatório quando foi ele que parou
+ * o run: retomar com o mesmo teto pararia na mesma linha, sem gastar nada, e
+ * pareceria defeito. Quem retoma está decidindo gastar mais — é uma decisão de
+ * pessoa, não um automatismo.
+ */
+export function retomarRun(id: string, home: string, budget?: unknown): Run {
+  const run = getRun(id, home);
+  if (!run) {
+    const err = new Error(`run não existe: ${id}`) as Error & { status: number };
+    err.status = 404;
+    throw err;
+  }
+  if (runAtivo(id)) throw badRequest("esse run ainda está rodando");
+  if (run.status === "done") throw badRequest("esse run terminou; crie outro");
+  if (!getTeam(run.teamId, home)) throw badRequest(`time não existe mais: ${run.teamId}`);
+
+  const novo = limparBudget(budget);
+  if (novo) run.budget = novo;
+  else delete run.budget;
+
+  if (getTeam(run.teamId, home)?.topology === "supervisor") reabrirSupervisor(run);
+  else run.gastoAnterior = refazerPassosAbertos(run);
+  run.tentativas = (run.tentativas ?? 1) + 1;
+  run.status = "running";
+  delete run.error;
+  delete run.endedAt;
+  saveRun(run, home);
+  return run;
+}
+
+/**
+ * Zera os passos que não fecharam, pra serem refeitos.
+ * @returns o gasto acumulado que sai deles e passa a ser histórico do run.
+ */
+function refazerPassosAbertos(run: Run): number {
+  let gasto = run.gastoAnterior ?? 0;
+  for (const step of run.steps) {
+    if (step.status === "done") continue;
+    gasto += step.costUsd ?? 0;
+    for (const campo of [
+      "threadId",
+      "startedAt",
+      "endedAt",
+      "artifact",
+      "outputChars",
+      "costUsd",
+      "tokens",
+      "error",
+      "worktree",
+      "branch",
+    ] as const) {
+      delete step[campo];
+    }
+    step.status = "pending";
+  }
+  return gasto;
+}
+
+/**
+ * Retomada do supervisor: a CONVERSA dele sobrevive, e é o ponto todo. Ele
+ * volta lembrando o que já mandou fazer e o que deu errado — recomeçar do zero
+ * jogaria fora exatamente o contexto que justifica a topologia.
+ *
+ * Por isso os passos dos membros também ficam como estão, inclusive os que
+ * falharam: eles são o histórico que o supervisor já viu. E o custo dele não
+ * vira `gastoAnterior`, porque `threadUsage` relê a conversa inteira e traria o
+ * acumulado de novo — somar os dois contaria duas vezes.
+ */
+function reabrirSupervisor(run: Run): void {
+  const chefe = run.steps[0];
+  if (!chefe) return;
+  chefe.status = "pending";
+  delete chefe.endedAt;
+  delete chefe.error;
+  delete chefe.artifact;
+  delete chefe.outputChars;
+}
+
 /** Última fala do assistente na conversa — é a saída do passo. */
 function saidaDaThread(threadId: string, home: string): string {
   const eventos = readThread(threadId, home);
@@ -241,6 +329,26 @@ function blocoDeEntrada(e: Entrada, titulo: string): string {
   );
 }
 
+/**
+ * A saída de um passo que já fechou, lida do artefato no disco. É o que deixa a
+ * retomada alimentar o passo seguinte sem refazer o anterior. Artefato sumido
+ * (pasta do run apagada à mão) vira `null` em vez de derrubar: o passo seguinte
+ * roda sem entrada, que é ruim mas melhor que perder o run inteiro.
+ */
+function entradaGravada(step: RunStep): Entrada | null {
+  if (!step.artifact || !existsSync(step.artifact)) return null;
+  try {
+    return {
+      agentId: step.agentId,
+      ...(step.papel ? { papel: step.papel } : {}),
+      texto: readFileSync(step.artifact, "utf8"),
+      arquivo: step.artifact,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function gravarArtefato(run: Run, step: RunStep, saida: string, home: string): string {
   const dir = runDir(run.id, home);
   mkdirSync(dir, { recursive: true });
@@ -249,9 +357,13 @@ function gravarArtefato(run: Run, step: RunStep, saida: string, home: string): s
   return arquivo;
 }
 
-/** Soma o que os passos já custaram — é contra isso que o orçamento é medido. */
+/**
+ * Soma o que o run já custou — é contra isso que o orçamento é medido. Inclui
+ * o gasto das tentativas anteriores: sem isso, retomar zeraria a conta e o teto
+ * de custo não valeria mais nada depois da primeira parada.
+ */
 function custoAteAgora(run: Run): number {
-  return run.steps.reduce((total, s) => total + (s.costUsd ?? 0), 0);
+  return run.steps.reduce((total, s) => total + (s.costUsd ?? 0), run.gastoAnterior ?? 0);
 }
 
 /** Um passo do zero ao fim: conversa, pedido, espera, uso e artefato. */
@@ -338,6 +450,11 @@ function motivoDeParar(run: Run, indice: number, teto: number): string | null {
 async function rodarPipeline(run: Run, teto: number, home: string): Promise<void> {
   let anterior: Entrada | null = null;
   for (const step of run.steps) {
+    // retomada: o que já fechou não é refeito, mas ainda alimenta o próximo
+    if (step.status === "done") {
+      anterior = entradaGravada(step) ?? anterior;
+      continue;
+    }
     const parar = motivoDeParar(run, step.index, teto);
     if (parar) return pararRun(run, step, parar);
     const saida = await executarPasso(run, step, anterior ? [anterior] : [], home);
@@ -368,15 +485,25 @@ async function rodarFanIn(run: Run, teto: number, home: string): Promise<void> {
   // time de um membro só: não há o que juntar, roda igual ao pipeline
   if (!paralelos.length) return rodarPipeline(run, teto, home);
 
-  const parar = motivoDeParar(run, paralelos.length, teto);
-  if (parar) return pararRun(run, run.steps[0] as RunStep, parar);
+  // retomada: quem já fechou não roda de novo, mas a saída dele continua sendo
+  // entrada do agregador — é o artefato no disco que garante isso
+  const refazer = paralelos.filter((s) => s.status !== "done");
 
-  const arvores = await prepararArvores(run, paralelos, home);
+  const parar = motivoDeParar(run, refazer.length, teto);
+  if (parar) return pararRun(run, (refazer[0] ?? agregador) as RunStep, parar);
+
+  const arvores = await prepararArvores(run, refazer, home);
   const saidas = await Promise.all(
-    paralelos.map((step) => executarPasso(run, step, [], home, arvores.get(step.index))),
+    refazer.map((step) => executarPasso(run, step, [], home, arvores.get(step.index))),
   );
-  await fecharArvores(run, paralelos, home);
-  const entradas = saidas.filter((e): e is Entrada => e !== null);
+  await fecharArvores(run, refazer, home);
+
+  // na ORDEM do time, não na ordem em que rodaram: o agregador lê uma lista
+  // identificada, e trocar a ordem entre tentativas mudaria o pedido dele
+  const feitas = new Map(refazer.map((s, i) => [s.index, saidas[i] ?? null]));
+  const entradas = paralelos
+    .map((s) => (feitas.has(s.index) ? feitas.get(s.index) : entradaGravada(s)))
+    .filter((e): e is Entrada => Boolean(e));
 
   if (entradas.length !== paralelos.length) {
     const quebrado = paralelos.find((s) => s.status === "error");
@@ -505,18 +632,26 @@ async function rodarSupervisor(run: Run, teto: number, home: string): Promise<vo
     return;
   }
 
-  const { id: threadId } = createThread(
-    { projectPath: run.projectPath, profileId: agente.profileId, agentId: agente.id },
-    home,
-  );
+  /**
+   * Retomada reusa a CONVERSA do supervisor, e é o ponto todo dela: ele volta
+   * lembrando o que já mandou fazer e o que deu errado. Conversa nova o faria
+   * recomeçar do zero — pagando de novo pelo caminho até aqui e ainda podendo
+   * refazer o que já foi feito.
+   */
+  const retomando = Boolean(chefe.threadId && readThread(chefe.threadId, home).length);
+  const threadId = retomando
+    ? (chefe.threadId as string)
+    : createThread({ projectPath: run.projectPath, profileId: agente.profileId, agentId: agente.id }, home).id;
   chefe.threadId = threadId;
   chefe.status = "running";
-  chefe.startedAt = nowIso();
+  if (!chefe.startedAt) chefe.startedAt = nowIso();
   saveRun(run, home);
   emit(run, { type: "step_start", runId: run.id, index: 0, agentId: chefe.agentId, threadId });
 
   const restam = (): number => Math.max(0, teto - run.steps.length);
-  let pedido = pedidoInicial(run.goal, chefe.papel, membros, restam());
+  let pedido = retomando
+    ? pedidoDeRetomada(restam())
+    : pedidoInicial(run.goal, chefe.papel, membros, restam());
 
   for (;;) {
     const parar = motivoDeParar(run, run.steps.length, teto);
@@ -599,8 +734,9 @@ async function prepararArvores(run: Run, passos: RunStep[], home: string): Promi
     return out;
   }
   for (const step of passos) {
-    const dir = join(runDir(run.id, home), "wt", `${step.index + 1}-${step.agentId}`);
-    const branch = nomeDoBranch(run.id, step.index, step.agentId);
+    const tentativa = run.tentativas ?? 1;
+    const dir = join(runDir(run.id, home), "wt", `${step.index + 1}-${step.agentId}-t${tentativa}`);
+    const branch = nomeDoBranch(run.id, step.index, step.agentId, tentativa);
     const r = await criarWorktree(run.projectPath, dir, branch);
     if (!r.ok) {
       // uma árvore que não nasce derruba o isolamento do lote inteiro: rodar

@@ -3,6 +3,7 @@ import {
   aplicarEventoDeRun,
   duracaoDoPasso,
   larguraDosPassos,
+  podeRetomar,
   resumoDoRun,
   rotuloDoPasso,
   runFechado,
@@ -285,6 +286,7 @@ export function createTeamStudio({
     el("tm-sum").textContent = "";
     el("tm-run-status").textContent = "";
     el("btn-tm-stop").classList.add("hidden");
+    el("btn-tm-resume").classList.add("hidden");
     nota(VAZIO);
   }
 
@@ -361,6 +363,8 @@ export function createTeamStudio({
     el("tm-run-status").textContent = run.status;
     el("tm-run-status").dataset.status = run.status;
     el("btn-tm-stop").classList.toggle("hidden", runFechado(run));
+    // retomar só faz sentido no que parou no meio: run concluído não tem o que continuar
+    el("btn-tm-resume").classList.toggle("hidden", !podeRetomar(run));
     if (run.error) nota(run.error);
     else if (run.isolationOff) nota(`Sem árvores separadas: ${run.isolationOff}. Os membros dividiram a pasta.`);
     else if (run.isolated) nota("Cada membro paralelo trabalhou no branch dele — o ⑂ mostra qual.");
@@ -449,6 +453,28 @@ export function createTeamStudio({
     pintarRun();
   }
 
+  /**
+   * Retoma de onde parou, sem refazer o que já ficou pronto.
+   *
+   * O teto de passos NÃO é reenviado de propósito: se foi ele que parou o run,
+   * mandar o mesmo pararia na mesma linha sem gastar nada e pareceria defeito.
+   * Quem clica aqui está decidindo deixar o time continuar.
+   */
+  async function retomar() {
+    if (!run || !podeRetomar(run)) return;
+    if (!isOk()) return nota("O motor está desligado. Liga o motor pra retomar.");
+    try {
+      run = await req(`/v1/runs/${run.id}/resume`, { method: "POST", body: "{}" });
+    } catch (e) {
+      return nota(e.message || "Não deu pra retomar.");
+    }
+    nota("");
+    ouvir();
+    comecarRelogio();
+    pintarRun();
+    void recarregar();
+  }
+
   async function parar() {
     if (!run) return;
     try {
@@ -476,6 +502,7 @@ export function createTeamStudio({
     el("btn-tm-del").addEventListener("click", () => void excluir());
     el("btn-close-team").addEventListener("click", fechar);
     el("btn-tm-stop").addEventListener("click", () => void parar());
+    el("btn-tm-resume").addEventListener("click", () => void retomar());
     el("tm-ask").addEventListener("submit", (e) => {
       e.preventDefault();
       void rodar();
@@ -488,5 +515,5 @@ export function createTeamStudio({
     });
   }
 
-  return { abrir, fechar, ligar, salvar, rodar, parar, editandoId: () => editando, runAtual: () => run };
+  return { abrir, fechar, ligar, salvar, rodar, parar, retomar, editandoId: () => editando, runAtual: () => run };
 }

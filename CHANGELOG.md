@@ -36,6 +36,20 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
   `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
   forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
+- Retomada de run parado (`POST /v1/runs/:id/resume`, botão "Retomar" na tela do time): continua de
+  onde parou, sem refazer o que já ficou `done`. A quota daquele passo já foi gasta e o artefato está
+  no disco — refazer cobraria de novo por um resultado que já existe, e ainda daria um resultado
+  diferente do que os passos seguintes viram. O que é refeito é o que falhou, foi pulado ou ficou
+  preso em `running` (motor derrubado no meio).
+  O orçamento mandado na retomada SUBSTITUI o antigo, e não mandar nenhum tira o teto: retomar com o
+  mesmo teto que parou o run pararia na mesma linha, sem gastar nada, e pareceria defeito. O gasto
+  das tentativas anteriores vira `gastoAnterior` e continua contando — senão retomar zeraria a conta
+  e o teto de custo não valeria mais nada depois da primeira parada.
+  No fan-in, o paralelo que deu certo não roda de novo e a saída dele vem do artefato, na ordem do
+  time. No supervisor, a CONVERSA dele sobrevive e é o ponto todo: ele volta lembrando o que já
+  mandou fazer e o que deu errado, com um pedido de retomada que não repete objetivo nem lista.
+  Branch dos paralelos ganha sufixo por tentativa (`-r2`): o da tentativa anterior continua no
+  repositório, com trabalho que ninguém olhou ainda.
 - Topologia `supervisor` no time: o PRIMEIRO membro não trabalha — ele decide, a cada rodada, qual
   dos outros chamar e com que pedido, até dizer que acabou. A lista de passos deixa de sair pronta
   do `criarRun`: nasce só com o dele, e os demais são anexados durante o run (evento `step_add`).

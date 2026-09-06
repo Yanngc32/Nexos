@@ -4,6 +4,7 @@ import {
   duracaoDoPasso,
   larguraDosPassos,
   passoEmVoo,
+  podeRetomar,
   resumoDoRun,
   rotuloDoPasso,
   runFechado,
@@ -221,5 +222,32 @@ describe("passo que nasce no meio do run (supervisor)", () => {
     const r = supervisor();
     aplicarEventoDeRun(r, { type: "step_add", runId: "r-1", step: { index: 1, agentId: "a2", status: "done", tokens: 10 } });
     expect(resumoDoRun(r, T0 + 1000)).toMatchObject({ total: 2, concluidos: 1, tokens: 10 });
+  });
+});
+
+describe("podeRetomar", () => {
+  const passos = (...st) => st.map((status, index) => ({ index, agentId: `a${index}`, status }));
+
+  it("run em andamento ou concluído não se retoma", () => {
+    expect(podeRetomar(run({ status: "running" }))).toBe(false);
+    expect(podeRetomar(run({ status: "done", steps: passos("done", "done") }))).toBe(false);
+  });
+
+  it("run que falhou com passo aberto se retoma", () => {
+    expect(podeRetomar(run({ status: "error", steps: passos("done", "error") }))).toBe(true);
+    expect(podeRetomar(run({ status: "error", steps: passos("done", "skipped") }))).toBe(true);
+  });
+
+  it("run que falhou sem passo aberto não se retoma: não haveria o que fazer", () => {
+    expect(podeRetomar(run({ status: "error", steps: passos("done", "done") }))).toBe(false);
+  });
+
+  it("abortado sempre se retoma, inclusive o supervisor que fechou o passo dele", () => {
+    const sup = { index: 0, agentId: "chefe", status: "done", supervisor: true };
+    expect(podeRetomar(run({ status: "aborted", steps: [sup] }))).toBe(true);
+  });
+
+  it("sem run nenhum, não", () => {
+    expect(podeRetomar(null)).toBe(false);
   });
 });

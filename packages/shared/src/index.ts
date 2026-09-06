@@ -418,6 +418,18 @@ export type Run = {
    */
   isolated?: boolean;
   isolationOff?: string;
+  /**
+   * Quantas vezes este run foi posto pra rodar. 1 = nunca foi retomado. Entra
+   * no nome do branch dos paralelos, senão a retomada esbarraria no branch que
+   * a tentativa anterior deixou.
+   */
+  tentativas?: number;
+  /**
+   * O que as tentativas anteriores já custaram. Os passos refeitos perdem o
+   * `costUsd` deles (a conversa é outra), e sem isso o orçamento esqueceria o
+   * gasto e uma retomada poderia custar tudo de novo sem estourar nada.
+   */
+  gastoAnterior?: number;
 };
 
 export type RunEvent =

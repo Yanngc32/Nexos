@@ -112,6 +112,20 @@ export function runFechado(run) {
   return Boolean(run) && run.status !== "running";
 }
 
+/**
+ * Dá pra continuar de onde parou? Só o que parou no meio — `done` não tem o que
+ * continuar, e `running` ainda está andando. Um run sem passo aberto nenhum
+ * (todos `done` mas o run em `error`) também não: retomar não faria nada e o
+ * botão prometeria algo que não acontece.
+ */
+export function podeRetomar(run) {
+  if (!run) return false;
+  // abortado sempre dá: quem parou foi uma pessoa, e continuar é o próprio ponto
+  if (run.status === "aborted") return true;
+  if (run.status !== "error") return false;
+  return (run.steps ?? []).some((s) => s?.status !== "done");
+}
+
 /** Largura da barra de cada passo, proporcional ao mais longo do run. */
 export function larguraDosPassos(steps, agora = Date.now()) {
   const duracoes = (steps ?? []).map((s) => duracaoDoPasso(s, agora));

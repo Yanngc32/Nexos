@@ -49,9 +49,18 @@ export async function podeIsolar(projectPath: string): Promise<{ pode: boolean; 
   return { pode: true };
 }
 
-/** Nome do branch de um passo. Previsível de propósito: é por ele que se acha o trabalho depois. */
-export function nomeDoBranch(runId: string, index: number, agentId: string): string {
-  return `nexo/${runId}/${index + 1}-${agentId}`;
+/**
+ * Nome do branch de um passo. Previsível de propósito: é por ele que se acha o
+ * trabalho depois.
+ *
+ * A tentativa entra a partir da segunda (`-r2`, `-r3`): o branch da tentativa
+ * anterior continua no repositório, com o que aquele agente fez, e reusar o
+ * nome faria o `worktree add -b` recusar — ou, pior, sobrescrever trabalho que
+ * ninguém olhou ainda.
+ */
+export function nomeDoBranch(runId: string, index: number, agentId: string, tentativa = 1): string {
+  const base = `nexo/${runId}/${index + 1}-${agentId}`;
+  return tentativa > 1 ? `${base}-r${tentativa}` : base;
 }
 
 export type Worktree = { dir: string; branch: string };

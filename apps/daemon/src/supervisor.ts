@@ -77,6 +77,18 @@ export function pedidoDeFalha(agentId: string, motivo: string, restam: number): 
   );
 }
 
+/**
+ * O run foi retomado. Não repete objetivo nem lista: a conversa é a mesma e ele
+ * já tem tudo isso. O que ele NÃO tem é a informação de que houve uma parada e
+ * de que a conta de chamadas mudou.
+ */
+export function pedidoDeRetomada(restam: number): string {
+  return (
+    "O run foi retomado depois de parar. O que já foi feito continua feito — não mande refazer.\n\n" +
+    `Restam ${restam} chamadas. Responda no mesmo formato JSON.`
+  );
+}
+
 export function pedidoDeCorrecao(erro: string): string {
   return (
     `A resposta anterior não deu pra usar: ${erro}\n\n` +
