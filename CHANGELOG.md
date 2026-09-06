@@ -36,6 +36,19 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
   `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
   forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
+- Times de agentes e execução de time no daemon. Um `TeamDef` é um nome, uma topologia e os membros
+  em ordem, cada um com um papel — o mesmo agente pode ocupar papéis diferentes em times diferentes
+  sem virar dois agentes. Rotas: `/v1/teams` (CRUD) e `/v1/runs` (criar, consultar, abortar, SSE de
+  progresso).
+  A única topologia é `pipeline`, e de propósito: o daemon a executa de FORA — cria a conversa do
+  membro, manda o pedido, espera o turno fechar, lê a saída e alimenta o próximo. Não exige canal de
+  volta nem ferramenta nova no motor, então cabe no que já existe. Supervisor (um membro decidindo
+  quem age no meio do turno) precisaria disso e fica pra quando existir.
+  O que passa entre membros é artefato, não transcrição: cada passo grava a saída inteira em
+  `~/.nexo/runs/<run>/passo-N-<agente>.md` e o seguinte recebe um trecho no pedido mais o caminho do
+  arquivo. Falha PARA o run em vez de pular ou repetir — o passo seguinte receberia entrada vazia e
+  produziria trabalho sem base, gastando quota pra piorar o resultado. Cada run aceita teto de custo
+  e de passos, porque um time multiplica o gasto: cinco membros é cinco vezes o custo de um turno.
 - Tela cheia de agente (`agent-studio.js`), no lugar do formulário espremido no painel lateral:
   editor à esquerda, bancada de teste à direita. Abre pelo painel de agentes, em "Novo agente" ou
   no lápis de um agente existente.

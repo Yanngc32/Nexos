@@ -8,3 +8,7 @@ export function assertSlug(id: string): string {
 export function newThreadId(): string {
   return `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
+
+export function newRunId(): string {
+  return `r-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}

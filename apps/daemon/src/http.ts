@@ -31,6 +31,8 @@ import {
   switchThread,
 } from "./session.ts";
 import { threadReport } from "./usage-report.ts";
+import { getTeam, listTeams, removeTeam, saveTeam, type TeamInput } from "./teams.ts";
+import { abortarRun, criarRun, executarRun, getRun, listRuns, runsBus } from "./runs.ts";
 import {
   autostartServices,
   listServices,
@@ -494,6 +496,113 @@ export function createApp(home: string, token: string): Hono {
       const err = e as Error & { status?: number };
       return c.json({ error: err.message }, (err.status ?? 400) as 400);
     }
+  });
+
+
+  /* ---------- times de agentes ---------- */
+
+  app.get("/v1/teams", (c) => c.json(listTeams(home)));
+
+  app.post("/v1/teams", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as TeamInput;
+    try {
+      return c.json(saveTeam(body, home), 201);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.put("/v1/teams/:id", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as TeamInput;
+    try {
+      // igual ao agents: a rota manda no id, body com outro não renomeia nada
+      return c.json(saveTeam({ ...body, id: c.req.param("id") }, home));
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.get("/v1/teams/:id", (c) => {
+    const t = getTeam(c.req.param("id"), home);
+    if (!t) return c.json({ error: "not found" }, 404);
+    return c.json(t);
+  });
+
+  app.delete("/v1/teams/:id", (c) => {
+    try {
+      removeTeam(c.req.param("id"), home);
+      return c.json({ ok: true });
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 404) as 404);
+    }
+  });
+
+  /* ---------- execuções de time ---------- */
+
+  app.get("/v1/runs", (c) => c.json(listRuns(home, c.req.query("projectPath") || undefined)));
+
+  /**
+   * Cria e dispara. Responde 201 com o run parado nos passos pendentes: a
+   * execução segue em segundo plano e o progresso sai pelo SSE — segurar a
+   * resposta até o fim deixaria a requisição aberta por minutos.
+   */
+  app.post("/v1/runs", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      teamId?: string;
+      projectPath?: string;
+      goal?: string;
+      budget?: unknown;
+    };
+    try {
+      const run = criarRun(
+        {
+          teamId: body.teamId ?? "",
+          projectPath: body.projectPath ?? "",
+          goal: body.goal ?? "",
+          budget: body.budget,
+        },
+        home,
+      );
+      // Cópia antes de disparar: `executarRun` roda síncrono até o primeiro
+      // await e já marca o passo 1 como "running". Sem isso, o corpo da
+      // resposta dependeria de onde a execução tivesse chegado ao serializar.
+      const criado = structuredClone(run);
+      void executarRun(run, home);
+      return c.json(criado, 201);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.get("/v1/runs/:id", (c) => {
+    const run = getRun(c.req.param("id"), home);
+    if (!run) return c.json({ error: "not found" }, 404);
+    return c.json(run);
+  });
+
+  app.post("/v1/runs/:id/abort", async (c) => {
+    const parou = await abortarRun(c.req.param("id"));
+    return c.json({ ok: true, running: parou });
+  });
+
+  app.get("/v1/runs/:id/events", (c) => {
+    const runId = c.req.param("id");
+    return streamSSE(c, async (stream) => {
+      const onEv = (ev: unknown) => {
+        void stream.writeSSE({ data: JSON.stringify(ev) });
+      };
+      runsBus.on(runId, onEv);
+      await new Promise<void>((resolve) => {
+        stream.onAbort(() => {
+          runsBus.off(runId, onEv);
+          resolve();
+        });
+      });
+    });
   });
 
   app.get("/v1/config", (c) => c.json(loadConfig(home)));

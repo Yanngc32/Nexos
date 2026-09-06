@@ -303,4 +303,98 @@ export type StartOpts = {
   agentId?: string;
 };
 
+/* ---------- times de agentes ---------- */
+
+/**
+ * Um membro do time: qual agente e o que ele faz aqui. O papel entra no pedido
+ * que o membro recebe, então o mesmo agente pode ocupar papéis diferentes em
+ * times diferentes sem virar dois agentes.
+ */
+export type TeamMember = {
+  agentId: string;
+  papel?: string;
+};
+
+/**
+ * Como o time trabalha.
+ *
+ * `pipeline` é a única forma por ora, e de propósito: o daemon a executa de
+ * fora, um membro por vez, usando a saída de um como entrada do próximo. Não
+ * exige nada do motor — nem canal de volta, nem ferramenta nova. Supervisor
+ * (um membro decidindo quem age no meio do turno) precisa disso e fica pra
+ * quando existir.
+ */
+export type TeamTopology = "pipeline";
+export const TEAM_TOPOLOGIES: TeamTopology[] = ["pipeline"];
+
+export type TeamDef = {
+  id: string;
+  name: string;
+  description?: string;
+  topology: TeamTopology;
+  members: TeamMember[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export const TEAM_ID_RE = AGENT_ID_RE;
+export const TEAM_NAME_MAX = 60;
+export const TEAM_DESC_MAX = 200;
+export const TEAM_PAPEL_MAX = 200;
+export const TEAM_MEMBERS_MAX = 8;
+export const TEAMS_MAX = 50;
+
+/** Objetivo do run: o pedido que entra na primeira etapa. */
+export const RUN_GOAL_MAX = 8000;
+
+export type RunStepStatus = "pending" | "running" | "done" | "error" | "skipped";
+
+export type RunStep = {
+  index: number;
+  agentId: string;
+  papel?: string;
+  status: RunStepStatus;
+  /** Conversa que este passo usou; fica no histórico pra auditoria. */
+  threadId?: string;
+  startedAt?: string;
+  endedAt?: string;
+  /** Arquivo com a saída completa deste passo, dentro do run. */
+  artifact?: string;
+  outputChars?: number;
+  costUsd?: number;
+  tokens?: number;
+  error?: string;
+};
+
+export type RunStatus = "running" | "done" | "error" | "aborted";
+
+/**
+ * Teto do run. Existe porque um time multiplica o gasto: cinco membros é cinco
+ * vezes o custo de um turno, e um erro de instrução que faz o time girar em
+ * falso queima a conta sem ninguém ver.
+ */
+export type RunBudget = {
+  maxUsd?: number;
+  maxSteps?: number;
+};
+
+export type Run = {
+  id: string;
+  teamId: string;
+  projectPath: string;
+  goal: string;
+  status: RunStatus;
+  steps: RunStep[];
+  budget?: RunBudget;
+  createdAt: string;
+  endedAt?: string;
+  error?: string;
+};
+
+export type RunEvent =
+  | { type: "run_start"; runId: string; teamId: string }
+  | { type: "step_start"; runId: string; index: number; agentId: string; threadId: string }
+  | { type: "step_done"; runId: string; index: number; step: RunStep }
+  | { type: "run_end"; runId: string; status: RunStatus; error?: string };
+
 export type PackConfig = NexoConfig["pack"];

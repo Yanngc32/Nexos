@@ -14,6 +14,7 @@ export function ensureHome(root = nexoHome()): string {
     join(root, "threads"),
     join(root, "run"),
     join(root, "attachments"),
+    join(root, "runs"),
   ]) {
     mkdirSync(dir, { recursive: true });
   }
@@ -44,6 +45,19 @@ export function configPath(root = nexoHome()): string {
 
 export function agentsPath(root = nexoHome()): string {
   return join(root, "agents.json");
+}
+
+export function teamsPath(root = nexoHome()): string {
+  return join(root, "teams.json");
+}
+
+/** Pasta de um run: guarda a saída de cada passo como artefato. */
+export function runDir(id: string, root = nexoHome()): string {
+  return join(root, "runs", assertSlug(id));
+}
+
+export function runsRoot(root = nexoHome()): string {
+  return join(root, "runs");
 }
 
 export function enginePidPath(threadId: string, root = nexoHome()): string {
