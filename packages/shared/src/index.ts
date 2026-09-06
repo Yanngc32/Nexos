@@ -206,6 +206,8 @@ export type ThreadEvent =
       runStep?: number;
       /** Rótulo do run (time + objetivo), pra lista agrupar sem consultar o run. */
       runTitle?: string;
+      /** Config MCP desta conversa; ver `StartOpts.mcpConfig`. */
+      mcpConfig?: string;
     }
   | { ts: string; type: "user"; threadId: string; text: string; attachments?: Attachment[] }
   | { ts: string; type: "assistant"; threadId: string; text: string }
@@ -310,6 +312,12 @@ export type StartOpts = {
   profileId: string;
   contextPack: string;
   agentId?: string;
+  /**
+   * Arquivo de config MCP pro motor de CLI (`--mcp-config`). Só o supervisor em
+   * canal `mcp` usa: é por ele que o modelo alcança os membros do time sem sair
+   * do turno.
+   */
+  mcpConfig?: string;
 };
 
 /* ---------- times de agentes ---------- */
@@ -347,11 +355,26 @@ export type TeamMember = {
 export type TeamTopology = "pipeline" | "fanin" | "supervisor";
 export const TEAM_TOPOLOGIES: TeamTopology[] = ["pipeline", "fanin", "supervisor"];
 
+/**
+ * Como o supervisor manda no time.
+ *
+ * `turno`: ele responde a ordem em texto, o turno fecha, o daemon executa e
+ * volta no turno seguinte. Um turno por decisão, e roda em QUALQUER motor.
+ * `mcp`: ele chama uma ferramenta e recebe a resposta sem sair do turno — o run
+ * inteiro cabe num turno só. Mais barato, mas só em motor que fala MCP
+ * (`claude`); nos outros o daemon cai de volta pro `turno` em vez de recusar o
+ * run, e registra isso em `canalOff`.
+ */
+export type TeamCanal = "turno" | "mcp";
+export const TEAM_CANAIS: TeamCanal[] = ["turno", "mcp"];
+
 export type TeamDef = {
   id: string;
   name: string;
   description?: string;
   topology: TeamTopology;
+  /** Só vale no `supervisor`; nas outras topologias não há decisão pra tomar. */
+  canal?: TeamCanal;
   members: TeamMember[];
   createdAt: string;
   updatedAt: string;
@@ -433,6 +456,8 @@ export type Run = {
    * a tentativa anterior deixou.
    */
   tentativas?: number;
+  /** Por que o supervisor não usou MCP, quando o time pediu. */
+  canalOff?: string;
   /**
    * O que as tentativas anteriores já custaram. Os passos refeitos perdem o
    * `costUsd` deles (a conversa é outra), e sem isso o orçamento esqueceria o

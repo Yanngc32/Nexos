@@ -36,6 +36,25 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
   `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
   forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
+- Canal `mcp` no supervisor: o daemon vira servidor MCP e o supervisor chama os membros DENTRO do
+  turno dele, em vez de um turno por decisão. Um run de 5 chamadas passa de 6 turnos pra 1.
+  A ferramenta é presa a UM run pelo caminho (`/v1/mcp/<run>`): o bearer sozinho é o token da
+  máquina inteira, e sem o escopo qualquer coisa com o token poderia disparar agente de outro run.
+  A config vai em arquivo `0600` e não em argumento, porque carrega o token — argv é legível por
+  qualquer processo do mesmo usuário. `--strict-mcp-config` impede que servidor MCP herdado do
+  `~/.claude.json` entre no turno de um agente que ninguém configurou pra isso.
+  Motor que não fala MCP (`api`, `stub`) cai de volta pro modo por turno, com o motivo em
+  `canalOff` — recusar o run seria pior: o time continua fazendo sentido, só que mais caro. Por isso
+  o `turno` segue sendo o padrão, e a tela só mostra a escolha no supervisor.
+  O teto de passos vale dentro da ferramenta também: em MCP o laço é do modelo, e sem isso ele não
+  passaria por nenhuma trava do daemon. Erro de argumento e membro inexistente voltam como
+  `isError` (o modelo lê e corrige), enquanto exceção do daemon vira erro de protocolo — a
+  diferença entre "você errou" e "nós quebramos".
+  Duas coisas que a verificação contra o CLI de verdade corrigiu: `--allowed-tools` passou a sair
+  UMA vez só com tudo dentro (a opção é variádica, e repeti-la fazia a segunda substituir a
+  primeira, apagando as ferramentas do perfil ou as do MCP); e a resposta da ferramenta deixou de
+  apontar pro artefato — ele mora fora da pasta do projeto, o supervisor não tem ferramenta pra
+  abrir, e ele concluía que o membro não havia produzido nada.
 - Painel flutuante (botão "Painel", Ctrl+Shift+W, ou a bandeja): janela própria, sem moldura,
   sempre por cima, com o passo do run em andamento, quantas conversas estão trabalhando, os anéis de
   quota por conta e o custo acumulado contra o teto. Janela separada e não um canto da principal

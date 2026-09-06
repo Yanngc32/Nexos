@@ -11,6 +11,7 @@ import { spawnCwd } from "../project-cwd.ts";
 import { agentOverrides } from "../agents.ts";
 import { engineEnv, engineSpawnEnv, getProfile } from "../profiles.ts";
 import { isNodeScript, spawnBin } from "../spawn-bin.ts";
+import { MCP_TOOLS } from "../mcp.ts";
 import { parseCliLine } from "./parse-claude.ts";
 
 export { parseCliLine };
@@ -33,7 +34,7 @@ function spawnEngine(bin: string, args: string[], opts: SpawnOptions): ChildProc
  * Só claude tem --model/--effort/--permission-mode confirmados; codex fica no padrão dele.
  * `over` são os ajustes do agente personalizado: vencem os da conta quando existem.
  */
-function profileFlags(profile: Profile, over: EngineOverrides = {}): string[] {
+function profileFlags(profile: Profile, over: EngineOverrides = {}, extraTools: string[] = []): string[] {
   if (profile.engine !== "claude") return [];
   const model = over.model ?? profile.model;
   const effort = over.effort ?? profile.effort;
@@ -50,7 +51,12 @@ function profileFlags(profile: Profile, over: EngineOverrides = {}): string[] {
    * Isso libera só o que o perfil declarou — bem mais estreito que desligar a
    * permissão inteira com bypassPermissions.
    */
-  const allowed = (profile.allowedTools ?? []).filter((t) => TOOL_PATTERN_RE.test(t));
+  /*
+   * UMA ocorrência de --allowed-tools, com tudo dentro. A opção é variádica no
+   * CLI: repeti-la faria a segunda substituir a primeira, e as ferramentas do
+   * MCP entrariam no lugar das que o perfil declarou (ou o contrário).
+   */
+  const allowed = [...(profile.allowedTools ?? []).filter((t) => TOOL_PATTERN_RE.test(t)), ...extraTools];
   if (allowed.length) out.push("--allowed-tools", ...allowed);
   return out;
 }
@@ -79,6 +85,7 @@ export class CliEngine implements Engine {
   private args: string[];
   private threadId = "";
   private agentId?: string;
+  private mcpConfig?: string;
   private aborted = false;
   private finished = false;
   lastEnv: Record<string, string | undefined> = {};
@@ -99,6 +106,7 @@ export class CliEngine implements Engine {
     if (!profile) throw new Error("perfil não existe");
     this.threadId = opts.threadId;
     this.agentId = opts.agentId;
+    this.mcpConfig = opts.mcpConfig;
     this.syncArgs();
     this.extra = engineEnv(profile, this.home);
     this.spawnEnv = engineSpawnEnv(profile, this.home);
@@ -121,9 +129,30 @@ export class CliEngine implements Engine {
   private syncArgs(): void {
     const profile = getProfile(this.profileId, this.home);
     const over: EngineOverrides = agentOverrides(this.agentId, this.home);
-    this.args = profile ? [...this.baseArgs, ...profileFlags(profile, over)] : [...this.baseArgs];
+    const mcp = this.mcpFlags(profile?.engine);
+    this.args = profile ? [...this.baseArgs, ...profileFlags(profile, over, mcp.tools)] : [...this.baseArgs];
     this.args.push(...this.attachmentFlags(profile?.engine));
+    this.args.push(...mcp.flags);
     this.lastArgs = this.args;
+  }
+
+  /**
+   * Liga o servidor MCP do daemon, pro supervisor alcançar os membros do time
+   * sem sair do turno.
+   *
+   * `--strict-mcp-config` porque o que vale aqui é a ferramenta do run, e só
+   * ela: servidor herdado do `~/.claude.json` do usuário entraria no turno de um
+   * agente que ele não configurou pra isso.
+   *
+   * As ferramentas saem em `tools` e não em `flags` porque quem monta o
+   * `--allowed-tools` é o `profileFlags` — uma ocorrência só. Elas PRECISAM
+   * estar lá: em `--print` não há canal pra aprovar permissão, então sem isso a
+   * chamada seria negada em silêncio e o supervisor acharia que a ferramenta não
+   * existe.
+   */
+  private mcpFlags(engine?: string): { flags: string[]; tools: string[] } {
+    if (engine !== "claude" || !this.mcpConfig) return { flags: [], tools: [] };
+    return { flags: ["--mcp-config", this.mcpConfig, "--strict-mcp-config"], tools: [...MCP_TOOLS] };
   }
 
   /**

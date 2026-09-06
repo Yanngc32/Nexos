@@ -297,6 +297,12 @@
                   <option value="fanin">Em paralelo — todos ao mesmo tempo, o último junta</option>
                   <option value="supervisor">Com supervisor — o primeiro decide quem trabalha, a cada rodada</option>
                 </select></label>
+              <label class="hidden" id="tm-canal-wrap"
+                >Como o supervisor manda
+                <select id="tm-canal">
+                  <option value="turno">Por turno — funciona em qualquer conta</option>
+                  <option value="mcp">Por ferramenta (MCP) — mais barato, só em conta Claude</option>
+                </select></label>
               <p class="tm-aviso hidden" id="tm-aviso"></p>
             </section>
 

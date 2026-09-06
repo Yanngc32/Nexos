@@ -10,12 +10,13 @@ import {
   type TeamDef,
 } from "@nexo/shared";
 import { getAgent } from "./agents.ts";
-import { runDir, runsRoot } from "./home.ts";
+import { runDir, runsRoot, tokenPath } from "./home.ts";
 import { newRunId } from "./ids.ts";
-import { abortThread, getLive, postMessage } from "./session.ts";
+import { abortThread, engineKindOf, getLive, postMessage } from "./session.ts";
 import {
   lerDecisao,
   listarDisponiveis,
+  pedidoComFerramenta,
   pedidoDeCorrecao,
   pedidoDeFalha,
   pedidoDeRetomada,
@@ -24,6 +25,9 @@ import {
   type Decisao,
   type Disponivel,
 } from "./supervisor.ts";
+import { configDeMcp, type Ferramentas } from "./mcp.ts";
+import { loadConfig } from "./config.ts";
+
 import { getTeam } from "./teams.ts";
 import { createThread, readThread, threadUsage } from "./threads.ts";
 import { commitarTrabalho, criarWorktree, nomeDoBranch, podeIsolar, removerWorktree, temMudanca } from "./worktree.ts";
@@ -653,13 +657,23 @@ async function rodarSupervisor(run: Run, teto: number, home: string): Promise<vo
     return;
   }
 
+  /*
+   * Time que pediu MCP tenta MCP; motor que não fala cai de volta pro modo por
+   * turno, com o motivo em `canalOff`. Recusar o run seria pior: o time continua
+   * fazendo sentido, só que mais caro. Retomada não usa MCP — o ganho dele é
+   * caber num turno só, e retomar já é um turno novo.
+   */
+  if (time.canal === "mcp" && !retomandoChefe(chefe, home)) {
+    if (await rodarSupervisorMcp(run, teto, home, chefe)) return;
+  }
+
   /**
    * Retomada reusa a CONVERSA do supervisor, e é o ponto todo dela: ele volta
    * lembrando o que já mandou fazer e o que deu errado. Conversa nova o faria
    * recomeçar do zero — pagando de novo pelo caminho até aqui e ainda podendo
    * refazer o que já foi feito.
    */
-  const retomando = Boolean(chefe.threadId && readThread(chefe.threadId, home).length);
+  const retomando = retomandoChefe(chefe, home);
   const threadId = retomando
     ? (chefe.threadId as string)
     : createThread(
@@ -723,6 +737,153 @@ async function rodarSupervisor(run: Run, teto: number, home: string): Promise<vo
       ? pedidoDeVolta(step.agentId, saida.texto, saida.arquivo, restam(), TRECHO_CHARS)
       : pedidoDeFalha(step.agentId, step.error ?? "falhou sem motivo", restam());
   }
+}
+
+/** O supervisor já tem conversa de uma tentativa anterior? */
+function retomandoChefe(chefe: RunStep, home: string): boolean {
+  if (!chefe.threadId) return false;
+  try {
+    return readThread(chefe.threadId, home).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/* ---------- supervisor por MCP ---------- */
+
+/**
+ * Ferramentas que o supervisor de UM run enxerga. Presa ao run de propósito: um
+ * supervisor não alcança membro de outro run, então um token vazado não vira
+ * botão pra disparar qualquer agente da máquina.
+ *
+ * `null` quando o run não existe, não está vivo ou não é de supervisor — a rota
+ * responde 404 em vez de servir ferramenta órfã.
+ */
+export function ferramentasDoRun(runId: string, home: string): Ferramentas | null {
+  const vivo = vivos.get(runId);
+  if (!vivo) return null;
+  const run = vivo.run;
+  const time = getTeam(run.teamId, home);
+  if (time?.topology !== "supervisor") return null;
+  const equipe = time.members.slice(1);
+
+  return {
+    membros: () =>
+      listarDisponiveis(
+        equipe.map((m) => getAgent(m.agentId, home)),
+        equipe.map((m) => m.papel),
+      ),
+    chamar: async (membro, pedido) => {
+      const alvo = equipe.find((m) => m.agentId === membro);
+      if (!alvo) {
+        const ids = equipe.map((m) => m.agentId).join(", ");
+        return { ok: false, texto: `"${membro}" não está no time — escolha entre: ${ids}` };
+      }
+      const teto = Math.min(run.budget?.maxSteps ?? PASSOS_TETO, PASSOS_TETO);
+      const parar = motivoDeParar(run, run.steps.length, teto);
+      // o teto vale AQUI também: em MCP o supervisor gira dentro de um turno só,
+      // e sem isso um laço dele não passaria por nenhuma trava do daemon
+      if (parar) return { ok: false, texto: `não dá pra chamar mais ninguém: ${parar}` };
+
+      const step = anexarPasso(run, membro, alvo.papel, home);
+      const ordem: Entrada = { agentId: "supervisor", texto: pedido, arquivo: "", titulo: "# Pedido do supervisor" };
+      const saida = await executarPasso(run, step, [ordem], home);
+      if (!saida) return { ok: false, texto: `${membro} falhou: ${step.error ?? "sem motivo"}` };
+      /*
+       * Só o texto. Apontar pro artefato aqui foi testado e saiu pela culatra: o
+       * arquivo mora no home do nexo, fora da pasta do projeto, e o supervisor
+       * não tem ferramenta pra abrir — ele tentava ler, era negado, e concluía
+       * que o membro não tinha produzido nada. O caminho fica no `run.json`, pra
+       * quem vai auditar; pro supervisor ele só atrapalha.
+       */
+      return { ok: true, texto: saida.texto };
+    },
+  };
+}
+
+/**
+ * Supervisor por MCP: um turno só, com o modelo chamando `nexo_chamar` quantas
+ * vezes precisar dentro dele.
+ *
+ * A diferença pro modo por turno é onde o laço mora. Lá o laço é do daemon e
+ * cada volta custa um turno; aqui o laço é do modelo e custa uma chamada de
+ * ferramenta. O daemon continua sendo quem executa o membro — o que muda é que
+ * ele responde no meio do turno em vez de no seguinte.
+ *
+ * Só motor `claude`: `api` e `stub` não falam MCP. Motor que não fala cai de
+ * volta pro modo por turno, com o motivo em `canalOff` — recusar o run seria
+ * pior, porque o time continua fazendo sentido, só que mais caro.
+ */
+async function rodarSupervisorMcp(run: Run, teto: number, home: string, chefe: RunStep): Promise<boolean> {
+  const agente = getAgent(chefe.agentId, home);
+  if (!agente) return false;
+  if (engineKindOf(agente.profileId, home) !== "claude") {
+    run.canalOff = "o motor da conta do supervisor não fala MCP";
+    return false;
+  }
+
+  const dir = runDir(run.id, home);
+  mkdirSync(dir, { recursive: true });
+  const arquivo = join(dir, "mcp.json");
+  // 0600: o arquivo carrega o token do daemon, e ele fica no disco enquanto o
+  // run vive. Em argv seria pior — argv é legível por qualquer processo do usuário.
+  const token = existsSync(tokenPath(home)) ? readFileSync(tokenPath(home), "utf8").trim() : "";
+  writeFileSync(arquivo, configDeMcp(loadConfig(home).port, token, run.id), { encoding: "utf8", mode: 0o600 });
+
+  const time = getTeam(run.teamId, home);
+  const equipe = time?.members.slice(1) ?? [];
+  const membros = listarDisponiveis(
+    equipe.map((m) => getAgent(m.agentId, home)),
+    equipe.map((m) => m.papel),
+  );
+
+  const { id: threadId } = createThread(
+    {
+      projectPath: run.projectPath,
+      profileId: agente.profileId,
+      agentId: agente.id,
+      runId: run.id,
+      runStep: 0,
+      runTitle: rotuloDoRun(run, home),
+      title: `${agente.name} · supervisor`,
+      mcpConfig: arquivo,
+    },
+    home,
+  );
+  chefe.threadId = threadId;
+  chefe.status = "running";
+  chefe.startedAt = nowIso();
+  saveRun(run, home);
+  emit(run, { type: "step_start", runId: run.id, index: 0, agentId: chefe.agentId, threadId });
+
+  try {
+    await postMessage(threadId, pedidoComFerramenta(run.goal, chefe.papel, membros, teto - 1), home);
+  } catch (e) {
+    fecharSupervisor(run, chefe, (e as Error).message || "falhou ao mandar o pedido", home);
+    return true;
+  }
+
+  const uso = threadUsage(threadId, home);
+  chefe.costUsd = uso.costUsd;
+  chefe.tokens = uso.input + uso.output;
+  chefe.decisoes = run.steps.length - 1;
+
+  if (getLive(threadId)?.lastTerminal !== "done") {
+    fecharSupervisor(run, chefe, abortado(run.id) ? "abortado" : motivoDoFim(threadId, home), home);
+    return true;
+  }
+
+  const resumo = saidaDaThread(threadId, home);
+  chefe.artifact = gravarArtefato(run, chefe, resumo, home);
+  chefe.outputChars = resumo.length;
+  chefe.status = "done";
+  chefe.endedAt = nowIso();
+  // igual ao modo por turno: passo de membro que falhou e o supervisor contornou
+  // não derruba o run
+  run.status = "done";
+  saveRun(run, home);
+  emit(run, { type: "step_done", runId: run.id, index: 0, step: chefe });
+  return true;
 }
 
 /**

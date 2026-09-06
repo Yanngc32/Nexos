@@ -56,6 +56,7 @@ export function createTeamStudio({
       id: el("tm-id").value,
       description: el("tm-desc").value,
       topology: el("tm-topology").value,
+      canal: el("tm-canal").value,
       members: membros.map((m) => ({ agentId: m.agentId, ...(m.papel ? { papel: m.papel } : {}) })),
     };
   }
@@ -95,9 +96,20 @@ export function createTeamStudio({
     supervisor: "O PRIMEIRO decide e não trabalha. A ordem dos outros não importa: quem escolhe é ele.",
   };
 
+  /**
+   * O canal só existe no supervisor — nas outras topologias não há decisão pra
+   * tomar, e o campo prometeria um ajuste que não muda nada.
+   */
+  const AVISO_MCP =
+    "Por ferramenta, o supervisor chama os membros DENTRO do turno dele: o run inteiro cabe num " +
+    "turno só, em vez de um turno por decisão. Só vale em conta Claude — nas outras o Nexo cai de " +
+    "volta pro modo por turno e registra o motivo no run.";
+
   function aoMudar() {
     const topologia = el("tm-topology").value;
-    const aviso = AVISOS[topologia] ?? "";
+    const chefia = topologia === "supervisor";
+    el("tm-canal-wrap").classList.toggle("hidden", !chefia);
+    const aviso = chefia && el("tm-canal").value === "mcp" ? AVISO_MCP : (AVISOS[topologia] ?? "");
     el("tm-ordem").textContent = ORDEM[topologia] ?? "";
     el("tm-aviso").textContent = aviso;
     el("tm-aviso").classList.toggle("hidden", !aviso);
@@ -220,6 +232,7 @@ export function createTeamStudio({
     el("tm-id").value = def?.id ?? "";
     el("tm-desc").value = def?.description ?? "";
     el("tm-topology").value = def?.topology ?? "pipeline";
+    el("tm-canal").value = def?.canal ?? "turno";
     membros = (def?.members ?? []).map((m) => ({ agentId: m.agentId, papel: m.papel ?? "" }));
     if (!def && !membros.length) adicionar();
     el("tm-id").disabled = Boolean(def);
@@ -497,6 +510,7 @@ export function createTeamStudio({
       el(id).addEventListener("input", aoMudar);
     }
     el("tm-topology").addEventListener("change", aoMudar);
+    el("tm-canal").addEventListener("change", aoMudar);
     el("btn-tm-add").addEventListener("click", adicionar);
     el("btn-tm-save").addEventListener("click", () => void salvar());
     el("btn-tm-del").addEventListener("click", () => void excluir());

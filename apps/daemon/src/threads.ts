@@ -20,6 +20,7 @@ export function createThread(
     runId?: string;
     runStep?: number;
     runTitle?: string;
+    mcpConfig?: string;
   },
   home: string,
 ): CreatedThread {
@@ -38,6 +39,7 @@ export function createThread(
     ...(input.runId ? { runId: input.runId } : {}),
     ...(input.runStep === undefined ? {} : { runStep: input.runStep }),
     ...(input.runTitle ? { runTitle: input.runTitle } : {}),
+    ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
   };
   appendEvent(meta, home);
   return { id };

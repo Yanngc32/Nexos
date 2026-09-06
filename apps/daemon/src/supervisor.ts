@@ -78,6 +78,31 @@ export function pedidoDeFalha(agentId: string, motivo: string, restam: number): 
 }
 
 /**
+ * Pedido do supervisor em canal MCP. Diferente do por turno em uma coisa só, e
+ * é a que importa: ele não responde uma ordem, ele CHAMA a ferramenta — e pode
+ * chamar várias vezes sem sair do turno. O resumo dele vira a saída do run.
+ */
+export function pedidoComFerramenta(
+  goal: string,
+  papel: string | undefined,
+  membros: Disponivel[],
+  restam: number,
+): string {
+  const lista = membros.map((m) => `- ${m.id} — ${m.nome}${m.papel ? `: ${m.papel}` : ""}`).join("\n");
+  return [
+    `# Objetivo do time\n${goal}`,
+    `# Seu papel\n${papel || "supervisor: você decide quem do time trabalha, e com que pedido."}`,
+    `# Membros que você pode chamar\n${lista}`,
+    "# Como trabalhar\n" +
+      "Use a ferramenta `nexo_chamar` pra pôr um membro pra trabalhar; ela devolve o que ele " +
+      "produziu. Chame um de cada vez e use o resultado dele pra decidir o próximo.\n" +
+      "Você NÃO executa o trabalho: quem lê arquivo, escreve código e roda comando são os membros.\n" +
+      `Você tem no máximo ${restam} chamadas. Quando o objetivo estiver cumprido, PARE de chamar e ` +
+      "responda com o resultado do time — essa resposta é a saída do run.",
+  ].join("\n\n");
+}
+
+/**
  * O run foi retomado. Não repete objetivo nem lista: a conversa é a mesma e ele
  * já tem tudo isso. O que ele NÃO tem é a informação de que houve uma parada e
  * de que a conta de chamadas mudou.

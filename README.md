@@ -87,10 +87,16 @@ Nada disso está no repositório — e não deve ser commitado.
 | paralelo | todos menos o último ao mesmo tempo; o último junta | várias leituras independentes do mesmo código |
 | supervisor | o primeiro decide quem chamar, uma rodada por vez, até encerrar | trabalho cujo caminho não dá pra escrever antes |
 
-O supervisor não age no meio do turno dele: ele responde a ordem em texto, o daemon executa e
-volta com o resultado no turno seguinte da mesma conversa. Isso custa **um turno por decisão** e
-o número de rodadas é ele quem escolhe — use `maxSteps` no orçamento do run pra fechar a conta.
-Em compensação roda em qualquer motor, inclusive nos que não falam MCP.
+O supervisor manda por um de dois canais:
+
+- **por turno** (padrão): ele responde a ordem em texto, o daemon executa e volta com o resultado
+  no turno seguinte da mesma conversa. Custa **um turno por decisão** e roda em qualquer motor.
+- **por ferramenta (MCP)**: o daemon vira servidor MCP e ele chama os membros sem sair do turno —
+  o run inteiro cabe num turno só. Só em conta `claude`; nas outras o Nexo cai de volta pro canal
+  por turno e registra o motivo em `canalOff`.
+
+Nos dois casos quem executa o membro é o daemon, e quantas rodadas vão acontecer é o supervisor
+quem escolhe — use `maxSteps` no orçamento do run pra fechar a conta.
 
 ### O que o Nexo escreve no SEU repositório
 

@@ -9,6 +9,7 @@ import { saveTeam } from "../src/teams.ts";
 import {
   criarRun,
   executarRun,
+  ferramentasDoRun,
   getRun,
   listRuns,
   resetRunsForTest,
@@ -771,5 +772,71 @@ describe("retomada", () => {
       expect(run.steps[1]?.status).toBe("done");
       expect(run.steps[0]?.status).toBe("pending");
     });
+  });
+});
+
+describe("supervisor por MCP", () => {
+  function timeMcp(membros: Array<{ agentId: string; papel?: string }>, home: string) {
+    return saveTeam({ id: "t", name: "T", topology: "supervisor", canal: "mcp", members: membros }, home);
+  }
+
+  it("motor que não fala MCP cai de volta pro modo por turno, e diz o motivo", async () => {
+    const home = base();
+    timeMcp([{ agentId: "a1" }, { agentId: "a2" }], home);
+    const run = await rodar(
+      home,
+      ['objetivo', 'STUB:{"acao":"chamar","membro":"a2","pedido":"x"}', 'STUB:{"acao":"encerrar","resumo":"ok"}'].join(
+        "\n",
+      ),
+    );
+    // o stub não fala MCP: o run roda igual, só que pelo canal por turno
+    expect(run.canalOff).toMatch(/não fala MCP/);
+    expect(run.status).toBe("done");
+    expect(run.steps.map((s) => s.status)).toEqual(["done", "done"]);
+  });
+
+  it("o canal só é guardado no supervisor: nas outras topologias não há decisão", () => {
+    const home = base();
+    const pipe = saveTeam({ id: "p", name: "P", topology: "pipeline", canal: "mcp", members: [{ agentId: "a1" }] }, home);
+    expect(pipe.canal).toBeUndefined();
+    const sup = timeMcp([{ agentId: "a1" }, { agentId: "a2" }], home);
+    expect(sup.canal).toBe("mcp");
+  });
+
+  it("canal inválido é recusado", () => {
+    const home = base();
+    expect(() =>
+      saveTeam({ id: "x", name: "X", topology: "supervisor", canal: "telepatia", members: [{ agentId: "a1" }, { agentId: "a2" }] }, home),
+    ).toThrow(/canal inválido/);
+  });
+
+  it("ferramentas só existem enquanto o run está em voo", () => {
+    const home = base();
+    timeMcp([{ agentId: "a1" }, { agentId: "a2" }], home);
+    const run = criarRun({ teamId: "t", projectPath: "/p", goal: "x" }, home);
+    // criado mas não disparado: não há ferramenta pra servir
+    expect(ferramentasDoRun(run.id, home)).toBeNull();
+    expect(ferramentasDoRun("r-fantasma", home)).toBeNull();
+  });
+
+  it("as ferramentas de um run em voo listam o time e chamam um membro", async () => {
+    const home = base();
+    timeMcp([{ agentId: "a1" }, { agentId: "a2", papel: "lê" }], home);
+    const run = criarRun({ teamId: "t", projectPath: "/p", goal: "auditar" }, home);
+
+    // espia no meio do run: é o único momento em que a ferramenta existe
+    let visto: ReturnType<typeof ferramentasDoRun> = null;
+    const onEv = (ev: { type: string }) => {
+      if (ev.type === "step_start" && !visto) visto = ferramentasDoRun(run.id, home);
+    };
+    runsBus.on(run.id, onEv);
+    await executarRun(run, home);
+    runsBus.off(run.id, onEv);
+
+    expect(visto).not.toBeNull();
+    expect(visto!.membros().map((m) => m.id)).toEqual(["a2"]);
+    const r = await visto!.chamar("fantasma", "x");
+    expect(r).toMatchObject({ ok: false });
+    expect(r.texto).toMatch(/não está no time/);
   });
 });

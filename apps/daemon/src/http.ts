@@ -32,7 +32,17 @@ import {
 } from "./session.ts";
 import { threadReport } from "./usage-report.ts";
 import { getTeam, listTeams, removeTeam, saveTeam, type TeamInput } from "./teams.ts";
-import { abortarRun, criarRun, executarRun, getRun, listRuns, retomarRun, runsBus } from "./runs.ts";
+import {
+  abortarRun,
+  criarRun,
+  executarRun,
+  ferramentasDoRun,
+  getRun,
+  listRuns,
+  retomarRun,
+  runsBus,
+} from "./runs.ts";
+import { erroDeParse, tratarMcp, type JsonRpc } from "./mcp.ts";
 import {
   autostartServices,
   listServices,
@@ -579,6 +589,31 @@ export function createApp(home: string, token: string): Hono {
       const err = e as Error & { status?: number };
       return c.json({ error: err.message }, (err.status ?? 400) as 400);
     }
+  });
+
+  /**
+   * Servidor MCP de UM run: é por aqui que o supervisor em canal `mcp` chama os
+   * membros do time sem sair do turno dele.
+   *
+   * Preso ao run no caminho de propósito. O bearer já é exigido pelo middleware
+   * de `/v1/*`, mas ele é o token da máquina inteira: sem o escopo do run, um
+   * supervisor (ou qualquer coisa com o token) poderia disparar agente de outro
+   * run. Run que não está em voo não tem ferramenta — 404, não 500.
+   */
+  app.post("/v1/mcp/:id", async (c) => {
+    const fer = ferramentasDoRun(c.req.param("id"), home);
+    if (!fer) return c.json({ error: "run não está em voo" }, 404);
+    let msg: unknown;
+    try {
+      msg = await c.req.json();
+    } catch {
+      const r = erroDeParse();
+      return c.json(r.corpo, r.status as 200);
+    }
+    const r = await tratarMcp(msg as JsonRpc, fer);
+    // 202 sem corpo é a resposta certa a notificação: o cliente não espera JSON
+    if (r.status === 202) return c.body(null, 202);
+    return c.json(r.corpo, r.status as 200);
   });
 
   app.get("/v1/runs/:id", (c) => {

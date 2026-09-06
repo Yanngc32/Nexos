@@ -220,6 +220,7 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
       // que o motor de CLI aceita (o `api` usa o pack como system de verdade).
       contextPack: withInstructions(meta.agentId, packed.text, home),
       ...(meta.agentId ? { agentId: meta.agentId } : {}),
+      ...(meta.mcpConfig ? { mcpConfig: meta.mcpConfig } : {}),
     },
     (ev) => onEngineEvent(threadId, home, ev),
   );

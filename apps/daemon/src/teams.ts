@@ -6,7 +6,9 @@ import {
   TEAM_MEMBERS_MAX,
   TEAM_NAME_MAX,
   TEAM_PAPEL_MAX,
+  TEAM_CANAIS,
   TEAM_TOPOLOGIES,
+  type TeamCanal,
   type TeamDef,
   type TeamMember,
   type TeamTopology,
@@ -20,6 +22,7 @@ export type TeamInput = {
   name?: string;
   description?: string;
   topology?: string;
+  canal?: string;
   members?: Array<{ agentId?: string; papel?: string }>;
 };
 
@@ -76,6 +79,13 @@ function limparTopologia(v: unknown): TeamTopology {
   return v as TeamTopology;
 }
 
+function limparCanal(v: unknown): TeamCanal {
+  if (typeof v !== "string" || !(TEAM_CANAIS as string[]).includes(v)) {
+    throw badRequest(`canal inválido: ${String(v)}`);
+  }
+  return v as TeamCanal;
+}
+
 /**
  * Membros na ORDEM em que trabalham — no pipeline a posição é a semântica.
  * O agente precisa existir: um membro apontando pra agente apagado quebraria o
@@ -114,10 +124,15 @@ export function saveTeam(input: TeamInput, home: string): TeamDef {
     throw badRequest("supervisor precisa de pelo menos um membro além dele");
   }
 
+  const canal = input.canal === undefined ? atual?.canal : limparCanal(input.canal);
+
   const def: TeamDef = {
     id,
     name,
     topology,
+    // canal só existe pro supervisor: guardá-lo nas outras topologias criaria um
+    // ajuste que a tela mostra e que não muda nada
+    ...(topology === "supervisor" && canal ? { canal } : {}),
     members,
     createdAt: atual?.createdAt ?? nowIso(),
     updatedAt: nowIso(),
