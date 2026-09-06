@@ -261,6 +261,60 @@
           </div>
         </div>
       </section>
+      <section class="pane hidden" id="pane-team">
+        <header class="mod-head">
+          <h1>Time</h1>
+          <span id="tm-head-name" class="mod-meta"></span>
+          <span id="tm-dirty" class="ag-dirty hidden" title="Há mudanças não salvas">•</span>
+          <button type="button" id="btn-tm-save" class="primary">Salvar</button>
+          <button type="button" id="btn-tm-del" class="ghost danger">Excluir</button>
+          <button type="button" id="btn-close-team" class="ghost mod-close" title="Fechar">✕</button>
+        </header>
+        <div class="ag-split">
+          <div class="ag-edit" id="tm-edit">
+            <section class="ag-sec">
+              <h2>Identidade</h2>
+              <div class="ag-row">
+                <label class="ag-f"><span>Nome</span>
+                  <input id="tm-name" type="text" maxlength="60" placeholder="Time de feature" /></label>
+                <label class="ag-f ag-narrow"><span>id</span>
+                  <input id="tm-id" type="text" maxlength="40" placeholder="feature" /></label>
+              </div>
+              <label class="ag-f"><span>Descrição</span>
+                <input id="tm-desc" type="text" maxlength="200" placeholder="Para que serve este time" /></label>
+            </section>
+
+            <section class="ag-sec ag-sec-grow">
+              <h2>Membros, em ordem</h2>
+              <p class="ag-hint">
+                Roda um por vez, de cima pra baixo: a saída de cada um vira a entrada do próximo.
+                O papel entra no pedido daquele membro, então o mesmo agente pode ocupar papéis
+                diferentes em times diferentes.
+              </p>
+              <ol id="tm-members" class="tm-members"></ol>
+              <button type="button" class="ghost" id="btn-tm-add">+ Membro</button>
+            </section>
+            <p class="ag-err hidden" id="tm-err"></p>
+          </div>
+
+          <div class="ag-bench" id="tm-run">
+            <header class="ag-bench-head">
+              <h2>Execução</h2>
+              <span id="tm-run-status" class="tm-run-status"></span>
+              <button type="button" id="btn-tm-stop" class="ghost hidden">Parar</button>
+            </header>
+            <p class="ag-bench-note" id="tm-run-note"></p>
+            <div class="ag-bench-body">
+              <ol class="ag-steps" id="tm-steps"></ol>
+            </div>
+            <div class="ag-sum" id="tm-sum"></div>
+            <form class="ag-ask" id="tm-ask">
+              <textarea id="tm-goal" rows="2" placeholder="Objetivo do time — o pedido que entra no primeiro membro…"></textarea>
+              <button type="submit" class="primary" id="btn-tm-run">Rodar</button>
+            </form>
+          </div>
+        </div>
+      </section>
       <section class="pane hidden" id="pane-chat">
         <div id="split-chat" class="splitter" role="separator" aria-orientation="vertical" title="Arraste pra redimensionar"></div>
         <button type="button" id="btn-focus-exit" class="focus-exit hidden" title="Sair do foco (Esc)">⤡</button>
@@ -627,11 +681,21 @@
       </div>
       <div class="agents-tabs" role="tablist">
         <button type="button" id="tab-agents-run" class="agents-tab" role="tab" data-on="1">Rodando</button>
-        <button type="button" id="tab-agents-def" class="agents-tab" role="tab">Meus agentes</button>
+        <button type="button" id="tab-agents-team" class="agents-tab" data-on="0">Times</button>
+          <button type="button" id="tab-agents-def" class="agents-tab" role="tab">Meus agentes</button>
       </div>
       <div id="agents-pane-run" class="agents-pane">
         <ul id="agents-list" class="agents-list"></ul>
         <p id="agents-empty" class="agents-empty">Nenhum agente rodando agora.</p>
+      </div>
+      <div id="agents-pane-team" class="agents-pane hidden">
+        <ul id="team-list" class="agents-list"></ul>
+        <p id="team-empty" class="agents-empty">
+          Nenhum time criado. Um time roda seus agentes em sequência: a saída de um vira a entrada do próximo.
+        </p>
+        <div class="agents-foot">
+          <button type="button" class="primary" id="btn-team-new">Novo time</button>
+        </div>
       </div>
       <div id="agents-pane-def" class="agents-pane hidden">
         <ul id="agent-defs" class="agents-list"></ul>

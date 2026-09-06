@@ -36,6 +36,12 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
   `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
   forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
+- Tela cheia do time (`team-studio.js`) e aba "Times" no painel de agentes: editor de membros à
+  esquerda — trocar o agente, escrever o papel, subir, descer e remover, com a ordem valendo como a
+  ordem do pipeline — e a execução à direita, com um passo por membro, duração, tokens e o total do
+  run. O estado da execução vem do daemon (`run-view.js` só aplica os eventos e calcula o que está
+  em voo): o tempo mostrado é o que o servidor mediu, não o de chegada do evento como na bancada de
+  um agente.
 - Times de agentes e execução de time no daemon. Um `TeamDef` é um nome, uma topologia e os membros
   em ordem, cada um com um papel — o mesmo agente pode ocupar papéis diferentes em times diferentes
   sem virar dois agentes. Rotas: `/v1/teams` (CRUD) e `/v1/runs` (criar, consultar, abortar, SSE de

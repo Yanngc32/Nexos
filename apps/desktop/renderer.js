@@ -3,6 +3,7 @@ import { createFileTree } from "./file-tree.js";
 import { createServicesPanel } from "./services.js";
 import { aplicarNoRetrato } from "./agent-events.js";
 import { createAgentStudio } from "./agent-studio.js";
+import { createTeamStudio } from "./team-studio.js";
 import { lerEventos } from "./sse.js";
 import { escapeHtml, renderMd } from "./markdown.js";
 import {
@@ -116,6 +117,8 @@ const state = {
   },
   /** Agente personalizado da conversa aberta; "" = conta pura. */
   agentId: "",
+  /** Times de agentes; a lista vive aqui porque o painel e a tela cheia leem. */
+  teams: [],
 };
 
 const { api, aplicar: aplicarInfoDoMotor, headers, renovarCredenciais, req, reqBlob } = createApiClient({
@@ -1173,6 +1176,7 @@ function applyWorkLayout() {
   $("pane-browser").classList.toggle("hidden", state.view !== "browser");
   $("pane-canvas").classList.toggle("hidden", state.view !== "canvas");
   $("pane-agent").classList.toggle("hidden", state.view !== "agent");
+  $("pane-team").classList.toggle("hidden", state.view !== "team");
   // Sem módulo aberto o chat vira o conteúdo principal — não depende de sideChat aqui.
   $("pane-chat").classList.toggle("hidden", !state.sideChat && !noModule);
 }
@@ -2492,6 +2496,62 @@ const svcPanel = createServicesPanel({
   },
   aoErro: (message) => appendEvent({ type: "error", message }),
 });
+
+/* ---------- times ---------- */
+
+async function loadTeams() {
+  if (!state.ok) return;
+  try {
+    state.teams = await req("/v1/teams");
+  } catch {
+    // motor antigo sem a rota: painel vazio, não erro na cara
+    state.teams = [];
+  }
+  paintTeams();
+}
+
+function paintTeams() {
+  const ul = $("team-list");
+  ul.replaceChildren();
+  $("team-empty").classList.toggle("hidden", state.teams.length > 0);
+  for (const t of state.teams) {
+    const li = document.createElement("li");
+    li.className = "agent-card";
+    const nome = document.createElement("strong");
+    nome.textContent = t.name;
+    const meta = document.createElement("span");
+    meta.className = "agent-card-meta";
+    meta.textContent = `${t.members.length} membro${t.members.length === 1 ? "" : "s"} · ${t.members
+      .map((m) => m.agentId)
+      .join(" → ")}`;
+    const editar = document.createElement("button");
+    editar.type = "button";
+    editar.className = "ghost";
+    editar.textContent = "✎";
+    editar.title = "Abrir";
+    editar.addEventListener("click", () => void abrirTime(t));
+    li.append(nome, meta, editar);
+    li.addEventListener("click", (e) => {
+      if (e.target === editar) return;
+      void abrirTime(t);
+    });
+    ul.append(li);
+  }
+}
+
+/**
+ * Painel lateral fecha e a tela cheia assume, igual ao agente. Espera os agentes
+ * carregarem antes: o seletor de membro é montado a partir deles, e abrir sem a
+ * lista deixava o time novo sem membro nenhum e sem explicação.
+ */
+async function abrirTime(def) {
+  toggleAgents(false);
+  state.view = "team";
+  applyWorkLayout();
+  if (!state.agents.defs.length) await loadAgentDefs();
+  teamStudio.abrir(def);
+}
+
 /** Painel lateral fecha e a tela cheia assume: criar agente virou tela, não formulário. */
 function abrirEstudio(def) {
   toggleAgents(false);
@@ -2499,6 +2559,22 @@ function abrirEstudio(def) {
   applyWorkLayout();
   agentStudio.abrir(def);
 }
+
+const teamStudio = createTeamStudio({
+  req,
+  api,
+  headers,
+  el: $,
+  getProjectPath: () => state.projectPath,
+  isOk: () => state.ok,
+  getAgents: () => state.agents.defs,
+  lerEventos,
+  aoSalvar: () => loadTeams(),
+  aoFechar: () => {
+    state.view = "none";
+    applyWorkLayout();
+  },
+});
 
 const agentStudio = createAgentStudio({
   req,
@@ -2615,15 +2691,19 @@ function toggleAgents(want) {
   paintAgents();
 }
 
+const ABAS_AGENTES = ["run", "team", "def"];
+
 function setAgentsTab(tab) {
-  state.agents.tab = tab === "def" ? "def" : "run";
+  state.agents.tab = ABAS_AGENTES.includes(tab) ? tab : "run";
   localStorage.setItem("nexo.agentsTab", state.agents.tab);
-  const naDef = state.agents.tab === "def";
-  $("tab-agents-run").dataset.on = naDef ? "0" : "1";
-  $("tab-agents-def").dataset.on = naDef ? "1" : "0";
-  $("agents-pane-run").classList.toggle("hidden", naDef);
-  $("agents-pane-def").classList.toggle("hidden", !naDef);
-  if (naDef) void loadAgentDefs();
+  for (const aba of ABAS_AGENTES) {
+    const ativa = aba === state.agents.tab;
+    $(`tab-agents-${aba}`).dataset.on = ativa ? "1" : "0";
+    $(`agents-pane-${aba}`).classList.toggle("hidden", !ativa);
+  }
+  // times listam agentes junto: o seletor de membro precisa deles
+  if (state.agents.tab === "def" || state.agents.tab === "team") void loadAgentDefs();
+  if (state.agents.tab === "team") void loadTeams();
 }
 
 /* ---------- agentes personalizados: definições ---------- */
@@ -3887,6 +3967,9 @@ $("btn-agents").addEventListener("click", () => toggleAgents());
 $("btn-agents-close").addEventListener("click", () => toggleAgents(false));
 $("tab-agents-run").addEventListener("click", () => setAgentsTab("run"));
 $("tab-agents-def").addEventListener("click", () => setAgentsTab("def"));
+$("tab-agents-team").addEventListener("click", () => setAgentsTab("team"));
+$("btn-team-new").addEventListener("click", () => void abrirTime(null));
+teamStudio.ligar();
 $("btn-agent-new").addEventListener("click", () => abrirEstudio(null));
 agentStudio.ligar();
 setAgentsTab(state.agents.tab);
