@@ -12,6 +12,11 @@ import {
   temMudanca,
 } from "../src/worktree.ts";
 
+/** Conteúdo sem depender de fim de linha: o git troca LF por CRLF no Windows. */
+function texto(arquivo: string): string {
+  return readFileSync(arquivo, "utf8").replace(/\r\n/g, "\n").trim();
+}
+
 /** Repositório de verdade num temp: worktree não dá pra mockar sem virar teste de nada. */
 function repo({ comCommit = true } = {}): string {
   const dir = mkdtempSync(join(tmpdir(), "nexo-git-"));
@@ -65,7 +70,9 @@ describe("worktree", () => {
     const dir = join(r, "..", `wt-${Date.now()}`);
     const out = await criarWorktree(r, dir, "nexo/teste/1-a");
     expect(out.ok).toBe(true);
-    expect(readFileSync(join(dir, "a.txt"), "utf8")).toBe("original\n");
+    // conteúdo, não bytes: no Windows o core.autocrlf do git troca LF por CRLF
+    // no checkout da árvore, e travar o literal daria falha por plataforma
+    expect(texto(join(dir, "a.txt"))).toBe("original");
     await removerWorktree(r, dir);
   });
 
@@ -80,10 +87,10 @@ describe("worktree", () => {
     writeFileSync(join(d2, "a.txt"), "do segundo\n", "utf8");
 
     // é exatamente isto que o isolamento existe pra garantir
-    expect(readFileSync(join(d1, "a.txt"), "utf8")).toBe("do primeiro\n");
-    expect(readFileSync(join(d2, "a.txt"), "utf8")).toBe("do segundo\n");
+    expect(texto(join(d1, "a.txt"))).toBe("do primeiro");
+    expect(texto(join(d2, "a.txt"))).toBe("do segundo");
     // e o projeto original fica intocado
-    expect(readFileSync(join(r, "a.txt"), "utf8")).toBe("original\n");
+    expect(texto(join(r, "a.txt"))).toBe("original");
 
     await removerWorktree(r, d1);
     await removerWorktree(r, d2);
@@ -121,7 +128,7 @@ describe("worktree", () => {
 
     // a árvore sumiu, o branch ficou com o conteúdo
     const conteudo = execFileSync("git", ["show", `${branch}:feito.txt`], { cwd: r, encoding: "utf8" });
-    expect(conteudo).toBe("trabalho do agente");
+    expect(conteudo.trim()).toBe("trabalho do agente");
   });
 
   it("remover árvore que já sumiu do disco não vira erro fatal", async () => {
