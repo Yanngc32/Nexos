@@ -318,14 +318,23 @@ export type TeamMember = {
 /**
  * Como o time trabalha.
  *
- * `pipeline` é a única forma por ora, e de propósito: o daemon a executa de
- * fora, um membro por vez, usando a saída de um como entrada do próximo. Não
- * exige nada do motor — nem canal de volta, nem ferramenta nova. Supervisor
- * (um membro decidindo quem age no meio do turno) precisa disso e fica pra
- * quando existir.
+ * `pipeline`: um membro por vez, a saída de um é a entrada do próximo.
+ * `fanin`: todos menos o último rodam AO MESMO TEMPO, e o último recebe a saída
+ * de todos pra juntar. Quem agrega é o último da lista — a ordem continua sendo
+ * a semântica, como no pipeline.
+ *
+ * As duas o daemon executa de fora, sem exigir nada do motor. Supervisor (um
+ * membro decidindo quem age no meio do turno) precisaria de canal de volta e
+ * fica pra quando existir.
+ *
+ * ATENÇÃO no `fanin`: os membros paralelos rodam no MESMO diretório do projeto,
+ * ao mesmo tempo. Enquanto não houver isolamento por worktree, um time de
+ * fan-in com membros que ESCREVEM arquivo vai ter um sobrescrevendo o outro.
+ * Para leitura — analisar, revisar, pesquisar — é seguro, e é pra isso que ele
+ * serve hoje.
  */
-export type TeamTopology = "pipeline";
-export const TEAM_TOPOLOGIES: TeamTopology[] = ["pipeline"];
+export type TeamTopology = "pipeline" | "fanin";
+export const TEAM_TOPOLOGIES: TeamTopology[] = ["pipeline", "fanin"];
 
 export type TeamDef = {
   id: string;

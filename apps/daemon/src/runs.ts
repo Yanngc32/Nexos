@@ -176,23 +176,39 @@ function motivoDoFim(threadId: string, home: string): string {
   return "turno não terminou";
 }
 
+/** O que um passo produziu, pronto pra virar entrada de outro. */
+type Entrada = { agentId: string; papel?: string; texto: string; arquivo: string };
+
 /**
- * Pedido de um membro: objetivo do run, o papel dele e o que veio do anterior.
+ * Pedido de um membro: objetivo do run, o papel dele e o que veio antes.
  * O papel entra aqui e não nas instruções do agente porque o mesmo agente pode
  * ocupar papéis diferentes em times diferentes.
+ *
+ * No pipeline chega uma entrada; no fan-in, o agregador recebe uma por membro
+ * paralelo, cada uma identificada — sem isso ele não teria como saber quem
+ * disse o quê.
  */
-function montarPedido(run: Run, step: RunStep, anterior: { texto: string; arquivo: string } | null): string {
+function montarPedido(run: Run, step: RunStep, entradas: Entrada[]): string {
   const partes = [`# Objetivo do time\n${run.goal}`];
   if (step.papel) partes.push(`# Seu papel\n${step.papel}`);
-  if (anterior) {
-    const cortado = anterior.texto.length > TRECHO_CHARS;
-    partes.push(
-      `# Entrada (saída do passo anterior)\n${anterior.texto.slice(0, TRECHO_CHARS)}` +
-        (cortado ? `\n\n[cortado — o texto inteiro está em ${anterior.arquivo}]` : ""),
-    );
-    partes.push(`Arquivo com a entrada completa: ${anterior.arquivo}`);
+  if (entradas.length === 1) {
+    partes.push(blocoDeEntrada(entradas[0] as Entrada, "Entrada (saída do passo anterior)"));
+  } else if (entradas.length > 1) {
+    partes.push(`# Entradas (${entradas.length} membros trabalharam em paralelo)`);
+    for (const e of entradas) {
+      partes.push(blocoDeEntrada(e, `## ${e.agentId}${e.papel ? ` — ${e.papel}` : ""}`));
+    }
   }
   return partes.join("\n\n");
+}
+
+function blocoDeEntrada(e: Entrada, titulo: string): string {
+  const cortado = e.texto.length > TRECHO_CHARS;
+  return (
+    `${titulo}\n${e.texto.slice(0, TRECHO_CHARS)}` +
+    (cortado ? `\n\n[cortado — o texto inteiro está em ${e.arquivo}]` : "") +
+    `\n\nArquivo com a entrada completa: ${e.arquivo}`
+  );
 }
 
 function gravarArtefato(run: Run, step: RunStep, saida: string, home: string): string {
@@ -208,97 +224,157 @@ function custoAteAgora(run: Run): number {
   return run.steps.reduce((total, s) => total + (s.costUsd ?? 0), 0);
 }
 
+/** Um passo do zero ao fim: conversa, pedido, espera, uso e artefato. */
+async function executarPasso(run: Run, step: RunStep, entradas: Entrada[], home: string): Promise<Entrada | null> {
+  const agente = getAgent(step.agentId, home);
+  if (!agente) {
+    return falharPasso(run, step, `agente não existe: ${step.agentId}`, home);
+  }
+
+  const { id: threadId } = createThread(
+    { projectPath: run.projectPath, profileId: agente.profileId, agentId: agente.id },
+    home,
+  );
+  step.threadId = threadId;
+  step.status = "running";
+  step.startedAt = nowIso();
+  saveRun(run, home);
+  emit(run, { type: "step_start", runId: run.id, index: step.index, agentId: step.agentId, threadId });
+
+  try {
+    await postMessage(threadId, montarPedido(run, step, entradas), home);
+  } catch (e) {
+    return falharPasso(run, step, (e as Error).message || "falhou ao mandar o pedido", home);
+  }
+
+  const uso = threadUsage(threadId, home);
+  step.costUsd = uso.costUsd;
+  step.tokens = uso.input + uso.output;
+
+  if (getLive(threadId)?.lastTerminal !== "done") {
+    return falharPasso(run, step, motivoDoFim(threadId, home), home);
+  }
+
+  const saida = saidaDaThread(threadId, home);
+  step.artifact = gravarArtefato(run, step, saida, home);
+  step.outputChars = saida.length;
+  step.status = "done";
+  step.endedAt = nowIso();
+  saveRun(run, home);
+  emit(run, { type: "step_done", runId: run.id, index: step.index, step });
+  return {
+    agentId: step.agentId,
+    ...(step.papel ? { papel: step.papel } : {}),
+    texto: saida,
+    arquivo: step.artifact,
+  };
+}
+
+function falharPasso(run: Run, step: RunStep, motivo: string, home: string): null {
+  step.status = "error";
+  step.error = motivo;
+  step.endedAt = nowIso();
+  saveRun(run, home);
+  emit(run, { type: "step_done", runId: run.id, index: step.index, step });
+  return null;
+}
+
+/** Motivo pra parar antes de gastar mais: abort, teto de passos ou orçamento. */
+function motivoDeParar(run: Run, indice: number, teto: number): string | null {
+  const vivo = vivos.get(run.id);
+  if (!vivo || vivo.abortado) return "abortado";
+  if (indice >= teto) return `teto de ${teto} passos`;
+  const gasto = custoAteAgora(run);
+  if (run.budget?.maxUsd !== undefined && gasto >= run.budget.maxUsd) {
+    return `orçamento de US$ ${run.budget.maxUsd} estourado (US$ ${gasto.toFixed(4)})`;
+  }
+  return null;
+}
+
 /**
- * Roda o pipeline até o fim, até falhar ou até o orçamento acabar.
+ * Pipeline: um por vez, a saída de um é a entrada do próximo.
  *
  * Falha PARA o run em vez de tentar de novo ou pular: o passo seguinte receberia
  * entrada vazia e produziria trabalho sem base, gastando quota pra piorar o
  * resultado. Retomar é decisão de quem está olhando.
  */
+async function rodarPipeline(run: Run, teto: number, home: string): Promise<void> {
+  let anterior: Entrada | null = null;
+  for (const step of run.steps) {
+    const parar = motivoDeParar(run, step.index, teto);
+    if (parar) return pararRun(run, step, parar);
+    const saida = await executarPasso(run, step, anterior ? [anterior] : [], home);
+    if (!saida) {
+      run.status = "error";
+      run.error = step.error;
+      return;
+    }
+    anterior = saida;
+  }
+}
+
+/**
+ * Fan-in: todos menos o último ao mesmo tempo, o último junta.
+ *
+ * Os paralelos rodam no MESMO diretório do projeto. Enquanto não houver
+ * isolamento por worktree, membro que escreve arquivo sobrescreve o vizinho —
+ * a topologia serve pra trabalho de leitura (analisar, revisar, pesquisar).
+ *
+ * Falha de um paralelo não cancela os outros: eles já estão em voo e a quota já
+ * foi gasta. Deixa terminar, e só então o agregador é pulado.
+ */
+async function rodarFanIn(run: Run, teto: number, home: string): Promise<void> {
+  const paralelos = run.steps.slice(0, -1);
+  const agregador = run.steps.at(-1);
+  if (!agregador) return;
+
+  // time de um membro só: não há o que juntar, roda igual ao pipeline
+  if (!paralelos.length) return rodarPipeline(run, teto, home);
+
+  const parar = motivoDeParar(run, paralelos.length, teto);
+  if (parar) return pararRun(run, run.steps[0] as RunStep, parar);
+
+  const saidas = await Promise.all(paralelos.map((step) => executarPasso(run, step, [], home)));
+  const entradas = saidas.filter((e): e is Entrada => e !== null);
+
+  if (entradas.length !== paralelos.length) {
+    const quebrado = paralelos.find((s) => s.status === "error");
+    agregador.status = "skipped";
+    run.status = "error";
+    run.error = quebrado?.error ?? "um membro em paralelo falhou";
+    return;
+  }
+
+  const depois = motivoDeParar(run, run.steps.length - 1, teto);
+  if (depois) return pararRun(run, agregador, depois);
+
+  if (!(await executarPasso(run, agregador, entradas, home))) {
+    run.status = "error";
+    run.error = agregador.error;
+  }
+}
+
+function pararRun(run: Run, step: RunStep, motivo: string): void {
+  if (motivo === "abortado") {
+    run.status = "aborted";
+    return;
+  }
+  step.status = "skipped";
+  run.status = "error";
+  run.error = motivo;
+}
+
+/** Roda o time até o fim, até falhar ou até o orçamento acabar. */
 export async function executarRun(run: Run, home: string): Promise<Run> {
   vivos.set(run.id, { run, abortado: false });
   emit(run, { type: "run_start", runId: run.id, teamId: run.teamId });
 
   const teto = Math.min(run.budget?.maxSteps ?? PASSOS_TETO, PASSOS_TETO);
-  let anterior: { texto: string; arquivo: string } | null = null;
+  const time = getTeam(run.teamId, home);
 
   try {
-    for (const step of run.steps) {
-      const vivo = vivos.get(run.id);
-      if (!vivo || vivo.abortado) {
-        run.status = "aborted";
-        break;
-      }
-      if (step.index >= teto) {
-        step.status = "skipped";
-        run.status = "error";
-        run.error = `teto de ${teto} passos`;
-        break;
-      }
-      const gasto = custoAteAgora(run);
-      if (run.budget?.maxUsd !== undefined && gasto >= run.budget.maxUsd) {
-        step.status = "skipped";
-        run.status = "error";
-        run.error = `orçamento de US$ ${run.budget.maxUsd} estourado (US$ ${gasto.toFixed(4)})`;
-        break;
-      }
-
-      const agente = getAgent(step.agentId, home);
-      if (!agente) {
-        step.status = "error";
-        step.error = `agente não existe: ${step.agentId}`;
-        run.status = "error";
-        run.error = step.error;
-        break;
-      }
-
-      const { id: threadId } = createThread(
-        { projectPath: run.projectPath, profileId: agente.profileId, agentId: agente.id },
-        home,
-      );
-      step.threadId = threadId;
-      step.status = "running";
-      step.startedAt = nowIso();
-      saveRun(run, home);
-      emit(run, { type: "step_start", runId: run.id, index: step.index, agentId: step.agentId, threadId });
-
-      try {
-        await postMessage(threadId, montarPedido(run, step, anterior), home);
-      } catch (e) {
-        step.status = "error";
-        step.error = (e as Error).message || "falhou ao mandar o pedido";
-        step.endedAt = nowIso();
-        run.status = "error";
-        run.error = step.error;
-        saveRun(run, home);
-        emit(run, { type: "step_done", runId: run.id, index: step.index, step });
-        break;
-      }
-
-      const uso = threadUsage(threadId, home);
-      step.costUsd = uso.costUsd;
-      step.tokens = uso.input + uso.output;
-
-      if (getLive(threadId)?.lastTerminal !== "done") {
-        step.status = "error";
-        step.error = motivoDoFim(threadId, home);
-        step.endedAt = nowIso();
-        run.status = "error";
-        run.error = step.error;
-        saveRun(run, home);
-        emit(run, { type: "step_done", runId: run.id, index: step.index, step });
-        break;
-      }
-
-      const saida = saidaDaThread(threadId, home);
-      step.artifact = gravarArtefato(run, step, saida, home);
-      step.outputChars = saida.length;
-      step.status = "done";
-      step.endedAt = nowIso();
-      anterior = { texto: saida, arquivo: step.artifact };
-      saveRun(run, home);
-      emit(run, { type: "step_done", runId: run.id, index: step.index, step });
-    }
+    if (time?.topology === "fanin") await rodarFanIn(run, teto, home);
+    else await rodarPipeline(run, teto, home);
 
     if (run.status === "running") {
       run.status = run.steps.every((s) => s.status === "done") ? "done" : "error";
@@ -323,8 +399,9 @@ export async function abortarRun(id: string): Promise<boolean> {
   const vivo = vivos.get(id);
   if (!vivo) return false;
   vivo.abortado = true;
-  const emVoo = vivo.run.steps.find((s) => s.status === "running");
-  if (emVoo?.threadId) await abortThread(emVoo.threadId);
+  // no fan-in há vários em voo ao mesmo tempo: derruba todos
+  const emVoo = vivo.run.steps.filter((s) => s.status === "running" && s.threadId);
+  await Promise.all(emVoo.map((s) => abortThread(s.threadId as string)));
   return true;
 }
 

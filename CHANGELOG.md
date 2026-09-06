@@ -36,6 +36,16 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
   `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
   forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
+- Topologia `fanin` no time: todos os membros menos o último rodam AO MESMO TEMPO, e o último
+  recebe a saída de todos — cada uma identificada por quem produziu, senão o agregador não teria
+  como saber quem disse o quê. Quem agrega é o último da lista; a ordem continua sendo a semântica.
+  Falha de um paralelo não cancela os outros (já estão em voo, a quota já foi gasta): deixa
+  terminar e pula o agregador.
+  Aviso que aparece na tela ao escolher paralelo, e não só no código: os membros paralelos rodam no
+  MESMO diretório do projeto. Enquanto não houver isolamento por worktree, membro que escreve
+  arquivo sobrescreve o vizinho. A topologia serve, hoje, pra trabalho de leitura — analisar,
+  revisar, pesquisar.
+
 - Tela cheia do time (`team-studio.js`) e aba "Times" no painel de agentes: editor de membros à
   esquerda — trocar o agente, escrever o papel, subir, descer e remover, com a ordem valendo como a
   ordem do pipeline — e a execução à direita, com um passo por membro, duração, tokens e o total do

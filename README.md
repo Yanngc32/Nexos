@@ -2,7 +2,9 @@
 
 Orquestrador local de agentes de código. Um daemon roda em `127.0.0.1`, fala com CLIs de
 agente já instaladas na máquina (Claude Code, Codex) ou com API, e um app Electron serve
-de interface: chat, árvore de arquivos, terminal, preview e gestão de serviços do projeto.
+de interface: chat, árvore de arquivos, terminal, preview, gestão de serviços do projeto,
+criação de agentes com bancada de teste e times que rodam esses agentes em sequência ou em
+paralelo.
 
 Tudo é local: nenhum dado sai da máquina além do que a própria CLI do agente já manda pro
 provedor dela.
@@ -69,6 +71,9 @@ Tudo fica em `~/.nexo` (ou `NEXO_HOME`):
 | `profiles/<id>/` | credenciais e config por perfil |
 | `threads/<id>.jsonl` | histórico das conversas |
 | `attachments/<thread>/` | imagens anexadas |
+| `agents.json` | agentes personalizados |
+| `teams.json` | times de agentes |
+| `runs/<id>/` | execução de time: `run.json` e o artefato de cada passo |
 | `daemon.token` | token bearer da API local (modo `0600`) |
 | `run/` | PIDs do daemon e dos motores |
 

@@ -282,6 +282,12 @@
               </div>
               <label class="ag-f"><span>Descrição</span>
                 <input id="tm-desc" type="text" maxlength="200" placeholder="Para que serve este time" /></label>
+              <label class="ag-f"><span>Como trabalha</span>
+                <select id="tm-topology">
+                  <option value="pipeline">Em sequência — a saída de um vira a entrada do próximo</option>
+                  <option value="fanin">Em paralelo — todos ao mesmo tempo, o último junta</option>
+                </select></label>
+              <p class="tm-aviso hidden" id="tm-aviso"></p>
             </section>
 
             <section class="ag-sec ag-sec-grow">

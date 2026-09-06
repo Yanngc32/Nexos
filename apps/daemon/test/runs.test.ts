@@ -254,3 +254,104 @@ describe("eventos", () => {
     expect(fim.status).toBe("done");
   });
 });
+
+describe("fan-in", () => {
+  function timeFanIn(membros: Array<{ agentId: string; papel?: string }>, home: string) {
+    return saveTeam({ id: "t", name: "T", topology: "fanin", members: membros }, home);
+  }
+
+  it("todos menos o último rodam; o último junta", async () => {
+    const home = base();
+    saveAgent({ id: "juntar", name: "Juntar", profileId: "p1" }, home);
+    timeFanIn([{ agentId: "a1" }, { agentId: "a2" }, { agentId: "juntar" }], home);
+    const run = await rodar(home);
+    expect(run.status).toBe("done");
+    expect(run.steps.map((s) => s.status)).toEqual(["done", "done", "done"]);
+  });
+
+  it("o agregador recebe a saída de TODOS os paralelos, identificadas", async () => {
+    const home = base();
+    saveAgent({ id: "juntar", name: "Juntar", profileId: "p1" }, home);
+    timeFanIn(
+      [
+        { agentId: "a1", papel: "olha o backend" },
+        { agentId: "a2", papel: "olha o frontend" },
+        { agentId: "juntar", papel: "escreve o relatório" },
+      ],
+      home,
+    );
+    const run = await rodar(home, "auditar o sistema");
+    const relatorio = readFileSync(run.steps[2]!.artifact!, "utf8");
+    expect(relatorio).toContain("2 membros trabalharam em paralelo");
+    // cada entrada vem com o nome de quem produziu: sem isso ele não sabe quem disse o quê
+    expect(relatorio).toContain("## a1 — olha o backend");
+    expect(relatorio).toContain("## a2 — olha o frontend");
+  });
+
+  it("os paralelos não recebem entrada: não há passo anterior", async () => {
+    const home = base();
+    saveAgent({ id: "juntar", name: "Juntar", profileId: "p1" }, home);
+    timeFanIn([{ agentId: "a1" }, { agentId: "a2" }, { agentId: "juntar" }], home);
+    const run = await rodar(home);
+    for (const i of [0, 1]) {
+      expect(readFileSync(run.steps[i]!.artifact!, "utf8")).not.toContain("Entrada");
+    }
+  });
+
+  it("os paralelos rodam ao mesmo tempo, não em fila", async () => {
+    const home = base();
+    saveAgent({ id: "juntar", name: "Juntar", profileId: "p1" }, home);
+    timeFanIn([{ agentId: "a1" }, { agentId: "a2" }, { agentId: "juntar" }], home);
+    const run = await rodar(home);
+    const [a, b] = run.steps;
+    // se fossem em fila, o segundo começaria depois do primeiro terminar
+    expect(Date.parse(b!.startedAt!)).toBeLessThanOrEqual(Date.parse(a!.endedAt!));
+  });
+
+  it("falha de um paralelo pula o agregador e para o run", async () => {
+    const home = base();
+    addProfile({ id: "morto", engine: "claude" }, home, { skipBinCheck: true });
+    saveAgent({ id: "quebra", name: "Quebra", profileId: "morto" }, home);
+    saveAgent({ id: "juntar", name: "Juntar", profileId: "p1" }, home);
+    timeFanIn([{ agentId: "a1" }, { agentId: "quebra" }, { agentId: "juntar" }], home);
+    const run = await rodar(home);
+    expect(run.status).toBe("error");
+    // o que deu certo terminou: a quota dele já tinha sido gasta, cancelar não devolve
+    expect(run.steps[0]?.status).toBe("done");
+    expect(run.steps[1]?.status).toBe("error");
+    expect(run.steps[2]?.status).toBe("skipped");
+  });
+
+  it("time de um membro só cai no pipeline: não há o que juntar", async () => {
+    const home = base();
+    timeFanIn([{ agentId: "a1" }], home);
+    const run = await rodar(home, "sozinho");
+    expect(run.status).toBe("done");
+    expect(readFileSync(run.steps[0]!.artifact!, "utf8")).toContain("sozinho");
+  });
+
+  it("teto de passos corta antes de disparar o lote", async () => {
+    const home = base();
+    saveAgent({ id: "juntar", name: "Juntar", profileId: "p1" }, home);
+    timeFanIn([{ agentId: "a1" }, { agentId: "a2" }, { agentId: "juntar" }], home);
+    const run = await rodar(home, "x", { maxSteps: 1 });
+    expect(run.status).toBe("error");
+    expect(run.error).toMatch(/teto de 1 passos/);
+    expect(run.steps.every((s) => s.status !== "done")).toBe(true);
+  });
+
+  it("emite um par de eventos por passo, agregador incluso", async () => {
+    const home = base();
+    saveAgent({ id: "juntar", name: "Juntar", profileId: "p1" }, home);
+    timeFanIn([{ agentId: "a1" }, { agentId: "a2" }, { agentId: "juntar" }], home);
+    const run = criarRun({ teamId: "t", projectPath: "/proj", goal: "x" }, home);
+    const vistos: string[] = [];
+    const onEv = (ev: { type: string }) => vistos.push(ev.type);
+    runsBus.on(run.id, onEv);
+    await executarRun(run, home);
+    runsBus.off(run.id, onEv);
+    expect(vistos.filter((t) => t === "step_start")).toHaveLength(3);
+    expect(vistos.filter((t) => t === "step_done")).toHaveLength(3);
+    expect(vistos.at(-1)).toBe("run_end");
+  });
+});

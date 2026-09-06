@@ -54,6 +54,7 @@ export function createTeamStudio({
       name: el("tm-name").value,
       id: el("tm-id").value,
       description: el("tm-desc").value,
+      topology: el("tm-topology").value,
       members: membros.map((m) => ({ agentId: m.agentId, ...(m.papel ? { papel: m.papel } : {}) })),
     };
   }
@@ -63,7 +64,20 @@ export function createTeamStudio({
     return JSON.stringify(ler()) !== JSON.stringify(original);
   }
 
+  /**
+   * Fan-in roda os membros no MESMO diretório do projeto, ao mesmo tempo.
+   * Sem isolamento por worktree, membro que escreve arquivo sobrescreve o
+   * vizinho. Está na tela porque quem monta o time é quem escolhe os membros —
+   * esconder isso num comentário de código não ajudaria ninguém.
+   */
+  const AVISO_FANIN =
+    "Em paralelo, os membros trabalham na mesma pasta ao mesmo tempo. Use para leitura — " +
+    "analisar, revisar, pesquisar. Membros que escrevem arquivo vão se sobrescrever.";
+
   function aoMudar() {
+    const paralelo = el("tm-topology").value === "fanin";
+    el("tm-aviso").textContent = paralelo ? AVISO_FANIN : "";
+    el("tm-aviso").classList.toggle("hidden", !paralelo);
     el("tm-dirty").classList.toggle("hidden", !sujo());
     el("btn-tm-run").textContent = sujo() ? "Salvar e rodar" : "Rodar";
     el("tm-head-name").textContent = el("tm-name").value || (editando ? editando : "novo");
@@ -178,6 +192,7 @@ export function createTeamStudio({
     el("tm-name").value = def?.name ?? "";
     el("tm-id").value = def?.id ?? "";
     el("tm-desc").value = def?.description ?? "";
+    el("tm-topology").value = def?.topology ?? "pipeline";
     membros = (def?.members ?? []).map((m) => ({ agentId: m.agentId, papel: m.papel ?? "" }));
     if (!def && !membros.length) adicionar();
     el("tm-id").disabled = Boolean(def);
@@ -413,6 +428,7 @@ export function createTeamStudio({
     for (const id of ["tm-name", "tm-id", "tm-desc"]) {
       el(id).addEventListener("input", aoMudar);
     }
+    el("tm-topology").addEventListener("change", aoMudar);
     el("btn-tm-add").addEventListener("click", adicionar);
     el("btn-tm-save").addEventListener("click", () => void salvar());
     el("btn-tm-del").addEventListener("click", () => void excluir());
