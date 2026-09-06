@@ -45,7 +45,6 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   MESMO diretório do projeto. Enquanto não houver isolamento por worktree, membro que escreve
   arquivo sobrescreve o vizinho. A topologia serve, hoje, pra trabalho de leitura — analisar,
   revisar, pesquisar.
-
 - Tela cheia do time (`team-studio.js`) e aba "Times" no painel de agentes: editor de membros à
   esquerda — trocar o agente, escrever o papel, subir, descer e remover, com a ordem valendo como a
   ordem do pipeline — e a execução à direita, com um passo por membro, duração, tokens e o total do
@@ -56,10 +55,10 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   em ordem, cada um com um papel — o mesmo agente pode ocupar papéis diferentes em times diferentes
   sem virar dois agentes. Rotas: `/v1/teams` (CRUD) e `/v1/runs` (criar, consultar, abortar, SSE de
   progresso).
-  A única topologia é `pipeline`, e de propósito: o daemon a executa de FORA — cria a conversa do
-  membro, manda o pedido, espera o turno fechar, lê a saída e alimenta o próximo. Não exige canal de
-  volta nem ferramenta nova no motor, então cabe no que já existe. Supervisor (um membro decidindo
-  quem age no meio do turno) precisaria disso e fica pra quando existir.
+  As topologias (`pipeline` e, depois, `fanin`) o daemon executa de FORA — cria a conversa do
+  membro, manda o pedido, espera o turno fechar, lê a saída e alimenta o próximo. Não exigem canal
+  de volta nem ferramenta nova no motor, então cabem no que já existe. Supervisor (um membro
+  decidindo quem age no meio do turno) precisaria disso e fica pra quando existir.
   O que passa entre membros é artefato, não transcrição: cada passo grava a saída inteira em
   `~/.nexo/runs/<run>/passo-N-<agente>.md` e o seguinte recebe um trecho no pedido mais o caminho do
   arquivo. Falha PARA o run em vez de pular ou repetir — o passo seguinte receberia entrada vazia e
