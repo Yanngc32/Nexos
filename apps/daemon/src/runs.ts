@@ -15,6 +15,7 @@ import { newRunId } from "./ids.ts";
 import { abortThread, getLive, postMessage } from "./session.ts";
 import { getTeam } from "./teams.ts";
 import { createThread, readThread, threadUsage } from "./threads.ts";
+import { commitarTrabalho, criarWorktree, nomeDoBranch, podeIsolar, removerWorktree, temMudanca } from "./worktree.ts";
 
 /**
  * Execução de um time.
@@ -225,14 +226,21 @@ function custoAteAgora(run: Run): number {
 }
 
 /** Um passo do zero ao fim: conversa, pedido, espera, uso e artefato. */
-async function executarPasso(run: Run, step: RunStep, entradas: Entrada[], home: string): Promise<Entrada | null> {
+async function executarPasso(
+  run: Run,
+  step: RunStep,
+  entradas: Entrada[],
+  home: string,
+  /** Onde o passo trabalha; vazio = a pasta do projeto. */
+  cwd?: string,
+): Promise<Entrada | null> {
   const agente = getAgent(step.agentId, home);
   if (!agente) {
     return falharPasso(run, step, `agente não existe: ${step.agentId}`, home);
   }
 
   const { id: threadId } = createThread(
-    { projectPath: run.projectPath, profileId: agente.profileId, agentId: agente.id },
+    { projectPath: cwd ?? run.projectPath, profileId: agente.profileId, agentId: agente.id },
     home,
   );
   step.threadId = threadId;
@@ -334,7 +342,11 @@ async function rodarFanIn(run: Run, teto: number, home: string): Promise<void> {
   const parar = motivoDeParar(run, paralelos.length, teto);
   if (parar) return pararRun(run, run.steps[0] as RunStep, parar);
 
-  const saidas = await Promise.all(paralelos.map((step) => executarPasso(run, step, [], home)));
+  const arvores = await prepararArvores(run, paralelos, home);
+  const saidas = await Promise.all(
+    paralelos.map((step) => executarPasso(run, step, [], home, arvores.get(step.index))),
+  );
+  await fecharArvores(run, paralelos, home);
   const entradas = saidas.filter((e): e is Entrada => e !== null);
 
   if (entradas.length !== paralelos.length) {
@@ -352,6 +364,69 @@ async function rodarFanIn(run: Run, teto: number, home: string): Promise<void> {
     run.status = "error";
     run.error = agregador.error;
   }
+}
+
+
+/**
+ * Uma árvore de trabalho por membro paralelo.
+ *
+ * Só no fan-in: no pipeline, compartilhar a árvore costuma ser o ponto — se o
+ * primeiro escreve e o segundo revisa, separá-los faria o revisor não enxergar
+ * nada. O problema de dois agentes escrevendo o mesmo arquivo só existe quando
+ * eles rodam ao mesmo tempo.
+ *
+ * Projeto sem git ou sem commit não dá pra isolar; o run registra isso em
+ * `isolationOff` em vez de fingir que isolou.
+ */
+async function prepararArvores(run: Run, passos: RunStep[], home: string): Promise<Map<number, string>> {
+  const out = new Map<number, string>();
+  const veredito = await podeIsolar(run.projectPath);
+  if (!veredito.pode) {
+    run.isolated = false;
+    if (veredito.motivo) run.isolationOff = veredito.motivo;
+    saveRun(run, home);
+    return out;
+  }
+  for (const step of passos) {
+    const dir = join(runDir(run.id, home), "wt", `${step.index + 1}-${step.agentId}`);
+    const branch = nomeDoBranch(run.id, step.index, step.agentId);
+    const r = await criarWorktree(run.projectPath, dir, branch);
+    if (!r.ok) {
+      // uma árvore que não nasce derruba o isolamento do lote inteiro: rodar
+      // metade isolado e metade junto seria pior que não isolar
+      for (const feito of out.values()) await removerWorktree(run.projectPath, feito);
+      out.clear();
+      run.isolated = false;
+      run.isolationOff = r.motivo;
+      saveRun(run, home);
+      return out;
+    }
+    out.set(step.index, dir);
+    step.worktree = dir;
+    step.branch = branch;
+  }
+  run.isolated = true;
+  delete run.isolationOff;
+  saveRun(run, home);
+  return out;
+}
+
+/**
+ * Commita o que cada membro deixou e tira a árvore do disco. O BRANCH FICA —
+ * é onde está o trabalho, e apagar sem ninguém ter olhado é o que não se faz.
+ * Sem o commit, o `remove --force` levaria a mudança junto e o branch existiria
+ * vazio.
+ */
+async function fecharArvores(run: Run, passos: RunStep[], home: string): Promise<void> {
+  if (!run.isolated) return;
+  for (const step of passos) {
+    if (!step.worktree) continue;
+    if (await temMudanca(step.worktree)) {
+      await commitarTrabalho(step.worktree, `nexo: ${step.agentId} — ${run.goal.slice(0, 60)}`);
+    }
+    await removerWorktree(run.projectPath, step.worktree);
+  }
+  saveRun(run, home);
 }
 
 function pararRun(run: Run, step: RunStep, motivo: string): void {

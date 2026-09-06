@@ -36,15 +36,21 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
   `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
   forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
+- Isolamento por `git worktree` nos membros paralelos do fan-in: cada um ganha uma árvore própria
+  do repositório, num branch `nexo/<run>/<n>-<agente>`, então dois agentes escrevendo o mesmo
+  arquivo ao mesmo tempo deixaram de se destruir. A árvore sai do disco no fim do run; o branch
+  fica, com o trabalho commitado — sem isso o `worktree remove --force` levaria a mudança junto e o
+  branch existiria vazio. Nada é mesclado automaticamente.
+  Só no fan-in: no pipeline, compartilhar a árvore costuma ser o ponto — se o primeiro escreve e o
+  segundo revisa, separá-los faria o revisor não enxergar nada. Projeto sem git (ou sem commit)
+  roda igual, sem isolar, e o run registra o motivo em `isolationOff` em vez de fingir que isolou.
 - Topologia `fanin` no time: todos os membros menos o último rodam AO MESMO TEMPO, e o último
   recebe a saída de todos — cada uma identificada por quem produziu, senão o agregador não teria
   como saber quem disse o quê. Quem agrega é o último da lista; a ordem continua sendo a semântica.
   Falha de um paralelo não cancela os outros (já estão em voo, a quota já foi gasta): deixa
   terminar e pula o agregador.
-  Aviso que aparece na tela ao escolher paralelo, e não só no código: os membros paralelos rodam no
-  MESMO diretório do projeto. Enquanto não houver isolamento por worktree, membro que escreve
-  arquivo sobrescreve o vizinho. A topologia serve, hoje, pra trabalho de leitura — analisar,
-  revisar, pesquisar.
+  Aviso na tela ao escolher paralelo (ver isolamento por worktree acima): em repositório git cada
+  membro trabalha no branch dele; sem git, todos dividem a pasta e se atropelam.
 - Tela cheia do time (`team-studio.js`) e aba "Times" no painel de agentes: editor de membros à
   esquerda — trocar o agente, escrever o papel, subir, descer e remover, com a ordem valendo como a
   ordem do pipeline — e a execução à direita, com um passo por membro, duração, tokens e o total do

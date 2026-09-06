@@ -1,4 +1,7 @@
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { addProfile } from "../src/profiles.ts";
 import { removeAgent, saveAgent } from "../src/agents.ts";
@@ -353,5 +356,91 @@ describe("fan-in", () => {
     expect(vistos.filter((t) => t === "step_start")).toHaveLength(3);
     expect(vistos.filter((t) => t === "step_done")).toHaveLength(3);
     expect(vistos.at(-1)).toBe("run_end");
+  });
+});
+
+describe("isolamento no fan-in", () => {
+  /** Repositório de verdade: o isolamento é git worktree, não dá pra fingir. */
+  function repoGit(): string {
+    const dir = mkdtempSync(join(tmpdir(), "nexo-runrepo-"));
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "pipe" });
+    git("init", "-q");
+    git("config", "user.email", "teste@nexo");
+    git("config", "user.name", "Teste");
+    git("config", "commit.gpgsign", "false");
+    writeFileSync(join(dir, "alvo.txt"), "original\n", "utf8");
+    git("add", "-A");
+    git("commit", "-q", "-m", "primeiro");
+    return dir;
+  }
+
+  function timeFanIn(membros: Array<{ agentId: string }>, home: string) {
+    return saveTeam({ id: "t", name: "T", topology: "fanin", members: membros }, home);
+  }
+
+  it("cada paralelo trabalha numa árvore própria, com branch próprio", async () => {
+    const home = base();
+    const projeto = repoGit();
+    saveAgent({ id: "juntar", name: "Juntar", profileId: "p1" }, home);
+    timeFanIn([{ agentId: "a1" }, { agentId: "a2" }, { agentId: "juntar" }], home);
+    const run = await executarRun(criarRun({ teamId: "t", projectPath: projeto, goal: "x" }, home), home);
+
+    expect(run.isolated).toBe(true);
+    expect(run.steps[0]?.branch).toMatch(/^nexo\/r-.+\/1-a1$/);
+    expect(run.steps[1]?.branch).toMatch(/^nexo\/r-.+\/2-a2$/);
+    // árvores diferentes
+    expect(run.steps[0]?.worktree).not.toBe(run.steps[1]?.worktree);
+    // o agregador NÃO é isolado: ele junta, e junta na pasta do projeto
+    expect(run.steps[2]?.worktree).toBeUndefined();
+  });
+
+  it("as árvores saem do disco no fim, e os branches ficam", async () => {
+    const home = base();
+    const projeto = repoGit();
+    saveAgent({ id: "juntar", name: "Juntar", profileId: "p1" }, home);
+    timeFanIn([{ agentId: "a1" }, { agentId: "juntar" }], home);
+    const run = await executarRun(criarRun({ teamId: "t", projectPath: projeto, goal: "x" }, home), home);
+
+    expect(existsSync(run.steps[0]!.worktree!)).toBe(false);
+    const branches = execFileSync("git", ["branch", "--list", "nexo/*"], { cwd: projeto, encoding: "utf8" });
+    expect(branches).toContain(run.steps[0]!.branch);
+  });
+
+  it("projeto sem git roda igual, registrando por que não isolou", async () => {
+    const home = base();
+    const semGit = mkdtempSync(join(tmpdir(), "nexo-semgit-"));
+    saveAgent({ id: "juntar", name: "Juntar", profileId: "p1" }, home);
+    timeFanIn([{ agentId: "a1" }, { agentId: "a2" }, { agentId: "juntar" }], home);
+    const run = await executarRun(criarRun({ teamId: "t", projectPath: semGit, goal: "x" }, home), home);
+
+    // sem isolamento, mas o run roda: não isolar não é motivo pra recusar trabalho
+    expect(run.status).toBe("done");
+    expect(run.isolated).toBe(false);
+    expect(run.isolationOff).toMatch(/repositório git/);
+    expect(run.steps.every((s) => !s.worktree)).toBe(true);
+  });
+
+  it("pipeline NÃO isola: compartilhar a árvore é o ponto dele", async () => {
+    const home = base();
+    const projeto = repoGit();
+    time([{ agentId: "a1" }, { agentId: "a2" }], home);
+    const run = await executarRun(criarRun({ teamId: "t", projectPath: projeto, goal: "x" }, home), home);
+    expect(run.isolated).toBeUndefined();
+    expect(run.steps.every((s) => !s.worktree)).toBe(true);
+  });
+
+  it("o motor de cada paralelo nasce dentro da árvore dele, não na pasta do projeto", async () => {
+    const home = base();
+    const projeto = repoGit();
+    saveAgent({ id: "juntar", name: "Juntar", profileId: "p1" }, home);
+    timeFanIn([{ agentId: "a1" }, { agentId: "a2" }, { agentId: "juntar" }], home);
+    const run = await executarRun(criarRun({ teamId: "t", projectPath: projeto, goal: "x" }, home), home);
+
+    // a conversa do passo guarda a pasta onde o motor rodou
+    const meta = readThread(run.steps[0]!.threadId!, home)[0];
+    expect(meta).toMatchObject({ type: "thread_meta", projectPath: run.steps[0]!.worktree });
+    // e a do agregador aponta pro projeto
+    const metaJunta = readThread(run.steps[2]!.threadId!, home)[0];
+    expect(metaJunta).toMatchObject({ type: "thread_meta", projectPath: projeto });
   });
 });

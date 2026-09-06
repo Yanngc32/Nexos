@@ -79,6 +79,22 @@ Tudo fica em `~/.nexo` (ou `NEXO_HOME`):
 
 Nada disso está no repositório — e não deve ser commitado.
 
+### O que o Nexo escreve no SEU repositório
+
+Um time em paralelo (fan-in) dá a cada membro uma árvore de trabalho própria via `git worktree`,
+num branch `nexo/<run>/<n>-<agente>`. A árvore sai do disco quando o run acaba; **o branch fica**,
+porque é ele que guarda o que o agente fez. Nada é mesclado automaticamente — quem decide o que
+fazer com o trabalho é você:
+
+```bash
+git branch --list 'nexo/*'          # o que os agentes produziram
+git diff master..nexo/<run>/1-<ag>  # o que um membro mudou
+git branch -D nexo/<run>/1-<ag>     # descartar
+```
+
+Projeto que não é repositório git roda igual, mas sem isolamento: os membros paralelos dividem a
+mesma pasta e vão se atropelar se escreverem arquivo. O run registra isso, e a tela avisa.
+
 ## Segurança
 
 - O daemon só escuta em `127.0.0.1`. Toda rota `/v1/*` exige `Authorization: Bearer <token>`,

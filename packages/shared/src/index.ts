@@ -369,6 +369,10 @@ export type RunStep = {
   endedAt?: string;
   /** Arquivo com a saída completa deste passo, dentro do run. */
   artifact?: string;
+  /** Árvore isolada onde este passo trabalhou; vazio = trabalhou na pasta do projeto. */
+  worktree?: string;
+  /** Branch com o que ele fez. Fica depois do run: é por ele que se acha o trabalho. */
+  branch?: string;
   outputChars?: number;
   costUsd?: number;
   tokens?: number;
@@ -398,6 +402,12 @@ export type Run = {
   createdAt: string;
   endedAt?: string;
   error?: string;
+  /**
+   * Membros paralelos trabalharam em árvores separadas? Quando não, o motivo —
+   * projeto sem git, sem commit — fica em `isolationOff`.
+   */
+  isolated?: boolean;
+  isolationOff?: string;
 };
 
 export type RunEvent =

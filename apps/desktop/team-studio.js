@@ -65,14 +65,15 @@ export function createTeamStudio({
   }
 
   /**
-   * Fan-in roda os membros no MESMO diretório do projeto, ao mesmo tempo.
-   * Sem isolamento por worktree, membro que escreve arquivo sobrescreve o
-   * vizinho. Está na tela porque quem monta o time é quem escolhe os membros —
-   * esconder isso num comentário de código não ajudaria ninguém.
+   * O que acontece em paralelo depende de o projeto ser git ou não, e a tela não
+   * sabe qual é na hora de montar o time — então diz os dois casos. Quem escolhe
+   * os membros é quem precisa saber onde eles vão escrever.
    */
   const AVISO_FANIN =
-    "Em paralelo, os membros trabalham na mesma pasta ao mesmo tempo. Use para leitura — " +
-    "analisar, revisar, pesquisar. Membros que escrevem arquivo vão se sobrescrever.";
+    "Em paralelo, cada membro trabalha numa árvore própria do repositório, num branch " +
+    "`nexo/<run>/<n>-<agente>` — ninguém sobrescreve ninguém, e o trabalho fica nos branches " +
+    "pra você revisar. Se o projeto não for um repositório git, todos escrevem na mesma pasta " +
+    "ao mesmo tempo e vão se atropelar.";
 
   function aoMudar() {
     const paralelo = el("tm-topology").value === "fanin";
@@ -300,6 +301,14 @@ export function createTeamStudio({
       ms.textContent = s.startedAt ? fmtDuracao(duracaoDoPasso(s, t)) : "";
 
       li.append(n, ico, nome, det, barra, ms);
+      if (s.branch) {
+        const br = doc.createElement("span");
+        br.className = "ag-step-tk tm-step-branch";
+        br.textContent = "⑂";
+        // o branch é onde o trabalho ficou: sem isso o isolamento seria invisível
+        br.title = `Trabalhou no branch ${s.branch}`;
+        li.append(br);
+      }
       if (s.tokens) {
         const tk = doc.createElement("span");
         tk.className = "ag-step-tk";
@@ -322,6 +331,8 @@ export function createTeamStudio({
     el("tm-run-status").dataset.status = run.status;
     el("btn-tm-stop").classList.toggle("hidden", runFechado(run));
     if (run.error) nota(run.error);
+    else if (run.isolationOff) nota(`Sem árvores separadas: ${run.isolationOff}. Os membros dividiram a pasta.`);
+    else if (run.isolated) nota("Cada membro paralelo trabalhou no branch dele — o ⑂ mostra qual.");
   }
 
   function pintarRun() {
