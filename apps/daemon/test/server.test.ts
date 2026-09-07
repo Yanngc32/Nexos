@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, it, expect, afterEach } from "vitest";
-import { startDaemon, waitClosed } from "../src/server.ts";
+import { probeHealth, startDaemon, waitClosed } from "../src/server.ts";
 import { tokenPath } from "../src/home.ts";
 import { saveConfig } from "../src/config.ts";
 import { tempHome } from "./helpers.ts";
@@ -56,6 +56,43 @@ describe("startDaemon", () => {
     const second = await startDaemon(home, { port: first.port });
     expect(second.alreadyUp).toBe(true);
     expect(readFileSync(tokenPath(home), "utf8")).toBe(t1);
+  });
+
+  it("endereço que a máquina não tem cai pro loopback em vez de matar o daemon", async () => {
+    const home = tempHome();
+    // 203.0.113.x é reservado pra documentação: não existe em interface nenhuma
+    saveConfig(home, { host: "203.0.113.7" });
+    const started = await startDaemon(home, { port: 0 });
+    expect(started.alreadyUp).toBe(false);
+    if (started.alreadyUp) return;
+    live.push(started.server);
+    expect(started.hostPedido, "tem que registrar o endereço que não deu").toBe("203.0.113.7");
+    expect(started.host).toBe("127.0.0.1");
+    // e o daemon está de pé de verdade, não só resolvido
+    expect(await probeHealth(started.port)).toBe(true);
+  });
+
+  it("endereço que dá certo não inventa aviso", async () => {
+    const home = tempHome();
+    saveConfig(home, { host: "127.0.0.1" });
+    const started = await startDaemon(home, { port: 0 });
+    expect(started.alreadyUp).toBe(false);
+    if (started.alreadyUp) return;
+    live.push(started.server);
+    expect(started.hostPedido).toBeUndefined();
+    expect(started.host).toBe("127.0.0.1");
+  });
+
+  it("a queda é só pro loopback — nunca pra um endereço mais aberto", async () => {
+    // o fallback é a direção RESTRITIVA: se ele caísse pro 0.0.0.0, um túnel
+    // fora do ar publicaria o daemon na rede inteira sem ninguém pedir
+    const home = tempHome();
+    saveConfig(home, { host: "203.0.113.7" });
+    const started = await startDaemon(home, { port: 0 });
+    if (started.alreadyUp) return;
+    live.push(started.server);
+    expect(started.host).not.toBe("0.0.0.0");
+    expect(started.host).not.toBe("::");
   });
 
   it("não resolve waitClosed até server.close", async () => {

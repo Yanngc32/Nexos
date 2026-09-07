@@ -21,6 +21,7 @@ import {
 } from "./format.js";
 import { portaDaUrl, safeUrl, urlDoCelular } from "./url.js";
 import { qrSvg } from "./qr.js";
+import { celAviso } from "./celular.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -1639,7 +1640,7 @@ async function refreshDaemon() {
   try {
     const cfg = await req("/v1/config");
     if (cfg.accent) applyAccent(cfg.accent);
-    celPintarUrl(cfg);
+    void celPintarUrl(cfg);
     // /v1/projects já vem com as pastas do config + as que as conversas revelam
     let fonte = cfg;
     try {
@@ -3125,6 +3126,7 @@ let celTimer = 0;
 /** Guardados porque o QR depende dos dois: o endereço de escuta e o código vivo. */
 let celCfg = null;
 let celPar = null;
+let celEscuta = null;
 
 function celMostrar(par) {
   if (celTimer) clearInterval(celTimer);
@@ -3135,7 +3137,7 @@ function celMostrar(par) {
     $("btn-cel-codigo").textContent = "Gerar código";
     return;
   }
-  const url = urlDoCelular(celCfg?.host, celCfg?.port, par.codigo);
+  const url = urlDoCelular(celEscuta?.host || celCfg?.host, celCfg?.port, par.codigo);
   $("cel-qr").classList.remove("hidden");
   // innerHTML com SVG que este módulo acabou de gerar a partir de um endereço e
   // 6 caracteres — nada aqui vem de fora, e SVG inline não carrega nem executa nada
@@ -3165,26 +3167,30 @@ async function celPedirCodigo() {
  * com um código vivo tem que redesenhar o QR, senão ele aponta pro host antigo
  * e a pessoa escaneia um endereço que não existe mais.
  */
-function celPintarUrl(cfg) {
+async function celPintarUrl(cfg) {
   celCfg = cfg ?? celCfg;
-  const host = cfg?.host || "127.0.0.1";
-  const porta = cfg?.port || 7432;
+  const pedido = celCfg?.host || "127.0.0.1";
+  const porta = celCfg?.port || 7432;
+  /*
+   * O endereço do QR é o que o daemon está ESCUTANDO, não o que está no config:
+   * o config só vale na próxima subida, e se o endereço pedido não existir mais
+   * (túnel fora do ar, IP de DHCP que mudou) o daemon caiu pro loopback. QR
+   * apontando pro endereço que você queria manda o celular pra um lugar onde
+   * não há ninguém, e ele falha calado.
+   */
+  celEscuta = await req("/v1/escuta").catch(() => null);
+  const host = celEscuta?.host || pedido;
   $("cel-url").textContent = urlDoCelular(host, porta);
   if (celPar) celMostrar(celPar);
-  if ($("cel-host") !== document.activeElement) $("cel-host").value = host;
-  $("cel-aviso").textContent =
-    host === "127.0.0.1" || host === "localhost"
-      ? "Assim só esta máquina alcança. Ponha o IP do túnel pra conectar do celular."
-      : host === "0.0.0.0"
-        ? "Atenção: 0.0.0.0 publica na rede inteira, e o token é a única barreira."
-        : "";
+  if ($("cel-host") !== document.activeElement) $("cel-host").value = pedido;
+  $("cel-aviso").textContent = celAviso(host, pedido, celEscuta?.hostPedido);
 }
 
 $("btn-cel-codigo").addEventListener("click", () => void celPedirCodigo());
 
 $("cel-host").addEventListener("change", async () => {
   try {
-    celPintarUrl(await req("/v1/config", { method: "PUT", body: JSON.stringify({ host: $("cel-host").value.trim() }) }));
+    await celPintarUrl(await req("/v1/config", { method: "PUT", body: JSON.stringify({ host: $("cel-host").value.trim() }) }));
   } catch (e) {
     $("cel-aviso").textContent = e.message || "Endereço inválido.";
   }

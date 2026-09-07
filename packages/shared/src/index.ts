@@ -428,6 +428,19 @@ export const TEAMS_MAX = 50;
  * As travas continuam sendo o que sustenta o desenho: vale 2 minutos, serve UMA
  * vez, 5 tentativas erradas queimam o código, e só existe um código vivo.
  */
+/**
+ * Endereço pronto pra entrar numa URL: IPv6 vai entre colchetes.
+ *
+ * Sem eles, `http://fd7a:115c::1:7432/` faz o navegador ler `fd7a` como host e
+ * `115c` como porta — e endereço de Tailscale é IPv6. O renderer do desktop tem
+ * a mesma regra em `apps/desktop/url.js`, porque é JS de navegador e não carrega
+ * este pacote.
+ */
+export function hostNaUrl(host: string): string {
+  const h = host.trim();
+  return h.includes(":") && !h.startsWith("[") ? `[${h}]` : h;
+}
+
 export const PAIR_CODE_LEN = 6;
 export const PAIR_ALFABETO = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 export const PAIR_TTL_MS = 2 * 60 * 1000;

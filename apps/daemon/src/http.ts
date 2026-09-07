@@ -44,6 +44,7 @@ import {
   runsBus,
 } from "./runs.ts";
 import { erroDeParse, tratarMcp, type JsonRpc } from "./mcp.ts";
+import { escutaAtual } from "./escuta.ts";
 import { abrirPareamento, fecharPareamento, pareamentoAberto, resgatar } from "./pair.ts";
 import { servirWeb } from "./web.ts";
 import {
@@ -89,25 +90,15 @@ export function createApp(home: string, token: string): Hono {
   app.get("/v1/health", (c) => c.json({ ok: true }));
 
   /*
-   * Pareamento do celular. Duas rotas de propósitos opostos:
-   *
-   * `POST /v1/pair` é do DESKTOP, autenticada — quem já tem o token pede um
-   * código pra mostrar na tela.
-   *
    * `POST /pair` é do CELULAR e NÃO é autenticada, porque o ponto dela é
    * justamente entregar o token a quem ainda não tem. É a única escrita sem
    * auth do daemon; o que a torna defensável está no `pair.ts` (2 minutos, uso
    * único, 5 erros queimam o código) — e vale reler aquilo antes de mexer aqui.
+   *
+   * As rotas que ABREM um pareamento são do desktop e ficam LÁ EMBAIXO, depois
+   * do middleware de autenticação. A posição é o que autentica: rota registrada
+   * antes do `app.use` não passa por ele. Ver o comentário no middleware.
    */
-  app.post("/v1/pair", (c) => c.json(abrirPareamento()));
-
-  app.get("/v1/pair", (c) => c.json(pareamentoAberto() ?? null));
-
-  app.delete("/v1/pair", (c) => {
-    fecharPareamento();
-    return c.json({ ok: true });
-  });
-
   app.post("/pair", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { codigo?: unknown };
     const r = resgatar(body.codigo);
@@ -130,12 +121,51 @@ export function createApp(home: string, token: string): Hono {
   app.get("/app", (c) => c.redirect("/app/", 302));
   app.get("/app/*", (c) => responderWeb(c, c.req.path));
 
+  /*
+   * A partir daqui, `/v1/*` exige o bearer.
+   *
+   * **A POSIÇÃO É O QUE AUTENTICA.** O Hono compõe as rotas na ordem em que
+   * foram registradas, então uma rota escrita ACIMA deste `app.use` responde
+   * antes de o middleware rodar e fica aberta — sem erro, sem aviso, e com o
+   * comentário do lado dela dizendo que é autenticada.
+   *
+   * Foi exatamente o que me aconteceu: subi `POST /v1/pair` no bloco de
+   * pareamento, acima daqui, e virou um bypass completo. Qualquer um que
+   * alcançasse a porta pedia um código, trocava pelo token e era dono do
+   * daemon — em duas requisições, sem adivinhar nada. E com CORS `*`, dava pra
+   * fazer isso de uma página web qualquer aberta no navegador da vítima.
+   *
+   * `route-guard.test.ts` varre a tabela de rotas e falha se qualquer `/v1/*`
+   * responder sem bearer. É esse teste, e não a leitura do arquivo, que impede
+   * a repetição — a armadilha é invisível no diff.
+   */
   app.use("/v1/*", async (c, next) => {
     if (c.req.path.endsWith("/health")) return next();
     const hdr = c.req.header("authorization") ?? "";
     if (hdr !== `Bearer ${token}`) return c.json({ error: "unauthorized" }, 401);
     await next();
   });
+
+  /*
+   * Pareamento visto do DESKTOP: quem já tem o token abre um pareamento pra
+   * mostrar o código e o QR na tela. Autenticadas por estarem aqui, depois do
+   * middleware — e não podem subir pro bloco do `POST /pair`.
+   */
+  app.post("/v1/pair", (c) => c.json(abrirPareamento()));
+
+  app.get("/v1/pair", (c) => c.json(pareamentoAberto() ?? null));
+
+  app.delete("/v1/pair", (c) => {
+    fecharPareamento();
+    return c.json({ ok: true });
+  });
+
+  /*
+   * Onde o daemon escuta AGORA — não é o mesmo que `config.host`, que é o que
+   * foi pedido e só vale na próxima subida. A tela usa isto pra montar o QR:
+   * QR com endereço que ninguém atende falha calado no celular.
+   */
+  app.get("/v1/escuta", (c) => c.json(escutaAtual()));
 
   app.get("/v1/profiles", (c) => c.json(listProfiles(home)));
 

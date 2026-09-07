@@ -130,6 +130,12 @@ Duas coisas precisam estar no lugar:
    alcança é só quem está no túnel. Vale a partir da próxima subida do motor.
    `0.0.0.0` publica na rede inteira, e aí o token é a única barreira — não faça
    isso em Wi-Fi compartilhado.
+
+   Se na subida seguinte o endereço não existir (túnel fora do ar, IP de DHCP que
+   mudou), o daemon **não deixa de subir**: ele volta pro `127.0.0.1`, diz por quê, e
+   o painel Celular avisa. A queda é sempre pro loopback, nunca pra um endereço mais
+   aberto — o QR passa a apontar pro endereço real, porque QR que leva a lugar vazio
+   falha calado no celular.
 2. **Pareamento.** Em **Configurações → Celular**, clique em **Gerar código**: aparecem
    um QR e um código de 6 caracteres. Aponte a câmera do celular pro QR — ele abre a
    página e conecta sozinho. Sem câmera, abra `http://<host>:<porta>/app/` e digite o
@@ -164,13 +170,19 @@ do projeto. Sem projeto aberto, ela mostra tudo que o daemon está fazendo.
 - O daemon escuta em `127.0.0.1` por padrão — nada de fora da máquina alcança. Isso é
   configurável (ver [Do celular](#do-celular)), e mudar é uma escolha de segurança: fora do
   loopback, quem alcançar a porta só é barrado pelo token, e não há TLS.
-- Toda rota `/v1/*` exige `Authorization: Bearer <token>`, com o token sorteado a cada subida
-  e gravado em `~/.nexo/daemon.token` (modo `0600`). A única exceção é `POST /pair`, que
-  existe pra entregar o token a um celular que ainda não tem — e só serve com um código de
-  6 caracteres (base32, ~10⁹) que vale 2 minutos, serve uma vez e queima em 5 erros — o
-  teto de erros é a trava principal, porque nenhum segredo curto sobrevive a um
-  varrimento. O QR que a tela mostra carrega esse código e o endereço; o token, que tem
-  192 bits, não aparece em tela nenhuma.
+- Toda rota `/v1/*` exige `Authorization: Bearer <token>` — inclusive a que abre um
+  pareamento, e isso é o que faz o código curto valer: quem pudesse ABRIR um pareamento
+  sem credencial já conheceria o código, e não haveria nada a adivinhar. Um teste varre a
+  tabela de rotas e falha se qualquer `/v1/*` responder sem o bearer, porque no Hono a
+  autenticação depende da ordem de registro e uma rota aberta não dá erro nenhum.
+- O token tem 192 bits, é sorteado a cada subida e fica em `~/.nexo/daemon.token`
+  (modo `0600`).
+- A **única** rota sem autenticação é `POST /pair`, que existe pra entregar o token a um
+  celular que ainda não tem. Ela só serve com um código de 6 caracteres (base32, ~10⁹) que
+  vale 2 minutos, serve uma vez e queima em 5 erros. O teto de erros é a trava principal:
+  nenhum segredo curto sobrevive a um varrimento sem ele.
+- O QR que a tela mostra carrega o endereço e o código. O token não aparece em tela
+  nenhuma.
 - O terminal e a árvore de arquivos do app são presos à pasta do projeto aberto
   (resolução de symlink inclusa).
 - O app dá ao agente acesso de leitura/escrita e execução de comandos no projeto aberto.

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { createInterface } from "node:readline";
-import type { EngineKind } from "@nexo/shared";
+import { hostNaUrl, type EngineKind } from "@nexo/shared";
 import { configPath, ensureHome, nexoHome } from "./home.ts";
 import {
   accountInfo,
@@ -40,7 +40,15 @@ async function cmdUp(): Promise<void> {
     console.log(`nexo already up  http://127.0.0.1:${started.port}`);
     return;
   }
-  console.log(`nexo up  http://127.0.0.1:${started.port}`);
+  if (started.hostPedido) {
+    // alto, porque é uma escolha sua que não valeu: o celular não vai alcançar
+    console.error(
+      `nexo: não consegui escutar em ${started.hostPedido} — endereço não existe nesta máquina. ` +
+        `Subi em ${started.host}; do celular ninguém alcança até o endereço voltar.`,
+    );
+  }
+  const mostrar = started.host === "0.0.0.0" || started.host === "::" ? "127.0.0.1" : started.host;
+  console.log(`nexo up  http://${hostNaUrl(mostrar)}:${started.port}`);
   // serviço é filho nosso: não sobrevive ao daemon
   const shutdown = () => {
     stopAllServices();
