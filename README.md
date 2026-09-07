@@ -1,10 +1,11 @@
 # Nexo
 
-Orquestrador local de agentes de código. Um daemon roda em `127.0.0.1`, fala com CLIs de
-agente já instaladas na máquina (Claude Code, Codex) ou com API, e um app Electron serve
-de interface: chat, árvore de arquivos, terminal, preview, gestão de serviços do projeto,
+Orquestrador local de agentes de código. Um daemon roda na sua máquina, fala com CLIs de
+agente já instaladas nela (Claude Code, Codex) ou com API, e um app Electron serve de
+interface: chat, árvore de arquivos, terminal, preview, gestão de serviços do projeto,
 criação de agentes com bancada de teste e times que rodam esses agentes em sequência, em
-paralelo ou sob um supervisor que decide quem trabalha.
+paralelo ou sob um supervisor que decide quem trabalha. Também dá pra acompanhar e
+conversar do celular, pela interface web que o próprio daemon serve.
 
 Tudo é local: nenhum dado sai da máquina além do que a própria CLI do agente já manda pro
 provedor dela.
@@ -149,8 +150,13 @@ do projeto. Sem projeto aberto, ela mostra tudo que o daemon está fazendo.
 
 ## Segurança
 
-- O daemon só escuta em `127.0.0.1`. Toda rota `/v1/*` exige `Authorization: Bearer <token>`,
-  com o token sorteado a cada subida e gravado em `~/.nexo/daemon.token`.
+- O daemon escuta em `127.0.0.1` por padrão — nada de fora da máquina alcança. Isso é
+  configurável (ver [Do celular](#do-celular)), e mudar é uma escolha de segurança: fora do
+  loopback, quem alcançar a porta só é barrado pelo token, e não há TLS.
+- Toda rota `/v1/*` exige `Authorization: Bearer <token>`, com o token sorteado a cada subida
+  e gravado em `~/.nexo/daemon.token` (modo `0600`). A única exceção é `POST /pair`, que
+  existe pra entregar o token a um celular que ainda não tem — e só serve com um código de
+  6 dígitos que vale 2 minutos, serve uma vez e queima em 5 erros.
 - O terminal e a árvore de arquivos do app são presos à pasta do projeto aberto
   (resolução de symlink inclusa).
 - O app dá ao agente acesso de leitura/escrita e execução de comandos no projeto aberto.
