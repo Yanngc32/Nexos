@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { addProfile, markReady, updateProfile } from "../src/profiles.ts";
 import { claudeEngine, parseCliLine } from "../src/engines/cli.ts";
-import { toolSummary } from "../src/engines/parse-claude.ts";
+import { contextWindowOf, toolSummary } from "../src/engines/parse-claude.ts";
 import { spawnCwd } from "../src/project-cwd.ts";
 import { tempHome } from "./helpers.ts";
 import type { EngineEvent } from "@nexo/shared";
@@ -523,5 +523,27 @@ describe("allowedTools no argv", () => {
     } finally {
       delete process.env.NEXO_CLAUDE_BIN;
     }
+  });
+});
+
+describe("janela da sessão", () => {
+  it("autocompact_state vira evento window com a janela efetiva do CLI", () => {
+    const linha = JSON.stringify({
+      type: "autocompact_state",
+      value: { enabled: true, effective_window: 980_000, threshold: 784_000, source: "model-default" },
+    });
+    expect(parseCliLine(linha)).toEqual([{ type: "window", contextWindow: 980_000 }]);
+  });
+
+  it("sem janela no payload não inventa evento", () => {
+    expect(parseCliLine(JSON.stringify({ type: "autocompact_state", value: { enabled: false } }))).toEqual([]);
+    expect(parseCliLine(JSON.stringify({ type: "autocompact_state", value: { effective_window: 0 } }))).toEqual([]);
+  });
+
+  it("o nome do modelo é último recurso, e subestima: é por isso que o evento existe", () => {
+    // medido: o CLI reporta "claude-sonnet-5" numa sessão de janela efetiva 980k
+    expect(contextWindowOf("claude-sonnet-5")).toBe(200_000);
+    expect(contextWindowOf("claude-opus-5[1m]")).toBe(1_000_000);
+    expect(contextWindowOf("")).toBe(200_000);
   });
 });

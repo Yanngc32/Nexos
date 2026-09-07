@@ -62,7 +62,9 @@ export class StubEngine implements Engine {
       return;
     }
     if (text === "USAGE") {
-      this.handler({ type: "session", model: "claude-opus-5[1m]", contextWindow: 1_000_000 });
+      // ordem do CLI de verdade: a janela efetiva chega ANTES do init
+      this.handler({ type: "window", contextWindow: 980_000 });
+      this.handler({ type: "session", model: "claude-sonnet-5", contextWindow: 200_000 });
       this.handler({
         type: "limits",
         status: "allowed",

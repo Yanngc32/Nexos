@@ -36,6 +36,43 @@ function isKeepable(event: ThreadEvent): boolean {
   return event.type === "user" || event.type === "assistant";
 }
 
+/**
+ * Teto do pack quando a janela do motor é desconhecida. Era o teto ÚNICO até
+ * aqui, então manter esse valor é o que garante que nada regride: motor sem
+ * janela conhecida continua se comportando exatamente como antes.
+ */
+export const TOKEN_CAP_PISO = 8000;
+
+/**
+ * Metade da janela vai pro histórico. A outra metade não é folga: ela paga o
+ * system prompt, as instruções do agente, a definição das ferramentas, o
+ * resultado de cada ida e volta de ferramenta DENTRO do turno, e a resposta.
+ * Mandar histórico até encostar na janela faria o turno estourar no meio.
+ */
+const FRACAO = 0.5;
+
+/**
+ * Teto do teto. O pack vai inteiro em TODO turno, então uma janela de 1M sem
+ * limite mandaria 500 mil tokens por mensagem — dólares por turno numa
+ * conversa que ninguém pediu que fosse caro. 128k já é uma conversa longuíssima;
+ * o que passa disso vale menos que o que custa.
+ */
+const TETO = 128_000;
+
+/**
+ * Quanto de histórico cabe, dada a janela do motor.
+ *
+ * Existe porque o teto era 8000 pra toda conta: uma janela de 1M recebia o
+ * mesmo corte de uma de 8k, e conversa longa "esquecia" coisa que caberia
+ * folgado. O `estimateTokens` acima é aproximado (4 chars por token), e a
+ * fração também absorve esse erro.
+ */
+export function tetoDeToken(contextWindow: number): number {
+  if (!Number.isFinite(contextWindow) || contextWindow <= 0) return TOKEN_CAP_PISO;
+  const alvo = Math.floor(contextWindow * FRACAO);
+  return Math.min(TETO, Math.max(TOKEN_CAP_PISO, alvo));
+}
+
 export function pack(events: ThreadEvent[], packCfg: PackConfig, tokenCap: number): PackResult {
   // "/clear" marca um corte: tudo antes fica só no JSONL, nunca mais vai pro motor.
   const lastClear = events.map((e) => e.type).lastIndexOf("cleared");

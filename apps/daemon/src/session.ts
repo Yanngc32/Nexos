@@ -1,19 +1,19 @@
 import { EventEmitter } from "node:events";
 import type { EngineEvent, EngineKind, Profile, SwitchReason, ThreadEvent } from "@nexo/shared";
-import { getAgent } from "./agents.ts";
+import { agentOverrides, getAgent } from "./agents.ts";
 import { promptWithAttachments, removeThreadAttachments, saveImages, type IncomingImage } from "./attachments.ts";
 import { loadConfig } from "./config.ts";
 import { ApiEngine } from "./engines/api.ts";
 import { claudeEngine, codexEngine } from "./engines/cli.ts";
+import { contextWindowOf } from "./engines/parse-claude.ts";
 import { StubEngine } from "./engines/stub.ts";
 import type { Engine } from "./engines/types.ts";
 import { applyLoginResult, credentialVerdict, getProfile, markAuthFailed } from "./profiles.ts";
-import { pack } from "./packer.ts";
+import { pack, tetoDeToken } from "./packer.ts";
 import { assertSwitch, suggestFallback } from "./router.ts";
 import { spawnCwd } from "./project-cwd.ts";
 import { activeProfileId, appendEvent, readThread, removeThread } from "./threads.ts";
 
-const TOKEN_CAP = 8000;
 const CONTINUE = "Continue de onde parou.";
 
 export type SessionEvent =
@@ -54,6 +54,16 @@ type Live = {
 
 /** Último limite visto por conta: serve pro painel mesmo sem thread ativa. */
 const limitsByProfile = new Map<string, EngineEvent & { type: "limits" }>();
+
+/**
+ * Janela que cada conta REPORTOU, por conta.
+ *
+ * Fica aqui e não no `Live` porque o teto do pack é calculado ANTES de o motor
+ * subir — então quem precisa do número é o próximo motor daquela conta, não o
+ * atual. Memória só: daemon que reinicia volta pro palpite pelo nome do modelo,
+ * que é o comportamento anterior, e reaprende no primeiro turno.
+ */
+const windowByProfile = new Map<string, number>();
 
 export function limitsOf(profileId: string): (EngineEvent & { type: "limits" }) | undefined {
   return limitsByProfile.get(profileId);
@@ -167,6 +177,42 @@ function withInstructions(agentId: string | undefined, packText: string, home: s
   return packText ? `${bloco}\n\n${packText}` : bloco;
 }
 
+/**
+ * Modelo que ESTE motor vai rodar, pra saber a janela dele.
+ *
+ * A ordem é a da verdade, da mais forte pra mais fraca:
+ * 1. o que já rodou nesta conversa — o CLI carimba o nome no `usage`, com o
+ *    sufixo de janela (`[1m]`) que só ele sabe;
+ * 2. o que o agente ou a conta declara — vale antes do primeiro turno;
+ * 3. nada, e aí o teto cai no piso.
+ *
+ * Só `claude`: o sufixo `[1m]` é convenção do CLI dele, e chutar janela pra
+ * `codex` ou pra um modelo de API arbitrário seria inventar número. Piso ali é
+ * o comportamento que já existia.
+ *
+ * Exportado porque é aqui que mora a decisão: o motor de CLI não sobe em teste,
+ * então essa ordem de precedência só se verifica direto.
+ */
+export function modeloDoMotor(profile: Profile, events: ThreadEvent[], agentId: string | undefined, home: string): string {
+  if (profile.engine !== "claude") return "";
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.type === "usage" && e.model) return e.model;
+  }
+  return agentOverrides(agentId, home).model ?? profile.model ?? "";
+}
+
+/**
+ * Janela do motor, da fonte melhor pra pior: o que a conta já reportou num
+ * turno anterior, depois o palpite pelo nome do modelo, depois nada (piso).
+ */
+function janelaDaConta(profile: Profile, events: ThreadEvent[], agentId: string | undefined, home: string): number {
+  const reportada = windowByProfile.get(profile.id);
+  if (reportada) return reportada;
+  const modelo = modeloDoMotor(profile, events, agentId, home);
+  return modelo ? contextWindowOf(modelo) : 0;
+}
+
 async function ensureLive(threadId: string, home: string, profile?: Profile): Promise<Live> {
   const events = readThread(threadId, home);
   const meta = events.find((e) => e.type === "thread_meta");
@@ -184,7 +230,7 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
   const existing = lives.get(threadId);
   if (existing && existing.profileId === p.id) return existing;
 
-  const packed = pack(events, loadConfig(home).pack, TOKEN_CAP);
+  const packed = pack(events, loadConfig(home).pack, tetoDeToken(janelaDaConta(p, events, meta.agentId, home)));
   if (packed.trimmed) {
     appendEvent(
       {
@@ -251,6 +297,13 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     emit(threadId, { ...ev, threadId });
     return;
   }
+  if (ev.type === "window") {
+    windowByProfile.set(live.profileId, ev.contextWindow);
+    // o `session` pode ter chegado antes: corrige o número que veio do nome
+    if (live.session) live.session = { ...live.session, contextWindow: ev.contextWindow };
+    emit(threadId, { ...ev, threadId });
+    return;
+  }
   if (ev.type === "usage") {
     live.usage = ev;
     appendEvent(
@@ -280,8 +333,10 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     return;
   }
   if (ev.type === "session") {
-    live.session = ev;
-    emit(threadId, { ...ev, threadId });
+    // janela reportada ganha da deduzida do nome, tenha chegado antes ou depois
+    const janela = windowByProfile.get(live.profileId);
+    live.session = janela ? { ...ev, contextWindow: janela } : ev;
+    emit(threadId, { ...live.session, threadId });
     return;
   }
   if (ev.type === "tool") {

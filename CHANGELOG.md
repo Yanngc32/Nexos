@@ -36,6 +36,20 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
   `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
   forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
+- Teto do context pack derivado da janela do motor, em vez de 8000 fixo pra toda conta. Uma conta de
+  janela grande recebia o mesmo corte de uma de 8k, então conversa longa "esquecia" coisa que
+  caberia folgado. Agora é metade da janela, com piso em 8000 (o valor antigo, pra motor de janela
+  desconhecida — nada regride) e teto em 128k. A outra metade da janela não é folga: paga o system
+  prompt, as instruções do agente, a definição das ferramentas, o resultado de cada ida e volta de
+  ferramenta DENTRO do turno, e a resposta. O teto de 128k existe porque o pack vai inteiro em TODO
+  turno: 1M sem limite mandaria 500 mil tokens por mensagem.
+  A janela vem do evento `window` novo, tirado do `autocompact_state` do CLI — a janela EFETIVA da
+  sessão, que é o número que o próprio CLI usa pra decidir quando compactar. Medido contra o CLI de
+  verdade: ele reporta o modelo como `claude-sonnet-5`, sem sufixo, numa sessão de janela 980k — a
+  heurística antiga (`[1m]` no nome, senão 200k) subestimava em 5×. Ela continua como último
+  recurso, pra quando o daemon subiu agora e ainda não viu turno daquela conta.
+  De quebra o medidor de contexto da tela parou de mentir: passou de `40.4k / 200.0k (20%)` pra
+  `40.4k / 980.0k (4%)` na mesma conversa.
 - Teto de tempo dos testes que rodam `git` de verdade subiu pra 30s (`worktree.test.ts` inteiro e o
   `isolamento no fan-in` do `runs.test.ts`). Os 5s padrão do vitest são pra teste de lógica; esses
   casos disparam de 5 a 10 processos contra disco, e num runner Windows lento um `worktree add` +

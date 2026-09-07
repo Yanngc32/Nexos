@@ -298,6 +298,12 @@ export type EngineEvent =
   | { type: "tool"; name: string; summary: string }
   /** Contexto do ÚLTIMO request individual (não somado): o que ocupa a janela agora. */
   | { type: "context"; contextTokens: number }
+  /**
+   * Janela que o motor DISSE que a sessão tem, não a adivinhada pelo nome do
+   * modelo. Vem antes do `session` no stream do CLI, então é evento próprio em
+   * vez de campo dele — assim a ordem de chegada não decide qual valor vale.
+   */
+  | { type: "window"; contextWindow: number }
   | { type: "done" }
   | { type: "quota"; detail?: string }
   | ({ type: "usage" } & TokenUsage)
