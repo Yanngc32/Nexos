@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   commitarTrabalho,
   criarWorktree,
@@ -11,6 +11,17 @@ import {
   removerWorktree,
   temMudanca,
 } from "../src/worktree.ts";
+
+/*
+ * Todo teste aqui roda `git` de verdade — de 5 a 10 processos por caso, contra
+ * disco. Os 5s padrão do vitest são pra teste de lógica; num runner Windows
+ * lento um `worktree add` + `commit` + `worktree remove` passa disso e o caso
+ * morre por tempo, sem nada de errado no código. Já aconteceu no CI.
+ *
+ * O teto continua existindo (30s, não infinito): git que não volta é defeito, e
+ * o teste tem que dizer isso em vez de pendurar o CI.
+ */
+vi.setConfig({ testTimeout: 30_000 });
 
 /** Conteúdo sem depender de fim de linha: o git troca LF por CRLF no Windows. */
 function texto(arquivo: string): string {

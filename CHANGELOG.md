@@ -36,6 +36,12 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
   `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
   forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
+- Teto de tempo dos testes que rodam `git` de verdade subiu pra 30s (`worktree.test.ts` inteiro e o
+  `isolamento no fan-in` do `runs.test.ts`). Os 5s padrão do vitest são pra teste de lógica; esses
+  casos disparam de 5 a 10 processos contra disco, e num runner Windows lento um `worktree add` +
+  `commit` + `worktree remove` passa disso — o caso morria por tempo sem nada de errado no código.
+  O teto continua existindo em vez de virar infinito: git que não volta é defeito, e o teste tem que
+  dizer isso em vez de pendurar o CI.
 - Canal `mcp` no supervisor: o daemon vira servidor MCP e o supervisor chama os membros DENTRO do
   turno dele, em vez de um turno por decisão. Um run de 5 chamadas passa de 6 turnos pra 1.
   A ferramenta é presa a UM run pelo caminho (`/v1/mcp/<run>`): o bearer sozinho é o token da

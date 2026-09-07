@@ -368,7 +368,9 @@ describe("fan-in", () => {
   });
 });
 
-describe("isolamento no fan-in", () => {
+// mesmo motivo do worktree.test.ts: estes casos rodam git de verdade, e os 5s
+// padrão do vitest não cobrem `worktree add` + `commit` + `remove` num runner lento
+describe("isolamento no fan-in", { timeout: 30_000 }, () => {
   /** Repositório de verdade: o isolamento é git worktree, não dá pra fingir. */
   function repoGit(): string {
     const dir = mkdtempSync(join(tmpdir(), "nexo-runrepo-"));
