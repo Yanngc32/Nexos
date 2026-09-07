@@ -12,6 +12,10 @@
 
 const CHAVE = "nexo.mobile.credencial";
 
+/** Os 6 caracteres do código, no alfabeto do Crockford (sem I, L, O e U). */
+const ALFABETO = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+export const CODIGO_LEN = 6;
+
 /** De onde a página foi servida — o daemon está lá, por definição. */
 export function baseDaPagina(loc = window.location) {
   return `${loc.protocol}//${loc.host}`;
@@ -55,7 +59,9 @@ export function esquecer(store = window.localStorage) {
  * recarregar a página, e o guarda no histórico do navegador de graça.
  */
 export function codigoDaUrl(loc = window.location) {
-  const m = /(?:^|[#&])c=(\d{6})(?:&|$)/.exec(loc.hash || "");
+  // o padrão sai do próprio alfabeto pra não divergir dele: o que o QR carrega é
+  // gerado pelo daemon, então fora do alfabeto não é código — é lixo na URL
+  const m = new RegExp(`(?:^|[#&])c=([${ALFABETO}]{${CODIGO_LEN}})(?:&|$)`).exec(loc.hash || "");
   return m ? m[1] : "";
 }
 
@@ -68,9 +74,29 @@ export function limparUrl(loc = window.location, hist = window.history) {
   }
 }
 
-/** Só dígitos, no tamanho certo. O teclado do celular deixa passar espaço e traço. */
+/**
+ * Deixa o campo mostrando exatamente o que vai ser enviado: maiúscula, sem
+ * separador, e com as confusões de leitura desfeitas — I e L viram 1, O vira 0.
+ *
+ * Esta regra é uma **cópia** da `normalizarCodigo` do `@nexo/shared`, e a cópia
+ * é o preço de o app de celular ser JS servido a um navegador: ele não carrega
+ * TypeScript do pacote compartilhado. Quem decide de verdade é o daemon; aqui é
+ * só pra tela não mentir sobre o que foi digitado. Os dois lados têm teste com
+ * a mesma tabela de casos.
+ *
+ * A diferença de propósito é o corte no tamanho: cortar é papel de quem está
+ * moldando um campo de entrada, e o daemon não corta — lá, tentativa comprida é
+ * tentativa errada.
+ */
 export function limparCodigo(bruto) {
-  return String(bruto ?? "").replace(/\D/g, "").slice(0, 6);
+  return String(bruto ?? "")
+    .toUpperCase()
+    .replace(/[IL]/g, "1")
+    .replace(/O/g, "0")
+    .split("")
+    .filter((c) => ALFABETO.includes(c))
+    .join("")
+    .slice(0, CODIGO_LEN);
 }
 
 /**
@@ -82,7 +108,7 @@ export function limparCodigo(bruto) {
  */
 export async function parear(codigo, { base = baseDaPagina(), fetchImpl = fetch } = {}) {
   const limpo = limparCodigo(codigo);
-  if (limpo.length !== 6) return { ok: false, erro: "O código tem 6 dígitos." };
+  if (limpo.length !== CODIGO_LEN) return { ok: false, erro: `O código tem ${CODIGO_LEN} caracteres.` };
   let res;
   try {
     res = await fetchImpl(`${base}/pair`, {

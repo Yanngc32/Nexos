@@ -20,13 +20,26 @@
         No computador, abra <b>Configurações → Celular</b> e peça um código. Ele vale 2 minutos.
       </p>
       <form id="form-par">
+        <!--
+          Sem `inputmode="numeric"`: o código tem letras. `autocapitalize` deixa
+          digitar minúscula e ver maiúscula, e `autocomplete="off"` evita o
+          teclado oferecer o código anterior, que já não serve.
+
+          `maxlength` é FOLGADO de propósito, e não 6. O navegador corta pelo
+          tamanho ANTES de o `limparCodigo` tirar separador: com 6, quem digita
+          ou cola "AB3 K9Z" perde os dois últimos caracteres e vê um código
+          incompleto sem entender por quê. Quem limita em 6 é o `limparCodigo`,
+          que roda a cada tecla e conta só o que é código. Um teste trava isto.
+        -->
         <input
           id="codigo"
           type="text"
-          inputmode="numeric"
-          autocomplete="one-time-code"
-          maxlength="6"
-          placeholder="000000"
+          autocapitalize="characters"
+          autocomplete="off"
+          autocorrect="off"
+          spellcheck="false"
+          maxlength="24"
+          placeholder="AB3K9Z"
           aria-label="Código de pareamento"
         />
         <button type="submit" class="primary">Conectar</button>

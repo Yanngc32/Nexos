@@ -3108,8 +3108,9 @@ $("btn-widget").addEventListener("click", () => void window.nexo.toggleWidget())
  * Pareamento visto do desktop: pede o código, desenha o QR, e some em 2 minutos.
  *
  * **O QR carrega o endereço e o CÓDIGO — nunca o token.** É o mesmo desenho de
- * antes: quem fotografa a tela leva um código de 6 dígitos que vale 2 minutos,
- * serve uma vez e queima em 5 erros, e não uma credencial permanente. O QR só
+ * antes: quem fotografa a tela leva um código de 6 caracteres que vale 2
+ * minutos, serve uma vez e queima em 5 erros, e não uma credencial
+ * permanente. O QR só
  * poupa a pessoa de digitar `http://100.101.102.103:7432/app/` num teclado de
  * telefone, que é onde ela erraria.
  *
@@ -3137,7 +3138,7 @@ function celMostrar(par) {
   const url = urlDoCelular(celCfg?.host, celCfg?.port, par.codigo);
   $("cel-qr").classList.remove("hidden");
   // innerHTML com SVG que este módulo acabou de gerar a partir de um endereço e
-  // 6 dígitos — nada aqui vem de fora, e SVG inline não carrega nem executa nada
+  // 6 caracteres — nada aqui vem de fora, e SVG inline não carrega nem executa nada
   $("cel-qr-img").innerHTML = qrSvg(url);
   const tique = () => {
     const resta = Math.max(0, Math.round((par.expiraEm - Date.now()) / 1000));

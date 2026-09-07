@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { PAIR_CODE_DIGITS, PAIR_MAX_ERROS, PAIR_TTL_MS } from "@nexo/shared";
+import { PAIR_ALFABETO, PAIR_CODE_LEN, PAIR_MAX_ERROS, PAIR_TTL_MS, normalizarCodigo } from "@nexo/shared";
 import {
   abrirPareamento,
   fecharPareamento,
@@ -13,17 +13,27 @@ const T0 = 1_800_000_000_000;
 beforeEach(resetPairForTest);
 
 describe("abrir", () => {
-  it("dá um código do tamanho declarado, só dígitos", () => {
+  it("dá um código do tamanho declarado, todo dentro do alfabeto", () => {
     const p = abrirPareamento(T0);
-    expect(p.codigo).toMatch(new RegExp(`^\\d{${PAIR_CODE_DIGITS}}$`));
+    expect(p.codigo).toMatch(new RegExp(`^[${PAIR_ALFABETO}]{${PAIR_CODE_LEN}}$`));
     expect(p.expiraEm).toBe(T0 + PAIR_TTL_MS);
   });
 
-  it("zero à esquerda é código válido: o espaço é 10^N, não 'número de N dígitos'", () => {
-    // sortear 10^6 vezes acharia um, mas o que importa é a forma: nunca encurta
-    for (let i = 0; i < 300; i++) {
-      expect(abrirPareamento(T0).codigo).toHaveLength(PAIR_CODE_DIGITS);
+  it("nunca encurta, e nunca sorteia I, L, O nem U", () => {
+    // as três primeiras se confundem com 1, 1 e 0 numa tela lida de longe, e a
+    // normalização as aceita de volta — sortear uma delas criaria o código que
+    // é impossível digitar certo
+    for (let i = 0; i < 400; i++) {
+      const c = abrirPareamento(T0).codigo;
+      expect(c).toHaveLength(PAIR_CODE_LEN);
+      expect(c).not.toMatch(/[ILOU]/);
     }
+  });
+
+  it("usa o alfabeto inteiro — um sorteio enviesado encolheria o espaço", () => {
+    const vistos = new Set<string>();
+    for (let i = 0; i < 3000; i++) for (const c of abrirPareamento(T0).codigo) vistos.add(c);
+    expect([...vistos].sort().join("")).toBe([...PAIR_ALFABETO].sort().join(""));
   });
 
   it("pedir um novo invalida o anterior: código vivo a mais é chance a mais", () => {
@@ -51,21 +61,21 @@ describe("resgatar", () => {
     expect(pareamentoAberto(T0 + PAIR_TTL_MS)).toBeNull();
   });
 
-  it("erro demais queima o código, e é isso que faz 6 dígitos bastarem", () => {
+  it("erro demais queima o código, e é isso que faz 6 caracteres bastarem", () => {
     const p = abrirPareamento(T0);
     for (let i = 0; i < PAIR_MAX_ERROS - 1; i++) {
-      expect(resgatar("000000", T0)).toMatchObject({ ok: false, motivo: "código errado" });
+      expect(resgatar("ZZZZZZ", T0)).toMatchObject({ ok: false, motivo: "código errado" });
     }
     // a última tentativa errada não só falha: derruba o pareamento
-    expect(resgatar("000000", T0).ok).toBe(false);
+    expect(resgatar("ZZZZZZ", T0).ok).toBe(false);
     expect(pareamentoAberto(T0)).toBeNull();
     expect(resgatar(p.codigo, T0)).toMatchObject({ ok: false });
   });
 
   it("sem pareamento aberto não vaza se o código existia ou expirou", () => {
-    const a = resgatar("123456", T0).ok === false ? resgatar("123456", T0) : null;
+    const a = resgatar("ZZZZZZ", T0).ok === false ? resgatar("ZZZZZZ", T0) : null;
     abrirPareamento(T0);
-    const b = resgatar("123456", T0 + PAIR_TTL_MS);
+    const b = resgatar("ZZZZZZ", T0 + PAIR_TTL_MS);
     expect(a && "motivo" in a && a.motivo).toBe(b && "motivo" in b && b.motivo);
   });
 
@@ -79,6 +89,46 @@ describe("resgatar", () => {
   it("espaço em volta não atrapalha: o celular cola com espaço", () => {
     const p = abrirPareamento(T0);
     expect(resgatar(`  ${p.codigo} `, T0)).toEqual({ ok: true });
+  });
+
+  it("aceita minúscula, separador, e o I lido no lugar do 1", () => {
+    // quem lê o código na tela erra por confusão de forma, não por desatenção;
+    // cobrar uma tentativa por isso gastaria o teto de 5 em falha nossa
+    const p = abrirPareamento(T0);
+    const digitado = p.codigo
+      .toLowerCase()
+      .replace(/1/g, "i")
+      .replace(/0/g, "o")
+      .split("")
+      .join(" ");
+    expect(resgatar(digitado, T0)).toEqual({ ok: true });
+  });
+
+  it("normalizar não abre atalho: código com sobra é código errado", () => {
+    const p = abrirPareamento(T0);
+    // cortar no tamanho faria o prefixo certo valer pelo código inteiro
+    expect(resgatar(p.codigo + "Z", T0)).toMatchObject({ ok: false });
+  });
+});
+
+describe("normalizarCodigo", () => {
+  it("desfaz só o que é confusão de leitura", () => {
+    expect(normalizarCodigo("ab3-k9z")).toBe("AB3K9Z");
+    expect(normalizarCodigo(" a b 3 ")).toBe("AB3");
+    expect(normalizarCodigo("IL0O")).toBe("1100");
+    expect(normalizarCodigo("")).toBe("");
+    expect(normalizarCodigo(null)).toBe("");
+  });
+
+  it("tira o que não é do alfabeto, e não trunca", () => {
+    expect(normalizarCodigo("a!b@3#k$9%z^")).toBe("AB3K9Z");
+    expect(normalizarCodigo("ABC123XYZ")).toBe("ABC123XYZ");
+  });
+
+  it("é idempotente — normalizar duas vezes dá o mesmo", () => {
+    for (const s of ["ab3-k9z", "IL0O", "a!b@3", "0123456789"]) {
+      expect(normalizarCodigo(normalizarCodigo(s))).toBe(normalizarCodigo(s));
+    }
   });
 });
 

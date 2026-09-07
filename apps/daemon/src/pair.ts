@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import { PAIR_CODE_DIGITS, PAIR_MAX_ERROS, PAIR_TTL_MS } from "@nexo/shared";
+import { PAIR_ALFABETO, PAIR_CODE_LEN, PAIR_MAX_ERROS, PAIR_TTL_MS, normalizarCodigo } from "@nexo/shared";
 
 /**
  * Pareamento do celular.
@@ -20,9 +20,11 @@ import { PAIR_CODE_DIGITS, PAIR_MAX_ERROS, PAIR_TTL_MS } from "@nexo/shared";
  * - serve UMA vez (some no primeiro resgate);
  * - 5 tentativas erradas queimam o código, não a conta.
  *
- * Dá 5 chances em 10^6 pra quem já consegue alcançar a porta — e alcançar a
- * porta já exige estar no túnel ou na LAN. Sem o teto de erros o espaço de
- * seis dígitos seria varrido em segundos, e é ele que faz o número curto valer.
+ * Dá 5 chances em 32^6 (mais de um bilhão) pra quem já consegue alcançar a
+ * porta — e alcançar a porta já exige estar no túnel ou na LAN. O teto de erros
+ * continua sendo a trava principal: sem ele, nenhum segredo que caiba em seis
+ * caracteres sobrevive a um varrimento. O alfabeto de 32 só encarece cada
+ * chance, o que é barato de fazer e não custa nada a quem digita.
  *
  * Um código por vez, de propósito: pedir um novo invalida o anterior. Vários
  * códigos vivos multiplicariam as chances de acerto sem servir pra nada — quem
@@ -35,9 +37,18 @@ type Vivo = { codigo: string; expiraEm: number; erros: number };
 
 let vivo: Vivo | null = null;
 
-/** Zeros à esquerda contam: o espaço é 10^N, não "número de N dígitos". */
+/**
+ * Um caractere por sorteio, do CSPRNG.
+ *
+ * `randomInt` com teto potência de dois seria uniforme de graça, mas 32 já é
+ * potência de dois e ele descarta o resto de qualquer jeito — não há viés a
+ * corrigir aqui, e sortear caractere por caractere é o que deixa o alfabeto
+ * trocável sem refazer a conta.
+ */
 function sortear(): string {
-  return String(randomInt(0, 10 ** PAIR_CODE_DIGITS)).padStart(PAIR_CODE_DIGITS, "0");
+  let s = "";
+  for (let i = 0; i < PAIR_CODE_LEN; i++) s += PAIR_ALFABETO[randomInt(0, PAIR_ALFABETO.length)];
+  return s;
 }
 
 /** Abre um pareamento e invalida o anterior. */
@@ -72,7 +83,12 @@ export function resgatar(codigo: unknown, agora = Date.now()): Resgate {
     fecharPareamento();
     return { ok: false, motivo: "nenhum pareamento aberto — peça um código novo no computador" };
   }
-  const tentativa = typeof codigo === "string" ? codigo.trim() : "";
+  // normaliza antes de comparar: quem digitou "ab3-k9z" ou "AB3K9Z" acertou os
+  // dois, e o I que a pessoa leu no lugar do 1 não deve custar uma tentativa
+  // o tipo é checado antes de normalizar: `String({})` daria "[object Object]",
+  // que virava "0BJECT" e passava por código plausível — corpo malformado é
+  // corpo malformado, não um chute
+  const tentativa = typeof codigo === "string" ? normalizarCodigo(codigo) : "";
   if (!igual(tentativa, vivo.codigo)) {
     vivo.erros++;
     if (vivo.erros >= PAIR_MAX_ERROS) {

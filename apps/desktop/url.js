@@ -34,7 +34,9 @@ export function safeUrl(raw) {
 export function urlDoCelular(host, porta, codigo) {
   const h = String(host || "127.0.0.1").trim();
   const alvo = h.includes(":") && !h.startsWith("[") ? `[${h}]` : h;
-  const frag = /^\d{6}$/.test(String(codigo ?? "")) ? `#c=${codigo}` : "";
+  // só um código no formato exato entra no fragmento; qualquer outra coisa fica
+  // de fora em vez de entrar torta e virar um QR que leva a erro
+  const frag = /^[0-9A-HJKMNP-TV-Z]{6}$/.test(String(codigo ?? "")) ? `#c=${codigo}` : "";
   return `http://${alvo}:${porta || 7432}/app/${frag}`;
 }
 

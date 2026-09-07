@@ -131,9 +131,14 @@ Duas coisas precisam estar no lugar:
    `0.0.0.0` publica na rede inteira, e aí o token é a única barreira — não faça
    isso em Wi-Fi compartilhado.
 2. **Pareamento.** Em **Configurações → Celular**, clique em **Gerar código**: aparecem
-   um QR e os 6 dígitos. Aponte a câmera do celular pro QR — ele abre a página e conecta
-   sozinho. Sem câmera, abra `http://<host>:<porta>/app/` e digite os dígitos. Vale 2
-   minutos, serve uma vez, e 5 erros o queimam.
+   um QR e um código de 6 caracteres. Aponte a câmera do celular pro QR — ele abre a
+   página e conecta sozinho. Sem câmera, abra `http://<host>:<porta>/app/` e digite o
+   código. Vale 2 minutos, serve uma vez, e 5 erros o queimam.
+
+   O código é base32 sem `I`, `L`, `O` e `U`: pelo mesmo trabalho de digitar seis
+   caracteres, o espaço vai de 10⁶ pra 32⁶ (mais de um bilhão). As letras que se
+   confundem com `1` e `0` ficam de fora do sorteio, e são aceitas na digitação —
+   ler errado não deve custar uma das 5 tentativas.
 
    **O QR carrega o endereço e o código — nunca o token.** É por isso que ele é aceitável:
    quem fotografa a tela leva um código que expira em 2 minutos e serve uma vez, não uma
@@ -162,8 +167,10 @@ do projeto. Sem projeto aberto, ela mostra tudo que o daemon está fazendo.
 - Toda rota `/v1/*` exige `Authorization: Bearer <token>`, com o token sorteado a cada subida
   e gravado em `~/.nexo/daemon.token` (modo `0600`). A única exceção é `POST /pair`, que
   existe pra entregar o token a um celular que ainda não tem — e só serve com um código de
-  6 dígitos que vale 2 minutos, serve uma vez e queima em 5 erros. O QR que a tela mostra
-  carrega esse código e o endereço; o token não aparece em tela nenhuma.
+  6 caracteres (base32, ~10⁹) que vale 2 minutos, serve uma vez e queima em 5 erros — o
+  teto de erros é a trava principal, porque nenhum segredo curto sobrevive a um
+  varrimento. O QR que a tela mostra carrega esse código e o endereço; o token, que tem
+  192 bits, não aparece em tela nenhuma.
 - O terminal e a árvore de arquivos do app são presos à pasta do projeto aberto
   (resolução de symlink inclusa).
 - O app dá ao agente acesso de leitura/escrita e execução de comandos no projeto aberto.

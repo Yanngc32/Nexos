@@ -1,5 +1,14 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { codigoDaUrl, credencialGuardada, esquecer, guardar, limparCodigo, limparUrl } from "../../mobile/pareamento.js";
+import {
+  CODIGO_LEN,
+  codigoDaUrl,
+  credencialGuardada,
+  esquecer,
+  guardar,
+  limparCodigo,
+  limparUrl,
+} from "../../mobile/pareamento.js";
 
 /**
  * O app de celular mora em `apps/mobile`, que de propósito não tem
@@ -19,23 +28,35 @@ const store = () => {
 
 describe("codigoDaUrl", () => {
   it("lê o código que o QR pôs no fragmento", () => {
-    expect(codigoDaUrl({ hash: "#c=004217" })).toBe("004217");
+    expect(codigoDaUrl({ hash: "#c=AB3K9Z" })).toBe("AB3K9Z");
     expect(codigoDaUrl({ hash: "#c=000000" })).toBe("000000");
   });
 
   it("acha o código junto de outros pares", () => {
-    expect(codigoDaUrl({ hash: "#a=1&c=123456" })).toBe("123456");
-    expect(codigoDaUrl({ hash: "#c=123456&a=1" })).toBe("123456");
+    expect(codigoDaUrl({ hash: "#a=1&c=AB3K9Z" })).toBe("AB3K9Z");
+    expect(codigoDaUrl({ hash: "#c=AB3K9Z&a=1" })).toBe("AB3K9Z");
   });
 
-  it("não é código o que não são exatamente 6 dígitos", () => {
-    for (const hash of ["", "#", "#c=", "#c=12345", "#c=1234567", "#c=abcdef", "#codigo=123456", "#xc=123456"]) {
-      expect(codigoDaUrl({ hash }), JSON.stringify(hash)).toBe("");
-    }
+  it("recusa o que o daemon não poderia ter sorteado", () => {
+    const naoServe = [
+      "",
+      "#",
+      "#c=",
+      "#c=AB3K9", // curto
+      "#c=AB3K9ZZ", // comprido
+      "#c=ab3k9z", // o QR carrega maiúscula; minúscula não é o que ele gera
+      "#c=AB3K9I", // I, L, O e U não existem no alfabeto
+      "#c=AB3K9L",
+      "#c=AB3K9O",
+      "#c=AB3K9U",
+      "#codigo=AB3K9Z",
+      "#xc=AB3K9Z",
+    ];
+    for (const hash of naoServe) expect(codigoDaUrl({ hash }), JSON.stringify(hash)).toBe("");
   });
 
   it("ignora a query — o código vive no fragmento, que não trafega", () => {
-    expect(codigoDaUrl({ hash: "", search: "?c=123456" })).toBe("");
+    expect(codigoDaUrl({ hash: "", search: "?c=AB3K9Z" })).toBe("");
   });
 });
 
@@ -63,11 +84,28 @@ describe("limparUrl", () => {
 });
 
 describe("limparCodigo", () => {
-  it("tira o que o teclado do celular deixa passar", () => {
-    expect(limparCodigo("004 217")).toBe("004217");
-    expect(limparCodigo("004-217")).toBe("004217");
-    expect(limparCodigo("0042170000")).toBe("004217");
+  /**
+   * A MESMA tabela que `normalizarCodigo` usa no `pair.test.ts` do daemon. É
+   * cópia de propósito: o app de celular é JS servido a um navegador e não
+   * carrega o TypeScript do pacote compartilhado, então o que impede as duas
+   * regras de divergirem é este par de testes.
+   */
+  it("desfaz só o que é confusão de leitura", () => {
+    expect(limparCodigo("ab3-k9z")).toBe("AB3K9Z");
+    expect(limparCodigo(" a b 3 ")).toBe("AB3");
+    expect(limparCodigo("IL0O")).toBe("1100");
+    expect(limparCodigo("")).toBe("");
     expect(limparCodigo(null)).toBe("");
+  });
+
+  it("tira o que não é do alfabeto", () => {
+    expect(limparCodigo("a!b@3#k$9%z^")).toBe("AB3K9Z");
+  });
+
+  it("corta no tamanho do campo — e é só aqui que se corta", () => {
+    // o daemon NÃO corta: lá, tentativa comprida é tentativa errada. Aqui corta
+    // porque isto está moldando um campo de entrada.
+    expect(limparCodigo("AB3K9ZZZZ")).toBe("AB3K9Z");
   });
 });
 
@@ -86,5 +124,31 @@ describe("credencial guardada", () => {
     expect(credencialGuardada(s)).toBe(null);
     s.setItem("nexo.mobile.credencial", JSON.stringify({ base: "http://x:1" }));
     expect(credencialGuardada(s), "sem token não é credencial").toBe(null);
+  });
+});
+
+describe("o campo do código", () => {
+  /**
+   * Isto olha o HTML porque o defeito vive lá, não no módulo: o navegador corta
+   * pelo `maxlength` ANTES de o `limparCodigo` rodar. Com `maxlength="6"`,
+   * digitar "AB3 K9Z" virava "AB3 K9" e depois "AB3K9" — código incompleto, sem
+   * pista do motivo. Achei driblando o app num navegador de verdade, e este
+   * teste existe pra ninguém "arrumar" o 24 de volta pra 6.
+   */
+  const html = readFileSync(new URL("../../mobile/index.html", import.meta.url), "utf8");
+  const campo = /<input\b[^>]*\bid="codigo"[^>]*>/s.exec(html)?.[0] ?? "";
+
+  it("dá folga pra separador, porque quem conta é o limparCodigo", () => {
+    const max = Number(/\bmaxlength="(\d+)"/.exec(campo)?.[1]);
+    expect(campo, "campo #codigo não encontrado no HTML").not.toBe("");
+    expect(max).toBeGreaterThan(CODIGO_LEN);
+    // e o que o campo aceita tem que sobreviver à normalização inteiro
+    expect(limparCodigo("AB3 K9Z".slice(0, max))).toBe("AB3K9Z");
+    expect(limparCodigo("ab3-k9z".slice(0, max))).toBe("AB3K9Z");
+  });
+
+  it("não pede teclado numérico — o código tem letras", () => {
+    expect(campo).not.toContain('inputmode="numeric"');
+    expect(campo).toContain('autocapitalize="characters"');
   });
 });

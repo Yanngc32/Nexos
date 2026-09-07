@@ -66,24 +66,48 @@ describe("portaDaUrl", () => {
 describe("urlDoCelular", () => {
   it("monta o endereço que o celular abre", () => {
     expect(urlDoCelular("192.168.0.42", 7432)).toBe("http://192.168.0.42:7432/app/");
-    expect(urlDoCelular("192.168.0.42", 7432, "004217")).toBe("http://192.168.0.42:7432/app/#c=004217");
+    expect(urlDoCelular("192.168.0.42", 7432, "AB3K9Z")).toBe("http://192.168.0.42:7432/app/#c=AB3K9Z");
   });
 
   it("põe IPv6 entre colchetes", () => {
     // endereço de Tailscale é IPv6, e sem colchete o navegador lê `fd7a` como
     // host e `115c` como porta — QR ninguém corrige na mão
-    expect(urlDoCelular("fd7a:115c:a1e0::1", 7432, "000001")).toBe(
-      "http://[fd7a:115c:a1e0::1]:7432/app/#c=000001",
+    expect(urlDoCelular("fd7a:115c:a1e0::1", 7432, "AB3K9Z")).toBe(
+      "http://[fd7a:115c:a1e0::1]:7432/app/#c=AB3K9Z",
     );
     expect(new URL(urlDoCelular("fd7a:115c:a1e0::1", 7432)).port).toBe("7432");
     // já entre colchetes não ganha um segundo par
     expect(urlDoCelular("[::1]", 7432)).toBe("http://[::1]:7432/app/");
   });
 
-  it("só aceita 6 dígitos como código, e ignora o resto", () => {
-    // o que não for código não entra no fragmento em vez de entrar torto
-    for (const ruim of ["12345", "1234567", "abc123", "12 34 56", "", null, undefined]) {
+  it("só aceita o formato exato do código, e ignora o resto", () => {
+    // o que não for código não entra no fragmento em vez de entrar torto: um QR
+    // com código quebrado dentro é pior que um QR sem código
+    const ruins = [
+      "AB3K9", // curto
+      "AB3K9ZZ", // comprido
+      "ab3k9z", // minúscula não é o que o daemon sorteia
+      "AB3K9I", // I, L, O e U estão fora do alfabeto
+      "AB3K9L",
+      "AB3K9O",
+      "AB3K9U",
+      "AB 3K9Z",
+      "",
+      null,
+      undefined,
+    ];
+    for (const ruim of ruins) {
       expect(urlDoCelular("127.0.0.1", 7432, ruim), String(ruim)).toBe("http://127.0.0.1:7432/app/");
+    }
+  });
+
+  it("aceita todo caractere que o alfabeto tem", () => {
+    // se o regex esquecer uma faixa, o QR só perde o código em parte dos
+    // sorteios — falha intermitente é a pior de achar
+    const alfabeto = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    for (const c of alfabeto) {
+      const codigo = c.repeat(6);
+      expect(urlDoCelular("127.0.0.1", 7432, codigo), codigo).toContain(`#c=${codigo}`);
     }
   });
 

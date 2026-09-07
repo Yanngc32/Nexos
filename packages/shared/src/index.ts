@@ -408,20 +408,52 @@ export const TEAM_MEMBERS_MAX = 8;
 export const TEAMS_MAX = 50;
 
 /**
- * Pareamento do celular: o desktop mostra um código curto, o celular digita, e
- * o daemon troca o código pelo token.
+ * Pareamento do celular: o desktop mostra um código curto, o celular manda, e o
+ * daemon troca o código pelo token.
  *
  * É código curto e não o token porque ninguém digita 48 caracteres hex no
- * celular — e é código, e não QR com o token dentro, porque assim o token nunca
- * aparece numa tela pra ser fotografado.
+ * celular. O QR mostra o mesmo código, nunca o token — assim o token não
+ * aparece em tela pra ser fotografado.
  *
- * Seis dígitos com estas travas: vale 2 minutos, serve UMA vez, e 5 tentativas
- * erradas queimam o código. Isso dá 5 chances em 10^6 pra quem já consegue
- * alcançar a porta — e alcançar a porta já exige estar no túnel ou na LAN.
+ * **Seis caracteres de base32, não seis dígitos.** Pelo mesmo trabalho de
+ * digitar, o espaço vai de 10^6 pra 32^6 ≈ 1,07×10^9. Com o teto de 5 erros,
+ * são 5 chances em mais de um bilhão pra quem já consegue alcançar a porta — e
+ * alcançar a porta já exige estar no túnel ou na LAN. O comprimento é o que
+ * limita a paciência de quem digita; a variedade é de graça.
+ *
+ * O alfabeto é o do Crockford: **sem I, L, O e U**. Os três primeiros porque se
+ * confundem com 1, 1 e 0 numa tela lida de longe, e a normalização os aceita de
+ * volta; o U porque tirá-lo evita que o sorteio escreva palavra ofensiva.
+ *
+ * As travas continuam sendo o que sustenta o desenho: vale 2 minutos, serve UMA
+ * vez, 5 tentativas erradas queimam o código, e só existe um código vivo.
  */
-export const PAIR_CODE_DIGITS = 6;
+export const PAIR_CODE_LEN = 6;
+export const PAIR_ALFABETO = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 export const PAIR_TTL_MS = 2 * 60 * 1000;
 export const PAIR_MAX_ERROS = 5;
+
+/**
+ * Deixa a tentativa comparável: maiúscula, sem separador, e com as confusões
+ * óbvias desfeitas (I e L viram 1, O vira 0).
+ *
+ * Normalizar é obrigação de quem valida, não favor: o cliente pode ser um curl.
+ * O app de celular repete esta regra em `apps/mobile/pareamento.js` só pra que o
+ * campo mostre o que vai ser enviado — quem decide é aqui.
+ *
+ * **Não corta no tamanho.** Cortar faria `ABC123XYZ` valer por `ABC123`, e
+ * tentativa comprida é tentativa errada, não tentativa com sobra. Limitar o
+ * tamanho é trabalho do campo que a pessoa digita, não de quem confere.
+ */
+export function normalizarCodigo(bruto: unknown): string {
+  return String(bruto ?? "")
+    .toUpperCase()
+    .replace(/[IL]/g, "1")
+    .replace(/O/g, "0")
+    .split("")
+    .filter((c) => PAIR_ALFABETO.includes(c))
+    .join("");
+}
 
 /**
  * Até quando o daemon espera um turno de motor fechar. Passado isso, motor que
