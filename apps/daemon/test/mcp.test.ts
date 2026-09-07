@@ -5,9 +5,11 @@ import {
   erroDeParse,
   MCP_PROTOCOL,
   MCP_TOOLS,
+  MCP_TOOL_TIMEOUT_MS,
   tratarMcp,
   type Ferramentas,
 } from "../src/mcp.ts";
+import { TURNO_TETO_MS } from "@nexo/shared";
 
 const MEMBROS = [
   { id: "leitor", nome: "Leitor", papel: "lê o código" },
@@ -162,11 +164,26 @@ describe("nexo_chamar", () => {
 describe("configDeMcp", () => {
   it("aponta pro run, com o token no header", () => {
     const cfg = JSON.parse(configDeMcp(7432, "segredo", "r-1"));
-    expect(cfg.mcpServers.nexo).toEqual({
+    expect(cfg.mcpServers.nexo).toMatchObject({
       type: "http",
       url: "http://127.0.0.1:7432/v1/mcp/r-1",
       headers: { Authorization: "Bearer segredo" },
     });
+  });
+
+  /*
+   * O padrão do CLI é 5 minutos por chamada, limite de PAREDE — notificação de
+   * progresso não estica. Um membro trabalhando de verdade passa disso, e a
+   * chamada morreria no cliente com o membro ainda rodando.
+   */
+  it("declara timeout maior que a paciência do próprio daemon", () => {
+    const cfg = JSON.parse(configDeMcp(7432, "s", "r-1"));
+    expect(cfg.mcpServers.nexo.timeout).toBe(MCP_TOOL_TIMEOUT_MS);
+    // a ordem importa: quem desiste primeiro tem que ser o daemon, porque só ele
+    // sabe DIZER o motivo de um jeito que o supervisor entende
+    expect(MCP_TOOL_TIMEOUT_MS).toBeGreaterThan(TURNO_TETO_MS);
+    // e o CLI ignora valor abaixo de 1000ms, caindo no padrão
+    expect(MCP_TOOL_TIMEOUT_MS).toBeGreaterThanOrEqual(1000);
   });
 
   it("o caminho carrega o id do run: é o que prende a ferramenta a UM run", () => {

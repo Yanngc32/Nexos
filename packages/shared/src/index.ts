@@ -393,6 +393,16 @@ export const TEAM_PAPEL_MAX = 200;
 export const TEAM_MEMBERS_MAX = 8;
 export const TEAMS_MAX = 50;
 
+/**
+ * Até quando o daemon espera um turno de motor fechar. Passado isso, motor que
+ * não responde é defeito, e travar a conversa pra sempre seria pior.
+ *
+ * Mora aqui, e não no `session.ts`, porque quem chama o daemon de fora precisa
+ * esperar MAIS que ele (ver `MCP_TOOL_TIMEOUT_MS`) — e `mcp.ts` não pode
+ * importar `session.ts` sem fechar ciclo, já que o motor de CLI importa o mcp.
+ */
+export const TURNO_TETO_MS = 15 * 60 * 1000;
+
 /** Objetivo do run: o pedido que entra na primeira etapa. */
 export const RUN_GOAL_MAX = 8000;
 

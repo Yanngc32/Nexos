@@ -36,6 +36,16 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
   `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
   forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
+- O servidor MCP do supervisor declara `timeout` por servidor, maior que a paciência do próprio
+  daemon. O padrão do CLI é 5 minutos por chamada de ferramenta, e é limite de PAREDE — a
+  documentação interna dele diz que notificação de progresso não estica. Um membro fazendo trabalho
+  de verdade passa disso: a chamada morreria no cliente com o membro ainda rodando, e o supervisor
+  receberia um timeout cego em vez de um motivo.
+  O valor é o teto de turno do daemon (`TURNO_TETO_MS`, 15 min) mais um minuto de folga. A ordem
+  importa: quem tem que desistir primeiro é o daemon, porque só ele sabe DIZER o motivo ("motor
+  falhou", "quota estourou") de um jeito que o supervisor entende e pode contornar.
+  A constante mudou de casa pro `@nexo/shared` porque `mcp.ts` não pode importar `session.ts` sem
+  fechar ciclo — o motor de CLI importa o mcp.
 - `GET /v1/runs/atual`, e o painel flutuante passou a usar essa em vez da listagem. Ele consulta a
    cada 2s e mostra UM run; pedir a lista pra isso abria todo `run.json` da máquina e serializava o
    histórico inteiro. Medido com 1000 runs no disco: **29 ms e 2,3 MB por consulta viraram 0,5 ms e

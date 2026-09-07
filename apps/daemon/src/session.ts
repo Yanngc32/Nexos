@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { EngineEvent, EngineKind, Profile, SwitchReason, ThreadEvent } from "@nexo/shared";
+import { TURNO_TETO_MS } from "@nexo/shared";
 import { agentOverrides, getAgent } from "./agents.ts";
 import { promptWithAttachments, removeThreadAttachments, saveImages, type IncomingImage } from "./attachments.ts";
 import { loadConfig } from "./config.ts";
@@ -442,7 +443,7 @@ export async function postMessage(
  * `setTerminal` acordar — antes era laço de 20 ms, ~45 mil despertares num turno
  * de 15 minutos. O teto continua sendo erro: motor que não fecha trava a thread.
  */
-function waitTerminal(live: Live, ms = 15 * 60 * 1000): Promise<void> {
+function waitTerminal(live: Live, ms = TURNO_TETO_MS): Promise<void> {
   if (live.lastTerminal) return Promise.resolve();
   return new Promise<void>((resolve, reject) => {
     const acorda = (): void => {

@@ -1,3 +1,5 @@
+import { TURNO_TETO_MS } from "@nexo/shared";
+
 /**
  * Servidor MCP do Nexo — a versão do supervisor em que ele age DENTRO do turno.
  *
@@ -158,6 +160,23 @@ export function erroDeParse(): Resposta {
 }
 
 /**
+ * Quanto o cliente MCP espera por UMA chamada de ferramenta.
+ *
+ * O padrão do CLI é 5 minutos, e é limite de parede — notificação de progresso
+ * NÃO estica. Cinco minutos não cobre um membro fazendo trabalho de verdade:
+ * a chamada morreria no cliente com o membro ainda trabalhando, e o supervisor
+ * receberia um erro que não sabe interpretar.
+ *
+ * O valor é o teto do próprio daemon mais folga. A ordem importa: quem tem que
+ * desistir primeiro é o daemon, porque só ele sabe DIZER o motivo ("motor
+ * falhou", "quota estourou") de um jeito que o supervisor entende e pode
+ * contornar. Cliente desistindo antes troca uma mensagem útil por um timeout
+ * cego.
+ */
+const FOLGA_MS = 60_000;
+export const MCP_TOOL_TIMEOUT_MS = TURNO_TETO_MS + FOLGA_MS;
+
+/**
  * Arquivo de config que o CLI recebe em `--mcp-config`. Vai em ARQUIVO e não em
  * argumento porque carrega o token do daemon: argv de processo é legível por
  * qualquer processo do mesmo usuário, e um arquivo `0600` não é.
@@ -169,6 +188,7 @@ export function configDeMcp(porta: number, token: string, runId: string): string
         type: "http",
         url: `http://127.0.0.1:${porta}/v1/mcp/${runId}`,
         headers: { Authorization: `Bearer ${token}` },
+        timeout: MCP_TOOL_TIMEOUT_MS,
       },
     },
   });
