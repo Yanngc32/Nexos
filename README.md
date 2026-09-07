@@ -130,13 +130,19 @@ Duas coisas precisam estar no lugar:
    alcança é só quem está no túnel. Vale a partir da próxima subida do motor.
    `0.0.0.0` publica na rede inteira, e aí o token é a única barreira — não faça
    isso em Wi-Fi compartilhado.
-2. **Pareamento.** No desktop, peça um código; no celular, abra
-   `http://<host>:<porta>/app/` e digite. O código vale 2 minutos, serve uma vez, e
-   5 erros o queimam. É código curto e não QR porque assim **o token nunca aparece
-   numa tela** — QR é foto, e foto vaza.
+2. **Pareamento.** Em **Configurações → Celular**, clique em **Gerar código**: aparecem
+   um QR e os 6 dígitos. Aponte a câmera do celular pro QR — ele abre a página e conecta
+   sozinho. Sem câmera, abra `http://<host>:<porta>/app/` e digite os dígitos. Vale 2
+   minutos, serve uma vez, e 5 erros o queimam.
 
-O celular guarda o token no navegador. O daemon sorteia um token novo a cada subida,
-então despareaer é normal: a tela do código volta e você pareia de novo.
+   **O QR carrega o endereço e o código — nunca o token.** É por isso que ele é aceitável:
+   quem fotografa a tela leva um código que expira em 2 minutos e serve uma vez, não uma
+   credencial permanente. O QR só poupa você de digitar `http://100.101.102.103:7432/app/`
+   num teclado de telefone.
+
+Ali no celular, **Adicionar à tela de início** deixa o Nexo como um app. O token fica
+guardado no navegador; o daemon sorteia um novo a cada subida, então despareaer é normal —
+a tela do código volta e você pareia de novo.
 
 ## Painel flutuante
 
@@ -156,7 +162,8 @@ do projeto. Sem projeto aberto, ela mostra tudo que o daemon está fazendo.
 - Toda rota `/v1/*` exige `Authorization: Bearer <token>`, com o token sorteado a cada subida
   e gravado em `~/.nexo/daemon.token` (modo `0600`). A única exceção é `POST /pair`, que
   existe pra entregar o token a um celular que ainda não tem — e só serve com um código de
-  6 dígitos que vale 2 minutos, serve uma vez e queima em 5 erros.
+  6 dígitos que vale 2 minutos, serve uma vez e queima em 5 erros. O QR que a tela mostra
+  carrega esse código e o endereço; o token não aparece em tela nenhuma.
 - O terminal e a árvore de arquivos do app são presos à pasta do projeto aberto
   (resolução de symlink inclusa).
 - O app dá ao agente acesso de leitura/escrita e execução de comandos no projeto aberto.

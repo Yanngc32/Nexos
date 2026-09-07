@@ -19,6 +19,25 @@ export function safeUrl(raw) {
   return "about:blank";
 }
 
+/**
+ * O endereço que o celular abre — com o código de pareamento no fragmento,
+ * quando há um.
+ *
+ * **IPv6 vai entre colchetes**, e isto não é preciosismo: endereço de Tailscale
+ * é IPv6 (`fd7a:115c:…`), e sem colchete o navegador lê `http://fd7a:115c:…`
+ * como host `fd7a` e porta `115c`. Um endereço digitado errado a pessoa
+ * corrige; um QR ela não corrige — ele só não funciona.
+ *
+ * O código vai no **fragmento**, não na query: fragmento não é enviado ao
+ * servidor, então não entra em log de acesso nem em `Referer`.
+ */
+export function urlDoCelular(host, porta, codigo) {
+  const h = String(host || "127.0.0.1").trim();
+  const alvo = h.includes(":") && !h.startsWith("[") ? `[${h}]` : h;
+  const frag = /^\d{6}$/.test(String(codigo ?? "")) ? `#c=${codigo}` : "";
+  return `http://${alvo}:${porta || 7432}/app/${frag}`;
+}
+
 export function portaDaUrl(href) {
   try {
     const u = new URL(href);

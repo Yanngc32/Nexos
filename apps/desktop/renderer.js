@@ -19,7 +19,8 @@ import {
   normPath,
   samePath,
 } from "./format.js";
-import { portaDaUrl, safeUrl } from "./url.js";
+import { portaDaUrl, safeUrl, urlDoCelular } from "./url.js";
+import { qrSvg } from "./qr.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -3104,27 +3105,44 @@ $("btn-widget").addEventListener("click", () => void window.nexo.toggleWidget())
 /* ---------- celular ---------- */
 
 /**
- * Pareamento visto do desktop: pede o código e mostra por 2 minutos.
+ * Pareamento visto do desktop: pede o código, desenha o QR, e some em 2 minutos.
  *
- * O código aparece na tela e o TOKEN não — é o ponto do desenho. Ele também
- * expira sozinho na tela, e não só no daemon: código velho visível convida a
- * digitar um que já não serve.
+ * **O QR carrega o endereço e o CÓDIGO — nunca o token.** É o mesmo desenho de
+ * antes: quem fotografa a tela leva um código de 6 dígitos que vale 2 minutos,
+ * serve uma vez e queima em 5 erros, e não uma credencial permanente. O QR só
+ * poupa a pessoa de digitar `http://100.101.102.103:7432/app/` num teclado de
+ * telefone, que é onde ela erraria.
+ *
+ * O código continua visível ao lado: celular sem câmera, câmera negada, leitor
+ * que não abre link — tudo isso ainda tem saída.
+ *
+ * Ele expira na tela junto com o daemon, e não só no daemon: QR velho à mostra
+ * convida a escanear o que já não serve, e o erro apareceria no telefone, longe
+ * de quem poderia entender.
  */
 let celTimer = 0;
+/** Guardados porque o QR depende dos dois: o endereço de escuta e o código vivo. */
+let celCfg = null;
+let celPar = null;
 
 function celMostrar(par) {
-  const alvo = $("cel-codigo");
   if (celTimer) clearInterval(celTimer);
+  celPar = par ?? null;
   if (!par) {
-    alvo.classList.add("hidden");
+    $("cel-qr").classList.add("hidden");
+    $("cel-qr-img").textContent = "";
     $("btn-cel-codigo").textContent = "Gerar código";
     return;
   }
-  alvo.classList.remove("hidden");
+  const url = urlDoCelular(celCfg?.host, celCfg?.port, par.codigo);
+  $("cel-qr").classList.remove("hidden");
+  // innerHTML com SVG que este módulo acabou de gerar a partir de um endereço e
+  // 6 dígitos — nada aqui vem de fora, e SVG inline não carrega nem executa nada
+  $("cel-qr-img").innerHTML = qrSvg(url);
   const tique = () => {
     const resta = Math.max(0, Math.round((par.expiraEm - Date.now()) / 1000));
     if (!resta) return celMostrar(null);
-    alvo.textContent = par.codigo;
+    $("cel-codigo").textContent = par.codigo;
     $("btn-cel-codigo").textContent = `expira em ${resta}s`;
   };
   tique();
@@ -3139,11 +3157,19 @@ async function celPedirCodigo() {
   }
 }
 
-/** A URL que a pessoa digita no celular — o host de escuta é que decide se alcança. */
+/**
+ * A URL que a pessoa abre no celular — o host de escuta é que decide se alcança.
+ *
+ * O `cfg` fica guardado porque o QR depende dele: trocar o endereço de escuta
+ * com um código vivo tem que redesenhar o QR, senão ele aponta pro host antigo
+ * e a pessoa escaneia um endereço que não existe mais.
+ */
 function celPintarUrl(cfg) {
+  celCfg = cfg ?? celCfg;
   const host = cfg?.host || "127.0.0.1";
   const porta = cfg?.port || 7432;
-  $("cel-url").textContent = `http://${host}:${porta}/app/`;
+  $("cel-url").textContent = urlDoCelular(host, porta);
+  if (celPar) celMostrar(celPar);
   if ($("cel-host") !== document.activeElement) $("cel-host").value = host;
   $("cel-aviso").textContent =
     host === "127.0.0.1" || host === "localhost"

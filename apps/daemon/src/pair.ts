@@ -8,9 +8,10 @@ import { PAIR_CODE_DIGITS, PAIR_MAX_ERROS, PAIR_TTL_MS } from "@nexo/shared";
  * caracteres hex e mora num arquivo `0600`. Ninguém digita isso no telefone.
  *
  * A solução é a de aparelho de TV: o desktop mostra um código curto, o celular
- * digita, e o daemon troca o código pelo token. Código, e não QR com o token
- * dentro, porque assim **o token nunca aparece numa tela** — QR é uma foto, e
- * foto vaza.
+ * manda, e o daemon troca o código pelo token. A tela do desktop mostra também
+ * um QR, mas com o ENDEREÇO e o CÓDIGO dentro — nunca o token. É essa diferença
+ * que torna o QR aceitável: quem fotografa a tela leva um segredo que expira em
+ * 2 minutos e serve uma vez, e não uma credencial permanente.
  *
  * Isto é a ÚNICA rota de escrita sem autenticação do daemon, então as travas
  * são o que a torna defensável:

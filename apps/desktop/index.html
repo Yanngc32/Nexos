@@ -668,13 +668,21 @@
                 <div class="set-txt">
                   <h4>Conectar um celular</h4>
                   <p>
-                    Abra <b id="cel-url">http://…/app/</b> no navegador do celular e digite o código.
-                    Ele vale 2 minutos e serve uma vez.
+                    Aponte a câmera do celular para o código. Ele abre a página e conecta sozinho —
+                    dali, <b>Adicionar à tela de início</b> deixa o Nexo como um app. Sem câmera,
+                    abra <b id="cel-url">http://…/app/</b> e digite os 6 dígitos.
+                    Vale 2 minutos e serve uma vez.
                   </p>
                 </div>
                 <div class="set-ctl">
-                  <span class="cel-codigo hidden" id="cel-codigo"></span>
                   <button type="button" class="ghost" id="btn-cel-codigo">Gerar código</button>
+                </div>
+              </div>
+              <div class="cel-qr hidden" id="cel-qr">
+                <div class="cel-qr-img" id="cel-qr-img"></div>
+                <div class="cel-qr-lado">
+                  <span class="cel-codigo" id="cel-codigo"></span>
+                  <span class="cel-qr-sub">para digitar à mão</span>
                 </div>
               </div>
               <div class="set-row">

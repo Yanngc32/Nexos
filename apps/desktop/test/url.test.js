@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { portaDaUrl, safeUrl } from "../url.js";
+import { portaDaUrl, safeUrl, urlDoCelular } from "../url.js";
 
 /*
  * `safeUrl` decide o que o iframe do preview carrega. O CSP da janela deixa
@@ -60,5 +60,35 @@ describe("portaDaUrl", () => {
   it("url inválida vira 0 em vez de estourar", () => {
     expect(portaDaUrl("nada disso")).toBe(0);
     expect(portaDaUrl("")).toBe(0);
+  });
+});
+
+describe("urlDoCelular", () => {
+  it("monta o endereço que o celular abre", () => {
+    expect(urlDoCelular("192.168.0.42", 7432)).toBe("http://192.168.0.42:7432/app/");
+    expect(urlDoCelular("192.168.0.42", 7432, "004217")).toBe("http://192.168.0.42:7432/app/#c=004217");
+  });
+
+  it("põe IPv6 entre colchetes", () => {
+    // endereço de Tailscale é IPv6, e sem colchete o navegador lê `fd7a` como
+    // host e `115c` como porta — QR ninguém corrige na mão
+    expect(urlDoCelular("fd7a:115c:a1e0::1", 7432, "000001")).toBe(
+      "http://[fd7a:115c:a1e0::1]:7432/app/#c=000001",
+    );
+    expect(new URL(urlDoCelular("fd7a:115c:a1e0::1", 7432)).port).toBe("7432");
+    // já entre colchetes não ganha um segundo par
+    expect(urlDoCelular("[::1]", 7432)).toBe("http://[::1]:7432/app/");
+  });
+
+  it("só aceita 6 dígitos como código, e ignora o resto", () => {
+    // o que não for código não entra no fragmento em vez de entrar torto
+    for (const ruim of ["12345", "1234567", "abc123", "12 34 56", "", null, undefined]) {
+      expect(urlDoCelular("127.0.0.1", 7432, ruim), String(ruim)).toBe("http://127.0.0.1:7432/app/");
+    }
+  });
+
+  it("cai no padrão quando host ou porta faltam", () => {
+    expect(urlDoCelular("", 0)).toBe("http://127.0.0.1:7432/app/");
+    expect(urlDoCelular(undefined, undefined)).toBe("http://127.0.0.1:7432/app/");
   });
 });

@@ -46,6 +46,28 @@ export function esquecer(store = window.localStorage) {
   }
 }
 
+/**
+ * O código que veio no QR, se veio.
+ *
+ * Está no fragmento (`#c=123456`) porque fragmento não trafega: não vira linha
+ * de log no daemon nem `Referer` pra terceiro. E sai da barra assim que é lido
+ * — código serve uma vez, então deixá-lo na URL só garante erro em quem
+ * recarregar a página, e o guarda no histórico do navegador de graça.
+ */
+export function codigoDaUrl(loc = window.location) {
+  const m = /(?:^|[#&])c=(\d{6})(?:&|$)/.exec(loc.hash || "");
+  return m ? m[1] : "";
+}
+
+export function limparUrl(loc = window.location, hist = window.history) {
+  if (!loc.hash) return;
+  try {
+    hist.replaceState(null, "", loc.pathname + loc.search);
+  } catch {
+    /* navegador sem replaceState: o fragmento fica, e o pior é um erro na tela */
+  }
+}
+
 /** Só dígitos, no tamanho certo. O teclado do celular deixa passar espaço e traço. */
 export function limparCodigo(bruto) {
   return String(bruto ?? "").replace(/\D/g, "").slice(0, 6);

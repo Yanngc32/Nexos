@@ -1,4 +1,12 @@
-import { credencialGuardada, esquecer, guardar, limparCodigo, parear } from "./pareamento.js";
+import {
+  codigoDaUrl,
+  credencialGuardada,
+  esquecer,
+  guardar,
+  limparCodigo,
+  limparUrl,
+  parear,
+} from "./pareamento.js";
 import { renderMd } from "./comum/markdown.js";
 import { ago } from "./comum/format.js";
 import { fmtDuracao } from "./comum/agent-trace.js";
@@ -59,6 +67,18 @@ async function req(caminho, opts = {}) {
 
 /* ---------- pareamento ---------- */
 
+/**
+ * O código que o QR trouxe, se trouxe. Vive aqui em cima porque o `desparear`
+ * depende dele, e ele só é usado no fim: declarar junto do uso deixaria o
+ * `desparear` lendo variável em zona morta.
+ */
+let codigoPendente = "";
+const gastarCodigoPendente = () => {
+  const c = codigoPendente;
+  codigoPendente = "";
+  return c;
+};
+
 function mostrarErroPar(msg) {
   $("par-erro").textContent = msg || "";
   $("par-erro").classList.toggle("hidden", !msg);
@@ -72,6 +92,9 @@ function desparear(motivo) {
   $("app").classList.add("hidden");
   $("tela-par").classList.remove("hidden");
   mostrarErroPar(motivo ?? "");
+  // quem chegou por QR trouxe um código junto: se o token guardado morreu, ele
+  // resolve sozinho em vez de mandar a pessoa buscar o computador
+  if (codigoPendente) void tentarParear(gastarCodigoPendente());
 }
 
 async function entrar(credencial) {
@@ -83,13 +106,17 @@ async function entrar(credencial) {
   await abrirAgora();
 }
 
-$("form-par").addEventListener("submit", async (e) => {
-  e.preventDefault();
+async function tentarParear(codigo) {
   mostrarErroPar("");
-  const r = await parear($("codigo").value);
+  const r = await parear(codigo);
   if (!r.ok) return mostrarErroPar(r.erro);
   $("codigo").value = "";
   await entrar(r.credencial);
+}
+
+$("form-par").addEventListener("submit", (e) => {
+  e.preventDefault();
+  void tentarParear($("codigo").value);
 });
 
 // o teclado numérico do celular deixa passar espaço, traço e ponto
@@ -377,5 +404,20 @@ document.addEventListener("visibilitychange", () => {
   if (cred && !$("aba-agora").classList.contains("hidden")) void abrirAgora();
 });
 
+/**
+ * Entrada, em ordem de preferência.
+ *
+ * O token guardado vem ANTES do código do QR, mesmo com um código na URL: quem
+ * põe o app na tela de início guarda o atalho com o fragmento dentro, e aí todo
+ * abrir traria um código já queimado. Token que funciona vale mais que código
+ * que talvez sirva; se o token estiver morto, o `desparear` cai no código.
+ */
+codigoPendente = codigoDaUrl();
+if (codigoPendente) {
+  limparUrl();
+  $("codigo").value = codigoPendente;
+}
+
 const guardada = credencialGuardada();
 if (guardada) void entrar({ ...guardada, base: guardada.base || location.origin });
+else if (codigoPendente) void tentarParear(gastarCodigoPendente());

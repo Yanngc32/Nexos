@@ -3292,6 +3292,47 @@ body[data-side-mini="1"] .svc-strip {
   font-size: 12px;
 }
 
+/* O QR e o código lado a lado: um é pra câmera, o outro pra quem vai digitar. */
+.cel-qr {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 0 4px;
+}
+
+/*
+ * Fundo branco e borda clara de propósito: o SVG já traz a margem de 4 módulos
+ * que o leitor precisa, mas num painel escuro o branco do QR encostaria no
+ * escuro do painel e a margem sumiria visualmente.
+ */
+.cel-qr-img {
+  flex: 0 0 auto;
+  width: 168px;
+  height: 168px;
+  padding: 6px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.cel-qr-img svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.cel-qr-lado {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.cel-qr-sub {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 /* O código é pra ser lido de longe e digitado no telefone. */
 .cel-codigo {
   padding: 4px 10px;
