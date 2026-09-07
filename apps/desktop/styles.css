@@ -3343,3 +3343,28 @@ body[data-side-mini="1"] .svc-strip {
   letter-spacing: 0.18em;
   user-select: all;
 }
+
+/* O endereço de escuta virou detalhe: o daemon descobre sozinho, e quem precisa
+   fixar um endereço específico é minoria. */
+.set-det {
+  margin: 4px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.set-det summary {
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.set-det p {
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.set-det input {
+  width: 220px;
+}

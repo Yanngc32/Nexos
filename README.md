@@ -122,38 +122,38 @@ O daemon serve uma interface de celular em `/app/` — sem instalar nada, sem bu
 Ela mostra o que está rodando e deixa conversar; árvore de arquivos e terminal ficam
 de fora (hoje só existem no processo do Electron, e telefone não é onde se lê diff).
 
-Duas coisas precisam estar no lugar:
+**Ligar a ponte, uma vez:**
 
-1. **O daemon tem que estar alcançável.** O padrão `127.0.0.1` só aceita a própria
-   máquina — nem o celular no mesmo Wi-Fi chega. Em **Configurações → Celular**,
-   aponte o endereço de escuta pro IP do seu túnel (Tailscale, WireGuard): aí quem
-   alcança é só quem está no túnel. Vale a partir da próxima subida do motor.
-   `0.0.0.0` publica na rede inteira, e aí o token é a única barreira — não faça
-   isso em Wi-Fi compartilhado.
+1. Tenha um túnel de pé no PC e no celular (Tailscale, WireGuard). Não precisa
+   descobrir nem digitar o IP: o Nexo acha sozinho.
+2. No PC: **Configurações → Celular → Gerar código**.
+3. Aponte a câmera do celular pro QR. Ele abre a página e conecta.
+4. No celular, **Adicionar à tela de início**. Vira um app.
 
-   Se na subida seguinte o endereço não existir (túnel fora do ar, IP de DHCP que
-   mudou), o daemon **não deixa de subir**: ele volta pro `127.0.0.1`, diz por quê, e
-   o painel Celular avisa. A queda é sempre pro loopback, nunca pra um endereço mais
-   aberto — o QR passa a apontar pro endereço real, porque QR que leva a lugar vazio
-   falha calado no celular.
-2. **Pareamento.** Em **Configurações → Celular**, clique em **Gerar código**: aparecem
-   um QR e um código de 6 caracteres. Aponte a câmera do celular pro QR — ele abre a
-   página e conecta sozinho. Sem câmera, abra `http://<host>:<porta>/app/` e digite o
-   código. Vale 2 minutos, serve uma vez, e 5 erros o queimam.
+Pronto — e é uma vez só. O celular fica conectado através de reinícios do daemon e
+da máquina; não há código pra escanear de novo no dia seguinte. Pra revogar, o botão
+**Desconectar celulares** sorteia um token novo e derruba todos.
 
-   O código é base32 sem `I`, `L`, `O` e `U`: pelo mesmo trabalho de digitar seis
-   caracteres, o espaço vai de 10⁶ pra 32⁶ (mais de um bilhão). As letras que se
-   confundem com `1` e `0` ficam de fora do sorteio, e são aceitas na digitação —
-   ler errado não deve custar uma das 5 tentativas.
+**Como ele se acha.** O daemon escuta sempre no loopback (por onde o app do desktop
+fala) e, além disso, em qualquer endereço de túnel que a máquina tenha — Tailscale
+pelo bloco `100.64/10` e `fd7a:115c:a1e0::/48`, WireGuard pelo nome da interface.
+Túnel que sobe **depois** entra em segundos, sem reiniciar nada; túnel que cai sai
+sozinho. O painel diz onde você está alcançável agora.
 
-   **O QR carrega o endereço e o código — nunca o token.** É por isso que ele é aceitável:
-   quem fotografa a tela leva um código que expira em 2 minutos e serve uma vez, não uma
-   credencial permanente. O QR só poupa você de digitar `http://100.101.102.103:7432/app/`
-   num teclado de telefone.
+Wi-Fi e IP público ficam de fora por padrão: publicar ali é escolha, não
+conveniência. Em **Endereço de escuta (avançado)** dá pra fixar um endereço
+específico — `0.0.0.0` publica na rede inteira e aí o token é a única barreira, então
+não faça isso em Wi-Fi compartilhado. Endereço fixado que não existir mais é falha
+registrada na tela, não daemon que se recusa a subir.
 
-Ali no celular, **Adicionar à tela de início** deixa o Nexo como um app. O token fica
-guardado no navegador; o daemon sorteia um novo a cada subida, então despareaer é normal —
-a tela do código volta e você pareia de novo.
+O código do pareamento tem 6 caracteres em base32 sem `I`, `L`, `O` e `U`: pelo mesmo
+trabalho de digitar, o espaço vai de 10⁶ pra 32⁶ (mais de um bilhão). As letras que se
+confundem com `1` e `0` ficam fora do sorteio e são aceitas na digitação. Vale 2
+minutos, serve uma vez, e 5 erros o queimam.
+
+**O QR carrega o endereço e o código — nunca o token.** É por isso que ele é
+aceitável: quem fotografa a tela leva um segredo que expira em 2 minutos e serve uma
+vez, não uma credencial permanente.
 
 ## Painel flutuante
 
@@ -175,8 +175,10 @@ do projeto. Sem projeto aberto, ela mostra tudo que o daemon está fazendo.
   sem credencial já conheceria o código, e não haveria nada a adivinhar. Um teste varre a
   tabela de rotas e falha se qualquer `/v1/*` responder sem o bearer, porque no Hono a
   autenticação depende da ordem de registro e uma rota aberta não dá erro nenhum.
-- O token tem 192 bits, é sorteado a cada subida e fica em `~/.nexo/daemon.token`
-  (modo `0600`).
+- O token tem 192 bits e fica em `~/.nexo/daemon.token` (modo `0600`). Ele
+  **sobrevive** às subidas do daemon, senão o celular desparearia a cada reinício —
+  sessão que morre sozinha não é segurança, é atrito. A revogação é explícita:
+  **Desconectar celulares** sorteia um novo e derruba todos de uma vez.
 - A **única** rota sem autenticação é `POST /pair`, que existe pra entregar o token a um
   celular que ainda não tem. Ela só serve com um código de 6 caracteres (base32, ~10⁹) que
   vale 2 minutos, serve uma vez e queima em 5 erros. O teto de erros é a trava principal:

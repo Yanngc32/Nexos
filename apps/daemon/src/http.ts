@@ -1,8 +1,11 @@
+import { randomBytes } from "node:crypto";
+import { writeFileSync } from "node:fs";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { SwitchReason } from "@nexo/shared";
 import { getAgent, listAgents, removeAgent, saveAgent, type AgentInput } from "./agents.ts";
 import { loadConfig, saveConfig } from "./config.ts";
+import { tokenPath } from "./home.ts";
 import {
   accountInfo,
   addProfile,
@@ -44,7 +47,7 @@ import {
   runsBus,
 } from "./runs.ts";
 import { erroDeParse, tratarMcp, type JsonRpc } from "./mcp.ts";
-import { escutaAtual } from "./escuta.ts";
+import { estadoAtual, melhorHost } from "./escuta.ts";
 import { abrirPareamento, fecharPareamento, pareamentoAberto, resgatar } from "./pair.ts";
 import { servirWeb } from "./web.ts";
 import {
@@ -77,6 +80,12 @@ type BodyResponder = (corpo: Buffer | string, status: number, headers?: Record<s
 
 export function createApp(home: string, token: string): Hono {
   const app = new Hono();
+  /*
+   * O token é MUTÁVEL porque `POST /v1/token/rotate` o troca com o daemon de
+   * pé. Fica na closure e não em estado de módulo: os testes criam vários apps,
+   * e um token global vazaria entre eles.
+   */
+  let atual = token;
   app.use(
     "*",
     cors({
@@ -104,7 +113,7 @@ export function createApp(home: string, token: string): Hono {
     const r = resgatar(body.codigo);
     // 403 e não 401: não há credencial a corrigir, o código é que não serve
     if (!r.ok) return c.json({ error: r.motivo }, 403);
-    return c.json({ token, port: loadConfig(home).port });
+    return c.json({ token: atual, port: loadConfig(home).port });
   });
 
   /*
@@ -142,7 +151,7 @@ export function createApp(home: string, token: string): Hono {
   app.use("/v1/*", async (c, next) => {
     if (c.req.path.endsWith("/health")) return next();
     const hdr = c.req.header("authorization") ?? "";
-    if (hdr !== `Bearer ${token}`) return c.json({ error: "unauthorized" }, 401);
+    if (hdr !== `Bearer ${atual}`) return c.json({ error: "unauthorized" }, 401);
     await next();
   });
 
@@ -161,11 +170,36 @@ export function createApp(home: string, token: string): Hono {
   });
 
   /*
-   * Onde o daemon escuta AGORA — não é o mesmo que `config.host`, que é o que
-   * foi pedido e só vale na próxima subida. A tela usa isto pra montar o QR:
+   * Onde o daemon escuta AGORA, descoberto e mantido em dia pelo `escuta.ts` —
+   * não é `config.host`, que é só um acréscimo manual. A tela usa isto pro QR:
    * QR com endereço que ninguém atende falha calado no celular.
+   *
+   * `melhor` é o que a tela deve mostrar: o túnel quando há um, porque é o
+   * único por onde o celular chega.
    */
-  app.get("/v1/escuta", (c) => c.json(escutaAtual()));
+  app.get("/v1/escuta", (c) => {
+    const e = estadoAtual();
+    return c.json({ ...e, melhor: melhorHost(e), port: loadConfig(home).port });
+  });
+
+  /*
+   * Troca o token e derruba todos os celulares pareados.
+   *
+   * Existe porque o token passou a sobreviver às subidas do daemon: antes ele
+   * era sorteado a cada `up`, e a revogação acontecia por acidente toda vez que
+   * a máquina reiniciava. Sessão que morre sozinha não é segurança, é atrito —
+   * mas sem revogação explícita, celular perdido não tem solução. Agora é botão.
+   *
+   * O app do desktop também perde o token, e é por isso que ele relê o arquivo
+   * depois de chamar aqui.
+   */
+  app.post("/v1/token/rotate", (c) => {
+    atual = randomBytes(24).toString("hex");
+    writeFileSync(tokenPath(home), atual, { encoding: "utf8", mode: 0o600 });
+    // pareamento aberto com o token velho não serve mais pra nada
+    fecharPareamento();
+    return c.json({ ok: true });
+  });
 
   app.get("/v1/profiles", (c) => c.json(listProfiles(home)));
 

@@ -15,6 +15,7 @@ import { createThread, listThreads, readThread } from "./threads.ts";
 import { postMessage, sessionBus, switchThread } from "./session.ts";
 import { loginProfile } from "./login.ts";
 import { pidPath, startDaemon, waitClosed } from "./server.ts";
+import { fecharTudo, pararDeManter } from "./escuta.ts";
 import {
   isTrusted,
   listServices,
@@ -40,19 +41,22 @@ async function cmdUp(): Promise<void> {
     console.log(`nexo already up  http://127.0.0.1:${started.port}`);
     return;
   }
-  if (started.hostPedido) {
-    // alto, porque é uma escolha sua que não valeu: o celular não vai alcançar
-    console.error(
-      `nexo: não consegui escutar em ${started.hostPedido} — endereço não existe nesta máquina. ` +
-        `Subi em ${started.host}; do celular ninguém alcança até o endereço voltar.`,
-    );
+  for (const f of started.falhas) {
+    // túnel fora do ar é normal e ele volta sozinho; dizer o motivo evita que
+    // "o celular não conecta" vire caça ao tesouro
+    console.error(`nexo: não consegui escutar em ${f.host} (${f.motivo})`);
   }
-  const mostrar = started.host === "0.0.0.0" || started.host === "::" ? "127.0.0.1" : started.host;
-  console.log(`nexo up  http://${hostNaUrl(mostrar)}:${started.port}`);
+  for (const h of started.hosts) {
+    const mostrar = h === "0.0.0.0" || h === "::" ? "127.0.0.1" : h;
+    console.log(`nexo up  http://${hostNaUrl(mostrar)}:${started.port}`);
+  }
   // serviço é filho nosso: não sobrevive ao daemon
   const shutdown = () => {
     stopAllServices();
-    started.server.close();
+    // os sockets extras seguram o event loop vivo: fechar só o principal
+    // deixaria o processo pendurado pra sempre
+    pararDeManter();
+    fecharTudo();
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);

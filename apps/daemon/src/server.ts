@@ -1,11 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import type { Server } from "node:http";
 import { join } from "node:path";
-import { serve } from "@hono/node-server";
 import { DEFAULT_CONFIG } from "@nexo/shared";
 import { loadConfig } from "./config.ts";
-import { registrarEscuta } from "./escuta.ts";
+import { fecharTudo, ligadoEm, manterEmDia, religar } from "./escuta.ts";
 import { ensureHome, tokenPath } from "./home.ts";
 import { createApp } from "./http.ts";
 import { reapRunPids } from "./kill-tree.ts";
@@ -21,46 +20,38 @@ export type StartResult =
       port: number;
       token: string;
       server: Server;
-      /** Onde ele REALMENTE escuta. */
-      host: string;
-      /** Só presente quando o endereço pedido não deu e ele caiu pro loopback. */
-      hostPedido?: string;
+      /** Onde ele REALMENTE escuta — loopback primeiro, depois os túneis. */
+      hosts: string[];
+      /** O que tentou e não deu. Túnel fora do ar cai aqui, e não é fatal. */
+      falhas: { host: string; motivo: string }[];
     };
 
 /**
- * Erros que significam "este endereço não existe nesta máquina", e não "não
- * consigo escutar".
+ * Reaproveita o token da subida anterior, se houver um íntegro.
  *
- * O caso que importa é mundano: você aponta o endereço de escuta pro IP do
- * túnel, o túnel cai (ou o IP muda, coisa que DHCP faz sozinho), e na próxima
- * subida o daemon não acha o endereço. Sem tratamento ele morre — e o daemon é
- * o que roda seus agentes. Recusar-se a subir por causa de uma preferência de
- * acesso pelo celular é priorizar errado.
+ * Antes ele era sorteado a cada subida, e o efeito prático era desparear o
+ * celular toda vez que a máquina reiniciava: você escaneava o QR de novo todo
+ * dia. Sessão que morre sozinha não é segurança, é atrito — o arquivo já é
+ * `0600`, e quem consegue lê-lo consegue ler o resto do `~/.nexo` também.
+ *
+ * A troca é explícita: `POST /v1/token/rotate` sorteia um novo e derruba todos
+ * os celulares de uma vez. Revogar virou botão, em vez de acontecer por
+ * acidente.
+ *
+ * A forma é conferida antes de reusar. Arquivo truncado ou editado à mão viraria
+ * um token que ninguém consegue usar e que nada explica.
  */
-const ENDERECO_SUMIU = new Set(["EADDRNOTAVAIL", "EAFNOSUPPORT"]);
-
-const ehLoopback = (h: string) => h === "127.0.0.1" || h === "localhost" || h === "::1";
-
-/** Uma tentativa de escutar. Resolve com o server pronto, ou rejeita com o erro do SO. */
-function escutar(
-  fetchHandler: Parameters<typeof serve>[0]["fetch"],
-  hostname: string,
-  port: number,
-): Promise<{ server: Server; port: number }> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const server = serve({ fetch: fetchHandler, hostname, port }, (info) => {
-      if (settled) return;
-      settled = true;
-      resolve({ server: server as Server, port: Number(info.port) });
-    }) as Server;
-    server.on("error", (err) => {
-      if (settled) return;
-      settled = true;
-      server.close();
-      reject(err);
-    });
-  });
+function tokenDaCasa(home: string): string {
+  const caminho = tokenPath(home);
+  try {
+    const guardado = readFileSync(caminho, "utf8").trim();
+    if (/^[0-9a-f]{48}$/.test(guardado)) return guardado;
+  } catch {
+    /* primeira subida, ou arquivo ilegível */
+  }
+  const novo = randomBytes(24).toString("hex");
+  writeFileSync(caminho, novo, { encoding: "utf8", mode: 0o600 });
+  return novo;
 }
 
 export async function probeHealth(port: number): Promise<boolean> {
@@ -81,12 +72,6 @@ export function waitClosed(server: Server): Promise<void> {
 export async function startDaemon(home: string, opts?: { port?: number }): Promise<StartResult> {
   const cfg = loadConfig(home);
   const port = opts?.port !== undefined ? opts.port : cfg.port;
-  /*
-   * `NEXO_HOST` ganha do config: quem sobe o daemon num terminal com uma
-   * interface específica em mente não deveria ter que editar arquivo. Padrão
-   * segue sendo loopback — publicar na rede é sempre uma escolha explícita.
-   */
-  const hostname = process.env.NEXO_HOST?.trim() || cfg.host;
 
   if (await probeHealth(port)) {
     return { alreadyUp: true, port };
@@ -95,35 +80,55 @@ export async function startDaemon(home: string, opts?: { port?: number }): Promi
   ensureHome(home);
   reapRunPids(home);
 
-  const token = randomBytes(24).toString("hex");
+  /*
+   * `NEXO_HOST` ganha do config: quem sobe o daemon num terminal com uma
+   * interface específica em mente não deveria ter que editar arquivo. Nos dois
+   * casos é um ACRÉSCIMO à detecção automática, não uma substituição — o
+   * loopback entra sempre, e os túneis que a máquina tem entram sozinhos.
+   */
+  const hostManual = () => process.env.NEXO_HOST?.trim() || loadConfig(home).host;
+
+  const token = tokenDaCasa(home);
   const app = createApp(home, token);
 
-  let host = hostname;
-  let hostPedido: string | undefined;
-  let ligado: { server: Server; port: number };
-  try {
-    ligado = await escutar(app.fetch, host, port);
-  } catch (err) {
-    const e = err as NodeJS.ErrnoException;
-    if (e.code === "EADDRINUSE") return { alreadyUp: true, port };
-    if (!ehLoopback(host) && e.code && ENDERECO_SUMIU.has(e.code)) {
-      /*
-       * Cai pro loopback, e só pra ele: é a direção RESTRITIVA. Nunca expõe
-       * mais do que você pediu — no pior caso o celular não alcança e a tela
-       * diz por quê, em vez de o Nexo não abrir.
-       */
-      hostPedido = host;
-      host = DEFAULT_CONFIG.host;
-      ligado = await escutar(app.fetch, host, port);
-    } else {
-      throw err;
-    }
+  const estado = await religar(app.fetch, port, hostManual());
+
+  /*
+   * **O LOOPBACK É QUEM DECIDE se este processo é o daemon.**
+   *
+   * Não basta ter escutado em ALGUM endereço: com a porta já ocupada no
+   * loopback por outro daemon, o endereço do túnel ainda estaria livre, e nós
+   * subiríamos nele. O resultado seria dois daemons na mesma porta — o app do
+   * desktop falando com um pelo loopback, o celular falando com o outro pelo
+   * túnel, cada um com sua conversa e seu run. Cérebro partido.
+   *
+   * Então: loopback ocupado é `alreadyUp`, e o que já abrimos tem que fechar.
+   * (Foi um endereço de túnel de verdade na máquina de teste que revelou isto;
+   * sem ele o caso nunca aparece.)
+   */
+  const loopback = estado.hosts.includes(DEFAULT_CONFIG.host);
+  if (!loopback) {
+    fecharTudo();
+    const falha = estado.falhas.find((f) => f.host === DEFAULT_CONFIG.host);
+    if (falha?.motivo === "EADDRINUSE") return { alreadyUp: true, port };
+    const motivo = estado.falhas.map((f) => `${f.host}: ${f.motivo}`).join(", ") || "motivo desconhecido";
+    throw new Error(`não consegui escutar em ${DEFAULT_CONFIG.host}:${port} (${motivo})`);
   }
 
-  // token e pid só depois de escutar de verdade: escrever antes deixaria um
-  // token no disco que servidor nenhum aceita
-  writeFileSync(tokenPath(home), token, { encoding: "utf8", mode: 0o600 });
   writeFileSync(pidPath(home), String(process.pid), "utf8");
-  registrarEscuta({ host, hostPedido });
-  return { alreadyUp: false, port: ligado.port, token, server: ligado.server, host, hostPedido };
+  // e daqui pra frente ele se mantém em dia sozinho: túnel que sobe depois
+  // entra sem ninguém reiniciar nada
+  manterEmDia(app.fetch, estado.port, hostManual);
+
+  const principal = ligadoEm(estado.hosts[0] ?? "");
+  if (!principal) throw new Error("escuta sem servidor: isto é bug");
+  // `estado.port`, não `port`: com `--port 0` quem escolheu foi o SO
+  return {
+    alreadyUp: false,
+    port: estado.port,
+    token,
+    server: principal,
+    hosts: estado.hosts,
+    falhas: estado.falhas,
+  };
 }

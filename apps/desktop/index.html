@@ -668,14 +668,14 @@
                 <div class="set-txt">
                   <h4>Conectar um celular</h4>
                   <p>
-                    Aponte a câmera do celular para o código. Ele abre a página e conecta sozinho —
-                    dali, <b>Adicionar à tela de início</b> deixa o Nexo como um app. Sem câmera,
+                    Aponte a câmera do celular para o código: ele abre a página e conecta sozinho.
+                    Dali, <b>Adicionar à tela de início</b> deixa o Nexo como um app. Sem câmera,
                     abra <b id="cel-url">http://…/app/</b> e digite o código.
-                    Vale 2 minutos e serve uma vez.
+                    Ele vale 2 minutos e serve uma vez; depois disso o celular fica conectado.
                   </p>
                 </div>
                 <div class="set-ctl">
-                  <button type="button" class="ghost" id="btn-cel-codigo">Gerar código</button>
+                  <button type="button" class="primary" id="btn-cel-codigo">Gerar código</button>
                 </div>
               </div>
               <div class="cel-qr hidden" id="cel-qr">
@@ -685,21 +685,26 @@
                   <span class="cel-qr-sub">para digitar à mão</span>
                 </div>
               </div>
+              <p class="set-aviso" id="cel-aviso"></p>
               <div class="set-row">
                 <div class="set-txt">
-                  <h4>Onde o Nexo escuta</h4>
-                  <p>
-                    O padrão <code>127.0.0.1</code> só aceita esta máquina — nem o celular no mesmo
-                    Wi-Fi alcança. Para conectar pelo celular, aponte para o IP do seu túnel
-                    (Tailscale, WireGuard): aí só quem está no túnel alcança. <b>Vale a partir da
-                    próxima subida do motor.</b>
-                  </p>
+                  <h4>Onde o celular alcança o Nexo</h4>
+                  <p id="cel-alcance">…</p>
                 </div>
                 <div class="set-ctl">
-                  <input type="text" id="cel-host" spellcheck="false" maxlength="45" aria-label="Endereço de escuta" />
+                  <button type="button" class="ghost" id="btn-cel-revogar">Desconectar celulares</button>
                 </div>
               </div>
-              <p class="set-aviso" id="cel-aviso"></p>
+              <details class="set-det" id="cel-avancado">
+                <summary>Endereço de escuta (avançado)</summary>
+                <p>
+                  O Nexo já escuta sozinho no loopback e em qualquer túnel que a máquina tenha
+                  (Tailscale, WireGuard) — inclusive em túnel que subir depois, sem reiniciar nada.
+                  Só preencha aqui se precisar de um endereço específico. <code>0.0.0.0</code>
+                  publica na rede inteira, e aí o token é a única barreira.
+                </p>
+                <input type="text" id="cel-host" spellcheck="false" maxlength="45" placeholder="automático" aria-label="Endereço de escuta" />
+              </details>
             </section>
             <section class="set-sec hidden" data-panel="fallback">
               <h3>Fallback</h3>

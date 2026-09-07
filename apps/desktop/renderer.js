@@ -21,7 +21,7 @@ import {
 } from "./format.js";
 import { portaDaUrl, safeUrl, urlDoCelular } from "./url.js";
 import { qrSvg } from "./qr.js";
-import { celAviso } from "./celular.js";
+import { celAlcance, celAviso } from "./celular.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -3108,24 +3108,21 @@ $("btn-widget").addEventListener("click", () => void window.nexo.toggleWidget())
 /**
  * Pareamento visto do desktop: pede o código, desenha o QR, e some em 2 minutos.
  *
- * **O QR carrega o endereço e o CÓDIGO — nunca o token.** É o mesmo desenho de
- * antes: quem fotografa a tela leva um código de 6 caracteres que vale 2
- * minutos, serve uma vez e queima em 5 erros, e não uma credencial
- * permanente. O QR só
- * poupa a pessoa de digitar `http://100.101.102.103:7432/app/` num teclado de
- * telefone, que é onde ela erraria.
+ * **O QR carrega o endereço e o CÓDIGO — nunca o token.** Quem fotografa a tela
+ * leva um código de 6 caracteres que vale 2 minutos, serve uma vez e queima em
+ * 5 erros, e não uma credencial permanente. O QR só poupa a pessoa de digitar
+ * `http://100.101.102.103:7432/app/` num teclado de telefone.
  *
- * O código continua visível ao lado: celular sem câmera, câmera negada, leitor
- * que não abre link — tudo isso ainda tem saída.
+ * O código continua visível ao lado: celular sem câmera, câmera negada e leitor
+ * que não abre link são reais.
  *
  * Ele expira na tela junto com o daemon, e não só no daemon: QR velho à mostra
  * convida a escanear o que já não serve, e o erro apareceria no telefone, longe
  * de quem poderia entender.
  */
 let celTimer = 0;
-/** Guardados porque o QR depende dos dois: o endereço de escuta e o código vivo. */
-let celCfg = null;
 let celPar = null;
+/** O que `GET /v1/escuta` devolveu: onde o daemon está de fato escutando. */
 let celEscuta = null;
 
 function celMostrar(par) {
@@ -3137,7 +3134,13 @@ function celMostrar(par) {
     $("btn-cel-codigo").textContent = "Gerar código";
     return;
   }
-  const url = urlDoCelular(celEscuta?.host || celCfg?.host, celCfg?.port, par.codigo);
+  /*
+   * O endereço do QR é o que o daemon está ESCUTANDO, e o melhor deles: com
+   * túnel de pé, é o do túnel, porque é o único por onde o celular chega. QR
+   * com o endereço errado manda o telefone pra um lugar onde não há ninguém, e
+   * ele falha calado.
+   */
+  const url = urlDoCelular(celEscuta?.melhor, celEscuta?.port, par.codigo);
   $("cel-qr").classList.remove("hidden");
   // innerHTML com SVG que este módulo acabou de gerar a partir de um endereço e
   // 6 caracteres — nada aqui vem de fora, e SVG inline não carrega nem executa nada
@@ -3154,6 +3157,9 @@ function celMostrar(par) {
 
 async function celPedirCodigo() {
   try {
+    // relê a escuta antes: o túnel pode ter subido desde a última pintura, e
+    // gerar um QR com o endereço velho seria o pior momento pra errar
+    await celPintar();
     celMostrar(await req("/v1/pair", { method: "POST" }));
   } catch (e) {
     $("cel-aviso").textContent = e.message || "Não deu pra gerar o código.";
@@ -3161,36 +3167,57 @@ async function celPedirCodigo() {
 }
 
 /**
- * A URL que a pessoa abre no celular — o host de escuta é que decide se alcança.
+ * Pinta o painel a partir do que o daemon está escutando AGORA.
  *
- * O `cfg` fica guardado porque o QR depende dele: trocar o endereço de escuta
- * com um código vivo tem que redesenhar o QR, senão ele aponta pro host antigo
- * e a pessoa escaneia um endereço que não existe mais.
+ * Não existe mais "vale a partir da próxima subida": o daemon descobre os
+ * endereços sozinho e os mantém em dia enquanto roda, então isto é um relatório
+ * e não um formulário.
  */
-async function celPintarUrl(cfg) {
-  celCfg = cfg ?? celCfg;
-  const pedido = celCfg?.host || "127.0.0.1";
-  const porta = celCfg?.port || 7432;
-  /*
-   * O endereço do QR é o que o daemon está ESCUTANDO, não o que está no config:
-   * o config só vale na próxima subida, e se o endereço pedido não existir mais
-   * (túnel fora do ar, IP de DHCP que mudou) o daemon caiu pro loopback. QR
-   * apontando pro endereço que você queria manda o celular pra um lugar onde
-   * não há ninguém, e ele falha calado.
-   */
+async function celPintar() {
   celEscuta = await req("/v1/escuta").catch(() => null);
-  const host = celEscuta?.host || pedido;
+  const host = celEscuta?.melhor || "127.0.0.1";
+  const porta = celEscuta?.port || 7432;
   $("cel-url").textContent = urlDoCelular(host, porta);
+  $("cel-alcance").textContent = celAlcance(celEscuta);
+  $("cel-aviso").textContent = celAviso(celEscuta);
   if (celPar) celMostrar(celPar);
-  if ($("cel-host") !== document.activeElement) $("cel-host").value = pedido;
-  $("cel-aviso").textContent = celAviso(host, pedido, celEscuta?.hostPedido);
+}
+
+/** O campo avançado: só o que foi escrito à mão, que é acréscimo e não escolha única. */
+function celPintarUrl(cfg) {
+  const manual = cfg?.host && cfg.host !== "127.0.0.1" ? cfg.host : "";
+  if ($("cel-host") !== document.activeElement) $("cel-host").value = manual;
+  if (manual) $("cel-avancado").open = true;
+  return celPintar();
 }
 
 $("btn-cel-codigo").addEventListener("click", () => void celPedirCodigo());
 
+/**
+ * Desconecta todos os celulares de uma vez.
+ *
+ * O token passou a sobreviver às subidas do daemon, então a revogação deixou de
+ * acontecer por acidente a cada reinício — e sem isto, celular perdido não teria
+ * solução. Confirma antes porque também derruba este app por um instante: ele
+ * relê o token do disco em seguida.
+ */
+$("btn-cel-revogar").addEventListener("click", async () => {
+  if (!confirm("Desconectar todos os celulares? Eles vão pedir um código novo.")) return;
+  try {
+    await req("/v1/token/rotate", { method: "POST" });
+  } catch {
+    /* a própria rotação derruba a resposta às vezes; o que vale é reler abaixo */
+  }
+  await renovarCredenciais();
+  celMostrar(null);
+  await celPintar();
+  $("cel-aviso").textContent = "Pronto: os celulares foram desconectados.";
+});
+
 $("cel-host").addEventListener("change", async () => {
   try {
-    await celPintarUrl(await req("/v1/config", { method: "PUT", body: JSON.stringify({ host: $("cel-host").value.trim() }) }));
+    const valor = $("cel-host").value.trim();
+    await celPintarUrl(await req("/v1/config", { method: "PUT", body: JSON.stringify({ host: valor || "127.0.0.1" }) }));
   } catch (e) {
     $("cel-aviso").textContent = e.message || "Endereço inválido.";
   }
