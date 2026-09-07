@@ -1,0 +1,203 @@
+/*
+ * Interface de celular. Duas regras que mandam em tudo aqui:
+ *
+ * 1. Área segura: iPhone com notch e barra de gestos corta o conteúdo se a
+ *    página ignorar `env(safe-area-inset-*)`.
+ * 2. Alvo de toque de 44px. Botão de 28px funciona no mouse e não no dedo.
+ */
+
+:root {
+  --bg: #16161a;
+  --cartao: #1d1d22;
+  --line: #2b2b31;
+  --text: #e8e8ea;
+  --muted: #8b8b95;
+  --accent: #4d9cd6;
+  --ok: #4bb96f;
+  --warn: #d8a13a;
+  --bad: #d65c5c;
+  --toque: 44px;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* o texto não deve inflar quando o telefone gira */
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior-y: contain;
+}
+
+.hidden { display: none !important; }
+
+/* ---------- pareamento ---------- */
+
+.tela {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+  min-height: 100%;
+  padding: 24px max(20px, env(safe-area-inset-left)) max(24px, env(safe-area-inset-bottom));
+}
+
+.tela h1 { margin: 0; font-size: 30px; letter-spacing: -0.02em; }
+.sub { margin: 0; color: var(--muted); font-size: 13px; }
+.erro { margin: 0; color: var(--bad); font-size: 13px; }
+
+#form-par { display: flex; flex-direction: column; gap: 12px; }
+
+#codigo {
+  height: 60px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--cartao);
+  color: var(--text);
+  font: 600 30px/1 ui-monospace, SFMono-Regular, monospace;
+  letter-spacing: 0.28em;
+  text-align: center;
+  /* o recuo compensa o letter-spacing, que sobra à direita do último dígito */
+  text-indent: 0.28em;
+}
+
+#codigo:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+button {
+  min-height: var(--toque);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--cartao);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.primary { border-color: transparent; background: var(--accent); color: #08121a; font-weight: 600; }
+.ghost { border-color: transparent; background: none; color: var(--muted); }
+
+/* ---------- app ---------- */
+
+.app { display: flex; flex-direction: column; height: 100%; }
+
+.topo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: max(10px, env(safe-area-inset-top)) 14px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.topo .ghost { min-width: var(--toque); font-size: 26px; line-height: 1; padding: 0; }
+.titulo { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+
+.pill {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #26262c;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pill[data-on="1"] { background: color-mix(in srgb, var(--ok) 22%, #26262c); color: var(--text); }
+
+#corpo { flex: 1; min-height: 0; overflow: hidden; display: flex; }
+.aba { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ---------- agora ---------- */
+
+#aba-agora { padding: 12px; gap: 12px; overflow-y: auto; }
+
+.cartao { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--cartao); }
+.obj { margin: 0 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.linha { display: flex; align-items: center; gap: 8px; }
+.quem { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.num { flex: 0 0 auto; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
+
+.dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.dot[data-on="1"] { background: var(--ok); animation: pulsa 1.4s ease-in-out infinite; }
+.dot[data-erro="1"] { background: var(--bad); animation: none; }
+
+@keyframes pulsa { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .dot[data-on="1"] { animation: none; } }
+
+.barra { height: 4px; margin-top: 8px; border-radius: 2px; background: #26262c; overflow: hidden; }
+.barra > i { display: block; height: 100%; width: 0; border-radius: 2px; background: var(--accent); transition: width 0.25s; }
+
+.aneis { display: flex; flex-wrap: wrap; gap: 14px; }
+.anel { display: flex; align-items: center; gap: 8px; }
+.arco { width: 30px; height: 30px; border-radius: 50%; position: relative;
+  background: conic-gradient(var(--cor) calc(var(--pct) * 1%), #26262c 0); }
+.arco::after { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: var(--cartao); }
+.anel-txt { display: flex; flex-direction: column; line-height: 1.2; }
+.anel-pct { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.vazio { margin: 0; padding: 12px; color: var(--muted); }
+
+/* ---------- listas ---------- */
+
+.lista { margin: 0; padding: 0; list-style: none; overflow-y: auto; }
+
+.lista li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* o alvo inteiro é clicável, não só o texto */
+  min-height: var(--toque);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.lista li:active { background: var(--cartao); }
+.lista .nome { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lista .quando { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
+
+/* ---------- chat ---------- */
+
+.msgs { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+
+.msg { max-width: 92%; padding: 9px 12px; border-radius: 12px; overflow-wrap: anywhere; }
+.msg[data-de="user"] { align-self: flex-end; background: color-mix(in srgb, var(--accent) 22%, var(--cartao)); }
+.msg[data-de="assistant"] { align-self: flex-start; background: var(--cartao); }
+.msg[data-de="sys"] { align-self: center; background: none; color: var(--muted); font-size: 12px; }
+.msg[data-de="erro"] { align-self: center; background: color-mix(in srgb, var(--bad) 20%, var(--cartao)); font-size: 13px; }
+
+.msg p:first-child { margin-top: 0; }
+.msg p:last-child { margin-bottom: 0; }
+.msg pre { overflow-x: auto; padding: 8px; border-radius: 8px; background: #101014; font-size: 13px; }
+.msg code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 13px; }
+
+.compositor {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px max(10px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+}
+
+#txt {
+  flex: 1;
+  min-height: var(--toque);
+  max-height: 40vh;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--cartao);
+  color: var(--text);
+  /* 16px é o mínimo que o Safari aceita sem dar zoom no foco */
+  font: 16px/1.4 inherit;
+  resize: none;
+}
+
+#btn-enviar { flex: 0 0 var(--toque); width: var(--toque); font-size: 20px; }
+
+/* ---------- abas ---------- */
+
+.tabs { display: flex; border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+.tabs button { flex: 1; border: 0; border-radius: 0; background: none; color: var(--muted); }
+.tabs button.on { color: var(--text); box-shadow: inset 0 2px 0 var(--accent); }

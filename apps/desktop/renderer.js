@@ -1638,6 +1638,7 @@ async function refreshDaemon() {
   try {
     const cfg = await req("/v1/config");
     if (cfg.accent) applyAccent(cfg.accent);
+    celPintarUrl(cfg);
     // /v1/projects já vem com as pastas do config + as que as conversas revelam
     let fonte = cfg;
     try {
@@ -3099,6 +3100,68 @@ document.addEventListener("click", (e) => {
 
 $("btn-focus").addEventListener("click", () => setFocus(document.body.dataset.focus !== "1"));
 $("btn-widget").addEventListener("click", () => void window.nexo.toggleWidget());
+
+/* ---------- celular ---------- */
+
+/**
+ * Pareamento visto do desktop: pede o código e mostra por 2 minutos.
+ *
+ * O código aparece na tela e o TOKEN não — é o ponto do desenho. Ele também
+ * expira sozinho na tela, e não só no daemon: código velho visível convida a
+ * digitar um que já não serve.
+ */
+let celTimer = 0;
+
+function celMostrar(par) {
+  const alvo = $("cel-codigo");
+  if (celTimer) clearInterval(celTimer);
+  if (!par) {
+    alvo.classList.add("hidden");
+    $("btn-cel-codigo").textContent = "Gerar código";
+    return;
+  }
+  alvo.classList.remove("hidden");
+  const tique = () => {
+    const resta = Math.max(0, Math.round((par.expiraEm - Date.now()) / 1000));
+    if (!resta) return celMostrar(null);
+    alvo.textContent = par.codigo;
+    $("btn-cel-codigo").textContent = `expira em ${resta}s`;
+  };
+  tique();
+  celTimer = setInterval(tique, 1000);
+}
+
+async function celPedirCodigo() {
+  try {
+    celMostrar(await req("/v1/pair", { method: "POST" }));
+  } catch (e) {
+    $("cel-aviso").textContent = e.message || "Não deu pra gerar o código.";
+  }
+}
+
+/** A URL que a pessoa digita no celular — o host de escuta é que decide se alcança. */
+function celPintarUrl(cfg) {
+  const host = cfg?.host || "127.0.0.1";
+  const porta = cfg?.port || 7432;
+  $("cel-url").textContent = `http://${host}:${porta}/app/`;
+  if ($("cel-host") !== document.activeElement) $("cel-host").value = host;
+  $("cel-aviso").textContent =
+    host === "127.0.0.1" || host === "localhost"
+      ? "Assim só esta máquina alcança. Ponha o IP do túnel pra conectar do celular."
+      : host === "0.0.0.0"
+        ? "Atenção: 0.0.0.0 publica na rede inteira, e o token é a única barreira."
+        : "";
+}
+
+$("btn-cel-codigo").addEventListener("click", () => void celPedirCodigo());
+
+$("cel-host").addEventListener("change", async () => {
+  try {
+    celPintarUrl(await req("/v1/config", { method: "PUT", body: JSON.stringify({ host: $("cel-host").value.trim() }) }));
+  } catch (e) {
+    $("cel-aviso").textContent = e.message || "Endereço inválido.";
+  }
+});
 $("btn-focus-exit").addEventListener("click", () => setFocus(false));
 $("btn-file-preview").addEventListener("click", () => setFilePreview($("file-split").dataset.preview === "0"));
 $("btn-browser-retry").addEventListener("click", reiniciarBrowser);

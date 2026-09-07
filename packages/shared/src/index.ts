@@ -147,6 +147,19 @@ export type ProbeResult = { ok: boolean; status?: number; error?: string };
 
 export type NexoConfig = {
   port: number;
+  /**
+   * Em que interface o daemon escuta. `127.0.0.1` é o padrão e a escolha certa
+   * pra quase todo mundo: nada de fora da máquina alcança.
+   *
+   * Existe porque acessar do celular exige que o daemon esteja alcançável, e o
+   * loopback nunca está — nem por túnel, porque a interface do Tailscale ou do
+   * WireGuard tem IP próprio (`100.x.y.z`), não `127.0.0.1`. Aponte pro IP DO
+   * TÚNEL: aí quem alcança é só quem está no seu tailnet.
+   *
+   * `0.0.0.0` publica na rede inteira. O token é a única barreira e não há TLS
+   * — em Wi-Fi compartilhado isso é entregar um shell com um modelo na frente.
+   */
+  host: string;
   fallbackOrder: string[];
   /** Como tratar a troca de conta quando a quota acaba. */
   switchMode: SwitchMode;
@@ -176,6 +189,7 @@ export type NexoConfig = {
 
 export const DEFAULT_CONFIG: NexoConfig = {
   port: 7432,
+  host: "127.0.0.1",
   fallbackOrder: [],
   switchMode: "manual",
   pack: { keepLastMessages: 20, prefixCharBudget: 2000 },
@@ -392,6 +406,22 @@ export const TEAM_DESC_MAX = 200;
 export const TEAM_PAPEL_MAX = 200;
 export const TEAM_MEMBERS_MAX = 8;
 export const TEAMS_MAX = 50;
+
+/**
+ * Pareamento do celular: o desktop mostra um código curto, o celular digita, e
+ * o daemon troca o código pelo token.
+ *
+ * É código curto e não o token porque ninguém digita 48 caracteres hex no
+ * celular — e é código, e não QR com o token dentro, porque assim o token nunca
+ * aparece numa tela pra ser fotografado.
+ *
+ * Seis dígitos com estas travas: vale 2 minutos, serve UMA vez, e 5 tentativas
+ * erradas queimam o código. Isso dá 5 chances em 10^6 pra quem já consegue
+ * alcançar a porta — e alcançar a porta já exige estar no túnel ou na LAN.
+ */
+export const PAIR_CODE_DIGITS = 6;
+export const PAIR_TTL_MS = 2 * 60 * 1000;
+export const PAIR_MAX_ERROS = 5;
 
 /**
  * Até quando o daemon espera um turno de motor fechar. Passado isso, motor que

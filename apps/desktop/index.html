@@ -556,6 +556,9 @@
           <button type="button" class="set-nav-item" data-panel="contas">
             <span class="set-nav-ico" aria-hidden="true">☰</span>Contas
           </button>
+          <button type="button" class="set-nav-item" data-panel="celular">
+            <span class="set-nav-ico" aria-hidden="true">▢</span>Celular
+          </button>
           <button type="button" class="set-nav-item" data-panel="fallback">
             <span class="set-nav-ico" aria-hidden="true">⇅</span>Fallback
           </button>
@@ -658,6 +661,37 @@
                   <button type="button" id="btn-allow-save" class="primary">Salvar</button>
                 </div>
               </div>
+            </section>
+            <section class="set-sec hidden" data-panel="celular">
+              <h3>Celular</h3>
+              <div class="set-row">
+                <div class="set-txt">
+                  <h4>Conectar um celular</h4>
+                  <p>
+                    Abra <b id="cel-url">http://…/app/</b> no navegador do celular e digite o código.
+                    Ele vale 2 minutos e serve uma vez.
+                  </p>
+                </div>
+                <div class="set-ctl">
+                  <span class="cel-codigo hidden" id="cel-codigo"></span>
+                  <button type="button" class="ghost" id="btn-cel-codigo">Gerar código</button>
+                </div>
+              </div>
+              <div class="set-row">
+                <div class="set-txt">
+                  <h4>Onde o Nexo escuta</h4>
+                  <p>
+                    O padrão <code>127.0.0.1</code> só aceita esta máquina — nem o celular no mesmo
+                    Wi-Fi alcança. Para conectar pelo celular, aponte para o IP do seu túnel
+                    (Tailscale, WireGuard): aí só quem está no túnel alcança. <b>Vale a partir da
+                    próxima subida do motor.</b>
+                  </p>
+                </div>
+                <div class="set-ctl">
+                  <input type="text" id="cel-host" spellcheck="false" maxlength="45" aria-label="Endereço de escuta" />
+                </div>
+              </div>
+              <p class="set-aviso" id="cel-aviso"></p>
             </section>
             <section class="set-sec hidden" data-panel="fallback">
               <h3>Fallback</h3>

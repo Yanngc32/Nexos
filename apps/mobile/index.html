@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#16161a" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src *; manifest-src 'self'"
+    />
+    <title>Nexo</title>
+    <link rel="manifest" href="./nexo.webmanifest" />
+    <link rel="stylesheet" href="./mobile.css" />
+  </head>
+  <body>
+    <!-- Pareamento: a primeira e única tela até haver token. -->
+    <section class="tela" id="tela-par">
+      <h1>Nexo</h1>
+      <p class="sub">
+        No computador, abra <b>Configurações → Celular</b> e peça um código. Ele vale 2 minutos.
+      </p>
+      <form id="form-par">
+        <input
+          id="codigo"
+          type="text"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          maxlength="6"
+          placeholder="000000"
+          aria-label="Código de pareamento"
+        />
+        <button type="submit" class="primary">Conectar</button>
+      </form>
+      <p class="erro hidden" id="par-erro"></p>
+    </section>
+
+    <!-- App: só aparece com token. -->
+    <div class="app hidden" id="app">
+      <header class="topo">
+        <button type="button" class="ghost" id="btn-voltar" hidden aria-label="Voltar">‹</button>
+        <span class="titulo" id="titulo">Nexo</span>
+        <span class="pill" id="motor">…</span>
+      </header>
+
+      <main id="corpo">
+        <!-- Painel: o que está acontecendo agora -->
+        <section class="aba" id="aba-agora">
+          <div class="cartao hidden" id="run">
+            <p class="obj" id="run-obj"></p>
+            <div class="linha">
+              <span class="dot" id="run-dot"></span>
+              <span class="quem" id="run-quem"></span>
+              <span class="num" id="run-passos"></span>
+              <span class="num" id="run-ms"></span>
+            </div>
+            <div class="barra"><i id="run-fill"></i></div>
+            <p class="sub" id="run-custo"></p>
+          </div>
+          <div class="cartao hidden" id="contas"><div class="aneis" id="aneis"></div></div>
+          <p class="vazio hidden" id="agora-vazio">Nada rodando.</p>
+        </section>
+
+        <!-- Conversas do projeto -->
+        <section class="aba hidden" id="aba-conversas">
+          <ul class="lista" id="lista-threads"></ul>
+          <p class="vazio hidden" id="threads-vazio">Nenhuma conversa neste projeto.</p>
+        </section>
+
+        <!-- Uma conversa -->
+        <section class="aba hidden" id="aba-chat">
+          <div class="msgs" id="msgs"></div>
+          <form class="compositor" id="form-msg">
+            <textarea id="txt" rows="1" placeholder="Pergunta, pede mudança…" aria-label="Mensagem"></textarea>
+            <button type="submit" class="primary" id="btn-enviar">↑</button>
+          </form>
+        </section>
+      </main>
+
+      <nav class="tabs" id="tabs">
+        <button type="button" data-aba="agora" class="on">Agora</button>
+        <button type="button" data-aba="conversas">Conversas</button>
+      </nav>
+    </div>
+
+    <script type="module" src="./mobile.js"></script>
+  </body>
+</html>

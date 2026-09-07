@@ -54,6 +54,7 @@ nexo switch <perfil> --thread <id>
 ```
 apps/daemon      servidor HTTP (Hono) + CLI + motores
 apps/desktop     app Electron (main/preload/renderer + módulos do renderer)
+apps/mobile      interface de celular (PWA), servida pelo próprio daemon
 packages/shared  tipos e constantes compartilhados
 docs/            specs e plano de implementação
 ```
@@ -113,6 +114,28 @@ git branch -D nexo/<run>/1-<ag>     # descartar
 
 Projeto que não é repositório git roda igual, mas sem isolamento: os membros paralelos dividem a
 mesma pasta e vão se atropelar se escreverem arquivo. O run registra isso, e a tela avisa.
+
+## Do celular
+
+O daemon serve uma interface de celular em `/app/` — sem instalar nada, sem build.
+Ela mostra o que está rodando e deixa conversar; árvore de arquivos e terminal ficam
+de fora (hoje só existem no processo do Electron, e telefone não é onde se lê diff).
+
+Duas coisas precisam estar no lugar:
+
+1. **O daemon tem que estar alcançável.** O padrão `127.0.0.1` só aceita a própria
+   máquina — nem o celular no mesmo Wi-Fi chega. Em **Configurações → Celular**,
+   aponte o endereço de escuta pro IP do seu túnel (Tailscale, WireGuard): aí quem
+   alcança é só quem está no túnel. Vale a partir da próxima subida do motor.
+   `0.0.0.0` publica na rede inteira, e aí o token é a única barreira — não faça
+   isso em Wi-Fi compartilhado.
+2. **Pareamento.** No desktop, peça um código; no celular, abra
+   `http://<host>:<porta>/app/` e digite. O código vale 2 minutos, serve uma vez, e
+   5 erros o queimam. É código curto e não QR porque assim **o token nunca aparece
+   numa tela** — QR é foto, e foto vaza.
+
+O celular guarda o token no navegador. O daemon sorteia um token novo a cada subida,
+então despareaer é normal: a tela do código volta e você pareia de novo.
 
 ## Painel flutuante
 

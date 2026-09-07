@@ -44,6 +44,8 @@ import {
   runsBus,
 } from "./runs.ts";
 import { erroDeParse, tratarMcp, type JsonRpc } from "./mcp.ts";
+import { abrirPareamento, fecharPareamento, pareamentoAberto, resgatar } from "./pair.ts";
+import { servirWeb } from "./web.ts";
 import {
   autostartServices,
   listServices,
@@ -58,6 +60,20 @@ import {
 } from "./services.ts";
 import { streamSSE } from "hono/streaming";
 
+/** Devolve o arquivo da interface web, ou 404 — nunca um caminho de fora dela. */
+function responderWeb(c: { req: { path: string }; body: BodyResponder }, caminho: string): Response {
+  const achado = servirWeb(caminho);
+  if (!achado) return c.body("not found", 404);
+  return c.body(achado.corpo, 200, {
+    "Content-Type": achado.tipo,
+    // sem cache: o app muda com o daemon, e celular com versão velha em cache
+    // é o pior jeito de descobrir que algo mudou
+    "Cache-Control": "no-store",
+  });
+}
+
+type BodyResponder = (corpo: Buffer | string, status: number, headers?: Record<string, string>) => Response;
+
 export function createApp(home: string, token: string): Hono {
   const app = new Hono();
   app.use(
@@ -71,6 +87,48 @@ export function createApp(home: string, token: string): Hono {
 
   app.get("/health", (c) => c.json({ ok: true }));
   app.get("/v1/health", (c) => c.json({ ok: true }));
+
+  /*
+   * Pareamento do celular. Duas rotas de propósitos opostos:
+   *
+   * `POST /v1/pair` é do DESKTOP, autenticada — quem já tem o token pede um
+   * código pra mostrar na tela.
+   *
+   * `POST /pair` é do CELULAR e NÃO é autenticada, porque o ponto dela é
+   * justamente entregar o token a quem ainda não tem. É a única escrita sem
+   * auth do daemon; o que a torna defensável está no `pair.ts` (2 minutos, uso
+   * único, 5 erros queimam o código) — e vale reler aquilo antes de mexer aqui.
+   */
+  app.post("/v1/pair", (c) => c.json(abrirPareamento()));
+
+  app.get("/v1/pair", (c) => c.json(pareamentoAberto() ?? null));
+
+  app.delete("/v1/pair", (c) => {
+    fecharPareamento();
+    return c.json({ ok: true });
+  });
+
+  app.post("/pair", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { codigo?: unknown };
+    const r = resgatar(body.codigo);
+    // 403 e não 401: não há credencial a corrigir, o código é que não serve
+    if (!r.ok) return c.json({ error: r.motivo }, 403);
+    return c.json({ token, port: loadConfig(home).port });
+  });
+
+  /*
+   * A interface web, servida sem autenticação: a página tem que carregar ANTES
+   * de existir token, porque é nela que se digita o código de pareamento. Sem
+   * token ela não faz nada — todo `/v1/*` abaixo continua exigindo o bearer.
+   */
+  /*
+   * `/app` redireciona pra `/app/`, e a barra não é estética: sem ela o
+   * documento tem base `/`, e o `./mobile.js` do HTML é pedido como
+   * `/mobile.js` — 404, módulo nenhum carrega, e a tela fica muda sem dar erro.
+   * Custou um teste no navegador pra descobrir.
+   */
+  app.get("/app", (c) => c.redirect("/app/", 302));
+  app.get("/app/*", (c) => responderWeb(c, c.req.path));
 
   app.use("/v1/*", async (c, next) => {
     if (c.req.path.endsWith("/health")) return next();

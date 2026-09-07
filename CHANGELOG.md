@@ -36,6 +36,26 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
   `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
   forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
+- Interface de celular (`apps/mobile`), servida pelo próprio daemon em `/app/`: PWA, sem instalar
+  nada e sem build, igual ao resto do projeto. Mostra o run em andamento, a quota das contas, a
+  lista de conversas do projeto aberto, e deixa conversar com stream de verdade. Árvore de arquivos
+  e terminal ficam de fora: hoje não existem como HTTP (vivem no processo principal do Electron), e
+  telefone não é onde se lê diff.
+  **Pareamento por código curto**, não por QR: o desktop mostra 6 dígitos, o celular digita, e o
+  daemon troca o código pelo token. Assim o TOKEN nunca aparece numa tela — QR é foto, e foto vaza.
+  `POST /pair` é a única rota de escrita sem autenticação do daemon, e o que a torna defensável são
+  as travas: vale 2 minutos, serve uma vez, 5 erros queimam o código, comparação em tempo constante,
+  e pedir um novo invalida o anterior. Dá 5 chances em 10^6 pra quem já alcança a porta.
+  **Endereço de escuta configurável** (`config.host`, `NEXO_HOST`), com `127.0.0.1` de padrão. Sem
+  isso o celular não alcança nem por túnel: a interface do Tailscale tem IP próprio, não é loopback.
+  A tela avisa quando o endereço só aceita a própria máquina, e avisa mais forte no `0.0.0.0`.
+  O que a interface reaproveita do desktop vem de `/app/comum/`, com **lista branca** de módulos
+  (`markdown.js`, `format.js`, `sse.js`, `widget-view.js`, `agent-trace.js`…). Sem cópia, porque
+  arquivo copiado diverge; e lista branca porque servir uma pasta por prefixo é como se serve o
+  disco por acidente.
+  `/app` redireciona pra `/app/`, e a barra não é estética: sem ela o documento tem base `/`, os
+  `./modulo.js` do HTML são pedidos na raiz, e a tela abre muda sem dar erro nenhum. Só apareceu
+  carregando a página num navegador de verdade.
 - O servidor MCP do supervisor declara `timeout` por servidor, maior que a paciência do próprio
   daemon. O padrão do CLI é 5 minutos por chamada de ferramenta, e é limite de PAREDE — a
   documentação interna dele diz que notificação de progresso não estica. Um membro fazendo trabalho

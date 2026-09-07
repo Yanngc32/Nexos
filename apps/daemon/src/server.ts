@@ -34,6 +34,12 @@ export function waitClosed(server: Server): Promise<void> {
 export async function startDaemon(home: string, opts?: { port?: number }): Promise<StartResult> {
   const cfg = loadConfig(home);
   const port = opts?.port !== undefined ? opts.port : cfg.port;
+  /*
+   * `NEXO_HOST` ganha do config: quem sobe o daemon num terminal com uma
+   * interface específica em mente não deveria ter que editar arquivo. Padrão
+   * segue sendo loopback — publicar na rede é sempre uma escolha explícita.
+   */
+  const hostname = process.env.NEXO_HOST?.trim() || cfg.host;
 
   if (await probeHealth(port)) {
     return { alreadyUp: true, port };
@@ -47,7 +53,7 @@ export async function startDaemon(home: string, opts?: { port?: number }): Promi
 
   return new Promise((resolve, reject) => {
     let settled = false;
-    const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port }, (info) => {
+    const server = serve({ fetch: app.fetch, hostname, port }, (info) => {
       if (settled) return;
       settled = true;
       writeFileSync(tokenPath(home), token, { encoding: "utf8", mode: 0o600 });

@@ -12,6 +12,7 @@ export function loadConfig(home: string): NexoConfig {
   const raw = JSON.parse(readFileSync(path, "utf8")) as Partial<NexoConfig>;
   return {
     port: raw.port ?? DEFAULT_CONFIG.port,
+    host: isHost(raw.host) ? raw.host : DEFAULT_CONFIG.host,
     fallbackOrder: raw.fallbackOrder ?? [],
     switchMode: isSwitchMode(raw.switchMode) ? raw.switchMode : DEFAULT_CONFIG.switchMode,
     pack: {
@@ -29,6 +30,20 @@ export function loadConfig(home: string): NexoConfig {
 
 function isSwitchMode(value: unknown): value is SwitchMode {
   return typeof value === "string" && (SWITCH_MODES as string[]).includes(value);
+}
+
+/**
+ * Endereço de bind. Só IP literal ou `localhost`: nome que precisa de DNS
+ * mudaria de significado entre redes, e o bind é escolha de segurança — não é
+ * lugar pra resolução dinâmica.
+ */
+function isHost(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const v = value.trim();
+  if (v === "localhost") return true;
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(v)) return v.split(".").every((n) => Number(n) <= 255);
+  // IPv6 literal, incluindo o loopback `::1` e o `::` (todas as interfaces)
+  return /^[0-9a-fA-F:]{2,45}$/.test(v) && v.includes(":");
 }
 
 function isHex(value: unknown): value is string {
@@ -61,6 +76,7 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
   const current = loadConfig(home);
   const next: NexoConfig = {
     port: patch.port ?? current.port,
+    host: isHost(patch.host) ? patch.host : current.host,
     fallbackOrder: patch.fallbackOrder ?? current.fallbackOrder,
     switchMode: isSwitchMode(patch.switchMode) ? patch.switchMode : current.switchMode,
     pack: { ...current.pack, ...patch.pack },
