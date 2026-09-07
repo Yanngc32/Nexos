@@ -121,6 +121,9 @@ por cima: passo do run em andamento, conversas trabalhando, quota por conta e cu
 existe pra responder "está andando?" sem trazer o Nexo pra frente — um time roda por minutos
 enquanto você está no editor. Arraste pela faixa do título; ela reabre onde estava.
 
+O que ela mostra é do **projeto aberto** (o cabeçalho diz qual). A quota é exceção: é da conta, não
+do projeto. Sem projeto aberto, ela mostra tudo que o daemon está fazendo.
+
 ## Segurança
 
 - O daemon só escuta em `127.0.0.1`. Toda rota `/v1/*` exige `Authorization: Bearer <token>`,

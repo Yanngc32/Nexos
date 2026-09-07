@@ -70,6 +70,12 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   Conta que nunca rodou um turno fica de fora dos anéis: anel vazio pareceria "quota sobrando", que
   é o oposto de "não sei". O relógio para no fim do run, em vez de crescer pra sempre depois de
   acabar.
+  O painel é do PROJETO ABERTO, não da máquina: o daemon responde os runs e as conversas de todos os
+  projetos, e com dois abertos o painel mostrava o do outro — sem dizer que era de outro, o que é
+  pior que não mostrar nada. O projeto vem do processo principal (o painel é outra janela e não
+  compartilha estado com o app) e é relido a cada volta, então trocar de projeto muda o painel sem
+  reabrir; o cabeçalho passou a dizer qual é. A QUOTA não filtra: ela é da conta, não do projeto. E
+  sem projeto aberto nada é filtrado — o daemon pode estar trabalhando por fora, disparado pela CLI.
 - Conversas de um run agrupadas na barra lateral. Um time cria uma conversa por passo, e o
   supervisor cria quantas quiser: soltas, dez linhas do mesmo run afogavam a lista e empurravam pra
   baixo o que a pessoa estava usando. O run vira uma pasta, fechada por padrão, na posição da

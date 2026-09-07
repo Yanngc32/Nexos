@@ -1,6 +1,7 @@
 import { createApiClient } from "./api.js";
 import { fmtDuracao } from "./agent-trace.js";
-import { aneisDeConta, emVoo, faixaDoRun } from "./widget-view.js";
+import { folderName } from "./format.js";
+import { aneisDeConta, doProjeto, emVoo, faixaDoRun } from "./widget-view.js";
 
 /**
  * Painel flutuante: o caminhar das coisas, por cima de tudo.
@@ -119,12 +120,25 @@ async function atualizar() {
 
   try {
     await api.renovarCredenciais();
+    /*
+     * O projeto vem do processo principal, que é quem sabe qual janela está com
+     * qual pasta — o painel é outra janela e não compartilha estado com ela.
+     * Relido a cada volta: trocar de projeto no app muda o painel sem reabrir.
+     *
+     * Os runs já saem filtrados pelo daemon; as conversas em voo vêm todas e o
+     * filtro é aqui. A QUOTA não filtra: ela é da conta, não do projeto.
+     */
+    const projeto = await window.nexo.cwd().catch(() => "");
     const [runs, contas, agentes] = await Promise.all([
-      api.req("/v1/runs"),
+      api.req(`/v1/runs${projeto ? `?projectPath=${encodeURIComponent(projeto)}` : ""}`),
       api.req("/v1/accounts/limits"),
       api.req("/v1/agents"),
     ]);
-    ultimo = { runs, contas, agentes };
+    ultimo = { runs, contas, agentes, projeto };
+    // o cabeçalho diz DE QUAL projeto é o que está abaixo: "Nexo" ali não
+    // informava nada, e com dois projetos abertos a faixa ficava ambígua
+    el("grip").textContent = projeto ? folderName(projeto) : "Nexo";
+    el("grip").title = projeto || "nenhum projeto aberto — mostrando tudo";
   } catch {
     // um poll que falha não apaga a tela: o retrato anterior continua valendo
     // até a próxima resposta, e apagar faria o painel piscar a cada soluço
@@ -136,10 +150,12 @@ async function atualizar() {
 function repintar() {
   if (!ultimo) return;
   const faixa = faixaDoRun(ultimo.runs, Date.now());
+  const agentes = doProjeto(ultimo.agentes, ultimo.projeto);
+  const emVooAgora = emVoo(agentes, faixa?.rodando ? faixa.id : "");
   pintarRun(faixa);
-  pintarVoo(emVoo(ultimo.agentes, faixa?.rodando ? faixa.id : ""));
+  pintarVoo(emVooAgora);
   pintarContas(aneisDeConta(ultimo.contas));
-  mostrar("vazio", !faixa && !emVoo(ultimo.agentes).length && !aneisDeConta(ultimo.contas).length);
+  mostrar("vazio", !faixa && !emVooAgora.length && !aneisDeConta(ultimo.contas).length);
   ajustarAltura();
 }
 

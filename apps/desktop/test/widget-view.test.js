@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { aneisDeConta, custoDoRun, emVoo, faixaDoRun, passoAtual, runEmDestaque } from "../widget-view.js";
+import {
+  aneisDeConta,
+  custoDoRun,
+  doProjeto,
+  emVoo,
+  faixaDoRun,
+  passoAtual,
+  runEmDestaque,
+} from "../widget-view.js";
 
 const T0 = Date.parse("2026-01-01T12:00:00.000Z");
 const iso = (ms) => new Date(T0 + ms).toISOString();
@@ -163,5 +171,32 @@ describe("relógio do run fechado", () => {
   it("run em andamento continua crescendo", () => {
     const r = run({ steps: [{ index: 0, agentId: "a1", status: "running", startedAt: iso(0) }] });
     expect(faixaDoRun([r], T0 + 7000).ms).toBe(7000);
+  });
+});
+
+describe("doProjeto", () => {
+  const item = (p) => ({ id: p, projectPath: p });
+
+  it("deixa passar só o que é do projeto aberto", () => {
+    const out = doProjeto([item("/a"), item("/b"), item("/a")], "/a");
+    expect(out).toHaveLength(2);
+  });
+
+  it("compara caminho, não texto: barra e caixa não deveriam separar o mesmo projeto", () => {
+    expect(doProjeto([{ projectPath: "C:\\Proj\\App" }], "c:/proj/app/")).toHaveLength(1);
+  });
+
+  it("sem projeto aberto não filtra: o daemon pode estar trabalhando por fora", () => {
+    const tudo = [item("/a"), item("/b")];
+    expect(doProjeto(tudo, "")).toEqual(tudo);
+    expect(doProjeto(tudo, undefined)).toEqual(tudo);
+  });
+
+  it("item sem projeto não passa quando há projeto aberto", () => {
+    expect(doProjeto([{ id: "x" }], "/a")).toEqual([]);
+  });
+
+  it("lista inválida não quebra", () => {
+    expect(doProjeto(null, "/a")).toEqual([]);
   });
 });

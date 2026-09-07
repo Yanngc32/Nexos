@@ -1,3 +1,5 @@
+import { samePath } from "./format.js";
+
 /**
  * O que o painel flutuante mostra, calculado a partir do que o daemon responde.
  *
@@ -7,6 +9,23 @@
  *
  * Nada aqui faz requisição — recebe as respostas prontas e devolve o retrato.
  */
+
+/**
+ * Só o que é do projeto aberto.
+ *
+ * O daemon é da máquina, não do projeto: ele responde os runs e as conversas de
+ * TODOS os projetos. Com dois abertos ao mesmo tempo, o painel mostrava o run
+ * do outro — e sem dizer que era de outro, o que é pior que não mostrar nada.
+ *
+ * Projeto vazio NÃO filtra: pode não haver janela com projeto aberto e o daemon
+ * ainda estar trabalhando (disparado pela CLI, por exemplo). Esconder aí faria o
+ * painel mentir na direção oposta.
+ */
+export function doProjeto(itens, projeto) {
+  const lista = Array.isArray(itens) ? itens : [];
+  if (!projeto) return lista;
+  return lista.filter((x) => samePath(x?.projectPath, projeto));
+}
 
 /**
  * O run que interessa: o que está rodando. Havendo mais de um, o mais NOVO —
