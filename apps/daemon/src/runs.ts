@@ -90,17 +90,41 @@ export function getRun(id: string, home: string): Run | undefined {
   }
 }
 
-export function listRuns(home: string, projectPath?: string): Run[] {
+/**
+ * Ids de run em ordem cronológica INVERSA, sem abrir arquivo.
+ *
+ * Dá pra fazer isso porque o id é `r-<millis em base36>-<aleatório>` e a parte
+ * de tempo tem largura fixa (8 caracteres até 2059), então ordem alfabética é
+ * ordem de tempo. Se um dia a largura mudar, a ordem fica aproximada — e quem
+ * depende dela (o run em destaque) já prefere a memória ao disco.
+ */
+function idsPorNovidade(home: string): string[] {
   const raiz = runsRoot(home);
   if (!existsSync(raiz)) return [];
+  return readdirSync(raiz).sort().reverse();
+}
+
+/** Teto do que a listagem devolve. Sem ele o payload cresce pra sempre. */
+const RUNS_PAGINA = 50;
+
+/**
+ * Runs de um projeto, do mais novo pro mais velho.
+ *
+ * O RESULTADO é limitado; a varredura não é — achar quais runs são do projeto
+ * exige abrir cada `run.json`, porque o nome do arquivo não diz de quem ele é.
+ * Isso é aceitável aqui porque nada faz poll nesta rota: quem precisa saber "o
+ * que está rodando agora" usa `runAtual`, que não toca no disco no caso comum.
+ */
+export function listRuns(home: string, projectPath?: string, limite = RUNS_PAGINA): Run[] {
   const out: Run[] = [];
-  for (const dir of readdirSync(raiz)) {
+  for (const dir of idsPorNovidade(home)) {
+    if (out.length >= limite) break;
     const run = getRun(dir, home);
     if (!run) continue;
     if (projectPath && run.projectPath !== projectPath) continue;
     out.push(run);
   }
-  return out.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  return out;
 }
 
 /* ---------- execução ---------- */
@@ -110,6 +134,42 @@ const vivos = new Map<string, { run: Run; abortado: boolean }>();
 
 export function runAtivo(id: string): boolean {
   return vivos.has(id);
+}
+
+/**
+ * Quantos runs recentes o `runAtual` olha no disco quando NENHUM está em voo.
+ *
+ * Existe porque a alternativa é varrer o diretório inteiro a cada consulta — e
+ * o painel consulta a cada dois segundos. O corte é honesto pro que a rota
+ * responde: "está andando algo?". Run que já terminou e ficou mais de 40 runs
+ * atrás não é notícia; quem quer histórico usa `GET /v1/runs`.
+ */
+const RUNS_OLHADA = 40;
+
+/**
+ * O run que interessa AGORA, pro painel: o que está rodando; nenhum rodando, o
+ * último que terminou.
+ *
+ * O caso comum — existe run em voo — sai da memória, sem disco. É de propósito:
+ * é justamente quando o painel importa que ele é consultado sem parar. O caso
+ * frio abre no máximo `RUNS_OLHADA` arquivos.
+ */
+export function runAtual(home: string, projectPath?: string): Run | undefined {
+  const doProjeto = (r: Run) => !projectPath || r.projectPath === projectPath;
+  const emVoo = [...vivos.values()]
+    .map((v) => v.run)
+    .filter(doProjeto)
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  if (emVoo[0]) return emVoo[0];
+
+  let olhados = 0;
+  for (const dir of idsPorNovidade(home)) {
+    if (olhados >= RUNS_OLHADA) break;
+    olhados++;
+    const run = getRun(dir, home);
+    if (run && doProjeto(run)) return run;
+  }
+  return undefined;
 }
 
 /** Alguém pediu pra parar? O run some de `vivos` só quando termina de verdade. */

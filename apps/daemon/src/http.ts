@@ -40,6 +40,7 @@ import {
   getRun,
   listRuns,
   retomarRun,
+  runAtual,
   runsBus,
 } from "./runs.ts";
 import { erroDeParse, tratarMcp, type JsonRpc } from "./mcp.ts";
@@ -556,6 +557,16 @@ export function createApp(home: string, token: string): Hono {
   /* ---------- execuções de time ---------- */
 
   app.get("/v1/runs", (c) => c.json(listRuns(home, c.req.query("projectPath") || undefined)));
+
+  /**
+   * O run que interessa agora. Antes de `/v1/runs/:id`, senão o Hono casa
+   * :id = "atual".
+   *
+   * Existe porque o painel flutuante consulta a cada 2s e só mostra UM run:
+   * pedir a lista inteira pra isso lia todo `run.json` da máquina e serializava
+   * megabytes por consulta. Aqui o caso comum não toca no disco.
+   */
+  app.get("/v1/runs/atual", (c) => c.json(runAtual(home, c.req.query("projectPath") || undefined) ?? null));
 
   /**
    * Cria e dispara. Responde 201 com o run parado nos passos pendentes: a

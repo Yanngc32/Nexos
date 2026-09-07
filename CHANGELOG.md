@@ -36,6 +36,17 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
   `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
   forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
+- `GET /v1/runs/atual`, e o painel flutuante passou a usar essa em vez da listagem. Ele consulta a
+   cada 2s e mostra UM run; pedir a lista pra isso abria todo `run.json` da máquina e serializava o
+   histórico inteiro. Medido com 1000 runs no disco: **29 ms e 2,3 MB por consulta viraram 0,5 ms e
+   2 KB**, e agora é plano conforme o histórico cresce.
+  O caso comum não toca no disco: o daemon já sabe em memória quais runs estão em voo, e é
+  justamente quando há um rodando que o painel é consultado sem parar. Sem nada em voo, ele abre no
+  máximo 40 arquivos — corte honesto pro que a rota responde ("está andando algo?"); histórico é o
+  `GET /v1/runs`.
+  Quem escolhe o run do momento passou a ser o daemon, não a tela: escolher na tela obrigava a
+  baixar tudo pra jogar quase tudo fora. A listagem também ganhou teto de resultado (50) e ordem
+  pelo id — que é cronológica, porque o id carrega o tempo em base36 com largura fixa.
 - Teto do context pack derivado da janela do motor, em vez de 8000 fixo pra toda conta. Uma conta de
   janela grande recebia o mesmo corte de uma de 8k, então conversa longa "esquecia" coisa que
   caberia folgado. Agora é metade da janela, com piso em 8000 (o valor antigo, pra motor de janela

@@ -27,21 +27,6 @@ export function doProjeto(itens, projeto) {
   return lista.filter((x) => samePath(x?.projectPath, projeto));
 }
 
-/**
- * O run que interessa: o que está rodando. Havendo mais de um, o mais NOVO —
- * é o que a pessoa acabou de disparar e está esperando. Nenhum rodando, mostra
- * o último que terminou, pra faixa não ficar vazia logo depois de acabar.
- */
-export function runEmDestaque(runs) {
-  const lista = Array.isArray(runs) ? runs : [];
-  const rodando = lista.filter((r) => r?.status === "running");
-  const escolha = rodando.length ? rodando : lista;
-  return (
-    escolha.reduce((melhor, r) => (!melhor || (r?.createdAt ?? "") > (melhor.createdAt ?? "") ? r : melhor), null) ??
-    null
-  );
-}
-
 /** Passo aberto agora. O supervisor fica aberto o run inteiro, então perde pro membro. */
 export function passoAtual(run) {
   const abertos = (run?.steps ?? []).filter((s) => s?.status === "running");
@@ -56,9 +41,14 @@ export function custoDoRun(run) {
   return (run?.steps ?? []).reduce((n, s) => n + (s?.costUsd ?? 0), run?.gastoAnterior ?? 0);
 }
 
-/** Linha do run pro painel. `null` quando não há run nenhum pra mostrar. */
-export function faixaDoRun(runs, agora = Date.now()) {
-  const run = runEmDestaque(runs);
+/**
+ * Linha do run pro painel. `null` quando não há run pra mostrar.
+ *
+ * Recebe UM run, não a lista: quem escolhe qual é o run do momento é o daemon
+ * (`GET /v1/runs/atual`). Escolher aqui obrigava a tela a baixar todos os runs
+ * a cada dois segundos só pra jogar quase todos fora.
+ */
+export function faixaDoRun(run, agora = Date.now()) {
   if (!run) return null;
   const steps = run.steps ?? [];
   const feitos = steps.filter((s) => s?.status === "done").length;

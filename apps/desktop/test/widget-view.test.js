@@ -6,7 +6,6 @@ import {
   emVoo,
   faixaDoRun,
   passoAtual,
-  runEmDestaque,
 } from "../widget-view.js";
 
 const T0 = Date.parse("2026-01-01T12:00:00.000Z");
@@ -15,31 +14,6 @@ const iso = (ms) => new Date(T0 + ms).toISOString();
 function run(over = {}) {
   return { id: "r1", status: "running", goal: "auditar", createdAt: iso(0), steps: [], ...over };
 }
-
-describe("runEmDestaque", () => {
-  it("prefere o que está rodando ao que já terminou, mesmo sendo mais velho", () => {
-    const velho = run({ id: "rodando", createdAt: iso(0) });
-    const novo = run({ id: "feito", status: "done", createdAt: iso(9999) });
-    expect(runEmDestaque([novo, velho])?.id).toBe("rodando");
-  });
-
-  it("entre dois rodando, o mais novo: é o que a pessoa acabou de disparar", () => {
-    const a = run({ id: "a", createdAt: iso(0) });
-    const b = run({ id: "b", createdAt: iso(500) });
-    expect(runEmDestaque([a, b])?.id).toBe("b");
-  });
-
-  it("sem nenhum rodando, mostra o último que terminou", () => {
-    const a = run({ id: "a", status: "done", createdAt: iso(0) });
-    const b = run({ id: "b", status: "error", createdAt: iso(500) });
-    expect(runEmDestaque([a, b])?.id).toBe("b");
-  });
-
-  it("lista vazia ou inválida não quebra", () => {
-    expect(runEmDestaque([])).toBeNull();
-    expect(runEmDestaque(null)).toBeNull();
-  });
-});
 
 describe("passoAtual", () => {
   it("o membro ganha do supervisor: o supervisor fica aberto o run inteiro", () => {
@@ -80,23 +54,25 @@ describe("faixaDoRun", () => {
         { index: 1, agentId: "a2", status: "running", startedAt: iso(1000) },
       ],
     });
-    const f = faixaDoRun([r], T0 + 4000);
+    const f = faixaDoRun(r, T0 + 4000);
     expect(f).toMatchObject({ feitos: 1, total: 2, agente: "a2", rodando: true, ms: 3000 });
   });
 
   it("run sem passo aberto mede contra a criação, não contra nada", () => {
     const r = run({ steps: [{ index: 0, agentId: "a1", status: "pending" }] });
-    expect(faixaDoRun([r], T0 + 2500).ms).toBe(2500);
+    expect(faixaDoRun(r, T0 + 2500).ms).toBe(2500);
   });
 
   it("leva o teto de custo quando existe, e nada quando não existe", () => {
     const comTeto = run({ budget: { maxUsd: 2 }, steps: [{ costUsd: 0.5 }] });
-    expect(faixaDoRun([comTeto], T0)).toMatchObject({ custoUsd: 0.5, tetoUsd: 2 });
-    expect(faixaDoRun([run()], T0).tetoUsd).toBe(0);
+    expect(faixaDoRun(comTeto, T0)).toMatchObject({ custoUsd: 0.5, tetoUsd: 2 });
+    expect(faixaDoRun(run(), T0).tetoUsd).toBe(0);
   });
 
   it("sem run nenhum, não há faixa", () => {
-    expect(faixaDoRun([], T0)).toBeNull();
+    // o daemon devolve null quando não há run do momento
+    expect(faixaDoRun(null, T0)).toBeNull();
+    expect(faixaDoRun(undefined, T0)).toBeNull();
   });
 });
 
@@ -160,17 +136,17 @@ describe("relógio do run fechado", () => {
     });
     // sem passo aberto o tempo é o do RUN, do começo ao fim — e uma hora depois
     // continua sendo esse, não a hora inteira
-    expect(faixaDoRun([r], T0 + 3_600_000).ms).toBe(5000);
+    expect(faixaDoRun(r, T0 + 3_600_000).ms).toBe(5000);
   });
 
   it("run fechado sem endedAt cai no relógio, em vez de zerar", () => {
     const r = run({ status: "error", steps: [{ index: 0, agentId: "a1", status: "error", startedAt: iso(0) }] });
-    expect(faixaDoRun([r], T0 + 2000).ms).toBe(2000);
+    expect(faixaDoRun(r, T0 + 2000).ms).toBe(2000);
   });
 
   it("run em andamento continua crescendo", () => {
     const r = run({ steps: [{ index: 0, agentId: "a1", status: "running", startedAt: iso(0) }] });
-    expect(faixaDoRun([r], T0 + 7000).ms).toBe(7000);
+    expect(faixaDoRun(r, T0 + 7000).ms).toBe(7000);
   });
 });
 

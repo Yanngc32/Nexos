@@ -125,16 +125,18 @@ async function atualizar() {
      * qual pasta — o painel é outra janela e não compartilha estado com ela.
      * Relido a cada volta: trocar de projeto no app muda o painel sem reabrir.
      *
-     * Os runs já saem filtrados pelo daemon; as conversas em voo vêm todas e o
-     * filtro é aqui. A QUOTA não filtra: ela é da conta, não do projeto.
+     * O daemon devolve UM run — o do momento, já filtrado por projeto. Pedir a
+     * lista pra escolher aqui lia todo `run.json` da máquina e serializava
+     * megabytes a cada dois segundos. As conversas em voo vêm todas e o filtro
+     * é aqui; a QUOTA não filtra, porque é da conta e não do projeto.
      */
     const projeto = await window.nexo.cwd().catch(() => "");
-    const [runs, contas, agentes] = await Promise.all([
-      api.req(`/v1/runs${projeto ? `?projectPath=${encodeURIComponent(projeto)}` : ""}`),
+    const [run, contas, agentes] = await Promise.all([
+      api.req(`/v1/runs/atual${projeto ? `?projectPath=${encodeURIComponent(projeto)}` : ""}`),
       api.req("/v1/accounts/limits"),
       api.req("/v1/agents"),
     ]);
-    ultimo = { runs, contas, agentes, projeto };
+    ultimo = { run, contas, agentes, projeto };
     // o cabeçalho diz DE QUAL projeto é o que está abaixo: "Nexo" ali não
     // informava nada, e com dois projetos abertos a faixa ficava ambígua
     el("grip").textContent = projeto ? folderName(projeto) : "Nexo";
@@ -149,7 +151,7 @@ async function atualizar() {
 
 function repintar() {
   if (!ultimo) return;
-  const faixa = faixaDoRun(ultimo.runs, Date.now());
+  const faixa = faixaDoRun(ultimo.run, Date.now());
   const agentes = doProjeto(ultimo.agentes, ultimo.projeto);
   const emVooAgora = emVoo(agentes, faixa?.rodando ? faixa.id : "");
   pintarRun(faixa);

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
@@ -14,6 +14,7 @@ import {
   listRuns,
   resetRunsForTest,
   retomarRun,
+  runAtual,
   runsBus,
 } from "../src/runs.ts";
 import { readThread } from "../src/threads.ts";
@@ -840,5 +841,82 @@ describe("supervisor por MCP", () => {
     const r = await visto!.chamar("fantasma", "x");
     expect(r).toMatchObject({ ok: false });
     expect(r.texto).toMatch(/não está no time/);
+  });
+});
+
+describe("run do momento", () => {
+  /*
+   * `executarRun` roda síncrono até o primeiro await, e nesse ponto o run já
+   * está registrado em `vivos`. Então checar ANTES de ceder o event loop é o
+   * jeito de pegar um run em voo de verdade — com `setTimeout` no meio, o run
+   * do stub já teria terminado e o teste passaria pelo caminho do disco, sem
+   * provar nada.
+   */
+  it("run em voo sai da MEMÓRIA: responde até sem arquivo no disco", async () => {
+    const home = base();
+    time([{ agentId: "a1" }], home);
+    const run = criarRun({ teamId: "t", projectPath: "/proj", goal: "x" }, home);
+    const promessa = executarRun(run, home);
+    rmSync(join(home, "runs", run.id, "run.json"));
+    expect(runAtual(home)?.id).toBe(run.id);
+    await promessa;
+  });
+
+  it("em voo ganha do que já terminou, mesmo o terminado sendo mais novo", async () => {
+    const home = base();
+    time([{ agentId: "a1" }], home);
+    const antigo = criarRun({ teamId: "t", projectPath: "/proj", goal: "antigo" }, home);
+    const emVoo = executarRun(antigo, home);
+    // o run em voo é o mais VELHO; no disco há um mais novo, e ele perde
+    criarRun({ teamId: "t", projectPath: "/proj", goal: "novo" }, home);
+    expect(runAtual(home)?.id).toBe(antigo.id);
+    await emVoo;
+  });
+
+  it("sem nada em voo, mostra o último que terminou", async () => {
+    const home = base();
+    time([{ agentId: "a1" }], home);
+    await rodar(home, "primeiro");
+    await new Promise((r) => setTimeout(r, 5));
+    const ultimo = await rodar(home, "segundo");
+    expect(runAtual(home)?.id).toBe(ultimo.id);
+  });
+
+  it("respeita o projeto: run de outro projeto não é o do momento", async () => {
+    const home = base();
+    time([{ agentId: "a1" }], home);
+    const doProj = await executarRun(criarRun({ teamId: "t", projectPath: "/a", goal: "x" }, home), home);
+    await new Promise((r) => setTimeout(r, 5));
+    await executarRun(criarRun({ teamId: "t", projectPath: "/b", goal: "y" }, home), home);
+    expect(runAtual(home, "/a")?.id).toBe(doProj.id);
+    expect(runAtual(home, "/c")).toBeUndefined();
+  });
+
+  it("home sem run nenhum não quebra", () => {
+    expect(runAtual(base())).toBeUndefined();
+  });
+});
+
+describe("listagem de runs", () => {
+  it("vem do mais novo pro mais velho", async () => {
+    const home = base();
+    time([{ agentId: "a1" }], home);
+    const ids: string[] = [];
+    for (const n of ["um", "dois", "tres"]) {
+      ids.push(criarRun({ teamId: "t", projectPath: "/proj", goal: n }, home).id);
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(listRuns(home).map((r) => r.id)).toEqual([...ids].reverse());
+  });
+
+  it("o resultado é limitado: sem teto o payload cresce pra sempre", async () => {
+    const home = base();
+    time([{ agentId: "a1" }], home);
+    for (let i = 0; i < 8; i++) {
+      criarRun({ teamId: "t", projectPath: "/proj", goal: `r${i}` }, home);
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    expect(listRuns(home, undefined, 3)).toHaveLength(3);
+    expect(listRuns(home)).toHaveLength(8);
   });
 });
