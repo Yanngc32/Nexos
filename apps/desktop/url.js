@@ -20,6 +20,18 @@ export function safeUrl(raw) {
 }
 
 /**
+ * Endereço pronto pra entrar numa URL: IPv6 vai entre colchetes.
+ *
+ * Sem eles, `http://fd7a:115c::1:7432/` faz o navegador ler `fd7a` como host e
+ * `115c` como porta. A tela do celular e o QR usam isto; o daemon tem a mesma
+ * regra em `@nexo/shared`.
+ */
+export function hostNaUrl(host) {
+  const h = String(host || "").trim();
+  return h.includes(":") && !h.startsWith("[") ? `[${h}]` : h;
+}
+
+/**
  * O endereço que o celular abre — com o código de pareamento no fragmento,
  * quando há um.
  *
@@ -33,7 +45,7 @@ export function safeUrl(raw) {
  */
 export function urlDoCelular(host, porta, codigo) {
   const h = String(host || "127.0.0.1").trim();
-  const alvo = h.includes(":") && !h.startsWith("[") ? `[${h}]` : h;
+  const alvo = hostNaUrl(h);
   // só um código no formato exato entra no fragmento; qualquer outra coisa fica
   // de fora em vez de entrar torta e virar um QR que leva a erro
   const frag = /^[0-9A-HJKMNP-TV-Z]{6}$/.test(String(codigo ?? "")) ? `#c=${codigo}` : "";

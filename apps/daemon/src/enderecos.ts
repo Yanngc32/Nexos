@@ -13,7 +13,7 @@ import { networkInterfaces } from "node:os";
  *   IPv4 e `fd7a:115c:a1e0::/48` no IPv6 — os dois são reconhecíveis pelo
  *   endereço, sem depender do nome da interface. Pra WireGuard puro não há
  *   bloco reservado (o endereço é escolhido por quem configura), então aí sim
- *   cai no nome da interface (`wg0`, `tun0`, `utun3`).
+ *   cai no nome da interface (`wg0`, `tun0`, `utun3`, `wt0` no Windows).
  * - **LAN** (`192.168/16`, `10/8`, `172.16/12`) fica de FORA por padrão. É o
  *   Wi-Fi compartilhado do café, e publicar ali é escolha, não conveniência.
  * - **link-local** (`169.254/16`, `fe80::/10`) fica de fora: não é roteável e
@@ -34,7 +34,9 @@ export type Endereco = {
 };
 
 /** Interfaces cujo nome denuncia um túnel quando o endereço não denuncia. */
-const NOME_DE_TUNEL = /^(wg|tun|utun|tailscale|nordlynx|proton|zt)/i;
+const NOME_DE_TUNEL = /^(wg|tun|utun|tailscale|nordlynx|proton|zt|wt)/i;
+
+const LOOPBACK_HOST = new Set(["127.0.0.1", "localhost", "::1"]);
 
 function octetos(host: string): number[] {
   return host.split(".").map(Number);
@@ -94,7 +96,39 @@ export function enderecosDaMaquina(ler: () => Bruto = networkInterfaces): Endere
 }
 
 /**
- * Os endereços em que o daemon deve escutar, em ordem: loopback primeiro.
+ * Quão bom um endereço é pro QR do celular. Menor = melhor.
+ *
+ * IPv4 do Tailscale primeiro: o IPv6 (`fd7a:115c:…`) entra na escuta, mas o
+ * QR com ele falha calado no telefone — colchete, Happy Eyeballs, IPv6 do
+ * app Tailscale desligado. CGNAT `100.64/10` que NÃO é Tailscale (WireGuard
+ * `wt0`, ISP) fica atrás: o celular está no tailnet, não nesse outro túnel.
+ */
+export function scoreAlcance(host: string, enderecos: Endereco[] = []): number {
+  if (LOOPBACK_HOST.has(host) || host === "0.0.0.0" || host === "::") return 99;
+  const v6 = host.includes(":");
+  const ifacesTs = new Set(
+    enderecos.filter((x) => x.host.toLowerCase().startsWith("fd7a:115c:a1e0")).map((x) => x.interface),
+  );
+  const info = enderecos.find((x) => x.host === host);
+  const noTs = /tailscale/i.test(info?.interface ?? "") || (info ? ifacesTs.has(info.interface) : false);
+  if (!v6 && noTs) return 0;
+  if (!v6) return 1;
+  if (noTs) return 2;
+  return 3;
+}
+
+/** O host que o QR deve carregar: túnel IPv4 do Tailscale, se houver. */
+export function escolherHostDoCelular(hosts: string[], enderecos: Endereco[] = []): string | undefined {
+  const candidatos = hosts.filter((h) => !LOOPBACK_HOST.has(h));
+  if (!candidatos.length) return hosts[0];
+  return [...candidatos].sort(
+    (a, b) => scoreAlcance(a, enderecos) - scoreAlcance(b, enderecos) || a.localeCompare(b),
+  )[0];
+}
+
+/**
+ * Os endereços em que o daemon deve escutar, em ordem: loopback primeiro, depois
+ * os túneis do melhor pro pior pro celular (IPv4 do Tailscale antes de IPv6).
  *
  * `extra` é o que você escreveu à mão no config — entra mesmo que a
  * classificação não goste dele, porque escolha explícita ganha de heurística.
@@ -113,7 +147,12 @@ export function ondeEscutar(enderecos: Endereco[], extra = ""): string[] {
     // endereço que já está na lista.
     if (h && h !== "localhost" && !alvos.includes(h)) alvos.push(h);
   };
-  for (const e of enderecos) if (e.classe === "tunel") juntar(e.host);
+  const tuneis = enderecos
+    .filter((e) => e.classe === "tunel")
+    .sort(
+      (a, b) => scoreAlcance(a.host, enderecos) - scoreAlcance(b.host, enderecos) || a.host.localeCompare(b.host),
+    );
+  for (const e of tuneis) juntar(e.host);
   juntar(manual);
   return alvos;
 }

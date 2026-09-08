@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { portaDaUrl, safeUrl, urlDoCelular } from "../url.js";
+import { hostNaUrl, portaDaUrl, safeUrl, urlDoCelular } from "../url.js";
 
 /*
  * `safeUrl` decide o que o iframe do preview carrega. O CSP da janela deixa
@@ -60,6 +60,14 @@ describe("portaDaUrl", () => {
   it("url inválida vira 0 em vez de estourar", () => {
     expect(portaDaUrl("nada disso")).toBe(0);
     expect(portaDaUrl("")).toBe(0);
+  });
+});
+
+describe("hostNaUrl", () => {
+  it("IPv6 ganha colchetes; IPv4 e o que já tem, não", () => {
+    expect(hostNaUrl("fd7a:115c:a1e0::1")).toBe("[fd7a:115c:a1e0::1]");
+    expect(hostNaUrl("[::1]")).toBe("[::1]");
+    expect(hostNaUrl("100.64.8.119")).toBe("100.64.8.119");
   });
 });
 

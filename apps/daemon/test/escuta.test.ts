@@ -82,6 +82,17 @@ describe("melhorHost", () => {
     expect(melhorHost({ hosts: ["127.0.0.1", "100.101.102.103"], falhas: [], port: 1 })).toBe("100.101.102.103");
   });
 
+  it("prefere IPv4 mesmo quando o IPv6 veio primeiro na escuta", () => {
+    // Windows lista o IPv6 do Tailscale antes; QR com ele falha no telefone
+    expect(
+      melhorHost({
+        hosts: ["127.0.0.1", "fd7a:115c:a1e0::1", "100.101.102.103"],
+        falhas: [],
+        port: 1,
+      }),
+    ).toBe("100.101.102.103");
+  });
+
   it("sem túnel, devolve o que há", () => {
     expect(melhorHost({ hosts: ["127.0.0.1"], falhas: [], port: 1 })).toBe("127.0.0.1");
   });

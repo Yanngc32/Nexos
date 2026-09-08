@@ -27,6 +27,12 @@ describe("celAlcance", () => {
     expect(t).toContain("10.8.0.2:7432");
   });
 
+  it("IPv6 vai entre colchetes — senão parece porta 115c", () => {
+    const t = celAlcance(e(["127.0.0.1", "fd7a:115c:a1e0::1"]));
+    expect(t).toContain("[fd7a:115c:a1e0::1]:7432");
+    expect(t).not.toContain("fd7a:115c:a1e0::1:7432");
+  });
+
   it("só loopback: diz o que fazer, e que não precisa reiniciar", () => {
     // o "vale a partir da próxima subida" morreu; prometer reinício aqui seria
     // mandar a pessoa fazer trabalho que o daemon já faz

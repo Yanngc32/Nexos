@@ -1,7 +1,7 @@
 import type { Server } from "node:http";
 import { serve } from "@hono/node-server";
 import { DEFAULT_CONFIG } from "@nexo/shared";
-import { enderecosDaMaquina, ondeEscutar } from "./enderecos.ts";
+import { enderecosDaMaquina, escolherHostDoCelular, ondeEscutar } from "./enderecos.ts";
 
 /**
  * Em quais endereços o daemon está escutando — e mantê-los em dia sem reiniciar.
@@ -115,7 +115,7 @@ export function estadoAtual(): Estado {
 
 /** O endereço que a tela deve mostrar: o túnel se houver, senão o loopback. */
 export function melhorHost(e: Estado = estadoAtual()): string {
-  return e.hosts.find((h) => h !== "127.0.0.1" && h !== "localhost") ?? e.hosts[0] ?? DEFAULT_CONFIG.host;
+  return escolherHostDoCelular(e.hosts, enderecosDaMaquina()) ?? e.hosts[0] ?? DEFAULT_CONFIG.host;
 }
 
 export function fecharTudo(): void {

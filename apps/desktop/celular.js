@@ -1,3 +1,5 @@
+import { hostNaUrl } from "./url.js";
+
 /**
  * O texto do painel Celular: onde o celular alcança o Nexo, e o que está no
  * caminho quando não alcança.
@@ -33,7 +35,7 @@ export function celAlcance(escuta) {
   if (!fora.length) {
     return `Só esta máquina alcança. Ligue seu túnel (Tailscale, WireGuard) e o Nexo entra nele sozinho, em segundos, sem reiniciar nada.`;
   }
-  return `Alcançável em ${fora.map((h) => `${h}:${porta}`).join(" e ")} — quem estiver no seu túnel chega, e mais ninguém.`;
+  return `Alcançável em ${fora.map((h) => `${hostNaUrl(h)}:${porta}`).join(" e ")} — quem estiver no seu túnel chega, e mais ninguém.`;
 }
 
 /**

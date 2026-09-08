@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classificar, enderecosDaMaquina, ondeEscutar } from "../src/enderecos.ts";
+import { classificar, enderecosDaMaquina, escolherHostDoCelular, ondeEscutar } from "../src/enderecos.ts";
 
 describe("classificar", () => {
   it("loopback", () => {
@@ -27,7 +27,7 @@ describe("classificar", () => {
     // da interface seria LAN
     expect(classificar("10.8.0.2", "wg0")).toBe("tunel");
     expect(classificar("10.8.0.2", "eth0")).toBe("lan");
-    for (const n of ["tun0", "utun3", "tailscale0", "nordlynx"]) {
+    for (const n of ["tun0", "utun3", "tailscale0", "nordlynx", "wt0"]) {
       expect(classificar("10.8.0.2", n), n).toBe("tunel");
     }
   });
@@ -111,6 +111,13 @@ describe("ondeEscutar", () => {
     expect(ondeEscutar([tunel])).toEqual(["127.0.0.1", "100.101.102.103"]);
   });
 
+  it("IPv4 do Tailscale vem antes do IPv6 e de outro 100.x — é o que o QR carrega", () => {
+    const v6 = { host: "fd7a:115c:a1e0::1", classe: "tunel" as const, interface: "Tailscale" };
+    const wg = { host: "100.64.0.1", classe: "tunel" as const, interface: "wt0" };
+    const ts4 = { host: "100.99.0.1", classe: "tunel" as const, interface: "Tailscale" };
+    expect(ondeEscutar([v6, wg, ts4])).toEqual(["127.0.0.1", "100.99.0.1", "100.64.0.1", "fd7a:115c:a1e0::1"]);
+  });
+
   it("LAN e público NÃO entram por conta própria", () => {
     // publicar no Wi-Fi compartilhado é escolha, não conveniência; e IP público
     // seria o Nexo na internet
@@ -137,5 +144,28 @@ describe("ondeEscutar", () => {
   it("máquina de verdade sempre dá pelo menos o loopback", () => {
     // guarda contra a detecção devolver lista vazia e o daemon não escutar nada
     expect(ondeEscutar(enderecosDaMaquina())).toContain("127.0.0.1");
+  });
+});
+
+describe("escolherHostDoCelular", () => {
+  const maquina = [
+    { host: "127.0.0.1", classe: "loopback" as const, interface: "lo" },
+    { host: "fd7a:115c:a1e0::1", classe: "tunel" as const, interface: "Tailscale" },
+    { host: "100.99.0.1", classe: "tunel" as const, interface: "Tailscale" },
+    { host: "100.64.0.1", classe: "tunel" as const, interface: "wt0" },
+  ];
+
+  it("IPv4 do Tailscale ganha do IPv6, mesmo o IPv6 vindo primeiro na lista", () => {
+    expect(
+      escolherHostDoCelular(["127.0.0.1", "fd7a:115c:a1e0::1", "100.99.0.1", "100.64.0.1"], maquina),
+    ).toBe("100.99.0.1");
+  });
+
+  it("sem Tailscale IPv4, outro túnel IPv4 ainda ganha do IPv6", () => {
+    expect(escolherHostDoCelular(["fd7a:115c:a1e0::1", "100.64.0.1"], maquina)).toBe("100.64.0.1");
+  });
+
+  it("só loopback devolve loopback, não vazio", () => {
+    expect(escolherHostDoCelular(["127.0.0.1"], maquina)).toBe("127.0.0.1");
   });
 });
