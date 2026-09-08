@@ -12,6 +12,7 @@ import { ago } from "./comum/format.js";
 import { fmtDuracao } from "./comum/agent-trace.js";
 import { lerEventos } from "./comum/sse.js";
 import { aneisDeConta, emVoo, faixaDoRun } from "./comum/widget-view.js";
+import { agruparConversas } from "./comum/thread-groups.js";
 
 /**
  * App de celular do Nexo, servido pelo próprio daemon.
@@ -226,19 +227,58 @@ async function abrirConversas() {
   } catch {
     lista = [];
   }
-  for (const t of lista) {
-    const li = document.createElement("li");
-    const nome = document.createElement("span");
-    nome.className = "nome";
-    nome.textContent = t.preview || "Conversa nova";
-    const quando = document.createElement("span");
-    quando.className = "quando";
-    quando.textContent = t.busy ? "trabalhando…" : ago(t.updatedAt);
-    li.append(nome, quando);
-    li.addEventListener("click", () => void abrirChat(t.id, t.preview));
-    ul.append(li);
+  /*
+   * Agrupado, e não solto: um run de time cria uma conversa por passo, e no
+   * telefone — onde caberia meia dúzia de linhas — três runs afogam
+   * completamente as conversas de verdade. O `agruparConversas` é o MESMO do
+   * desktop, vindo por `/app/comum/`; o que muda aqui é só o desenho.
+   */
+  for (const item of agruparConversas(lista)) {
+    if (item.tipo === "conversa") ul.append(linhaDeConversa(item.thread));
+    else ul.append(...linhasDeRun(item));
   }
   $("threads-vazio").classList.toggle("hidden", lista.length > 0);
+}
+
+function linhaDeConversa(t, dentroDeRun = false) {
+  const li = document.createElement("li");
+  if (dentroDeRun) li.className = "aninhada";
+  const nome = document.createElement("span");
+  nome.className = "nome";
+  nome.textContent = t.preview || "Conversa nova";
+  const quando = document.createElement("span");
+  quando.className = "quando";
+  quando.textContent = t.busy ? "trabalhando…" : ago(t.updatedAt);
+  li.append(nome, quando);
+  li.addEventListener("click", () => void abrirChat(t.id, t.preview));
+  return li;
+}
+
+/**
+ * Um run vira uma linha que abre e fecha.
+ *
+ * Fechado por padrão, porque o normal é você querer a conversa que estava
+ * tendo, não os passos de um time que já rodou. Quem quer o passo toca no run.
+ */
+function linhasDeRun(grupo) {
+  const cab = document.createElement("li");
+  cab.className = "grupo";
+  const nome = document.createElement("span");
+  nome.className = "nome";
+  nome.textContent = grupo.titulo;
+  const quantos = document.createElement("span");
+  quantos.className = "quando";
+  quantos.textContent = `${grupo.threads.length} passos`;
+  cab.append(nome, quantos);
+
+  const filhas = grupo.threads.map((t) => linhaDeConversa(t, true));
+  for (const f of filhas) f.classList.add("hidden");
+  cab.addEventListener("click", () => {
+    const fechado = filhas[0]?.classList.contains("hidden");
+    for (const f of filhas) f.classList.toggle("hidden", !fechado);
+    cab.dataset.aberto = fechado ? "1" : "0";
+  });
+  return [cab, ...filhas];
 }
 
 /* ---------- chat ---------- */
@@ -412,11 +452,30 @@ document.addEventListener("visibilitychange", () => {
  * abrir traria um código já queimado. Token que funciona vale mais que código
  * que talvez sirva; se o token estiver morto, o `desparear` cai no código.
  */
-codigoPendente = codigoDaUrl();
-if (codigoPendente) {
+function pegarCodigoDaUrl() {
+  const c = codigoDaUrl();
+  if (!c) return "";
+  codigoPendente = c;
   limparUrl();
-  $("codigo").value = codigoPendente;
+  $("codigo").value = c;
+  return c;
 }
+
+/**
+ * QR escaneado com o app JÁ ABERTO.
+ *
+ * Trocar só o fragmento não recarrega a página, então nada aqui reexecuta e a
+ * tela fica parada — e é o caso comum de quem põe o Nexo na tela de início: o
+ * sistema reaproveita a aba em vez de abrir outra. Sem isto, escanear com o app
+ * aberto simplesmente não faz nada, e nem erro aparece.
+ */
+window.addEventListener("hashchange", () => {
+  const c = pegarCodigoDaUrl();
+  // já dentro e funcionando não precisa de código nenhum: o token vale mais
+  if (c && !cred) void tentarParear(gastarCodigoPendente());
+});
+
+pegarCodigoDaUrl();
 
 const guardada = credencialGuardada();
 if (guardada) void entrar({ ...guardada, base: guardada.base || location.origin });

@@ -201,3 +201,23 @@ button {
 .tabs { display: flex; border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
 .tabs button { flex: 1; border: 0; border-radius: 0; background: none; color: var(--muted); }
 .tabs button.on { color: var(--text); box-shadow: inset 0 2px 0 var(--accent); }
+
+/* Linha de run: cabeçalho de grupo que abre e fecha. */
+.lista li.grupo {
+  color: var(--muted);
+}
+
+.lista li.grupo .nome::before {
+  content: "▸ ";
+  display: inline-block;
+  width: 1em;
+}
+
+.lista li.grupo[data-aberto="1"] .nome::before {
+  content: "▾ ";
+}
+
+.lista li.aninhada .nome {
+  padding-left: 18px;
+  color: var(--muted);
+}
