@@ -237,24 +237,26 @@
         ["off-z2", 700],
         ["off-z1", 700],
         ["off", 900],
-        ["idle", 2400],
-        ["idle-blink", 140],
-        ["idle", 2000],
-        ["idle-blink", 120],
-        ["idle", 1800],
-        ["work", 200],
-        ["work-on", 110],
-        ["work", 90],
-        ["work-dim", 80],
-        ["work-on", 120],
-        ["work-logo", 90],
-        ["work", 140],
-        ["work-blink", 120],
-        ["work-on", 100],
-        ["work-dim", 70],
-        ["work", 160],
         ["idle", 1600],
+        ["idle-in1", 160],
+        ["idle-in2", 160],
+        ["idle-hide", 700],
+        ["idle-in2", 160],
+        ["idle-in1", 180],
+        ["idle", 1200],
         ["idle-blink", 140],
+        ["idle", 900],
+        ["work", 180],
+        ["work-tap-a", 90],
+        ["work-on", 110],
+        ["work-tap-b", 90],
+        ["work-dim", 80],
+        ["work-tap-a-on", 90],
+        ["work-logo", 90],
+        ["work-tap-b", 90],
+        ["work-blink", 120],
+        ["work-tap-a", 90],
+        ["work", 160],
         ["idle", 1400],
       ];
 
@@ -386,8 +388,15 @@
         return minX;
       }
 
-      /** Tela do notebook pisca. Silhueta, tamanho, chapéu e base iguais. */
-      function pulseLaptop(sheet, delta, logoExtra) {
+      function isLogo(r, g, b, a) {
+        if (a < 200) return false;
+        const avg = (r + g + b) / 3;
+        const spread = Math.max(r, g, b) - Math.min(r, g, b);
+        return avg >= 185 && avg <= 240 && spread < 45;
+      }
+
+      /** Só o logo da tampa pisca. Corpo, base e chapéu parados. */
+      function pulseLaptop(sheet, delta, extra) {
         const c = cloneSheet(sheet);
         const ctx = c.getContext("2d");
         const img = ctx.getImageData(0, 0, c.width, c.height);
@@ -396,17 +405,48 @@
         const h = c.height;
         const hatX = creamLeft(d, w, h);
         const yBase = h - 4;
-        const clamp = (v) => Math.max(0, Math.min(255, v));
+        const seen = new Uint8Array(w * h);
+        const blobs = [];
+        const dirs = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ];
         for (let y = 0; y < yBase; y++) {
           for (let x = 0; x < hatX; x++) {
-            const i = (y * w + x) * 4;
-            if (!isGrey(d[i], d[i + 1], d[i + 2], d[i + 3])) continue;
-            const avg = (d[i] + d[i + 1] + d[i + 2]) / 3;
-            const add = avg >= 132 ? delta + logoExtra : delta;
-            d[i] = clamp(d[i] + add);
-            d[i + 1] = clamp(d[i + 1] + add);
-            d[i + 2] = clamp(d[i + 2] + add);
+            const s = y * w + x;
+            const i = s * 4;
+            if (seen[s] || !isLogo(d[i], d[i + 1], d[i + 2], d[i + 3])) continue;
+            const pix = [];
+            const q = [[x, y]];
+            seen[s] = 1;
+            while (q.length) {
+              const [cx, cy] = q.pop();
+              pix.push([cx, cy]);
+              for (const [dx, dy] of dirs) {
+                const nx = cx + dx;
+                const ny = cy + dy;
+                if (nx < 0 || ny < 0 || nx >= hatX || ny >= yBase) continue;
+                const ns = ny * w + nx;
+                const ni = ns * 4;
+                if (seen[ns] || !isLogo(d[ni], d[ni + 1], d[ni + 2], d[ni + 3])) continue;
+                seen[ns] = 1;
+                q.push([nx, ny]);
+              }
+            }
+            blobs.push(pix);
           }
+        }
+        blobs.sort((a, b) => b.length - a.length);
+        const logo = blobs[0] || [];
+        const clamp = (v) => Math.max(0, Math.min(255, v));
+        const add = delta + extra;
+        for (const [x, y] of logo) {
+          const i = (y * w + x) * 4;
+          d[i] = clamp(d[i] + add);
+          d[i + 1] = clamp(d[i + 1] + add);
+          d[i + 2] = clamp(d[i + 2] + add);
         }
         ctx.putImageData(img, 0, 0);
         return c;
@@ -722,23 +762,63 @@
         hold();
       }
 
+      function loopIdle() {
+        function rest() {
+          if (!still("idle")) return;
+          if (Math.random() < 0.34) {
+            playHide();
+            return;
+          }
+          paint("idle");
+          after(1800 + Math.random() * 2200, () => {
+            if (!still("idle")) return;
+            paint("idle-blink");
+            after(120, rest);
+          });
+        }
+        function playHide() {
+          const seq = [
+            ["idle-in1", 160],
+            ["idle-in2", 160],
+            ["idle-hide", 720],
+            ["idle-in2", 160],
+            ["idle-in1", 180],
+            ["idle", 400],
+          ];
+          let i = 0;
+          function step() {
+            if (!still("idle")) return;
+            if (i >= seq.length) {
+              rest();
+              return;
+            }
+            const [name, ms] = seq[i];
+            i += 1;
+            paint(name);
+            after(ms, step);
+          }
+          step();
+        }
+        paint("idle");
+        after(700, rest);
+      }
+
       function loopWork() {
         const seq = [
           ["work", 150],
+          ["work-tap-a", 90],
           ["work-on", 90],
-          ["work", 70],
+          ["work-tap-b", 90],
           ["work-dim", 80],
-          ["work-on", 110],
-          ["work-logo", 80],
+          ["work-tap-a-on", 90],
           ["work", 120],
+          ["work-tap-b", 80],
+          ["work-logo", 80],
+          ["work-tap-a", 90],
+          ["work-blink", 120],
+          ["work-tap-b-on", 90],
           ["work-on", 70],
           ["work-dim", 60],
-          ["work-on", 90],
-          ["work", 160],
-          ["work-blink", 120],
-          ["work", 180],
-          ["work-on", 100],
-          ["work-dim", 70],
         ];
         let i = 0;
         function tick() {
@@ -770,7 +850,7 @@
         }
         if (name === "off") loopOff();
         else if (name === "work") loopWork();
-        else loopBlink(name);
+        else loopIdle();
       }
 
       function step(dir) {
@@ -813,33 +893,41 @@
       });
 
       Promise.all(
-        Object.entries(SRC).map(
-          ([name, src]) =>
+        [
+          "off",
+          "off-z1",
+          "off-z2",
+          "idle",
+          "idle-blink",
+          "idle-in1",
+          "idle-in2",
+          "idle-hide",
+          "work",
+          "work-blink",
+          "work-on",
+          "work-dim",
+          "work-logo",
+          "work-tap-a",
+          "work-tap-b",
+          "work-tap-a-on",
+          "work-tap-b-on",
+        ].map(
+          (name) =>
             new Promise((resolve, reject) => {
               const img = new Image();
               img.onload = () => {
-                cache.set(name, extract(img));
+                const c = document.createElement("canvas");
+                c.width = img.naturalWidth;
+                c.height = img.naturalHeight;
+                c.getContext("2d").drawImage(img, 0, 0);
+                cache.set(name, c);
                 resolve();
               };
               img.onerror = reject;
-              img.src = src;
+              img.src = `../mago/${name}.png?v=mago2`;
             }),
         ),
       ).then(() => {
-        const rawIdle = cache.get("idle");
-        const px = 96 / rawIdle.height;
-        const fit = (s) => toDisplay(s, Math.max(1, Math.round(s.height * px)));
-        cache.set("idle", fit(rawIdle));
-        cache.set("work", fit(cache.get("work")));
-        cache.set("off", fit(cache.get("off")));
-        const work = cache.get("work");
-        cache.set("idle-blink", blinkSheet(cache.get("idle")));
-        cache.set("work-blink", blinkSheet(work));
-        cache.set("work-on", pulseLaptop(work, 24, 0));
-        cache.set("work-dim", pulseLaptop(work, -22, 0));
-        cache.set("work-logo", pulseLaptop(work, 12, 30));
-        cache.set("off-z1", driftZ(cache.get("off"), 1));
-        cache.set("off-z2", driftZ(cache.get("off"), 2));
         if (tour) start("tour");
         else start("off");
       });

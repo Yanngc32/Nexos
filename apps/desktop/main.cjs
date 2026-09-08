@@ -254,6 +254,17 @@ const SHOT = process.env.NEXO_SHOT ?? "";
 // silencia o ruído do Chromium (INFO/WARNING/"Hit debug scenario") no stderr
 if (!process.env.NEXO_VERBOSE) app.commandLine.appendSwitch("log-level", "3");
 
+/**
+ * Bug conhecido do Chromium no Windows 11: a detecção de "janela ocluída" (native window
+ * occlusion) erra o cálculo com alguma frequência e trava a pintura de superfícies extras —
+ * <webview>/BrowserView renderizam preto sólido, mesmo com a janela em primeiro plano e
+ * visível. Só afeta Windows; nas outras plataformas a flag não existe e o switch é ignorado.
+ * https://github.com/electron/electron/issues (vários relatos do mesmo sintoma, mesma causa).
+ */
+if (process.platform === "win32") {
+  app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+}
+
 /** Sobe o motor sem janela se ele não estiver de pé. */
 async function ensureDaemon(timeoutMs = 15_000) {
   const info = await daemonInfo();

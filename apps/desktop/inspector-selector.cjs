@@ -81,6 +81,7 @@ function textoVisivel(el, max = MAX_TEXTO) {
 /** O que sai do clique dentro do preview, pronto pra mandar pro host via `sendToHost`. */
 function capturarElemento(el) {
   return {
+    tag: el.tagName.toLowerCase(),
     seletor: gerarSeletor(el),
     outerHtml: outerHtmlResumido(el),
     texto: textoVisivel(el),

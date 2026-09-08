@@ -8,7 +8,7 @@ import type { ProbeResult, ServiceDef, ServiceStatus, ServicesReport } from "@ne
 import { loadConfig, saveConfig } from "./config.ts";
 import { ensureHome } from "./home.ts";
 import { assertSlug } from "./ids.ts";
-import { killTree } from "./kill-tree.ts";
+import { killByPort, killTree } from "./kill-tree.ts";
 
 /** Nome do arquivo que declara os serviços, na raiz do projeto. */
 export const SERVICES_FILE = "nexo.json";
@@ -32,7 +32,17 @@ type Live = {
   startedAt: string;
   log: string;
   exitCode?: number;
+  /**
+   * Porta que a saída do processo revelou de verdade — ferramenta como o Vite cai pra
+   * próxima porta livre sem avisar por outro canal quando a declarada já está ocupada
+   * (processo zumbi de uma subida anterior). Sem isso, `killByPort` mira só na porta do
+   * `nexo.json`, que pode não ser onde o processo ATUAL está escutando.
+   */
+  actualPort?: number;
 };
+
+/** "http://localhost:5174" ou "http://127.0.0.1:8004" na saída do processo. */
+const PORT_NA_SAIDA_RE = /(?:localhost|127\.0\.0\.1):(\d{2,5})\b/;
 
 /** Chave de processo: o daemon é global, vários projetos podem estar abertos. */
 function key(projectPath: string, id: string): string {
@@ -227,8 +237,20 @@ export function startService(projectPath: string, id: string, home: string): Ser
   lives.set(k, live);
   if (child.pid) writeFileSync(pidPath(projectPath, id, home), String(child.pid), "utf8");
 
-  child.stdout.on("data", (b: Buffer) => appendLog(projectPath, id, b.toString("utf8")));
-  child.stderr.on("data", (b: Buffer) => appendLog(projectPath, id, b.toString("utf8")));
+  function lerPortaDaSaida(chunk: string): void {
+    const m = PORT_NA_SAIDA_RE.exec(chunk);
+    if (m) live.actualPort = Number(m[1]);
+  }
+  child.stdout.on("data", (b: Buffer) => {
+    const chunk = b.toString("utf8");
+    lerPortaDaSaida(chunk);
+    appendLog(projectPath, id, chunk);
+  });
+  child.stderr.on("data", (b: Buffer) => {
+    const chunk = b.toString("utf8");
+    lerPortaDaSaida(chunk);
+    appendLog(projectPath, id, chunk);
+  });
   child.on("error", (err) => {
     appendLog(projectPath, id, `\n[nexo] falha ao rodar: ${err.message}\n`);
     live.exitCode = -1;
@@ -263,6 +285,21 @@ export function stopService(projectPath: string, id: string, home: string): Serv
     if (live.pid) killTree(live.pid);
     else if (!live.child.killed) live.child.kill();
     live.exitCode = live.exitCode ?? 0;
+  }
+  // reforço: `npm run <script>` empilha processo no Windows, e o que de fato escuta a
+  // porta às vezes sobrevive ao killTree (ver kill-tree.ts). Ir direto na porta fecha esse
+  // buraco sem depender de a árvore de PID estar intacta. Tenta a porta DECLARADA (pega
+  // zumbi de uma subida antiga, que é o que empurrou o processo atual pra outra porta) e a
+  // porta REAL que a saída revelou (Vite cai pra próxima porta livre sem outro aviso).
+  const portas = new Set([portOf(def.url), live?.actualPort].filter((p): p is number => Boolean(p)));
+  for (const porta of portas) {
+    const r = killByPort(porta);
+    // temporário, pra diagnosticar ao vivo: some assim que confirmarmos que funciona
+    appendLog(
+      projectPath,
+      id,
+      `\n[nexo] killByPort(${porta}): ${r.erro ?? `pids encontrados: ${r.pids.join(", ") || "nenhum"}`}\n`,
+    );
   }
   clearPid(projectPath, id, home);
   emitStatus(projectPath, id);

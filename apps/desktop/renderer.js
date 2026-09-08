@@ -24,6 +24,8 @@ import { qrSvg } from "./qr.js";
 import { celAlcance, celAviso } from "./celular.js";
 import { extrairMencoes } from "./mention.js";
 import { montarMensagem } from "./inspector-mensagem.js";
+import { criarInspectorHost } from "./inspector-host.js";
+import { FASE } from "./inspector-estado.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -133,8 +135,11 @@ const state = {
   },
   /** Agente personalizado da conversa aberta; "" = conta pura. */
   agentId: "",
-  /** Modo "selecionar elemento" do painel Browser — ver ligaInspector/desligaInspector. */
-  inspector: { on: false, selecionados: [] },
+  /** Modo "selecionar elemento" do painel Browser — fase de verdade mora em `inspectorHost`
+   * (ver inspector-host.js); isto só espelha a seleção acumulada pra `renderInspectorBox`.
+   * `caixaAberta` é só apresentação: a caixa flutuante só nasce no 1º clique (posicionada
+   * lá) e fica aberta até o modo desligar, mesmo que todos os chips sejam removidos. */
+  inspector: { selecionados: [], caixaAberta: false },
   /** Times de agentes; a lista vive aqui porque o painel e a tela cheia leem. */
   teams: [],
 };
@@ -390,6 +395,7 @@ function applyAccent(hex) {
   for (const btn of $("accent-swatches").querySelectorAll("button")) {
     btn.dataset.on = btn.dataset.accent.toLowerCase() === hex.toLowerCase() ? "1" : "0";
   }
+  paintPetFrame();
   return true;
 }
 
@@ -752,56 +758,39 @@ function stopThink() {
 }
 
 /* ---------- pet ----------
- * Pedra Nexo: poleiro. Placa idle.png. Sem hatch, sem ping-pong.
- * Idle = descanso longo + pisca/respira. Cochilo, olhar, braço = raros.
+ * Maguinho no canto do composer. Troca da pedra.
+ * Mesmo PNG: idle / work / off. Pisca, logo do notebook, Zzz.
+ * Pé (ou aba, no off) cola no topo da box. Tamanho 50%. Gema = --accent.
+ * Idle: entra no chapéu e sai. Work: braçinho tecla. Notebook igual.
  */
-const PET_BASE = "./pets/nexo/128/";
-const PET_REST = "idle-stand";
+const PET_BASE = "./pets/nexo/mago/";
+const PET_REST = "idle";
 const PET_IDLE_SPICE = [
+  [PET_REST, PET_REST, "idle-blink", PET_REST],
   [
-    PET_REST, "idle-blink-a", "idle-blink-b", "idle-blink", "idle-blink-b", "idle-blink-a", PET_REST,
+    PET_REST, "idle-in1", "idle-in2", "idle-hide", "idle-hide",
+    "idle-in2", "idle-in1", PET_REST, "idle-blink", PET_REST,
+  ],
+];
+const PET_WORK_SPICE = [
+  [
+    "work", "work-tap-a", "work-on", "work-tap-b", "work-dim",
+    "work-tap-a-on", "work", "work-tap-b", "work-logo", "work-tap-a",
+    "work-blink", "work-tap-b-on", "work",
   ],
   [
-    PET_REST, "idle-br1", "idle-br2", "idle-br3", "idle-br4", "idle-br3", "idle-br2", "idle-br1", PET_REST,
-  ],
-  [
-    PET_REST, "idle-doze-in", "idle-doze", "idle-doze-b", "idle-doze", "idle-doze-in", PET_REST,
-  ],
-  [
-    PET_REST, "idle-glance-a", "idle-glance", "idle-glance", "idle-glance-a", PET_REST,
-  ],
-  [
-    PET_REST, "idle-glance-la", "idle-glance-l", "idle-glance-l", "idle-glance-la", PET_REST,
-  ],
-  [
-    PET_REST, "idle-arm-a", "idle-arm", "idle-arm-a", PET_REST,
-  ],
-  [
-    PET_REST, "idle-arm-la", "idle-arm-l", "idle-arm-la", PET_REST,
+    "work", "work-tap-b", "work-on", "work-tap-a", "work-dim",
+    "work-tap-b-on", "work-logo", "work-tap-a", "work-blink", "work",
   ],
 ];
 const PET_FRAMES = {
-  off: ["off"],
-  wake: ["off", "idle-blink-a", "idle-blink-b", "idle-blink", "idle-blink-b", "idle-blink-a", PET_REST],
+  off: ["off", "off-z1", "off-z2", "off-z1"],
+  wake: ["idle-hide", "idle-in2", "idle-in1", "idle-blink", PET_REST],
   idle: PET_IDLE_SPICE[0],
-  work: ["desk-sit"],
+  work: PET_WORK_SPICE[0],
 };
-const PET_SIT_IN = ["sit-in1", "sit-in2", "sit-a", "desk-in"];
-const PET_WORK_SPICE = [
-  [
-    "desk-type", "desk-type-c", "desk-type-e", "desk-type-b",
-    "desk-type-d", "desk-type-f", "desk-type-c", "desk-type", "desk-sit",
-  ],
-  ["desk-type-c", "desk-type", "desk-type-d", "desk-type-b", "desk-type-f", "desk-sit"],
-  ["desk-blink-a", "desk-blink", "desk-blink-a", "desk-sit"],
-  ["desk-think", "desk-think", "desk-sit"],
-  ["desk-look", "desk-look", "desk-sit"],
-  ["desk-look-l", "desk-look-l", "desk-sit"],
-  ["desk-nod-a", "desk-nod", "desk-nod-a", "desk-sit"],
-  ["desk-lean", "desk-lean", "desk-sit"],
-];
 const PET_NEXT = { wake: "idle" };
-const PET_FRAME_MS = { off: 0, wake: 280, idle: 400, work: 800 };
+const PET_FRAME_MS = { off: 700, wake: 220, idle: 400, work: 120 };
 
 const petState = {
   name: "",
@@ -813,9 +802,11 @@ const petState = {
   idleQueue: null,
   spiceIn: 0,
 };
+const PET_SCALE = 0.5;
+const petImgs = new Map();
 
 function petSrc(frame) {
-  return `${PET_BASE}${frame}.png?v=desk9`;
+  return `${PET_BASE}${frame}.png?v=mago2`;
 }
 
 function petTitle(name) {
@@ -831,67 +822,94 @@ function petCurrentFrames() {
 }
 
 function pickIdleClip() {
-  const r = Math.random();
-  if (r < 0.48) return PET_IDLE_SPICE[0];
-  if (r < 0.80) return PET_IDLE_SPICE[1];
-  if (r < 0.90) return PET_IDLE_SPICE[2];
-  if (r < 0.96) return PET_IDLE_SPICE[Math.random() < 0.5 ? 3 : 4];
-  return PET_IDLE_SPICE[Math.random() < 0.5 ? 5 : 6];
+  if (petState.reduceMotion) return [PET_REST];
+  return PET_IDLE_SPICE[Math.random() < 0.62 ? 0 : 1];
 }
 
-function refillIdleQueue(fromWork = false) {
-  const spice = pickIdleClip();
-  petState.idleQueue = fromWork ? ["sit-a", "sit-in2", "sit-in1", PET_REST, ...spice] : [...spice];
+function refillIdleQueue() {
+  petState.idleQueue = [...pickIdleClip()];
   petState.frame = 0;
 }
 
 function pickWorkClip() {
-  const r = Math.random();
-  if (r < 0.18) return ["desk-sit"];
-  if (r < 0.55) return PET_WORK_SPICE[0];
-  if (r < 0.78) return PET_WORK_SPICE[1];
-  if (r < 0.88) return PET_WORK_SPICE[2];
-  if (r < 0.94) return PET_WORK_SPICE[3];
-  if (r < 0.97) return PET_WORK_SPICE[Math.random() < 0.5 ? 4 : 5];
-  return PET_WORK_SPICE[Math.random() < 0.5 ? 6 : 7];
+  if (petState.reduceMotion) return ["work"];
+  return PET_WORK_SPICE[Math.random() < 0.65 ? 0 : 1];
 }
 
-function refillWorkQueue(sitIn = false) {
-  const base = sitIn ? PET_WORK_SPICE[0] : pickWorkClip();
-  petState.workQueue = sitIn ? [...PET_SIT_IN, ...base] : base;
+function refillWorkQueue() {
+  petState.workQueue = [...pickWorkClip()];
   petState.frame = 0;
 }
 
 function frameWait(name, shown) {
   const f = String(shown);
-  if (f === "sit-in1" || f === "sit-in2") return 140;
-  if (f === "sit-a") return 160;
-  if (f === "desk-in") return 180;
-  if (f === "desk-sit") return 480 + Math.floor(Math.random() * 320);
-  if (f.startsWith("desk-type")) return 110;
-  if (f === "desk-blink-a") return 90;
-  if (f === "desk-blink") return 120;
-  if (f === "desk-think") return 520;
-  if (f === "desk-look" || f === "desk-look-l") return 380;
-  if (f === "desk-nod-a") return 140;
-  if (f === "desk-nod") return 200;
-  if (f === "desk-lean") return 320;
-  if (f === "sit-b") return 400;
+  if (petState.reduceMotion) return 0;
+  if (f === "off") return 800;
+  if (f.startsWith("off-z")) return 700;
   if (name === "wake") {
-    if (f === "off") return 280;
-    if (f.startsWith("idle-blink")) return 110;
+    if (f === "idle-hide") return 320;
+    if (f === "idle-in1" || f === "idle-in2") return 160;
+    if (f === "idle-blink") return 120;
     return 180;
   }
-  if (f === "idle-glance" || f === "idle-glance-l") return 480;
-  if (f.startsWith("idle-glance")) return 140;
-  if (f === "idle-arm" || f === "idle-arm-l") return 280;
-  if (f.startsWith("idle-arm")) return 150;
-  if (f === PET_REST) return 2200 + Math.floor(Math.random() * 1800);
-  if (f.startsWith("idle-blink")) return 90;
-  if (f.startsWith("idle-br")) return 140;
-  if (f === "idle-doze-in") return 280;
-  if (f.startsWith("idle-doze")) return 520;
+  if (f === PET_REST) return 2000 + Math.floor(Math.random() * 2800);
+  if (f === "idle-blink") return 120;
+  if (f === "idle-in1" || f === "idle-in2") return 160;
+  if (f === "idle-hide") return 700;
+  if (f === "work-blink") return 120;
+  if (f.startsWith("work-tap")) return 90;
+  if (f === "work-on") return 90 + Math.floor(Math.random() * 40);
+  if (f === "work-dim") return 70;
+  if (f === "work-logo") return 80;
+  if (f === "work") return 120 + Math.floor(Math.random() * 80);
   return PET_FRAME_MS[name] || 400;
+}
+
+function petImg(frame) {
+  let img = petImgs.get(frame);
+  if (img) return img;
+  img = new Image();
+  img.src = petSrc(frame);
+  petImgs.set(frame, img);
+  return img;
+}
+
+function accentRgb() {
+  let hex = (getComputedStyle(document.documentElement).getPropertyValue("--accent") || "").trim();
+  if (!HEX.test(hex)) hex = DEFAULT_ACCENT;
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** Só a gema na ponta. Chapéu e notebook iguais. */
+function tintPetGem(ctx, w, h) {
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  let top = h;
+  for (let i = 3; i < d.length; i += 4) {
+    if (d[i] < 160) continue;
+    const y = Math.floor(i / 4 / w);
+    if (y < top) top = y;
+  }
+  if (top >= h) return;
+  const y1 = Math.min(h, top + 14);
+  const [ar, ag, ab] = accentRgb();
+  for (let y = top; y < y1; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      if (d[i + 3] < 80) continue;
+      const r = d[i];
+      const g = d[i + 1];
+      const b = d[i + 2];
+      const blue = b - Math.max(r, g);
+      if (blue < 10) continue;
+      const t = Math.min(1, blue / 45);
+      d[i] = Math.round(r + (ar - r) * t);
+      d[i + 1] = Math.round(g + (ag - g) * t);
+      d[i + 2] = Math.round(b + (ab - b) * t);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
 }
 
 function paintPetFrame() {
@@ -900,11 +918,28 @@ function paintPetFrame() {
   const frames = petCurrentFrames();
   if (!frames.length) return;
   const frame = frames[petState.frame % frames.length];
-  const next = petSrc(frame);
-  if (sprite.getAttribute("src") !== next) sprite.src = next;
+  const img = petImg(frame);
+  if (!img.complete || img.naturalWidth === 0) {
+    img.onload = () => paintPetFrame();
+    return;
+  }
+  sprite.width = img.naturalWidth;
+  sprite.height = img.naturalHeight;
+  const dw = Math.max(1, Math.round(img.naturalWidth * PET_SCALE));
+  const dh = Math.max(1, Math.round(img.naturalHeight * PET_SCALE));
+  sprite.style.width = `${dw}px`;
+  sprite.style.height = `${dh}px`;
+  const ctx = sprite.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, sprite.width, sprite.height);
+  ctx.drawImage(img, 0, 0);
+  tintPetGem(ctx, sprite.width, sprite.height);
   sprite.dataset.state = petState.name;
   const stage = $("pet-stage");
-  if (stage) stage.dataset.state = petState.name;
+  if (stage) {
+    stage.dataset.state = petState.name;
+    stage.style.width = `${dw}px`;
+  }
 }
 
 function petTick() {
@@ -944,7 +979,6 @@ function setPet(name, forcar = false) {
   if (!stage || !sprite || !petState.ok) return;
   if (!forcar && petState.name === name) return;
 
-  const prev = petState.name;
   clearTimeout(petState.timer);
   petState.timer = 0;
   petState.name = name;
@@ -955,8 +989,8 @@ function setPet(name, forcar = false) {
   stage.title = petTitle(name);
   sprite.dataset.state = name;
 
-  if (name === "work") refillWorkQueue(true);
-  if (name === "idle") refillIdleQueue(prev === "work");
+  if (name === "work") refillWorkQueue();
+  if (name === "idle") refillIdleQueue();
 
   paintPetFrame();
   const shown = petCurrentFrames()[0] || "";
@@ -966,7 +1000,7 @@ function setPet(name, forcar = false) {
   }
 }
 
-/** Motor off = pedra. Ligado = idle calmo. Stream = senta no notebook. */
+/** Motor off = maguinho dorme. Ligado = idle. Stream = notebook. */
 function syncPet(on, live) {
   if (!on) {
     if (petState.name !== "off") setPet("off");
@@ -993,12 +1027,11 @@ function initPet() {
       ...Object.values(PET_FRAMES).flat(),
       ...PET_WORK_SPICE.flat(),
       ...PET_IDLE_SPICE.flat(),
-      ...PET_SIT_IN,
     ]),
   ];
   let failed = 0;
   for (const frame of all) {
-    const img = new Image();
+    const img = petImg(frame);
     img.addEventListener("error", () => {
       failed += 1;
       if (failed === all.length) {
@@ -1223,7 +1256,7 @@ function applyWorkLayout() {
 
 /** Fecha o módulo aberto (Arquivos/Terminal/Browser/Canvas): só chat + sidebar ficam. */
 function closeModule() {
-  if (state.inspector.on) desligaInspector();
+  inspectorHost.desligar();
   state.view = "none";
   applyWorkLayout();
 }
@@ -1298,6 +1331,7 @@ async function reiniciarBrowserSemCache() {
 
 function esconderFalhaBrowser() {
   $("browser-fail").classList.add("hidden");
+  atualizaDisponibilidadeInspector();
 }
 
 /** Serviço declarado que atende nessa URL — é o que o botão "Rodar" aciona. */
@@ -1326,6 +1360,7 @@ function mostrarFalhaBrowser({ msg, hint, url, externo }) {
   ext.classList.toggle("hidden", !externo);
   ext.onclick = () => void window.nexo.openExternal?.(url || state.browserUrl);
   $("browser-fail").classList.remove("hidden");
+  atualizaDisponibilidadeInspector();
 }
 
 /** Sonda antes de culpar o iframe: conexão recusada é o caso comum. */
@@ -1357,82 +1392,164 @@ function loadBrowser() {
   setBrowserUrl(localStorage.getItem(storeKey("browser")) || "about:blank", false);
 }
 
+
 /* ---------- inspector de elemento (modo seleção do painel Browser) ---------- */
 
-function renderInspectorBox() {
+/** Só há preview de verdade quando a URL não é about:blank e a tela de falha não tá em cima. */
+function temPreviewDisponivel() {
+  return state.browserUrl !== "about:blank" && $("browser-fail").classList.contains("hidden");
+}
+
+/** Chamada sempre que a disponibilidade do preview muda (URL nova, falha aparece/some). */
+function atualizaDisponibilidadeInspector() {
+  const disponivel = temPreviewDisponivel();
+  const btn = $("btn-browser-inspect");
+  btn.disabled = !disponivel;
+  const titulo = disponivel ? "Selecionar elemento do preview" : "Abra um preview primeiro";
+  btn.title = titulo;
+  btn.setAttribute("aria-label", titulo);
+  if (!disponivel) inspectorHost.desligar();
+}
+
+function renderInspectorBox(fase) {
+  const mostraCaixa = fase === FASE.LIGADO && state.inspector.caixaAberta;
+  $("inspector-box").classList.toggle("hidden", !mostraCaixa);
   const lista = state.inspector.selecionados;
-  $("inspector-box").classList.toggle("hidden", lista.length === 0);
   const ul = $("inspector-list");
   ul.replaceChildren();
+  if (!mostraCaixa) return;
+  if (lista.length === 0) {
+    const vazio = document.createElement("li");
+    vazio.className = "insp-vazio";
+    vazio.textContent = "Nenhum elemento ainda — clique num elemento do preview.";
+    ul.append(vazio);
+    return;
+  }
   lista.forEach((s, i) => {
     const li = document.createElement("li");
-    const seletor = document.createElement("span");
-    seletor.className = "insp-seletor";
-    seletor.textContent = `${i + 1}. ${s.seletor}`;
-    li.append(seletor);
-    if (s.texto) {
-      const texto = document.createElement("span");
-      texto.className = "insp-texto";
-      texto.textContent = s.texto;
-      li.append(texto);
-    }
+    // Chip curto ("div1", "button2") — seletor/HTML/texto completos não aparecem aqui, só
+    // no title (hover) e na mensagem final pro agente (montarMensagem guarda tudo).
+    li.title = s.texto ? `${s.seletor} — ${s.texto}` : s.seletor;
+    const rotulo = document.createElement("span");
+    rotulo.className = "insp-rotulo";
+    rotulo.textContent = `${s.tag}${i + 1}`;
+    li.append(rotulo);
+    const remover = document.createElement("button");
+    remover.type = "button";
+    remover.className = "ghost insp-remover";
+    remover.title = "Remover";
+    remover.setAttribute("aria-label", "Remover");
+    remover.textContent = "✕";
+    remover.addEventListener("click", () => inspectorHost.removerSelecionado(i));
+    li.append(remover);
+    li.addEventListener("mouseenter", () => inspectorHost.realcarSelecionado(i));
     ul.append(li);
   });
 }
 
 /**
- * `<webview>.send()` pode lançar se o preview ainda não terminou de anexar (ex: clicar o
- * botão com about:blank recém-aberto) — sem o try/catch, um clique nesse instante quebraria
- * o handler e deixaria o botão marcado como ligado sem o preload ter recebido nada.
+ * Abre a caixa flutuante perto de onde a pessoa clicou no 1º elemento da sessão — só ali,
+ * não a cada clique (senão a caixa fica pulando de lugar a cada seleção). `sel.x`/`sel.y`
+ * vêm do preload em coordenadas do viewport do `<webview>`; somamos o offset dele em
+ * relação ao `.browser-stage` (offsetParent real do `.inspector-box`, position:relative)
+ * pra virar coordenada local, e limitamos pra caixa não vazar pra fora do stage.
  */
-function mandaProInspector(canal, valor) {
-  try {
-    $("browser-frame").send?.(canal, valor);
-  } catch {
-    /* preview ainda não anexou — o próximo toggle tenta de novo */
+function posicionarCaixaFlutuante(sel) {
+  const stage = $("browser-frame").closest(".browser-stage");
+  const caixa = $("inspector-box");
+  if (!stage || !caixa) return;
+  const rectStage = stage.getBoundingClientRect();
+  const rectWebview = $("browser-frame").getBoundingClientRect();
+  const larguraCaixa = caixa.offsetWidth || 240;
+  const alturaCaixa = caixa.offsetHeight || 160;
+  const origemX = rectWebview.left - rectStage.left + sel.x;
+  const origemY = rectWebview.top - rectStage.top + sel.y;
+  const maxLeft = Math.max(8, rectStage.width - larguraCaixa - 8);
+  const maxTop = Math.max(8, rectStage.height - alturaCaixa - 8);
+  caixa.style.left = `${Math.min(Math.max(8, origemX), maxLeft)}px`;
+  caixa.style.top = `${Math.min(Math.max(8, origemY), maxTop)}px`;
+}
+
+const FAIXA_TEXTO = {
+  [FASE.ARMANDO]: "Ligando o modo seleção…",
+  [FASE.LIGADO]: "Modo seleção — clique nos elementos do preview. Esc sai.",
+  [FASE.ERRO]: "Modo seleção não conseguiu entrar no preview.",
+};
+
+function renderInspectorFaixa(fase) {
+  const faixa = $("inspector-faixa");
+  faixa.classList.toggle("hidden", fase === FASE.DESLIGADO);
+  faixa.dataset.fase = fase;
+  faixa.replaceChildren();
+  if (fase === FASE.DESLIGADO) return;
+  faixa.append(document.createTextNode(FAIXA_TEXTO[fase] || ""));
+  if (fase === FASE.ERRO) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ghost";
+    btn.textContent = "Tentar de novo";
+    btn.addEventListener("click", () => inspectorHost.ligar());
+    faixa.append(btn);
   }
 }
 
-function ligaInspector() {
-  state.inspector.on = true;
-  $("btn-browser-inspect").setAttribute("aria-pressed", "true");
-  mandaProInspector("nexo-inspector:toggle", true);
-}
-
-/** Desliga o modo e limpa a seleção pendente — usado tanto por "Descartar" quanto por Mandar/Esc/fechar painel. */
-function desligaInspector() {
-  state.inspector.on = false;
-  state.inspector.selecionados = [];
-  $("btn-browser-inspect").setAttribute("aria-pressed", "false");
-  $("inspector-pedido").value = "";
-  renderInspectorBox();
-  mandaProInspector("nexo-inspector:toggle", false);
-}
+const inspectorHost = criarInspectorHost({
+  getWebview: () => $("browser-frame"),
+  temPreview: temPreviewDisponivel,
+  onMudarEstado(estado) {
+    const primeiraSelecao = state.inspector.selecionados.length === 0 && estado.selecionados.length === 1;
+    state.inspector.selecionados = estado.selecionados;
+    if (estado.fase !== FASE.LIGADO) state.inspector.caixaAberta = false;
+    else if (primeiraSelecao) state.inspector.caixaAberta = true;
+    $("btn-browser-inspect").setAttribute("aria-pressed", String(inspectorHost.botaoPressionado()));
+    renderInspectorBox(estado.fase);
+    renderInspectorFaixa(estado.fase);
+    if (primeiraSelecao) posicionarCaixaFlutuante(estado.selecionados[0]);
+    if (estado.fase === FASE.DESLIGADO) $("inspector-pedido").value = "";
+  },
+});
 
 function toggleInspector() {
-  if (state.inspector.on) desligaInspector();
-  else ligaInspector();
+  const fase = inspectorHost.estadoAtual().fase;
+  if (fase === FASE.DESLIGADO || fase === FASE.ERRO) inspectorHost.ligar();
+  else inspectorHost.desligar();
 }
 
-/** O elemento clicado dentro do preview chega aqui — ver browser-inspector-preload.cjs. */
+/** Mensagens do preload dentro do preview — ver browser-inspector-preload.cjs. */
 $("browser-frame").addEventListener("ipc-message", (e) => {
-  if (e.channel !== "nexo-inspector:selecionado") return;
-  state.inspector.selecionados.push(e.args[0]);
-  renderInspectorBox();
+  if (e.channel === "nexo-inspector:selecionado") inspectorHost.receberSelecionado(e.args[0]);
+  else if (e.channel === "nexo-inspector:pronto") inspectorHost.receberPronto();
+  else if (e.channel === "nexo-inspector:esc") inspectorHost.receberEsc();
 });
+
+/**
+ * O preload morre e nasce de novo a cada navegação do `<webview>` — sem isto, um reload
+ * do preview com o modo ligado deixava o botão aceso e o preview inerte, em silêncio.
+ */
+$("browser-frame").addEventListener("dom-ready", () => inspectorHost.aoRecarregarPreview());
+$("browser-frame").addEventListener("did-navigate", () => inspectorHost.aoRecarregarPreview());
 
 $("btn-browser-inspect").addEventListener("click", toggleInspector);
 
-$("btn-inspector-discard").addEventListener("click", () => desligaInspector());
+$("btn-inspector-discard").addEventListener("click", () => inspectorHost.desligar());
 
-$("btn-inspector-send").addEventListener("click", () => {
+function enviarInspector() {
   if (!state.threadId) {
     appendEvent({ type: "error", message: "Abre uma conversa primeiro." });
     return;
   }
   const texto = montarMensagem(state.inspector.selecionados, $("inspector-pedido").value);
-  desligaInspector();
+  inspectorHost.desligar();
   void sendChatMessage(texto);
+}
+
+$("btn-inspector-send").addEventListener("click", enviarInspector);
+
+$("inspector-pedido").addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+    e.preventDefault();
+    enviarInspector();
+  }
 });
 
 const fileTree = createFileTree({
@@ -4589,7 +4706,7 @@ window.nexo.onMod?.((id) => handleMod(id));
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (state.inspector.on) desligaInspector();
+    inspectorHost.desligar();
     if (state.paletteOpen) closePalette();
     else if (state.agents.open) toggleAgents(false);
     $("settings").classList.add("hidden");

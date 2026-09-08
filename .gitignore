@@ -25,7 +25,7 @@ keys.json
 # atalho do Windows: aponta pra caminho absoluto da máquina de quem gerou
 *.lnk
 
-# arte do pet: só a pasta 128/ é usada em runtime (renderer.js -> PET_BASE).
+# arte do pet: runtime em pets/nexo/mago/ e (legado) 128/.
 # O resto é fonte/rascunho de geração (masters em alta, backups, QA, scripts
 # Python de import) e não entra no repo.
 apps/desktop/pets/nexo/*.png

@@ -1,5 +1,6 @@
 const { ipcRenderer } = require("electron");
-const { capturarElemento } = require("./inspector-selector.cjs");
+const { capturarElemento, gerarSeletor } = require("./inspector-selector.cjs");
+const { criarOverlay } = require("./inspector-overlay.cjs");
 
 /**
  * Preload do `<webview>` do painel Browser (main.cjs trava este caminho em
@@ -11,115 +12,136 @@ const { capturarElemento } = require("./inspector-selector.cjs");
  * (não mexe no estilo do elemento real); clique marca um badge numerado nele e manda os
  * dados capturados pro host via `sendToHost` — quem decide o que fazer com isso (acumular,
  * montar a mensagem) é `renderer.js`, não este arquivo.
+ *
+ * Nomes de canal aqui são literais, não `import` de `inspector-protocolo.js`: este arquivo
+ * é CommonJS e roda num processo/contexto separado do resto do desktop (ESM). Mudou um nome
+ * lá, espelha aqui.
  */
 
 let ligado = false;
-let overlayHover = null;
-let badges = [];
-let contador = 0;
+const overlay = criarOverlay();
 
-function aplicaEstilo(el, extra) {
-  Object.assign(el.style, {
-    position: "fixed",
-    pointerEvents: "none",
-    zIndex: "2147483647",
-    boxSizing: "border-box",
-    margin: "0",
-    padding: "0",
-    display: "none",
-    ...extra,
-  });
-}
-
-function garanteOverlayHover() {
-  if (overlayHover && overlayHover.isConnected) return overlayHover;
-  overlayHover = document.createElement("div");
-  aplicaEstilo(overlayHover, { border: "2px solid #4f9dff", background: "rgba(79,157,255,.12)" });
-  document.documentElement.appendChild(overlayHover);
-  return overlayHover;
-}
-
-function posicionaSobre(el, caixa) {
-  const r = el.getBoundingClientRect();
-  Object.assign(caixa.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, display: "block" });
+/** Elemento sob o mouse é sempre resolvido por coordenada — clique usa a mesma fonte que o
+ * hover (senão os dois divergem sob overlay/shadow DOM e o badge marca algo diferente do
+ * que a pessoa viu destacado). */
+function elementoSobMouse(e) {
+  return document.elementFromPoint(e.clientX, e.clientY);
 }
 
 function onMouseMove(e) {
-  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const el = elementoSobMouse(e);
   // pointer-events:none já tira o overlay do hit-test, mas um elemento já selecionado (com
   // badge por cima) também não precisa do destaque de hover — o badge já marca ele
-  if (!el || badges.some((b) => b.el === el)) return;
-  posicionaSobre(el, garanteOverlayHover());
+  if (!el || overlay.estaMarcado(el)) {
+    overlay.esconderHover();
+    return;
+  }
+  overlay.mostrarHover(el, { etiqueta: gerarSeletor(el) });
 }
 
-function novoBadge(el) {
-  contador += 1;
-  const badge = document.createElement("div");
-  aplicaEstilo(badge, { border: "2px solid #ff7a4f", background: "rgba(255,122,79,.10)" });
-  const numero = document.createElement("span");
-  Object.assign(numero.style, {
-    position: "absolute",
-    top: "-10px",
-    left: "-10px",
-    background: "#ff7a4f",
-    color: "#fff",
-    borderRadius: "999px",
-    minWidth: "18px",
-    height: "18px",
-    fontSize: "11px",
-    lineHeight: "18px",
-    textAlign: "center",
-    fontFamily: "system-ui, sans-serif",
-  });
-  numero.textContent = String(contador);
-  badge.appendChild(numero);
-  document.documentElement.appendChild(badge);
-  posicionaSobre(el, badge);
-  return { el, badge };
-}
-
-function reposicionaBadges() {
-  for (const b of badges) posicionaSobre(b.el, b.badge);
+/** Mouse saiu da janela do preview: sem isso o realce do último elemento hovered trava na tela. */
+function onMouseOut(e) {
+  if (e.relatedTarget) return;
+  overlay.esconderHover();
 }
 
 function onClick(e) {
-  const el = e.target;
-  if (!el || el === overlayHover) return;
+  const el = elementoSobMouse(e);
+  if (!el) return;
   e.preventDefault();
   e.stopPropagation();
+  const indice = overlay.marcar(el);
   // clicar de novo no que já está selecionado não pode duplicar badge nem mandar de novo
-  if (badges.some((b) => b.el === el)) return;
-  badges.push(novoBadge(el));
-  ipcRenderer.sendToHost("nexo-inspector:selecionado", capturarElemento(el));
+  if (indice === null) return;
+  // x/y são coordenadas do viewport do preview (não da página host) — o host traduz pra sua
+  // própria tela somando o retângulo do `<webview>`, e usa só a do 1º clique da sessão pra
+  // abrir a caixa flutuante perto de onde a pessoa clicou.
+  ipcRenderer.sendToHost("nexo-inspector:selecionado", { ...capturarElemento(el), x: e.clientX, y: e.clientY });
 }
 
-function limpaBadges() {
-  for (const b of badges) b.badge.remove();
-  badges = [];
-  contador = 0;
+/**
+ * `click` sozinho não basta: carousel/menu/drag do preview reage a pointerdown/mousedown/
+ * mouseup antes do click disparar, e a página navega ou arrasta em vez de só selecionar.
+ * Bloqueia tudo em captura; só `onClick` faz alguma coisa com o evento.
+ */
+function bloqueiaEvento(e) {
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+function onScrollOuResize() {
+  overlay.reposicionarBadges();
+}
+
+function onKeyDown(e) {
+  if (e.key !== "Escape") return;
+  e.preventDefault();
+  e.stopPropagation();
+  // desliga local imediatamente — não espera o host confirmar. Se o IPC de aviso se
+  // perder, o modo já saiu sozinho e não fica comendo clique pra sempre.
+  desliga();
+  ipcRenderer.sendToHost("nexo-inspector:esc");
+}
+
+let estiloCursor = null;
+
+function ligaCursor() {
+  estiloCursor = document.createElement("style");
+  estiloCursor.textContent = "*{cursor:crosshair!important;}";
+  document.documentElement.appendChild(estiloCursor);
+}
+
+function desligaCursor() {
+  estiloCursor?.remove();
+  estiloCursor = null;
 }
 
 function liga() {
   if (ligado) return;
   ligado = true;
   document.addEventListener("mousemove", onMouseMove, true);
+  document.addEventListener("mouseout", onMouseOut, true);
   document.addEventListener("click", onClick, true);
-  document.addEventListener("scroll", reposicionaBadges, true);
-  window.addEventListener("resize", reposicionaBadges);
+  document.addEventListener("pointerdown", bloqueiaEvento, true);
+  document.addEventListener("mousedown", bloqueiaEvento, true);
+  document.addEventListener("mouseup", bloqueiaEvento, true);
+  document.addEventListener("contextmenu", bloqueiaEvento, true);
+  document.addEventListener("keydown", onKeyDown, true);
+  document.addEventListener("scroll", onScrollOuResize, true);
+  window.addEventListener("resize", onScrollOuResize);
+  ligaCursor();
+  // confirma o handshake só depois dos listeners estarem de pé — é isto que autoriza o
+  // host a acender o botão como "pressionado"
+  ipcRenderer.sendToHost("nexo-inspector:pronto");
 }
 
 function desliga() {
   if (!ligado) return;
   ligado = false;
   document.removeEventListener("mousemove", onMouseMove, true);
+  document.removeEventListener("mouseout", onMouseOut, true);
   document.removeEventListener("click", onClick, true);
-  document.removeEventListener("scroll", reposicionaBadges, true);
-  window.removeEventListener("resize", reposicionaBadges);
-  if (overlayHover) overlayHover.style.display = "none";
-  limpaBadges();
+  document.removeEventListener("pointerdown", bloqueiaEvento, true);
+  document.removeEventListener("mousedown", bloqueiaEvento, true);
+  document.removeEventListener("mouseup", bloqueiaEvento, true);
+  document.removeEventListener("contextmenu", bloqueiaEvento, true);
+  document.removeEventListener("keydown", onKeyDown, true);
+  document.removeEventListener("scroll", onScrollOuResize, true);
+  window.removeEventListener("resize", onScrollOuResize);
+  desligaCursor();
+  overlay.esconderHover();
+  overlay.limpar();
 }
 
 ipcRenderer.on("nexo-inspector:toggle", (_e, on) => {
   if (on) liga();
   else desliga();
+});
+
+ipcRenderer.on("nexo-inspector:desmarcar", (_e, indice1based) => {
+  overlay.desmarcar(indice1based);
+});
+
+ipcRenderer.on("nexo-inspector:realcar", (_e, indice1based) => {
+  overlay.realcar(indice1based);
 });

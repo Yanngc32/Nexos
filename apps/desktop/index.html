@@ -150,9 +150,10 @@
             type="button"
             id="btn-browser-inspect"
             class="ghost ico-only ico-inspect"
-            title="Selecionar elemento do preview"
-            aria-label="Selecionar elemento do preview"
+            title="Abra um preview primeiro"
+            aria-label="Abra um preview primeiro"
             aria-pressed="false"
+            disabled
           >
             <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
               <path d="M12 3v4M12 17v4M3 12h4M17 12h4" />
@@ -162,8 +163,7 @@
           <button type="submit" class="primary">Ir</button>
         </form>
         <div class="browser-stage">
-          <!-- preload não vai aqui: main.cjs trava em will-attach-webview, ignorando o
-               que este atributo disser — deixar os dois seria confundir qual manda -->
+          <div id="inspector-faixa" class="inspector-faixa hidden" role="status"></div>
           <webview id="browser-frame" title="Browser" src="about:blank"></webview>
           <div id="browser-fail" class="browser-fail hidden" role="alert">
             <p id="browser-fail-msg"></p>
@@ -440,16 +440,13 @@
         </div>
         <div class="composer-wrap">
           <div id="pet-stage" class="pet-stage" title="Motor desligado" data-state="off">
-            <img
+            <canvas
               id="pet-sprite"
               class="pet-sprite"
-              src="./pets/nexo/128/off.png"
-              alt=""
-              width="56"
-              height="56"
-              draggable="false"
+              width="94"
+              height="123"
               data-state="off"
-            />
+            ></canvas>
           </div>
         <form id="composer">
           <div id="slash-menu" class="slash-menu hidden" role="listbox" aria-label="Comandos"></div>
