@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * Instala a skill `nexo-times` pro CLI do Claude.
@@ -25,10 +26,17 @@ export function destinoDaSkill(base = homedir()): string {
   return join(base, ".claude", "skills", NOME, "SKILL.md");
 }
 
-/** A fonte, dentro do repositório do Nexo. */
+/**
+ * A fonte, dentro do repositório do Nexo.
+ *
+ * `fileURLToPath` e NÃO `new URL(...).pathname`: no Windows o `pathname` vem
+ * como `/D:/a/repo/...`, e o `join` com isso produz `D:\D:\a\repo\...` — caminho
+ * inválido com a letra de unidade duplicada. No Linux passa, então é o tipo de
+ * bug que só aparece na máquina de outra pessoa (aqui, no CI).
+ */
 export function origemDaSkill(): string {
   // .../apps/daemon/src/skill.ts → raiz do repo
-  const raiz = join(dirname(new URL(import.meta.url).pathname), "..", "..", "..");
+  const raiz = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
   return join(raiz, ".claude", "skills", NOME, "SKILL.md");
 }
 
