@@ -30,7 +30,7 @@ Tudo em `~/.nexo` (ou `NEXO_HOME`). Nada disso vai pro repositório.
 | caminho | conteúdo | modo |
 | --- | --- | --- |
 | `config.json` | porta, ordem de fallback, tema, projetos, projetos confiáveis | — |
-| `profiles/<id>/profile.json` | motor, status, modelo, effort, permission mode | `0700` na pasta |
+| `profiles/<id>/profile.json` | motor, status, modelo, effort, permission mode, janela por modelo | `0700` na pasta |
 | `profiles/<id>/keys.json` | chave de API (engine `api`) | `0600` |
 | `profiles/<id>/claude` \| `codex` | credencial isolada da CLI (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`) | `0700` |
 | `agents/<id>.json` | agentes personalizados | — |

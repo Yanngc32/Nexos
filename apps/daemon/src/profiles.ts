@@ -12,7 +12,7 @@ import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AccountInfo, ApiProvider, EffortLevel, EngineKind, PermissionMode, Profile } from "@nexo/shared";
-import { EFFORT_LEVELS, MODEL_RE, PERMISSION_MODES, TOOL_PATTERN_RE } from "@nexo/shared";
+import { EFFORT_LEVELS, MODEL_RE, PERMISSION_MODES, TOOL_PATTERN_RE, WINDOW_KEY_RE } from "@nexo/shared";
 import { loadConfig, saveConfig } from "./config.ts";
 import { assertSlug } from "./ids.ts";
 import { ensureHome, profileDir } from "./home.ts";
@@ -139,6 +139,61 @@ export function updateProfile(id: string, home: string, patch: ProfilePatch): Pr
   }
   writeFileSync(profileJsonPath(id, home), JSON.stringify(next, null, 2), "utf8");
   return next;
+}
+
+/**
+ * Quantos modelos o perfil lembra. Um perfil real conhece um punhado, mas o
+ * nome vem do CLI: sem teto, um dia de nome novo por turno cresceria o arquivo
+ * pra sempre.
+ */
+export const JANELAS_MAX = 12;
+
+/**
+ * Grava a janela efetiva que o motor reportou, pra ela sobreviver à próxima
+ * subida do daemon.
+ *
+ * Não valida "janela plausível" nem tem teto de valor: quem reporta é o CLI que
+ * o próprio daemon spawnou, e um teto meu aqui é exatamente o palpite que este
+ * campo existe pra substituir. Só recusa o que não é número útil.
+ *
+ * Silencioso no caminho de erro (perfil sumiu, modelo estranho, disco cheio):
+ * isto roda no meio do stream de um turno, e derrubar a resposta da pessoa por
+ * causa de um número de otimização seria trocar um teto pequeno por nenhuma
+ * resposta. O piso continua atrás.
+ */
+export function rememberContextWindow(id: string, home: string, model: string, janela: number): void {
+  const chave = String(model ?? "").trim();
+  if (!WINDOW_KEY_RE.test(chave)) return;
+  if (!Number.isFinite(janela) || janela <= 0) return;
+  const alvo = Math.round(janela);
+
+  let p: Profile | undefined;
+  try {
+    p = getProfile(id, home);
+  } catch {
+    return;
+  }
+  if (!p) return;
+  const atuais = p.contextWindows ?? {};
+  if (atuais[chave] === alvo) return; // nada mudou: não reescreve o arquivo a cada turno
+
+  /*
+   * A chave reentra no fim de propósito. Objeto JSON preserva ordem de inserção
+   * (chave não-numérica), então a ordem É o dado de recência — e o descarte
+   * abaixo tira o mais antigo, não um qualquer. Sem isso, cortar o mapa cheio
+   * seria escolher vítima no escuro.
+   */
+  const next: Record<string, number> = { ...atuais };
+  delete next[chave];
+  next[chave] = alvo;
+  const chaves = Object.keys(next);
+  for (const velha of chaves.slice(0, Math.max(0, chaves.length - JANELAS_MAX))) delete next[velha];
+
+  try {
+    writeFileSync(profileJsonPath(id, home), JSON.stringify({ ...p, contextWindows: next }, null, 2), "utf8");
+  } catch {
+    /* janela é otimização: perder a gravação custa um turno com teto menor, não o turno. */
+  }
 }
 
 /** Consulta, não mutação: id fora do formato é "não existe", não erro. */

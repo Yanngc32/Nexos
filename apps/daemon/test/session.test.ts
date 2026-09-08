@@ -2,7 +2,7 @@ import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
-import { addProfile, engineEnv, getProfile, markReady } from "../src/profiles.ts";
+import { addProfile, engineEnv, getProfile, markReady, rememberContextWindow } from "../src/profiles.ts";
 import { createThread, readThread, threadUsage } from "../src/threads.ts";
 import {
   abortThread,
@@ -14,7 +14,7 @@ import {
   sessionBus,
   switchThread,
 } from "../src/session.ts";
-import { modeloDoMotor } from "../src/session.ts";
+import { janelaDaConta, modeloDoMotor } from "../src/session.ts";
 import { StubEngine } from "../src/engines/stub.ts";
 import type { Profile, ThreadEvent } from "@nexo/shared";
 
@@ -472,5 +472,81 @@ describe("janela da sessão", () => {
     await postMessage(t.id, "USAGE", home);
     sessionBus.off(t.id, onEv);
     expect(vistos).toEqual([980_000]);
+  });
+
+  /*
+   * A gravação, ponta a ponta pelo stub — que é o caminho que importa, porque a
+   * janela e o nome do modelo chegam em LINHAS DIFERENTES do stream (o fixture
+   * repete a ordem do CLI real: window antes de session) e a gravação só é
+   * possível quando os dois já chegaram.
+   */
+  it("grava a janela reportada no perfil, sob a chave do modelo que rodou", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    expect(getProfile("p1", home)?.contextWindows).toBeUndefined();
+
+    await postMessage(t.id, "USAGE", home);
+
+    // 980k é o que o stream reportou; 200k era o palpite do nome, que perde
+    expect(getProfile("p1", home)?.contextWindows).toEqual({ "claude-sonnet-5": 980_000 });
+  });
+});
+
+/*
+ * A precedência das fontes da janela. Isto existe porque o número gravado é o
+ * que impede o PRIMEIRO turno depois de cada subida do daemon de voltar ao
+ * palpite pelo nome — que subestimava em 5× (200k contra 980k reais) e fazia a
+ * compactação disparar antes da hora.
+ *
+ * Testada direto, e não pelo stub, por dois motivos: o `windowByProfile` é do
+ * módulo e não zera entre casos (não há como simular "daemon subiu de novo"), e
+ * o motor `stub` não chuta janela nenhuma — só `claude` tem a convenção do
+ * sufixo. Os ids aqui são distintos dos usados acima justamente pra não pegarem
+ * carona no mapa em memória.
+ */
+describe("janelaDaConta: de onde vem o número", () => {
+  const eventos = (model?: string) =>
+    [
+      {
+        ts: ts0,
+        type: "usage",
+        threadId: "t",
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheCreate: 0,
+        contextTokens: 2,
+        ...(model ? { model } : {}),
+      },
+    ] as ThreadEvent[];
+
+  it("sem nada gravado, cai no palpite pelo nome", () => {
+    const home = tempHome();
+    const p = addProfile({ id: "jc-1", engine: "claude" }, home, { skipBinCheck: true });
+    expect(janelaDaConta(p, eventos("claude-sonnet-5"), undefined, home)).toBe(200_000);
+  });
+
+  it("o gravado ganha do palpite: é ele que sobrevive à subida do daemon", () => {
+    const home = tempHome();
+    addProfile({ id: "jc-2", engine: "claude" }, home, { skipBinCheck: true });
+    rememberContextWindow("jc-2", home, "claude-sonnet-5", 980_000);
+    const p = getProfile("jc-2", home)!;
+    expect(janelaDaConta(p, eventos("claude-sonnet-5"), undefined, home)).toBe(980_000);
+  });
+
+  it("é por MODELO: trocar de modelo não herda o número do antigo", () => {
+    const home = tempHome();
+    addProfile({ id: "jc-3", engine: "claude" }, home, { skipBinCheck: true });
+    rememberContextWindow("jc-3", home, "claude-sonnet-5", 980_000);
+    const p = getProfile("jc-3", home)!;
+    // outro modelo, sem sufixo [1m]: volta ao palpite em vez de reusar 980k
+    expect(janelaDaConta(p, eventos("claude-opus-5"), undefined, home)).toBe(200_000);
+  });
+
+  it("sem modelo conhecido devolve 0, e aí o teto cai no piso", () => {
+    const home = tempHome();
+    const p = addProfile({ id: "jc-4", engine: "claude" }, home, { skipBinCheck: true });
+    expect(janelaDaConta(p, eventos(), undefined, home)).toBe(0);
   });
 });

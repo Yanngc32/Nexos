@@ -91,6 +91,12 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   recurso, pra quando o daemon subiu agora e ainda não viu turno daquela conta.
   De quebra o medidor de contexto da tela parou de mentir: passou de `40.4k / 200.0k (20%)` pra
   `40.4k / 980.0k (4%)` na mesma conversa.
+  A janela reportada agora é **gravada no perfil**, em `contextWindows`, com o nome do modelo como
+  chave. Sem isso o "último recurso" acima valia depois de CADA subida do daemon: o primeiro turno
+  de cada conta voltava aos 200k deduzidos do nome, com teto de 100k em vez de 128k — e a
+  compactação automática, que dispara em 80% do teto, disparava antes da hora. Por modelo, e não
+  por conta, pra que trocar o modelo do perfil invalide o número sozinho, sem limpeza. Guarda os 12
+  modelos mais recentes e descarta o mais antigo.
 - Teto de tempo dos testes que rodam `git` de verdade subiu pra 30s (`worktree.test.ts` inteiro e o
   `isolamento no fan-in` do `runs.test.ts`). Os 5s padrão do vitest são pra teste de lógica; esses
   casos disparam de 5 a 10 processos contra disco, e num runner Windows lento um `worktree add` +

@@ -13,7 +13,13 @@ import { claudeEngine, codexEngine } from "./engines/cli.ts";
 import { contextWindowOf } from "./engines/parse-claude.ts";
 import { StubEngine } from "./engines/stub.ts";
 import type { Engine } from "./engines/types.ts";
-import { applyLoginResult, credentialVerdict, getProfile, markAuthFailed } from "./profiles.ts";
+import {
+  applyLoginResult,
+  credentialVerdict,
+  getProfile,
+  markAuthFailed,
+  rememberContextWindow,
+} from "./profiles.ts";
 import { pack, precisaCompactar, tetoDeToken, tokensDoHistorico } from "./packer.ts";
 import {
   historicoParaResumir,
@@ -238,14 +244,26 @@ export function modeloDoMotor(profile: Profile, events: ThreadEvent[], agentId: 
 }
 
 /**
- * Janela do motor, da fonte melhor pra pior: o que a conta já reportou num
- * turno anterior, depois o palpite pelo nome do modelo, depois nada (piso).
+ * Janela do motor, da fonte melhor pra pior:
+ * 1. o que a conta reportou NESTE processo — é a sessão que está de pé;
+ * 2. o que ela reportou antes, gravado no perfil por modelo — sobrevive à
+ *    subida do daemon, e é o que impede o primeiro turno depois de cada
+ *    reinício de voltar ao palpite;
+ * 3. o palpite pelo nome do modelo;
+ * 4. nada, e aí o teto cai no piso.
+ *
+ * O gravado é por MODELO, então trocar o modelo do perfil não herda o número do
+ * modelo antigo: cai pro palpite até o primeiro turno reportar o novo.
+ *
+ * Exportada pelo mesmo motivo do `modeloDoMotor`: a precedência é a decisão, e
+ * o único jeito de verificá-la sem subir motor de CLI é chamando direto.
  */
-function janelaDaConta(profile: Profile, events: ThreadEvent[], agentId: string | undefined, home: string): number {
+export function janelaDaConta(profile: Profile, events: ThreadEvent[], agentId: string | undefined, home: string): number {
   const reportada = windowByProfile.get(profile.id);
   if (reportada) return reportada;
   const modelo = modeloDoMotor(profile, events, agentId, home);
-  return modelo ? contextWindowOf(modelo) : 0;
+  if (!modelo) return 0;
+  return profile.contextWindows?.[modelo] ?? contextWindowOf(modelo);
 }
 
 async function ensureLive(threadId: string, home: string, profile?: Profile): Promise<Live> {
@@ -493,6 +511,13 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     windowByProfile.set(live.profileId, ev.contextWindow);
     // o `session` pode ter chegado antes: corrige o número que veio do nome
     if (live.session) live.session = { ...live.session, contextWindow: ev.contextWindow };
+    /*
+     * A gravação acontece aqui E no `session` porque a janela e o NOME DO MODELO
+     * chegam em linhas diferentes do stream, e a ordem entre elas é do CLI, não
+     * nossa (hoje a janela vem primeiro). Quem chegar por último tem os dois e
+     * grava; o outro lado não faz nada, porque gravar o mesmo valor é no-op.
+     */
+    if (live.session?.model) rememberContextWindow(live.profileId, home, live.session.model, ev.contextWindow);
     emit(threadId, { ...ev, threadId });
     return;
   }
@@ -528,6 +553,7 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     // janela reportada ganha da deduzida do nome, tenha chegado antes ou depois
     const janela = windowByProfile.get(live.profileId);
     live.session = janela ? { ...ev, contextWindow: janela } : ev;
+    if (janela && ev.model) rememberContextWindow(live.profileId, home, ev.model, janela);
     emit(threadId, { ...live.session, threadId });
     return;
   }
