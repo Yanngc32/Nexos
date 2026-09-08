@@ -514,6 +514,28 @@ function setBar(fillId, ratio) {
 /** Perímetro do anel da bolinha (r=15.5 no viewBox 36x36). */
 const RING_LEN = 2 * Math.PI * 15.5;
 
+/**
+ * Compactação em curso.
+ *
+ * Anima o ANEL DO CONTEXTO, e não um canto qualquer da tela, porque é o número
+ * dele que vai mudar quando o resumo entrar. Quem vê o anel pulsando está
+ * olhando pra coisa certa.
+ *
+ * O motivo da falha vira aviso no painel: resumir gasta um turno, e falhar em
+ * silêncio deixaria a pessoa achando que a conversa está encolhendo quando não
+ * está — ela vai seguir sendo cortada como antes.
+ */
+function pintarCompactando(on, motivo) {
+  state.compactando = Boolean(on);
+  document.body.dataset.compactando = on ? "1" : "0";
+  const rotulo = $("meter-compact");
+  if (rotulo) {
+    rotulo.textContent = on ? "resumindo o histórico…" : motivo ? `resumo falhou: ${motivo}` : "";
+    rotulo.classList.toggle("hidden", !on && !motivo);
+    rotulo.dataset.erro = !on && motivo ? "1" : "0";
+  }
+}
+
 function paintContext() {
   const m = state.meter;
   const win = m.contextWindow || 200_000;
@@ -2078,6 +2100,25 @@ function appendEvent(ev, scroll = true) {
     li.innerHTML = `<div class="panel"><h3>${escapeHtml(ev.title)}</h3><dl>${rows}</dl></div>`;
   } else if (ev.type === "context_trimmed") {
     li.innerHTML = `<span class="stamp">Contexto cortado · ficou ${escapeHtml(String(ev.keptMessages))} msgs</span>`;
+  } else if (ev.type === "compacting") {
+    // não é linha na conversa: é estado. Sai pelo anel do contexto, que é
+    // justamente o número que a compactação vai mudar.
+    pintarCompactando(ev.on, ev.motivo);
+    return;
+  } else if (ev.type === "compacted") {
+    /*
+     * Dobrável, e fechado: o resumo é longo e a pessoa quase nunca quer lê-lo —
+     * ela quer saber que ele existe. Mas quando a resposta seguinte parecer ter
+     * esquecido algo, é aqui que se descobre o que foi guardado.
+     */
+    const de = fmtTokens(ev.tokensAntes);
+    const pra = fmtTokens(ev.tokensDepois);
+    li.innerHTML =
+      `<details class="compact"><summary><span class="stamp">Histórico resumido · ` +
+      `${escapeHtml(de)} → ${escapeHtml(pra)} tokens</span></summary>` +
+      `<div class="compact-txt"></div></details>`;
+    const alvo = li.querySelector(".compact-txt");
+    if (alvo) renderMd(alvo, ev.text);
   } else {
     return;
   }

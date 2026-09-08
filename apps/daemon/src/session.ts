@@ -14,7 +14,13 @@ import { contextWindowOf } from "./engines/parse-claude.ts";
 import { StubEngine } from "./engines/stub.ts";
 import type { Engine } from "./engines/types.ts";
 import { applyLoginResult, credentialVerdict, getProfile, markAuthFailed } from "./profiles.ts";
-import { pack, tetoDeToken } from "./packer.ts";
+import { pack, precisaCompactar, tetoDeToken, tokensDoHistorico } from "./packer.ts";
+import {
+  historicoParaResumir,
+  montarCompactacao,
+  pedidoDeResumo,
+  podeCompactar,
+} from "./compactar.ts";
 import { assertSwitch, suggestFallback } from "./router.ts";
 import { spawnCwd } from "./project-cwd.ts";
 import { activeProfileId, appendEvent, readThread, removeThread } from "./threads.ts";
@@ -28,7 +34,31 @@ export type SessionEvent =
       chatOnly?: boolean;
     })
   /** Troca feita pelo próprio daemon (switchMode auto): o cliente não pediu, precisa saber. */
-  | { type: "switched"; threadId: string; fromProfileId: string; toProfileId: string; reason: SwitchReason };
+  | { type: "switched"; threadId: string; fromProfileId: string; toProfileId: string; reason: SwitchReason }
+  /**
+   * O histórico virou resumo. Vai pelo SSE porque acontece DEPOIS do turno, sem
+   * ninguém ter pedido: a tela aberta precisa saber que o passado dela mudou de
+   * forma, senão a próxima resposta parece ter esquecido coisas sem motivo.
+   */
+  | {
+      type: "compacted";
+      threadId: string;
+      text: string;
+      cobertos: number;
+      tokensAntes: number;
+      tokensDepois: number;
+    }
+  /**
+   * Compactação começando ou terminando.
+   *
+   * NÃO vai pro JSONL: é estado de tela, não história. O registro do que
+   * aconteceu é o `compacted`; isto existe porque resumir leva um turno inteiro
+   * e, sem sinal, a pessoa fica olhando uma conversa que parece parada.
+   *
+   * O `off` vem sempre, inclusive quando falha — animação que só sabe começar
+   * gira pra sempre.
+   */
+  | { type: "compacting"; threadId: string; on: boolean; tokens?: number; motivo?: string };
 
 /** Turno em voo: sobrevive à troca de conta pra a conta nova continuar de onde a antiga parou. */
 type PendingTurn = { text: string; partial: boolean };
@@ -329,6 +359,112 @@ function arquivoDeAutoria(home: string): string {
   return arquivo;
 }
 
+/**
+ * Compactação: um turno à parte que troca o histórico antigo por um resumo.
+ *
+ * Roda num motor PRÓPRIO, descartável, e não no da conversa. Três razões, todas
+ * necessárias: o motor da conversa está com o pack congelado do turno atual;
+ * mandar o pedido de resumo por ele gravaria pergunta e resposta no JSONL, ou
+ * seja, o resumo entraria no histórico que ele acabou de resumir; e um motor
+ * separado pode falhar sem contaminar a conversa.
+ *
+ * Dispara DEPOIS do turno, nunca antes: compactar antes faria a pessoa esperar
+ * um turno inteiro pela resposta que ela pediu.
+ */
+const compactando = new Set<string>();
+/** Conversa em que a compactação falhou não tenta de novo até o daemon reiniciar. */
+const desistiu = new Map<string, string>();
+
+/** Só pra teste: o estado é de módulo e vaza entre casos. */
+export function resetCompactacaoForTest(): void {
+  compactando.clear();
+  desistiu.clear();
+}
+
+export function motivoDeNaoCompactar(threadId: string): string {
+  return desistiu.get(threadId) ?? "";
+}
+
+async function talvezCompactar(threadId: string, home: string): Promise<void> {
+  const cfg = loadConfig(home);
+  if (!cfg.pack.compactar) return;
+  if (compactando.has(threadId) || desistiu.has(threadId)) return;
+
+  const events = readThread(threadId, home);
+  const meta = events.find((e) => e.type === "thread_meta");
+  if (!meta || meta.type !== "thread_meta") return;
+  const p = getProfile(meta.profileId, home);
+  if (!p || !podeCompactar(p)) return;
+  const cap = tetoDeToken(janelaDaConta(p, events, meta.agentId, home));
+  if (!precisaCompactar(events, cfg.pack, cap)) return;
+
+  const historico = historicoParaResumir(events, cfg.pack, cap);
+  if (!historico) return;
+
+  compactando.add(threadId);
+  emit(threadId, { type: "compacting", threadId, on: true, tokens: tokensDoHistorico(events) });
+  let motivo = "";
+  try {
+    const resumo = await turnoDeResumo(p, meta.projectPath, home, pedidoDeResumo(historico));
+    // relê: o turno de resumo levou tempo, e mensagem nova pode ter chegado.
+    // `cobertos` é índice absoluto, então o que chegou depois fica verbatim.
+    const agora = readThread(threadId, home);
+    const r = montarCompactacao(agora, cfg.pack, cap, threadId, resumo, nowIso());
+    if (!r.ok) {
+      motivo = r.motivo;
+      desistiu.set(threadId, r.motivo);
+      return;
+    }
+    appendEvent(r.evento, home);
+    emit(threadId, r.evento);
+  } catch (e) {
+    /*
+     * Falhou: registra e NÃO tenta de novo nesta conversa. Recompactar em loop
+     * gastaria a quota da pessoa repetindo o mesmo erro, e o `pack` já tem o
+     * corte como rede — o pior caso é o comportamento que existia antes.
+     */
+    motivo = (e as Error).message || "falhou";
+    desistiu.set(threadId, motivo);
+  } finally {
+    compactando.delete(threadId);
+    emit(threadId, { type: "compacting", threadId, on: false, ...(motivo ? { motivo } : {}) });
+  }
+}
+
+/** Um turno só, num motor descartável, devolvendo o texto que ele produziu. */
+function turnoDeResumo(p: Profile, projectPath: string, home: string, pedido: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const engine = createEngine(p, projectPath, home);
+    let buf = "";
+    let fechou = false;
+    const fim = (erro?: string) => {
+      if (fechou) return;
+      fechou = true;
+      clearTimeout(relogio);
+      void engine.abort().catch(() => {});
+      if (erro) reject(new Error(erro));
+      else resolve(buf);
+    };
+    const relogio = setTimeout(() => fim("o resumo passou do teto de turno"), TURNO_TETO_MS);
+    void engine
+      /*
+       * `compact-` e não `compact:`: o threadId vira nome de arquivo de pid
+       * (`run/engine-<id>.pid`), e dois-pontos é ilegal em nome de arquivo no
+       * Windows. No Linux passaria, o que é exatamente o tipo de bug que só
+       * aparece na máquina de outra pessoa.
+       */
+      .start({ threadId: `compact-${Date.now()}`, projectPath, profileId: p.id, contextPack: "" }, (ev) => {
+        if (ev.type === "text") buf += ev.text;
+        else if (ev.type === "done") fim();
+        else if (ev.type === "quota") fim("a quota da conta acabou");
+        else if (ev.type === "auth") fim("a credencial da conta não serve mais");
+        else if (ev.type === "error") fim(ev.message || "o motor falhou");
+      })
+      .then(() => engine.send(pedido))
+      .catch((e: Error) => fim(e.message));
+  });
+}
+
 function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
   const live = lives.get(threadId);
   if (!live) return;
@@ -409,6 +545,10 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     live.retryCount = 0;
     setTerminal(live, "done");
     emit(threadId, { ...ev, threadId });
+    // depois de responder, não antes: compactar leva um turno e a pessoa não
+    // deve esperar por ele. Sem await de propósito — falha aqui não é falha do
+    // turno que acabou de dar certo.
+    void talvezCompactar(threadId, home);
     return;
   }
   if (ev.type === "quota") {

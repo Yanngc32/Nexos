@@ -34,7 +34,7 @@ export function elapsed(startedAt) {
 export function fmtTokens(n) {
   const v = Number(n) || 0;
   if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(v % 1_000_000 === 0 ? 0 : 1)}M`;
-  if (v >= 1000) return `${(v / 1000).toFixed(v >= 100_000 ? 1 : 1)}k`;
+  if (v >= 1000) return `${(v / 1000).toFixed(1)}k`;
   return String(v);
 }
 

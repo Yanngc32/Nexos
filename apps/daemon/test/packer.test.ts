@@ -58,7 +58,7 @@ describe("pack", () => {
       events.push(ev({ ts, type: "user", threadId: tid, text: `u${i} ${"x".repeat(200)}` }));
       events.push(ev({ ts, type: "assistant", threadId: tid, text: `a${i} ${"y".repeat(200)}` }));
     }
-    const { text, trimmed } = pack(events, { keepLastMessages: 4, prefixCharBudget: 80 }, 100);
+    const { text, trimmed } = pack(events, { keepLastMessages: 4, prefixCharBudget: 80, compactar: true }, 100);
     expect(trimmed).toEqual({ keptMessages: 4, droppedMessages: 46 });
     expect(text).toContain("Contexto anterior (cortado):");
     expect(text).toContain("u24");

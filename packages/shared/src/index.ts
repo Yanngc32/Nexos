@@ -163,7 +163,19 @@ export type NexoConfig = {
   fallbackOrder: string[];
   /** Como tratar a troca de conta quando a quota acaba. */
   switchMode: SwitchMode;
-  pack: { keepLastMessages: number; prefixCharBudget: number };
+  pack: {
+    keepLastMessages: number;
+    prefixCharBudget: number;
+    /**
+     * Resumir o histórico antigo quando ele encosta no teto, em vez de cortar.
+     *
+     * Ligado por padrão porque a alternativa é o corte de sempre, que guarda os
+     * primeiros caracteres do que jogou fora e perde o meio da conversa. Existe
+     * o interruptor porque resumir GASTA um turno da sua conta, e há quem
+     * prefira o corte a pagar por isso.
+     */
+    compactar: boolean;
+  };
   accent: string;
   /**
    * Pastas abertas no app. Fica aqui, e não no localStorage, porque o
@@ -192,7 +204,7 @@ export const DEFAULT_CONFIG: NexoConfig = {
   host: "127.0.0.1",
   fallbackOrder: [],
   switchMode: "manual",
-  pack: { keepLastMessages: 20, prefixCharBudget: 2000 },
+  pack: { keepLastMessages: 20, prefixCharBudget: 2000, compactar: true },
   accent: "#4d9cd6",
   repos: [],
   hiddenRepos: [],
@@ -243,6 +255,26 @@ export type ThreadEvent =
       threadId: string;
       keptMessages: number;
       droppedMessages: number;
+    }
+  | {
+      /**
+       * O histórico antigo virou resumo.
+       *
+       * Aditivo, como o `cleared`: o JSONL guarda tudo pra sempre, e isto só
+       * diz ao packer que os primeiros `cobertos` eventos do arquivo estão
+       * representados por `text` e não precisam mais ir ao motor.
+       *
+       * `cobertos` é ÍNDICE no arquivo, não timestamp: o JSONL só cresce no
+       * fim, então a posição é estável pra sempre, enquanto dois eventos podem
+       * dividir o mesmo milissegundo.
+       */
+      ts: string;
+      type: "compacted";
+      threadId: string;
+      text: string;
+      cobertos: number;
+      tokensAntes: number;
+      tokensDepois: number;
     }
   /** Marca de "/clear": o pack ignora tudo antes disso, mas o JSONL guarda pra sempre. */
   | { ts: string; type: "cleared"; threadId: string }

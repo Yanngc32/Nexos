@@ -101,6 +101,33 @@ O supervisor manda por um de dois canais:
 Nos dois casos quem executa o membro é o daemon, e quantas rodadas vão acontecer é o supervisor
 quem escolhe — use `maxSteps` no orçamento do run pra fechar a conta.
 
+### Compactação automática de contexto
+
+Quando o histórico encosta em 80% do que cabe no turno, o Nexo **resume** o
+trecho antigo em vez de cortá-lo, e passa a mandar o resumo no lugar dele. As
+últimas mensagens seguem verbatim: recência é o que mais importa pro turno
+seguinte.
+
+Antes disso o corte era o único caminho, e ele guardava os primeiros 2000
+CARACTERES do que jogava fora, cortados no meio da palavra — o meio da conversa
+desaparecia inteiro. O corte continua existindo como último recurso, pra quando
+o resumo ainda não couber ou o motor falhar em produzi-lo.
+
+O `claude` tem autocompact próprio, mas ele nunca dispara aqui: o Nexo faz um
+spawn por turno com `--print`, então não existe sessão longa pra ele compactar.
+A memória da conversa é do Nexo, e a compactação também.
+
+**Custa um turno da sua conta**, com o trecho antigo como entrada — e se paga nos
+turnos seguintes, que passam a mandar o resumo. Desligue com
+`pack.compactar: false` no `config.json` se preferir o corte. A entrada do resumo
+é limitada ao mesmo teto do turno: conversa muito longa é compactada em pedaços,
+do mais antigo pra frente, e o resumo anterior entra na entrada do seguinte pra
+que o resultado continue sendo um resumo só.
+
+Nada é perdido do disco: o `threads/<id>.jsonl` guarda tudo pra sempre, e o
+resumo é um evento a mais. A tela mostra a compactação acontecendo (o anel do
+contexto pulsa) e deixa o resumo aberto pra leitura na linha do tempo.
+
 ### O modelo montando o time
 
 Numa conversa com conta `claude`, o modelo recebe três ferramentas pra **criar e

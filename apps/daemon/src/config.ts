@@ -18,6 +18,7 @@ export function loadConfig(home: string): NexoConfig {
     pack: {
       keepLastMessages: raw.pack?.keepLastMessages ?? DEFAULT_CONFIG.pack.keepLastMessages,
       prefixCharBudget: raw.pack?.prefixCharBudget ?? DEFAULT_CONFIG.pack.prefixCharBudget,
+      compactar: raw.pack?.compactar ?? DEFAULT_CONFIG.pack.compactar,
     },
     accent: isHex(raw.accent) ? raw.accent : DEFAULT_CONFIG.accent,
     repos: cleanRepos(raw.repos),

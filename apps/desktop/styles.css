@@ -3368,3 +3368,97 @@ body[data-side-mini="1"] .svc-strip {
 .set-det input {
   width: 220px;
 }
+
+/* Resumo do histórico: presente na linha do tempo, mas fechado. */
+.compact summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.compact summary::-webkit-details-marker {
+  display: none;
+}
+
+.compact summary .stamp::before {
+  content: "▸ ";
+}
+
+.compact[open] summary .stamp::before {
+  content: "▾ ";
+}
+
+.compact-txt {
+  margin: 6px 0 2px 14px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/*
+ * Compactação em curso: o anel do contexto pulsa.
+ *
+ * O anel, e não um spinner solto num canto, porque é o número dele que a
+ * compactação vai mudar — quem vê o pulso está olhando pra coisa certa. A
+ * animação é no `stroke` e no `opacity`, que o compositor resolve sozinho: não
+ * dispara layout, então não custa quadro numa tela que já tem stream chegando.
+ */
+@keyframes nexo-compactando {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+body[data-compactando="1"] .ring-fill {
+  animation: nexo-compactando 1.4s ease-in-out infinite;
+}
+
+body[data-compactando="1"] .ctx-dot::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1px solid var(--accent);
+  opacity: 0;
+  animation: nexo-onda 1.8s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes nexo-onda {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+.meter-compact {
+  margin: 4px 0 0;
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.meter-compact[data-erro="1"] {
+  color: var(--warn);
+}
+
+/* Quem pediu menos movimento recebe o estado sem o movimento. */
+@media (prefers-reduced-motion: reduce) {
+  body[data-compactando="1"] .ring-fill {
+    animation: none;
+    opacity: 0.55;
+  }
+
+  body[data-compactando="1"] .ctx-dot::after {
+    animation: none;
+    opacity: 0.35;
+  }
+}
