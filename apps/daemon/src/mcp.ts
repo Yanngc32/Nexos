@@ -9,8 +9,10 @@ import { TURNO_TETO_MS } from "@nexo/shared";
  * inteiro cabe num turno só.
  *
  * O que se paga por isso:
- * - **só motor que fala MCP.** `api` e `stub` não falam; ali só existe o modo
- *   por turno, e é por isso que ele continua sendo o padrão.
+ * - **só o motor `claude`.** É o único em que o Nexo liga MCP hoje. Pro `api` e
+ *   pro `stub` não há cliente MCP pra ligar; pro `codex` há (o CLI dele suporta
+ *   `mcp_servers`) e é lacuna nossa, não impossibilidade. Nas três o run cai no
+ *   modo por turno, e é por isso que ele segue sendo o padrão.
  * - **a ferramenta é presa a UM run.** O caminho carrega o id, e um supervisor
  *   não alcança membro de outro run. Sem isso, um token vazado daria acesso a
  *   disparar qualquer agente da máquina.

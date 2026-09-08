@@ -119,8 +119,10 @@ um time em vez de fazer o trabalho, qual topologia serve pra quê, o que faz um
 `instructions` prestar — em `~/.claude/skills/`, valendo em todos os projetos. É
 comando explícito porque `~/.claude` é configuração de outra ferramenta.
 
-Nas contas que não são `claude` nada disso existe: só o `claude` fala MCP. A tela
-continua sendo o caminho garantido.
+Nas contas que não são `claude` nada disso existe, e a tela continua sendo o
+caminho garantido. A limitação é do Nexo, não das ferramentas: ele só liga MCP no
+motor `claude`. Pro `codex` isso é lacuna — o CLI dele tem cliente MCP e ninguém
+ligou ainda; pro `api` e pro `stub` não há cliente MCP pra ligar.
 
 ### O que o Nexo escreve no SEU repositório
 

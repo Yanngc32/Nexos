@@ -9,9 +9,10 @@ As ferramentas `nexo_contexto`, `nexo_agente_salvar` e `nexo_time_salvar` (MCP,
 servidor `nexo`) já descrevem os campos e as regras. Esta skill é a parte que
 elas não cabem: **quando** vale montar um time, e o que faz um time ser bom.
 
-Se as ferramentas não estiverem disponíveis, a conta desta conversa não é
-`claude` — só ela fala MCP. Diga isso em vez de tentar editar `~/.nexo/*.json`
-na mão: o daemon tem os arquivos em memória e sobrescreveria sua edição.
+Se as ferramentas não estiverem disponíveis, é porque o Nexo só liga MCP em
+conta `claude`. Diga isso e pare aí. Não tente editar `~/.nexo/agents.json` nem
+`teams.json` na mão: nada valida o que você escrever, e uma escrita do daemon
+entre a sua leitura e a sua gravação leva sua edição embora sem avisar.
 
 ## Primeiro: vale a pena?
 
