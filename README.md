@@ -47,6 +47,7 @@ nexo profile set <id> [--model ...] [--effort ...] [--mode ...]
 nexo login <id>
 nexo svc ls | up <id>|--all | down <id>|--all | restart <id> | logs <id> | trust
 nexo thread new <perfil> | ls [pasta] | show <id>
+nexo branch ls | rm [pasta] [--run <id>]
 nexo chat <perfil>
 nexo switch <perfil> --thread <id>
 ```
@@ -130,8 +131,8 @@ contexto pulsa) e deixa o resumo aberto pra leitura na linha do tempo.
 
 ### O modelo montando o time
 
-Numa conversa com conta `claude`, o modelo recebe três ferramentas pra **criar e
-editar** agentes e times: `nexo_contexto` (o que existe), `nexo_agente_salvar` e
+Numa conversa com conta `claude` ou `codex`, o modelo recebe três ferramentas pra
+**criar e editar** agentes e times: `nexo_contexto` (o que existe), `nexo_agente_salvar` e
 `nexo_time_salvar`. Elas validam com as mesmas funções que a tela usa, então o que
 ele cria é o que você criaria.
 
@@ -146,10 +147,15 @@ um time em vez de fazer o trabalho, qual topologia serve pra quê, o que faz um
 `instructions` prestar — em `~/.claude/skills/`, valendo em todos os projetos. É
 comando explícito porque `~/.claude` é configuração de outra ferramenta.
 
-Nas contas que não são `claude` nada disso existe, e a tela continua sendo o
-caminho garantido. A limitação é do Nexo, não das ferramentas: ele só liga MCP no
-motor `claude`. Pro `codex` isso é lacuna — o CLI dele tem cliente MCP e ninguém
-ligou ainda; pro `api` e pro `stub` não há cliente MCP pra ligar.
+Vale em conta `claude` e em conta `codex`, cada um do jeito dele (arquivo de config
+num, chave de config e token por variável de ambiente no outro). Nas contas `api` e
+`stub` não vale, e a tela continua sendo o caminho garantido: o `api` é chamada HTTP
+direta ao provedor, sem cliente MCP nenhum — dar ferramenta a ele significaria o Nexo
+rodar o laço de ferramenta por conta própria, que é outra coisa.
+
+O **supervisor** por MCP segue só em `claude`: o servidor dele é preso ao run e vem
+carimbado na conversa como caminho de arquivo, formato que o `codex` não usa. Em conta
+`codex` o supervisor usa o canal por turno.
 
 ### O que o Nexo escreve no SEU repositório
 
@@ -163,6 +169,20 @@ git branch --list 'nexo/*'          # o que os agentes produziram
 git diff master..nexo/<run>/1-<ag>  # o que um membro mudou
 git branch -D nexo/<run>/1-<ag>     # descartar
 ```
+
+Como o branch fica, eles acumulam — um por membro por run. A limpeza:
+
+```bash
+nexo branch ls                # o que existe, e o que já está no HEAD
+nexo branch rm                # apaga SÓ o que já está no HEAD
+nexo branch rm --run <id>     # o mesmo, restrito a um run
+```
+
+O `rm` nunca apaga branch com commit fora do HEAD: seria jogar fora trabalho que
+ninguém olhou, que é exatamente o que preservar o branch evita. Esses aparecem
+listados, com a data, pra você decidir — e `git branch -D` continua sendo o jeito
+de forçar. Branch de run em andamento também não sai: quem recusa é o git, porque
+ele está em checkout numa árvore viva.
 
 Projeto que não é repositório git roda igual, mas sem isolamento: os membros paralelos dividem a
 mesma pasta e vão se atropelar se escreverem arquivo. O run registra isso, e a tela avisa.
@@ -241,6 +261,11 @@ do projeto. Sem projeto aberto, ela mostra tudo que o daemon está fazendo.
 - O app dá ao agente acesso de leitura/escrita e execução de comandos no projeto aberto.
   Trate como o que é: um shell com um modelo na frente. Não aponte para pastas que você
   não confiaria a um script de terceiros.
+
+## Contribuindo
+
+[CONTRIBUTING.md](CONTRIBUTING.md) — as convenções que não se descobrem lendo o código:
+por que nada compila, o que o Windows quebra, e a barra para uma dependência nova.
 
 ## Licença
 

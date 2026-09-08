@@ -77,6 +77,33 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   Quem escolhe o run do momento passou a ser o daemon, não a tela: escolher na tela obrigava a
   baixar tudo pra jogar quase tudo fora. A listagem também ganhou teto de resultado (50) e ordem
   pelo id — que é cronológica, porque o id carrega o tempo em base36 com largura fixa.
+- Motor `codex` funcionando, e MCP nele. **O motor nunca havia rodado um turno**: ele spawnava
+  `codex` sem argumento nenhum, e `codex` puro abre a interface interativa, que morre na hora com
+  stdin em pipe (`Error: stdin is not a terminal`). Além disso a saída era parseada com o parser do
+  Claude, cujo esquema não tem nada a ver. Nenhum teste exercitava um turno de codex — não havia
+  nem fixture — e foi essa ausência que deixou o defeito passar. Agora é `codex exec --json`, com
+  parser próprio (`engines/parse-codex.ts`) e fixture que RECUSA qualquer invocação que não seja
+  `exec --json`, pra a regressão ser barulhenta.
+  As ferramentas de autoria (criar e editar agente e time) passam a valer em conta `codex`:
+  `-c mcp_servers.nexo={url=…,bearer_token_env_var=NEXO_MCP_TOKEN}`, com o token no ambiente do
+  processo filho — nem em argv nem em arquivo, o que é melhor do que o arquivo `0600` que o
+  `claude` exige. O supervisor por MCP segue só em `claude` (o servidor dele é preso ao run e vem
+  carimbado como caminho de arquivo); em codex ele usa o canal por turno, que agora funciona.
+  Duas coisas que só apareceram dirigindo o `codex` de verdade: `error` NÃO é fatal (o aviso
+  "Model metadata not found" e a retentativa de rede chegam como `error` e o turno termina bem —
+  traduzir isso em erro abortaria turno saudável; o canal fatal é `turn.failed`), e o `--json` do
+  `exec` só emite item COMPLETO, então a resposta chega de uma vez em vez de palavra por palavra.
+  `--skip-git-repo-check` é escolha: o `codex exec` se recusa a rodar fora de repositório git, e
+  manter a recusa faria ele ser o único motor a falhar em projeto que funciona nos outros.
+- `nexo branch ls | rm [pasta] [--run <id>]`: a limpeza dos branches que o fan-in deixa. Eles
+  acumulam por desenho — a árvore de trabalho sai do disco no fim do run e o branch fica, porque é
+  ele que guarda o que o agente fez — então um repositório com uso regular de time junta um por
+  membro por run, pra sempre, e ninguém apaga dezenas à mão. O `rm` apaga **só o que já está no
+  HEAD**, ou seja o que apagar não perde commit nenhum; o resto sai listado com a data, e forçar
+  continua sendo `git branch -D`. Branch de run em andamento também não sai, e quem recusa é o
+  próprio git (está em checkout numa árvore viva) — a checagem não é duplicada aqui pra não
+  arriscar discordar dele. "Mesclado" é sempre em relação ao HEAD atual, e isso erra pro lado
+  seguro: trabalho que entrou no `main` mas não neste HEAD é preservado.
 - Teto do context pack derivado da janela do motor, em vez de 8000 fixo pra toda conta. Uma conta de
   janela grande recebia o mesmo corte de uma de 8k, então conversa longa "esquecia" coisa que
   caberia folgado. Agora é metade da janela, com piso em 8000 (o valor antigo, pra motor de janela
@@ -91,6 +118,12 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   recurso, pra quando o daemon subiu agora e ainda não viu turno daquela conta.
   De quebra o medidor de contexto da tela parou de mentir: passou de `40.4k / 200.0k (20%)` pra
   `40.4k / 980.0k (4%)` na mesma conversa.
+  A janela reportada agora é **gravada no perfil**, em `contextWindows`, com o nome do modelo como
+  chave. Sem isso o "último recurso" acima valia depois de CADA subida do daemon: o primeiro turno
+  de cada conta voltava aos 200k deduzidos do nome, com teto de 100k em vez de 128k — e a
+  compactação automática, que dispara em 80% do teto, disparava antes da hora. Por modelo, e não
+  por conta, pra que trocar o modelo do perfil invalide o número sozinho, sem limpeza. Guarda os 12
+  modelos mais recentes e descarta o mais antigo.
 - Teto de tempo dos testes que rodam `git` de verdade subiu pra 30s (`worktree.test.ts` inteiro e o
   `isolamento no fan-in` do `runs.test.ts`). Os 5s padrão do vitest são pra teste de lógica; esses
   casos disparam de 5 a 10 processos contra disco, e num runner Windows lento um `worktree add` +

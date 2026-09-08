@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import {
+  apagarBranchesNexo,
   commitarTrabalho,
   criarWorktree,
+  listarBranchesNexo,
   nomeDoBranch,
   podeIsolar,
   removerWorktree,
@@ -147,5 +149,96 @@ describe("worktree", () => {
     const out = await removerWorktree(r, join(r, "..", "nunca-existiu"));
     expect(out.ok).toBe(false);
     // o prune roda por dentro; o importante é não estourar
+  });
+});
+
+/*
+ * A limpeza. Também com git de verdade: o critério de segurança inteiro é
+ * "o git aceita apagar isto?", e um git mockado responderia o que eu quisesse
+ * ouvir — que é o oposto do que este teste precisa provar.
+ */
+describe("limpeza dos branches nexo/*", () => {
+  /** Cria o branch como o fan-in cria: árvore, commit, árvore removida. */
+  async function branchDeAgente(r: string, branch: string, arquivo: string): Promise<void> {
+    const dir = join(r, "..", `lb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    await criarWorktree(r, dir, branch);
+    writeFileSync(join(dir, arquivo), "trabalho\n", "utf8");
+    await commitarTrabalho(dir, `nexo: ${branch}`);
+    await removerWorktree(r, dir);
+  }
+
+  it("não lista branch nenhum num repo que nunca rodou time", async () => {
+    expect(await listarBranchesNexo(repo())).toEqual([]);
+  });
+
+  it("lista os nexo/* com o run e a data, e ignora branch de pessoa", async () => {
+    const r = repo();
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: r, stdio: "pipe" });
+    await branchDeAgente(r, "nexo/run7/1-revisor", "a.md");
+    await branchDeAgente(r, "nexo/run7/2-testador", "b.md");
+    git("branch", "meu-trabalho");
+
+    const lista = await listarBranchesNexo(r);
+    expect(lista.map((b) => b.branch).sort()).toEqual(["nexo/run7/1-revisor", "nexo/run7/2-testador"]);
+    expect(lista.every((b) => b.runId === "run7")).toBe(true);
+    expect(lista[0]!.ultimo).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("branch com commit fora do HEAD é 'não mesclado' e NÃO é apagado", async () => {
+    const r = repo();
+    await branchDeAgente(r, "nexo/run8/1-agente", "feito.md");
+
+    const [b] = await listarBranchesNexo(r);
+    expect(b!.mesclado).toBe(false);
+
+    // é o cenário real: o run acabou, ninguém olhou, e a limpeza não pode levar
+    const feitos = await apagarBranchesNexo(r, ["nexo/run8/1-agente"]);
+    expect(feitos[0]!.ok).toBe(false);
+    expect(await listarBranchesNexo(r)).toHaveLength(1);
+    // e o commit continua alcançável pelo branch
+    expect(execFileSync("git", ["show", "nexo/run8/1-agente:feito.md"], { cwd: r, encoding: "utf8" })).toContain(
+      "trabalho",
+    );
+  });
+
+  it("depois de mesclado o branch sai: apagar não perde commit nenhum", async () => {
+    const r = repo();
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: r, stdio: "pipe" });
+    await branchDeAgente(r, "nexo/run9/1-agente", "aceito.md");
+    git("merge", "--no-edit", "-q", "nexo/run9/1-agente");
+
+    expect((await listarBranchesNexo(r))[0]!.mesclado).toBe(true);
+    const feitos = await apagarBranchesNexo(r, ["nexo/run9/1-agente"]);
+    expect(feitos[0]!.ok).toBe(true);
+    expect(await listarBranchesNexo(r)).toEqual([]);
+    // o trabalho ficou: ele está no HEAD, que é a razão de ter podido apagar
+    expect(execFileSync("git", ["show", "HEAD:aceito.md"], { cwd: r, encoding: "utf8" })).toContain("trabalho");
+  });
+
+  it("branch em checkout numa árvore viva não é apagado — é o run que está rodando", async () => {
+    const r = repo();
+    const dir = join(r, "..", `lbviva-${Date.now()}`);
+    await criarWorktree(r, dir, "nexo/run10/1-agente");
+    // sem commit: o branch está no HEAD, então o -d NÃO é barrado por commit solto
+    expect((await listarBranchesNexo(r))[0]!.mesclado).toBe(true);
+
+    const feitos = await apagarBranchesNexo(r, ["nexo/run10/1-agente"]);
+    expect(feitos[0]!.ok).toBe(false);
+    expect(feitos[0]!.saida).toMatch(/worktree|checked out|utilizado|check-out/i);
+    expect(await listarBranchesNexo(r)).toHaveLength(1);
+    await removerWorktree(r, dir);
+  });
+
+  it("recusa nome que não é nexo/*: a limpeza não apaga branch de pessoa", async () => {
+    const r = repo();
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: r, stdio: "pipe" });
+    git("branch", "release");
+
+    const feitos = await apagarBranchesNexo(r, ["release", "main", "../fuga"]);
+    expect(feitos.every((f) => !f.ok)).toBe(true);
+    expect(feitos.every((f) => f.saida === "não é branch do Nexo")).toBe(true);
+    expect(execFileSync("git", ["branch", "--list", "release"], { cwd: r, encoding: "utf8" }).trim()).toContain(
+      "release",
+    );
   });
 });

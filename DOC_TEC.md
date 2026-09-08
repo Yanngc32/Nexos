@@ -30,7 +30,7 @@ Tudo em `~/.nexo` (ou `NEXO_HOME`). Nada disso vai pro repositório.
 | caminho | conteúdo | modo |
 | --- | --- | --- |
 | `config.json` | porta, ordem de fallback, tema, projetos, projetos confiáveis | — |
-| `profiles/<id>/profile.json` | motor, status, modelo, effort, permission mode | `0700` na pasta |
+| `profiles/<id>/profile.json` | motor, status, modelo, effort, permission mode, janela por modelo | `0700` na pasta |
 | `profiles/<id>/keys.json` | chave de API (engine `api`) | `0600` |
 | `profiles/<id>/claude` \| `codex` | credencial isolada da CLI (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`) | `0700` |
 | `agents/<id>.json` | agentes personalizados | — |
@@ -43,14 +43,22 @@ Tudo em `~/.nexo` (ou `NEXO_HOME`). Nada disso vai pro repositório.
 
 | engine | como fala | credencial |
 | --- | --- | --- |
-| `claude` | spawn da CLI `claude`, stream JSON parseado em `engines/parse-claude.ts` | login da CLI, isolado por perfil |
-| `codex` | spawn da CLI `codex` | login da CLI, isolado por perfil |
+| `claude` | `claude --print --output-format stream-json`, parseado em `engines/parse-claude.ts` | login da CLI, isolado por perfil |
+| `codex` | `codex exec --json`, stream parseado em `engines/parse-codex.ts` | login da CLI, isolado por perfil |
 | `api` | HTTP direto ao provedor | `keys.json` do perfil |
 | `stub` | eco determinístico | nenhuma — só testes |
 
 Perfil `claude`/`codex` exige o binário no PATH na criação. `nexo login <id>` roda o login da CLI
 com o `CONFIG_DIR` apontado pro perfil, então duas contas do mesmo provedor não se atropelam.
 `POST /v1/profiles/:id/import` copia a credencial global do Claude pro perfil.
+
+MCP: `claude` recebe `--mcp-config` (arquivo `0600`, porque carrega o token) e `codex` recebe
+`-c mcp_servers.nexo={url=…,bearer_token_env_var=NEXO_MCP_TOKEN}`, com o token no ambiente do
+filho — nem em argv nem em arquivo. As ferramentas de autoria valem nos dois; o servidor do
+supervisor, preso ao run, só em `claude`. `api` e `stub` não têm cliente MCP.
+
+O `codex exec` recusa rodar fora de repositório git; o Nexo passa `--skip-git-repo-check` pra o
+motor não ser o único a falhar em projeto que funciona nos outros.
 
 ## API HTTP
 
@@ -131,12 +139,14 @@ effort, permission mode, limites) e **Fallback** (ordem de tentativa entre conta
 
 ```
 nexo up | down
+nexo skill install
 nexo profile add <id> --engine stub|claude|codex|api
 nexo profile ls | rm <id>
 nexo profile set <id> [--model ...] [--effort ...] [--mode ...]
 nexo login <id>
 nexo svc ls | up <id>|--all | down <id>|--all | restart <id> | logs <id> | trust
 nexo thread new <perfil> | ls [pasta] | show <id>
+nexo branch ls | rm [pasta] [--run <id>]
 nexo chat <perfil>
 nexo switch <perfil> --thread <id>
 ```

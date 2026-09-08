@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
@@ -7,9 +7,11 @@ import {
   engineEnv,
   getProfile,
   importGlobalCredentials,
+  JANELAS_MAX,
   listProfiles,
   markAuthFailed,
   markReady,
+  rememberContextWindow,
   removeProfile,
   updateProfile,
 } from "../src/profiles.ts";
@@ -246,5 +248,96 @@ describe("allowedTools", () => {
       expect(() => updateProfile("a2", home, { allowedTools: [ruim] })).toThrow(/ferramenta inválida/);
     }
     expect(getProfile("a2", home)?.allowedTools).toBeUndefined();
+  });
+});
+
+describe("rememberContextWindow", () => {
+  it("grava, e regravar o mesmo valor não mexe no arquivo", () => {
+    const home = tempHome();
+    addProfile({ id: "w1", engine: "claude" }, home, { skipBinCheck: true });
+    rememberContextWindow("w1", home, "claude-sonnet-5", 980_000);
+    expect(getProfile("w1", home)?.contextWindows).toEqual({ "claude-sonnet-5": 980_000 });
+
+    /*
+     * A janela chega em TODO turno. Sem esta saída antecipada seria uma
+     * reescrita de profile.json por turno, pra gravar o número que já estava lá.
+     * O mtime é o que prova; comparar o conteúdo passaria de qualquer jeito.
+     */
+    const path = join(home, "profiles", "w1", "profile.json");
+    const antes = statSync(path).mtimeMs;
+    rememberContextWindow("w1", home, "claude-sonnet-5", 980_000);
+    expect(statSync(path).mtimeMs).toBe(antes);
+  });
+
+  it("valor novo pro mesmo modelo sobrescreve: quem reportou por último sabe mais", () => {
+    const home = tempHome();
+    addProfile({ id: "w2", engine: "claude" }, home, { skipBinCheck: true });
+    rememberContextWindow("w2", home, "claude-sonnet-5", 200_000);
+    rememberContextWindow("w2", home, "claude-sonnet-5", 980_000);
+    expect(getProfile("w2", home)?.contextWindows).toEqual({ "claude-sonnet-5": 980_000 });
+  });
+
+  it("guarda o sufixo de janela como parte da chave: [1m] é outro modelo", () => {
+    const home = tempHome();
+    addProfile({ id: "w3", engine: "claude" }, home, { skipBinCheck: true });
+    rememberContextWindow("w3", home, "claude-opus-5", 200_000);
+    rememberContextWindow("w3", home, "claude-opus-5[1m]", 1_000_000);
+    expect(getProfile("w3", home)?.contextWindows).toEqual({
+      "claude-opus-5": 200_000,
+      "claude-opus-5[1m]": 1_000_000,
+    });
+  });
+
+  it("recusa o que não é número útil, e não cria o campo por isso", () => {
+    const home = tempHome();
+    addProfile({ id: "w4", engine: "claude" }, home, { skipBinCheck: true });
+    for (const ruim of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      rememberContextWindow("w4", home, "claude-sonnet-5", ruim);
+    }
+    expect(getProfile("w4", home)?.contextWindows).toBeUndefined();
+  });
+
+  it("recusa chave fora do alfabeto: o nome vem do CLI e vira chave de JSON", () => {
+    const home = tempHome();
+    addProfile({ id: "w5", engine: "claude" }, home, { skipBinCheck: true });
+    for (const ruim of ["", "  ", "../../etc/passwd", "modelo com espaço", "m".repeat(200), "__proto__"]) {
+      rememberContextWindow("w5", home, ruim, 500_000);
+    }
+    expect(getProfile("w5", home)?.contextWindows).toBeUndefined();
+  });
+
+  it("perfil que não existe é silêncio, não exceção: isto roda no meio do stream", () => {
+    const home = tempHome();
+    expect(() => rememberContextWindow("nao-existe", home, "claude-sonnet-5", 980_000)).not.toThrow();
+    // id fora do formato de slug também: o `profileDir` lança, e aqui não pode subir
+    expect(() => rememberContextWindow("../fuga", home, "claude-sonnet-5", 980_000)).not.toThrow();
+  });
+
+  it("tem teto de modelos, e descarta o mais ANTIGO — a ordem do JSON é a recência", () => {
+    const home = tempHome();
+    addProfile({ id: "w6", engine: "claude" }, home, { skipBinCheck: true });
+    for (let i = 0; i < JANELAS_MAX + 3; i++) {
+      rememberContextWindow("w6", home, `modelo-${i}`, 100_000 + i);
+    }
+    const mapa = getProfile("w6", home)?.contextWindows ?? {};
+    expect(Object.keys(mapa)).toHaveLength(JANELAS_MAX);
+    expect(mapa["modelo-0"]).toBeUndefined();
+    expect(mapa["modelo-2"]).toBeUndefined();
+    expect(mapa[`modelo-${JANELAS_MAX + 2}`]).toBe(100_000 + JANELAS_MAX + 2);
+  });
+
+  it("modelo reusado volta pro fim da fila, então não é ele que cai", () => {
+    const home = tempHome();
+    addProfile({ id: "w7", engine: "claude" }, home, { skipBinCheck: true });
+    rememberContextWindow("w7", home, "o-velho", 111_111);
+    for (let i = 0; i < JANELAS_MAX - 1; i++) rememberContextWindow("w7", home, `enche-${i}`, 200_000 + i);
+    // mapa cheio: reusar o mais antigo com valor NOVO tem de renová-lo
+    rememberContextWindow("w7", home, "o-velho", 222_222);
+    rememberContextWindow("w7", home, "o-novato", 333_333);
+
+    const mapa = getProfile("w7", home)?.contextWindows ?? {};
+    expect(mapa["o-velho"]).toBe(222_222);
+    expect(mapa["o-novato"]).toBe(333_333);
+    expect(mapa["enche-0"]).toBeUndefined();
   });
 });

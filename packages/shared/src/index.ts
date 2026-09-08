@@ -62,7 +62,28 @@ export type Profile = {
    */
   allowedTools?: string[];
   api?: { provider: ApiProvider; model: string };
+  /**
+   * Janela efetiva por modelo, aprendida do stream (`effective_window`).
+   *
+   * Existe porque a janela só se sabe DEPOIS de um turno, e sem gravá-la todo
+   * processo novo do daemon voltava a deduzi-la do nome do modelo — palpite que
+   * subestimava em 5× (200k contra 980k reais). O efeito era o teto do context
+   * pack começar pequeno e a compactação disparar antes da hora, na primeira
+   * conversa depois de cada subida.
+   *
+   * Por modelo, e não por conta: a janela é do modelo que rodou, então trocar o
+   * modelo do perfil invalida o número sozinho, sem precisar de limpeza.
+   */
+  contextWindows?: Record<string, number>;
 };
+
+/**
+ * Chave do `contextWindows`. NÃO é o `MODEL_RE`: o nome que o CLI carimba no
+ * `usage` pode trazer o sufixo de janela (`[1m]`), e o `MODEL_RE` proíbe
+ * colchete porque lá o valor vira argv. Aqui é só chave de JSON — o que se quer
+ * é limitar tamanho e alfabeto, não passar por shell.
+ */
+export const WINDOW_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._[\]-]{0,79}$/;
 
 /**
  * Agente personalizado: um preset com conta, ajustes de motor e instruções
@@ -382,6 +403,16 @@ export type StartOpts = {
    * conclui que a ferramenta não existe.
    */
   mcpTools?: string[];
+  /**
+   * Endereço e token do MCP pro motor que NÃO recebe arquivo de config.
+   *
+   * O `codex` configura MCP por chave de config (`-c mcp_servers.<nome>=…`), e
+   * ali o token não vai junto: ele aponta uma VARIÁVEL DE AMBIENTE
+   * (`bearer_token_env_var`) que o daemon põe no ambiente do filho. Sai melhor
+   * que o arquivo do `claude` na mesma preocupação — o segredo não passa por
+   * argv nem por arquivo, só pelo ambiente do processo.
+   */
+  mcpHttp?: { url: string; token: string };
 };
 
 /* ---------- times de agentes ---------- */

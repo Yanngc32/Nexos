@@ -11,8 +11,9 @@ import { spawnCwd } from "../project-cwd.ts";
 import { agentOverrides } from "../agents.ts";
 import { engineEnv, engineSpawnEnv, getProfile } from "../profiles.ts";
 import { isNodeScript, spawnBin } from "../spawn-bin.ts";
-import { MCP_TOOLS } from "../mcp.ts";
+import { ENV_TOKEN_MCP, flagsDeMcpCodex, MCP_TOOLS } from "../mcp.ts";
 import { parseCliLine } from "./parse-claude.ts";
+import { parseCodexLine } from "./parse-codex.ts";
 
 export { parseCliLine };
 
@@ -67,6 +68,12 @@ type CliEngineOpts = {
   binEnv: "NEXO_CLAUDE_BIN" | "NEXO_CODEX_BIN";
   defaultBin: string;
   args: string[];
+  /**
+   * Tradutor do stream deste CLI. Passa como opção porque `claude` e `codex`
+   * não têm nada em comum na saída — antes o `codex` era parseado com o parser
+   * do Claude, o que ajudou a esconder que ele nunca rodou um turno.
+   */
+  parse: (linha: string) => EngineEvent[];
 };
 
 export class CliEngine implements Engine {
@@ -82,11 +89,13 @@ export class CliEngine implements Engine {
   private readonly binEnv: CliEngineOpts["binEnv"];
   private readonly defaultBin: string;
   private readonly baseArgs: string[];
+  private readonly parse: (linha: string) => EngineEvent[];
   private args: string[];
   private threadId = "";
   private agentId?: string;
   private mcpConfig?: string;
   private mcpTools?: string[];
+  private mcpHttp?: { url: string; token: string };
   private aborted = false;
   private finished = false;
   lastEnv: Record<string, string | undefined> = {};
@@ -100,6 +109,7 @@ export class CliEngine implements Engine {
     this.defaultBin = opts.defaultBin;
     this.baseArgs = opts.args;
     this.args = opts.args;
+    this.parse = opts.parse;
   }
 
   async start(opts: StartOpts, onEvent: EngineHandler): Promise<void> {
@@ -109,6 +119,7 @@ export class CliEngine implements Engine {
     this.agentId = opts.agentId;
     this.mcpConfig = opts.mcpConfig;
     this.mcpTools = opts.mcpTools;
+    this.mcpHttp = opts.mcpHttp;
     this.syncArgs();
     this.extra = engineEnv(profile, this.home);
     this.spawnEnv = engineSpawnEnv(profile, this.home);
@@ -153,6 +164,16 @@ export class CliEngine implements Engine {
    * existe.
    */
   private mcpFlags(engine?: string): { flags: string[]; tools: string[] } {
+    /*
+     * O `codex` não tem arquivo de config por invocação: ele recebe a chave de
+     * config direto (`-c mcp_servers.nexo={…}`), e o token por variável de
+     * ambiente que ele lê pelo nome. Também não tem `--allowed-tools`: em
+     * `codex exec` a permissão é do sandbox, não por ferramenta — então `tools`
+     * volta vazio e não há nada a liberar.
+     */
+    if (engine === "codex") {
+      return this.mcpHttp ? { flags: flagsDeMcpCodex(this.mcpHttp.url), tools: [] } : { flags: [], tools: [] };
+    }
     if (engine !== "claude" || !this.mcpConfig) return { flags: [], tools: [] };
     return {
       flags: ["--mcp-config", this.mcpConfig, "--strict-mcp-config"],
@@ -193,7 +214,12 @@ export class CliEngine implements Engine {
     };
     const child = spawnEngine(this.bin, this.args, {
       cwd: this.cwd,
-      env: { ...this.spawnEnv, NEXO_CONTEXT_PACK: this.pack },
+      env: {
+        ...this.spawnEnv,
+        NEXO_CONTEXT_PACK: this.pack,
+        // só o codex usa: o nome da variável está no `-c` que ele recebeu
+        ...(this.mcpHttp ? { [ENV_TOKEN_MCP]: this.mcpHttp.token } : {}),
+      },
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.child = child;
@@ -204,7 +230,7 @@ export class CliEngine implements Engine {
       const parts = (rest + chunk).split(/\r?\n/);
       const leftover = parts.pop() ?? "";
       for (const line of parts) {
-        for (const ev of parseCliLine(line)) {
+        for (const ev of this.parse(line)) {
           if (stderr && ev.type === "text") continue;
           emit(ev);
         }
@@ -263,15 +289,34 @@ export function claudeEngine(home: string, profileId: string): CliEngine {
     binEnv: "NEXO_CLAUDE_BIN",
     defaultBin: "claude",
     args: ["--print", "--verbose", "--output-format", "stream-json", "--include-partial-messages"],
+    parse: parseCliLine,
   });
 }
 
+/**
+ * `exec` e não a TUI, `--json` pra ter evento parseável.
+ *
+ * O que havia antes era `args: []`, ou seja `codex` puro — que abre a interface
+ * interativa e morre na hora com stdin em pipe ("Error: stdin is not a
+ * terminal"). O motor nunca completou um turno, e nenhum teste o exercitava.
+ *
+ * `--skip-git-repo-check` porque o `codex exec` se recusa a rodar fora de um
+ * repositório git. É uma proteção dele — sem git, o que o modelo escreve não tem
+ * como ser desfeito — e desligá-la é escolha, não descuido: o Nexo já aceita
+ * projeto que não é repositório nos outros motores, e manter a recusa faria o
+ * `codex` ser o único a falhar em projeto que funciona hoje. Quem quer a rede
+ * usa git no projeto, que é o que o fan-in já exige pra isolar membro.
+ *
+ * O prompt vai por stdin, que é o que o `exec` lê quando não recebe argumento —
+ * e é o que o `send` já faz.
+ */
 export function codexEngine(home: string, profileId: string): CliEngine {
   return new CliEngine({
     home,
     profileId,
     binEnv: "NEXO_CODEX_BIN",
     defaultBin: "codex",
-    args: [],
+    args: ["exec", "--json", "--skip-git-repo-check"],
+    parse: parseCodexLine,
   });
 }
