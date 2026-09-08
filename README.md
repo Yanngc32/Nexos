@@ -131,8 +131,8 @@ contexto pulsa) e deixa o resumo aberto pra leitura na linha do tempo.
 
 ### O modelo montando o time
 
-Numa conversa com conta `claude`, o modelo recebe três ferramentas pra **criar e
-editar** agentes e times: `nexo_contexto` (o que existe), `nexo_agente_salvar` e
+Numa conversa com conta `claude` ou `codex`, o modelo recebe três ferramentas pra
+**criar e editar** agentes e times: `nexo_contexto` (o que existe), `nexo_agente_salvar` e
 `nexo_time_salvar`. Elas validam com as mesmas funções que a tela usa, então o que
 ele cria é o que você criaria.
 
@@ -147,10 +147,15 @@ um time em vez de fazer o trabalho, qual topologia serve pra quê, o que faz um
 `instructions` prestar — em `~/.claude/skills/`, valendo em todos os projetos. É
 comando explícito porque `~/.claude` é configuração de outra ferramenta.
 
-Nas contas que não são `claude` nada disso existe, e a tela continua sendo o
-caminho garantido. A limitação é do Nexo, não das ferramentas: ele só liga MCP no
-motor `claude`. Pro `codex` isso é lacuna — o CLI dele tem cliente MCP e ninguém
-ligou ainda; pro `api` e pro `stub` não há cliente MCP pra ligar.
+Vale em conta `claude` e em conta `codex`, cada um do jeito dele (arquivo de config
+num, chave de config e token por variável de ambiente no outro). Nas contas `api` e
+`stub` não vale, e a tela continua sendo o caminho garantido: o `api` é chamada HTTP
+direta ao provedor, sem cliente MCP nenhum — dar ferramenta a ele significaria o Nexo
+rodar o laço de ferramenta por conta própria, que é outra coisa.
+
+O **supervisor** por MCP segue só em `claude`: o servidor dele é preso ao run e vem
+carimbado na conversa como caminho de arquivo, formato que o `codex` não usa. Em conta
+`codex` o supervisor usa o canal por turno.
 
 ### O que o Nexo escreve no SEU repositório
 

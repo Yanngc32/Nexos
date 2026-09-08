@@ -77,6 +77,24 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   Quem escolhe o run do momento passou a ser o daemon, não a tela: escolher na tela obrigava a
   baixar tudo pra jogar quase tudo fora. A listagem também ganhou teto de resultado (50) e ordem
   pelo id — que é cronológica, porque o id carrega o tempo em base36 com largura fixa.
+- Motor `codex` funcionando, e MCP nele. **O motor nunca havia rodado um turno**: ele spawnava
+  `codex` sem argumento nenhum, e `codex` puro abre a interface interativa, que morre na hora com
+  stdin em pipe (`Error: stdin is not a terminal`). Além disso a saída era parseada com o parser do
+  Claude, cujo esquema não tem nada a ver. Nenhum teste exercitava um turno de codex — não havia
+  nem fixture — e foi essa ausência que deixou o defeito passar. Agora é `codex exec --json`, com
+  parser próprio (`engines/parse-codex.ts`) e fixture que RECUSA qualquer invocação que não seja
+  `exec --json`, pra a regressão ser barulhenta.
+  As ferramentas de autoria (criar e editar agente e time) passam a valer em conta `codex`:
+  `-c mcp_servers.nexo={url=…,bearer_token_env_var=NEXO_MCP_TOKEN}`, com o token no ambiente do
+  processo filho — nem em argv nem em arquivo, o que é melhor do que o arquivo `0600` que o
+  `claude` exige. O supervisor por MCP segue só em `claude` (o servidor dele é preso ao run e vem
+  carimbado como caminho de arquivo); em codex ele usa o canal por turno, que agora funciona.
+  Duas coisas que só apareceram dirigindo o `codex` de verdade: `error` NÃO é fatal (o aviso
+  "Model metadata not found" e a retentativa de rede chegam como `error` e o turno termina bem —
+  traduzir isso em erro abortaria turno saudável; o canal fatal é `turn.failed`), e o `--json` do
+  `exec` só emite item COMPLETO, então a resposta chega de uma vez em vez de palavra por palavra.
+  `--skip-git-repo-check` é escolha: o `codex exec` se recusa a rodar fora de repositório git, e
+  manter a recusa faria ele ser o único motor a falhar em projeto que funciona nos outros.
 - `nexo branch ls | rm [pasta] [--run <id>]`: a limpeza dos branches que o fan-in deixa. Eles
   acumulam por desenho — a árvore de trabalho sai do disco no fim do run e o branch fica, porque é
   ele que guarda o que o agente fez — então um repositório com uso regular de time junta um por

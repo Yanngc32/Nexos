@@ -260,6 +260,36 @@ export function configDeMcpAutoria(porta: number, token: string): string {
   return configPara(porta, token, "/v1/mcp");
 }
 
+/** Endereço da boca MCP do daemon. O `codex` recebe isto, não arquivo. */
+export function urlDeMcp(porta: number, caminho = "/v1/mcp"): string {
+  return `http://127.0.0.1:${porta}${caminho}`;
+}
+
+/**
+ * Variável que carrega o token pro `codex`.
+ *
+ * O `-c mcp_servers.<nome>` do codex não aceita header: ele aceita
+ * `bearer_token_env_var`, o NOME de uma variável que ele lê do ambiente. Isso
+ * cai bem na mesma preocupação que fez a config do `claude` ir pra arquivo
+ * `0600` em vez de argv — aqui o token não passa nem por um nem por outro.
+ */
+export const ENV_TOKEN_MCP = "NEXO_MCP_TOKEN";
+
+/**
+ * Os argumentos que ligam o MCP do daemon no `codex exec`.
+ *
+ * TOML dentro de argumento, que é como o `-c` recebe valor. Sem espaço e com o
+ * mínimo de aspas de propósito: no Windows o motor nasce via `cmd.exe`, então
+ * quanto menos citação o valor exigir, menos chance de o shell mastigá-lo.
+ *
+ * Medido contra o codex-cli 0.153.4: o `-c` vale só pra invocação, não escreve
+ * `config.toml`, e as ferramentas do daemon chegam ao modelo agrupadas num
+ * `mcp__nexo` — verifiquei inspecionando o corpo que o codex manda ao provedor.
+ */
+export function flagsDeMcpCodex(url: string): string[] {
+  return ["-c", `mcp_servers.nexo={url="${url}",bearer_token_env_var="${ENV_TOKEN_MCP}"}`];
+}
+
 /** Nomes das ferramentas como o CLI as enxerga — é isso que entra no --allowed-tools. */
 export const MCP_TOOLS = ["mcp__nexo__nexo_membros", "mcp__nexo__nexo_chamar"];
 

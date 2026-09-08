@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { addProfile, markReady, updateProfile } from "../src/profiles.ts";
-import { claudeEngine, parseCliLine } from "../src/engines/cli.ts";
+import { claudeEngine, codexEngine, parseCliLine } from "../src/engines/cli.ts";
 import { contextWindowOf, toolSummary } from "../src/engines/parse-claude.ts";
 import { spawnCwd } from "../src/project-cwd.ts";
 import { tempHome } from "./helpers.ts";
@@ -545,5 +545,94 @@ describe("janela da sessão", () => {
     expect(contextWindowOf("claude-sonnet-5")).toBe(200_000);
     expect(contextWindowOf("claude-opus-5[1m]")).toBe(1_000_000);
     expect(contextWindowOf("")).toBe(200_000);
+  });
+});
+
+/*
+ * O motor codex, com fixture no lugar do binário.
+ *
+ * Não havia NENHUM teste que rodasse um turno de codex — nem fixture — e foi
+ * essa ausência que deixou passar que o motor spawnava `codex` puro, que abre a
+ * TUI e morre na hora com stdin em pipe ("Error: stdin is not a terminal"). O
+ * fixture recusa qualquer invocação que não seja `exec --json` justamente pra
+ * essa regressão ser barulhenta.
+ */
+describe("motor codex", () => {
+  const fakeCodex = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-codex.mjs");
+
+  async function turno(home: string, opts: Record<string, unknown> = {}, texto = "oi") {
+    addProfile({ id: "x1", engine: "codex" }, home, { skipBinCheck: true });
+    markReady("x1", home);
+    process.env.NEXO_CODEX_BIN = fakeCodex;
+    const engine = codexEngine(home, "x1");
+    const events: EngineEvent[] = [];
+    await engine.start(
+      { threadId: "t-1", projectPath: spawnCwd("."), profileId: "x1", contextPack: "pack", ...opts },
+      (ev) => events.push(ev),
+    );
+    await engine.send(texto);
+    await waitDone(events);
+    return { engine, events };
+  }
+
+  it("invoca `exec --json`, e o prompt vai por stdin", async () => {
+    const { engine, events } = await turno(tempHome());
+    expect(engine.lastArgs).toEqual(["exec", "--json", "--skip-git-repo-check"]);
+    expect(events.filter((e) => e.type === "text").map((e) => (e as { text: string }).text)).toEqual(["echo:oi"]);
+  });
+
+  it("o turno fecha com uso e done, e o contexto é a soma do que ocupou a janela", async () => {
+    const { events } = await turno(tempHome());
+    const uso = events.find((e) => e.type === "usage") as Record<string, unknown> | undefined;
+    expect(uso).toMatchObject({ input: 30, output: 3, cacheRead: 3, cacheCreate: 0, contextTokens: 33 });
+    expect(events.at(-1)?.type).toBe("done");
+  });
+
+  it("o aviso do codex não aborta o turno: vira linha, e o done ainda vem", async () => {
+    const { events } = await turno(tempHome());
+    const avisos = events.filter((e) => e.type === "tool" && (e as { name: string }).name === "aviso");
+    expect(avisos).toHaveLength(1);
+    expect(events.some((e) => e.type === "error")).toBe(false);
+    expect(events.some((e) => e.type === "done")).toBe(true);
+  });
+
+  it("comando executado aparece uma vez só, com o exit code", async () => {
+    const { events } = await turno(tempHome());
+    const cmds = events.filter((e) => e.type === "tool" && (e as { name: string }).name === "command_execution");
+    // o fixture manda item.started E item.completed do mesmo id; só o completo conta
+    expect(cmds.map((e) => (e as { summary: string }).summary)).toContain("/bin/bash -lc 'echo alo' (exit 0)");
+    expect(cmds.filter((e) => (e as { summary: string }).summary.includes("echo alo"))).toHaveLength(1);
+  });
+
+  it("turn.failed é erro de verdade", async () => {
+    const { events } = await turno(tempHome(), {}, "FALHA agora");
+    expect(events.some((e) => e.type === "error" && /recusou/.test((e as { message: string }).message))).toBe(true);
+  });
+
+  /*
+   * O MCP do codex: a URL vai em argv (não é segredo) e o TOKEN vai por variável
+   * de ambiente, que é o que o `bearer_token_env_var` do codex lê. O fixture
+   * ecoa a variável de volta pra provar que ela chegou — e o `not.toContain`
+   * prova o outro lado: o token não aparece em argv, que é legível por qualquer
+   * processo do mesmo usuário.
+   */
+  it("liga o MCP por -c e manda o token pelo ambiente, nunca por argv", async () => {
+    const { engine, events } = await turno(tempHome(), {
+      mcpHttp: { url: "http://127.0.0.1:7432/v1/mcp", token: "segredo-do-daemon" },
+    });
+    expect(engine.lastArgs).toContain("-c");
+    expect(engine.lastArgs).toContain(
+      'mcp_servers.nexo={url="http://127.0.0.1:7432/v1/mcp",bearer_token_env_var="NEXO_MCP_TOKEN"}',
+    );
+    expect(engine.lastArgs.join(" ")).not.toContain("segredo-do-daemon");
+
+    const eco = events.find((e) => e.type === "tool" && /NEXO_MCP_TOKEN=/.test((e as { summary: string }).summary));
+    // o eco vem como command_execution, então o resumo traz o exit code atrás
+    expect((eco as { summary: string }).summary).toBe("NEXO_MCP_TOKEN=segredo-do-daemon (exit 0)");
+  });
+
+  it("sem MCP não sobra flag de MCP no argv", async () => {
+    const { engine } = await turno(tempHome());
+    expect(engine.lastArgs).not.toContain("-c");
   });
 });

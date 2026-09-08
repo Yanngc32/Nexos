@@ -7,7 +7,7 @@ import { agentOverrides, getAgent } from "./agents.ts";
 import { promptWithAttachments, removeThreadAttachments, saveImages, type IncomingImage } from "./attachments.ts";
 import { loadConfig } from "./config.ts";
 import { tokenPath } from "./home.ts";
-import { configDeMcpAutoria, MCP_TOOLS_AUTORIA } from "./mcp.ts";
+import { configDeMcpAutoria, MCP_TOOLS_AUTORIA, urlDeMcp } from "./mcp.ts";
 import { ApiEngine } from "./engines/api.ts";
 import { claudeEngine, codexEngine } from "./engines/cli.ts";
 import { contextWindowOf } from "./engines/parse-claude.ts";
@@ -333,24 +333,41 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
  * ao run, porque as ferramentas dela executam membros. Conversa normal ganha as
  * de AUTORIA: criar e editar agente e time, sem executar nada.
  *
- * Só `claude`, porque só ele fala MCP. Nas outras contas a conversa segue igual
- * ao que era — o modelo simplesmente não tem as ferramentas, e é por isso que a
- * tela continua sendo o caminho garantido pra criar time.
+ * `claude` e `codex`, cada um do jeito dele: o primeiro por arquivo de config
+ * (`--mcp-config`), o segundo por chave de config e token em variável de
+ * ambiente (`-c mcp_servers.nexo=…`). `api` e `stub` não entram — o `api` é
+ * chamada HTTP direta ao provedor, sem cliente MCP nenhum, e dar ferramenta a
+ * ele significaria o Nexo rodar o laço de ferramenta por conta própria.
+ *
+ * A conversa de SUPERVISOR segue só em `claude`: o servidor dela é preso ao run
+ * e vem carimbado no `thread_meta` como CAMINHO DE ARQUIVO, formato que o codex
+ * não usa. Nas contas codex o supervisor continua no canal por turno, que
+ * agora funciona de verdade. Só a autoria — criar e editar agente e time, sem
+ * executar nada — vale nos dois.
  */
 function mcpDaConversa(
   meta: { mcpConfig?: string; mcpTools?: string[] },
   perfil: Profile,
   home: string,
-): { mcpConfig?: string; mcpTools?: string[] } {
+): { mcpConfig?: string; mcpTools?: string[]; mcpHttp?: { url: string; token: string } } {
   if (meta.mcpConfig) {
     return {
       mcpConfig: meta.mcpConfig,
       ...(meta.mcpTools?.length ? { mcpTools: meta.mcpTools } : {}),
     };
   }
+  if (perfil.engine === "codex") {
+    const token = tokenDoHome(home);
+    return token ? { mcpHttp: { url: urlDeMcp(loadConfig(home).port), token } } : {};
+  }
   if (perfil.engine !== "claude") return {};
   const arquivo = arquivoDeAutoria(home);
   return arquivo ? { mcpConfig: arquivo, mcpTools: [...MCP_TOOLS_AUTORIA] } : {};
+}
+
+/** O token do daemon, ou vazio se ele ainda não subiu nesta home. */
+function tokenDoHome(home: string): string {
+  return existsSync(tokenPath(home)) ? readFileSync(tokenPath(home), "utf8").trim() : "";
 }
 
 /**
@@ -365,7 +382,7 @@ function mcpDaConversa(
  * qualquer processo do mesmo usuário.
  */
 function arquivoDeAutoria(home: string): string {
-  const token = existsSync(tokenPath(home)) ? readFileSync(tokenPath(home), "utf8").trim() : "";
+  const token = tokenDoHome(home);
   if (!token) return "";
   const dir = join(home, "run");
   mkdirSync(dir, { recursive: true });

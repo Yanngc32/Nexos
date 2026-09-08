@@ -403,6 +403,16 @@ export type StartOpts = {
    * conclui que a ferramenta não existe.
    */
   mcpTools?: string[];
+  /**
+   * Endereço e token do MCP pro motor que NÃO recebe arquivo de config.
+   *
+   * O `codex` configura MCP por chave de config (`-c mcp_servers.<nome>=…`), e
+   * ali o token não vai junto: ele aponta uma VARIÁVEL DE AMBIENTE
+   * (`bearer_token_env_var`) que o daemon põe no ambiente do filho. Sai melhor
+   * que o arquivo do `claude` na mesma preocupação — o segredo não passa por
+   * argv nem por arquivo, só pelo ambiente do processo.
+   */
+  mcpHttp?: { url: string; token: string };
 };
 
 /* ---------- times de agentes ---------- */

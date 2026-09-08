@@ -43,14 +43,22 @@ Tudo em `~/.nexo` (ou `NEXO_HOME`). Nada disso vai pro repositório.
 
 | engine | como fala | credencial |
 | --- | --- | --- |
-| `claude` | spawn da CLI `claude`, stream JSON parseado em `engines/parse-claude.ts` | login da CLI, isolado por perfil |
-| `codex` | spawn da CLI `codex` | login da CLI, isolado por perfil |
+| `claude` | `claude --print --output-format stream-json`, parseado em `engines/parse-claude.ts` | login da CLI, isolado por perfil |
+| `codex` | `codex exec --json`, stream parseado em `engines/parse-codex.ts` | login da CLI, isolado por perfil |
 | `api` | HTTP direto ao provedor | `keys.json` do perfil |
 | `stub` | eco determinístico | nenhuma — só testes |
 
 Perfil `claude`/`codex` exige o binário no PATH na criação. `nexo login <id>` roda o login da CLI
 com o `CONFIG_DIR` apontado pro perfil, então duas contas do mesmo provedor não se atropelam.
 `POST /v1/profiles/:id/import` copia a credencial global do Claude pro perfil.
+
+MCP: `claude` recebe `--mcp-config` (arquivo `0600`, porque carrega o token) e `codex` recebe
+`-c mcp_servers.nexo={url=…,bearer_token_env_var=NEXO_MCP_TOKEN}`, com o token no ambiente do
+filho — nem em argv nem em arquivo. As ferramentas de autoria valem nos dois; o servidor do
+supervisor, preso ao run, só em `claude`. `api` e `stub` não têm cliente MCP.
+
+O `codex exec` recusa rodar fora de repositório git; o Nexo passa `--skip-git-repo-check` pra o
+motor não ser o único a falhar em projeto que funciona nos outros.
 
 ## API HTTP
 
