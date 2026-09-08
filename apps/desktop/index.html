@@ -146,10 +146,25 @@
             </svg>
           </button>
           <input id="browser-url" type="text" inputmode="url" spellcheck="false" placeholder="https://…" />
+          <button
+            type="button"
+            id="btn-browser-inspect"
+            class="ghost ico-only ico-inspect"
+            title="Selecionar elemento do preview"
+            aria-label="Selecionar elemento do preview"
+            aria-pressed="false"
+          >
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M12 3v4M12 17v4M3 12h4M17 12h4" />
+              <circle cx="12" cy="12" r="5" />
+            </svg>
+          </button>
           <button type="submit" class="primary">Ir</button>
         </form>
         <div class="browser-stage">
-          <iframe id="browser-frame" title="Browser" src="about:blank"></iframe>
+          <!-- preload não vai aqui: main.cjs trava em will-attach-webview, ignorando o
+               que este atributo disser — deixar os dois seria confundir qual manda -->
+          <webview id="browser-frame" title="Browser" src="about:blank"></webview>
           <div id="browser-fail" class="browser-fail hidden" role="alert">
             <p id="browser-fail-msg"></p>
             <p id="browser-fail-hint" class="browser-fail-hint"></p>
@@ -159,6 +174,17 @@
               <button type="button" id="btn-browser-external" class="ghost hidden">Abrir no navegador</button>
             </div>
           </div>
+          <aside id="inspector-box" class="inspector-box hidden" aria-label="Elementos selecionados">
+            <header>
+              <h2>Elementos selecionados</h2>
+              <button type="button" id="btn-inspector-discard" class="ghost mod-close" title="Descartar seleção">✕</button>
+            </header>
+            <ul id="inspector-list"></ul>
+            <textarea id="inspector-pedido" rows="3" placeholder="O que fazer com esses elementos?"></textarea>
+            <div class="inspector-acts">
+              <button type="button" id="btn-inspector-send" class="primary">Mandar</button>
+            </div>
+          </aside>
         </div>
       </section>
       <section class="pane hidden" id="pane-canvas">

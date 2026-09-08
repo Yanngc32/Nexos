@@ -6,6 +6,31 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- Árvore de arquivos ganha marcador por tipo (`file-kind.js`): reconhece por nome inteiro
+  (`Dockerfile`, `.gitignore`) e por extensão, com o glifo/cor vivendo no CSS
+  (`[data-kind]`) — arquivo que não se reconhece cai no marcador neutro de sempre.
+- Painel flutuante ganha modo "mini": uma pílula compacta com passos/tempo/quota, que troca
+  com o modo cheio sem esperar o próximo poll (as duas versões são sempre pintadas; o CSS
+  escolhe qual mostra). Largura e altura acompanham o conteúdo real da pílula em vez de uma
+  janela de tamanho fixo.
+- `@agente`/`@time` no composer: citar um agente ou time específico numa mensagem dispara um Run
+  de verdade em paralelo ao turno de chat normal (mesmo `POST /v1/runs` que o Team Studio já usa),
+  sem esperar o modelo decidir usar — é a pessoa que dispara, preservando a regra de que run
+  nunca sai de dentro de uma conversa comum. Autocomplete do `@` reaproveita o mesmo menu do `/`.
+  Time citado direto usa o id dele; agente avulso vira (ou reusa, idempotente) um
+  time-pipeline-de-1 oculto (`origem: "mencao"` em `TeamDef`) — `listTeams` filtra isso da tela,
+  `getTeam` não, então o motor de Run funciona sem mudança nenhuma nele. Múltiplas menções na
+  mesma mensagem disparam um Run por menção, todas com o mesmo pedido (a mensagem sem os `@`).
+- Inspector de elemento no painel Browser: um modo de seleção que destaca o elemento sob o mouse
+  dentro do preview local e, no clique, captura seletor/HTML resumido/texto visível — acumula
+  várias seleções numa caixa lateral, e "Mandar" vira uma mensagem de chat normal (uma lista
+  numerada dos elementos + o pedido livre da pessoa), pelo mesmo caminho de envio de sempre.
+  Exigiu trocar o `<iframe>` do Browser por `<webview>`: o preview carrega origem diferente
+  (`http://127.0.0.1:porta`) da do próprio app (`file://`), e a Same-Origin Policy bloquearia
+  qualquer script do Nexo de tocar o DOM de um iframe comum — `<webview>` é o mecanismo do
+  Electron pensado pra isso, com `will-attach-webview` travando `preload`/`nodeIntegration` nos
+  valores esperados independente do que o HTML peça.
+
 - Daemon HTTP (Hono) em `127.0.0.1`, com token bearer sorteado a cada subida e gravado em
   `~/.nexo/daemon.token` (modo `0600`).
 - Motores de agente: `claude` e `codex` (CLI local), `api` (chave do provedor) e `stub` (testes).
@@ -283,6 +308,18 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Corrigido
 
+- Skill `nexo-times` instalava direto em `~/.claude/skills/` (config REAL do Claude Code na
+  máquina) em vez de `~/.nexo/skills/` (pasta global do Nexo). Isso furava o isolamento por
+  perfil que o resto do sistema usa: a skill vazava pra qualquer sessão Claude Code do usuário —
+  inclusive fora do Nexo — e mesmo assim não chegava em perfil nenhum do Nexo que não usasse por
+  acaso esse mesmo `~/.claude` como config. `GET /v1/skills` também passou a esconder skill de
+  perfil/global quando a conta é `codex`/`api`: esses motores não leem `SKILL.md`, então listar
+  pra eles anunciava no menu "/" uma opção que nunca ia valer no turno de verdade.
+- `run.bat` só checava se a PASTA `node_modules/electron` existia antes de pular a instalação —
+  `pnpm install` cria a pasta mesmo quando bloqueia o script de postinstall que baixa o binário
+  (`electron.exe`), e o app abria com um cmd vazio, sem log, na primeira vez. Agora checa o
+  binário (`dist/electron.exe`) de verdade, e se `pnpm install` rodar sem baixá-lo, avisa o
+  comando exato (`pnpm approve-builds`) em vez de deixar o cmd vazio sem explicação.
 - `renderMd` estava quebrado desde a extração do `markdown.js`: o `wireExternalLinks` foi junto
   para o módulo novo sem ser exportado, e o renderer continuou chamando uma função que não
   enxergava mais — todo render de resposta do modelo estourava. Não havia teste do renderer, então

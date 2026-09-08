@@ -22,6 +22,8 @@ import {
 import { portaDaUrl, safeUrl, urlDoCelular } from "./url.js";
 import { qrSvg } from "./qr.js";
 import { celAlcance, celAviso } from "./celular.js";
+import { extrairMencoes } from "./mention.js";
+import { montarMensagem } from "./inspector-mensagem.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -88,8 +90,17 @@ const state = {
   pendingImages: [],
   /** Object URLs vivos no log; revogados quando o log é recriado. */
   logShotUrls: [],
-  /** Menu de autocomplete do "/" no composer. */
-  slash: { open: false, index: 0, matches: [] },
+  /**
+   * Menu de autocomplete do composer — serve tanto "/" (kind "cmd", sempre a mensagem
+   * inteira) quanto "@" (kind "mencao", token em qualquer ponto do texto). A posição do
+   * token não mora aqui: `applySlashSelection` recalcula na hora, porque mover o cursor sem
+   * digitar não atualizaria um valor guardado.
+   */
+  slash: { open: false, index: 0, matches: [], kind: "cmd" },
+  /** Skills descobertas (projeto + perfil); recarrega quando projectPath/profileId muda. */
+  skills: { list: [], key: "", loading: false },
+  /** Agentes/times pro autocomplete do "@"; carrega uma vez por sessão (mesma fonte do painel). */
+  mencoes: { loaded: false, loading: false },
   /** SSE da conversa está de pé? O poll do motor usa isso pra religar sozinho. */
   sseOn: false,
   /** Fila de mensagens por thread: { [threadId]: [{ text, images }] }. */
@@ -122,6 +133,8 @@ const state = {
   },
   /** Agente personalizado da conversa aberta; "" = conta pura. */
   agentId: "",
+  /** Modo "selecionar elemento" do painel Browser — ver ligaInspector/desligaInspector. */
+  inspector: { on: false, selecionados: [] },
   /** Times de agentes; a lista vive aqui porque o painel e a tela cheia leem. */
   teams: [],
 };
@@ -1210,6 +1223,7 @@ function applyWorkLayout() {
 
 /** Fecha o módulo aberto (Arquivos/Terminal/Browser/Canvas): só chat + sidebar ficam. */
 function closeModule() {
+  if (state.inspector.on) desligaInspector();
   state.view = "none";
   applyWorkLayout();
 }
@@ -1342,6 +1356,84 @@ async function conferirPreview(href) {
 function loadBrowser() {
   setBrowserUrl(localStorage.getItem(storeKey("browser")) || "about:blank", false);
 }
+
+/* ---------- inspector de elemento (modo seleção do painel Browser) ---------- */
+
+function renderInspectorBox() {
+  const lista = state.inspector.selecionados;
+  $("inspector-box").classList.toggle("hidden", lista.length === 0);
+  const ul = $("inspector-list");
+  ul.replaceChildren();
+  lista.forEach((s, i) => {
+    const li = document.createElement("li");
+    const seletor = document.createElement("span");
+    seletor.className = "insp-seletor";
+    seletor.textContent = `${i + 1}. ${s.seletor}`;
+    li.append(seletor);
+    if (s.texto) {
+      const texto = document.createElement("span");
+      texto.className = "insp-texto";
+      texto.textContent = s.texto;
+      li.append(texto);
+    }
+    ul.append(li);
+  });
+}
+
+/**
+ * `<webview>.send()` pode lançar se o preview ainda não terminou de anexar (ex: clicar o
+ * botão com about:blank recém-aberto) — sem o try/catch, um clique nesse instante quebraria
+ * o handler e deixaria o botão marcado como ligado sem o preload ter recebido nada.
+ */
+function mandaProInspector(canal, valor) {
+  try {
+    $("browser-frame").send?.(canal, valor);
+  } catch {
+    /* preview ainda não anexou — o próximo toggle tenta de novo */
+  }
+}
+
+function ligaInspector() {
+  state.inspector.on = true;
+  $("btn-browser-inspect").setAttribute("aria-pressed", "true");
+  mandaProInspector("nexo-inspector:toggle", true);
+}
+
+/** Desliga o modo e limpa a seleção pendente — usado tanto por "Descartar" quanto por Mandar/Esc/fechar painel. */
+function desligaInspector() {
+  state.inspector.on = false;
+  state.inspector.selecionados = [];
+  $("btn-browser-inspect").setAttribute("aria-pressed", "false");
+  $("inspector-pedido").value = "";
+  renderInspectorBox();
+  mandaProInspector("nexo-inspector:toggle", false);
+}
+
+function toggleInspector() {
+  if (state.inspector.on) desligaInspector();
+  else ligaInspector();
+}
+
+/** O elemento clicado dentro do preview chega aqui — ver browser-inspector-preload.cjs. */
+$("browser-frame").addEventListener("ipc-message", (e) => {
+  if (e.channel !== "nexo-inspector:selecionado") return;
+  state.inspector.selecionados.push(e.args[0]);
+  renderInspectorBox();
+});
+
+$("btn-browser-inspect").addEventListener("click", toggleInspector);
+
+$("btn-inspector-discard").addEventListener("click", () => desligaInspector());
+
+$("btn-inspector-send").addEventListener("click", () => {
+  if (!state.threadId) {
+    appendEvent({ type: "error", message: "Abre uma conversa primeiro." });
+    return;
+  }
+  const texto = montarMensagem(state.inspector.selecionados, $("inspector-pedido").value);
+  desligaInspector();
+  void sendChatMessage(texto);
+});
 
 const fileTree = createFileTree({
   nexo: () => window.nexo,
@@ -1966,7 +2058,19 @@ function renderRepoTree() {
       const quantos = document.createElement("span");
       quantos.className = "stub-meta";
       quantos.textContent = `${g.threads.length} passos`;
-      cab.append(nome, quantos);
+      const detalhes = document.createElement("button");
+      detalhes.type = "button";
+      detalhes.className = "ghost run-info";
+      detalhes.title = "Time, topologia e status de cada passo";
+      detalhes.textContent = "ⓘ";
+      // preventDefault: o <summary> abre/fecha o <details> com qualquer clique,
+      // inclusive neste botão — sem isso, ver detalhes também alterna o grupo.
+      detalhes.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        void mostrarDetalhesDoRun(g.runId);
+      });
+      cab.append(nome, quantos, detalhes);
       // fechado, o ponto sobe pro cabeçalho pra atividade não sumir da lista
       if (g.threads.some(isBusy)) {
         const dot = document.createElement("span");
@@ -3062,6 +3166,41 @@ function agentCard(a) {
   return li;
 }
 
+const RUN_STATUS_LABEL = { running: "rodando", done: "concluído", error: "erro", aborted: "abortado" };
+const RUN_STEP_STATUS_LABEL = { pending: "esperando", running: "trabalhando", done: "concluído", error: "erro", skipped: "pulado" };
+
+/** Painel "quem está em qual passo": puxa o Run (papel + status de cada membro) e o Time (nome/topologia). */
+async function mostrarDetalhesDoRun(runId) {
+  let run;
+  try {
+    run = await req(`/v1/runs/${runId}`);
+  } catch (e) {
+    appendEvent({ type: "error", message: e.message || "Não consegui ler o run." });
+    return;
+  }
+  let time = null;
+  try {
+    time = await req(`/v1/teams/${run.teamId}`);
+  } catch {
+    // time pode ter sido apagado depois do run: segue só com o id dele
+  }
+  if (!state.agents.defs.length) await loadAgentDefs();
+  const rows = [
+    ["time", time?.name || run.teamId],
+    ["topologia", time?.topology || "—"],
+    ["objetivo", run.goal],
+    ["status do run", RUN_STATUS_LABEL[run.status] || run.status],
+  ];
+  for (const s of run.steps) {
+    const quem = s.papel || agentDef(s.agentId)?.name || s.agentId;
+    const custo = typeof s.costUsd === "number" ? ` · US$ ${s.costUsd.toFixed(2)}` : "";
+    const status = `${RUN_STEP_STATUS_LABEL[s.status] || s.status}${custo}`;
+    const cls = s.status === "error" ? "bad" : s.status === "done" ? "good" : "";
+    rows.push([`passo ${s.index + 1}${s.supervisor ? " (supervisor)" : ""} — ${quem}`, status, cls]);
+  }
+  appendEvent({ type: "panel", title: `Time · ${time?.name || run.teamId}`, rows });
+}
+
 async function abrirAgente(a) {
   if (!a.projectPath) return;
   await openThreadInRepo(a.projectPath, a.threadId);
@@ -3391,7 +3530,7 @@ $("btn-new").addEventListener("click", async () => {
  * (/rewind, /resume, /doctor…) — o Nexo spawna o motor sem sessão contínua
  * e já tem painel próprio de Configurações pra isso.
  */
-const SLASH_GROUPS = ["Conta", "Sessão", "Tarefas", "Ajuda"];
+const SLASH_GROUPS = ["Conta", "Sessão", "Tarefas", "Skills", "Ajuda"];
 const SLASH_COMMANDS = [
   { cmd: "account", args: "[id]", group: "Conta", desc: "Painel da conta em uso (ou de uma conta específica)" },
   { cmd: "accounts", args: "", group: "Conta", desc: "Todas as contas com status de login" },
@@ -3416,9 +3555,66 @@ const PRESET_PROMPTS = {
   "security-review": "Faça uma revisão de segurança do diff atual (git diff) deste projeto: procure segredo exposto, injeção, autenticação/autorização quebrada e configuração insegura.",
 };
 
+/** Chave de cache das skills: refaz a varredura só quando pasta ou conta muda. */
+function skillsKey() {
+  return `${state.projectPath}|${state.profileId}`;
+}
+
+/** Varre `.claude/skills` do projeto e do perfil ativo via daemon. Cacheado por skillsKey(). */
+async function loadSkills() {
+  const key = skillsKey();
+  if (state.skills.loading || state.skills.key === key) return;
+  state.skills.loading = true;
+  try {
+    const qs = new URLSearchParams();
+    if (state.projectPath) qs.set("projectPath", state.projectPath);
+    if (state.profileId) qs.set("profileId", state.profileId);
+    state.skills.list = await req(`/v1/skills?${qs}`);
+    state.skills.key = key;
+  } catch {
+    state.skills.list = [];
+  } finally {
+    state.skills.loading = false;
+  }
+}
+
+/** Dispara a varredura se a pasta/conta mudou desde a última vez; re-renderiza o menu ao chegar. */
+function ensureSkillsLoaded() {
+  if (state.skills.key === skillsKey() || state.skills.loading) return;
+  void loadSkills().then(() => {
+    if (state.slash.open) openSlashMenuIfNeeded();
+  });
+}
+
 function slashMatches(fragment) {
   const f = fragment.toLowerCase();
-  return SLASH_COMMANDS.filter((c) => c.cmd.startsWith(f));
+  const built = SLASH_COMMANDS.filter((c) => c.cmd.startsWith(f));
+  const skills = state.skills.list
+    .filter((s) => s.name.toLowerCase().startsWith(f))
+    .map((s) => ({ cmd: s.name, args: "", group: "Skills", desc: s.description || "(sem descrição)" }));
+  return [...built, ...skills];
+}
+
+/** Carrega agentes/times uma vez por sessão pro autocomplete do "@" — mesma fonte do painel. */
+function ensureMencoesLoaded() {
+  if (state.mencoes.loaded || state.mencoes.loading) return;
+  state.mencoes.loading = true;
+  Promise.all([state.agents.defs.length ? null : loadAgentDefs(), loadTeams()]).finally(() => {
+    state.mencoes.loading = false;
+    state.mencoes.loaded = true;
+    if (state.slash.open) openSlashMenuIfNeeded();
+  });
+}
+
+function mencaoMatches(fragment) {
+  const f = fragment.toLowerCase();
+  const agentes = state.agents.defs
+    .filter((a) => a.id.toLowerCase().startsWith(f))
+    .map((a) => ({ cmd: a.id, args: "", group: "Agentes", desc: a.name }));
+  const times = state.teams
+    .filter((t) => t.id.toLowerCase().startsWith(f))
+    .map((t) => ({ cmd: t.id, args: "", group: "Times", desc: t.name }));
+  return [...agentes, ...times];
 }
 
 function closeSlashMenu() {
@@ -3430,27 +3626,52 @@ function closeSlashMenu() {
 function applySlashSelection(idx) {
   const item = state.slash.matches[idx];
   if (!item) return;
-  $("input").value = `/${item.cmd}${item.args ? " " : ""}`;
+  const el = $("input");
+  if (state.slash.kind === "mencao") {
+    /*
+     * Recalcula a posição do token AGORA, no clique — não usa o que foi gravado quando o
+     * menu abriu. Mover o cursor (clique, setas) sem digitar nada não dispara "input", então
+     * o valor salvo ficaria apontando pro lugar errado do texto: substituiria um trecho que
+     * não é mais o "@fragmento" atual, corrompendo a mensagem.
+     */
+    const gat = detectarGatilho();
+    if (gat?.kind !== "mencao") {
+      closeSlashMenu();
+      return;
+    }
+    const antes = el.value.slice(0, gat.tokenStart);
+    const depois = el.value.slice(gat.tokenEnd);
+    const inserido = `@${item.cmd} `;
+    el.value = antes + inserido + depois;
+    closeSlashMenu();
+    el.focus();
+    const pos = antes.length + inserido.length;
+    el.setSelectionRange(pos, pos);
+    return;
+  }
+  el.value = `/${item.cmd}${item.args ? " " : ""}`;
   closeSlashMenu();
-  $("input").focus();
+  el.focus();
 }
 
 function renderSlashMenu() {
   const menu = $("slash-menu");
   const matches = state.slash.matches;
+  const mencao = state.slash.kind === "mencao";
+  menu.setAttribute("aria-label", mencao ? "Agentes e times" : "Comandos");
   if (!matches.length) {
-    menu.innerHTML = `<p class="slash-empty">Nenhum comando bate com isso.</p>`;
+    menu.innerHTML = `<p class="slash-empty">${mencao ? "Nenhum agente ou time bate com isso." : "Nenhum comando bate com isso."}</p>`;
     return;
   }
   let html = "";
-  for (const group of SLASH_GROUPS) {
+  for (const group of mencao ? ["Agentes", "Times"] : SLASH_GROUPS) {
     const items = matches.filter((m) => m.group === group);
     if (!items.length) continue;
     html += `<div class="slash-group"><h4>${escapeHtml(group)}</h4><ul>`;
     for (const item of items) {
       const idx = matches.indexOf(item);
       html += `<li class="slash-item" data-idx="${idx}" data-on="${idx === state.slash.index ? "1" : "0"}">
-        <span class="cmd">/${escapeHtml(item.cmd)}${item.args ? ` ${escapeHtml(item.args)}` : ""}</span>
+        <span class="cmd">${mencao ? "@" : "/"}${escapeHtml(item.cmd)}${item.args ? ` ${escapeHtml(item.args)}` : ""}</span>
         <span class="desc">${escapeHtml(item.desc)}</span>
       </li>`;
     }
@@ -3466,20 +3687,48 @@ function renderSlashMenu() {
   }
 }
 
-/** Só abre com "/" seguido de letras/hífen sem espaço: depois disso é argumento, não busca de comando. */
+/**
+ * O que o cursor está tentando completar agora: "/comando" só quando é a mensagem inteira
+ * (regra original, preservada), ou "@agente"/"@time" em qualquer ponto do texto — desde que
+ * ainda não tenha espaço depois do @, senão já é outra palavra.
+ */
+function detectarGatilho() {
+  const el = $("input");
+  const value = el.value;
+  const cursor = el.selectionStart ?? value.length;
+  const cmd = /^\/([a-z-]*)$/i.exec(value);
+  if (cmd) return { kind: "cmd", fragment: cmd[1].toLowerCase(), tokenStart: 0, tokenEnd: value.length };
+  const antes = value.slice(0, cursor);
+  const at = /(?:^|\s)@([a-z0-9_-]{0,40})$/i.exec(antes);
+  if (!at) return null;
+  return {
+    kind: "mencao",
+    fragment: at[1].toLowerCase(),
+    tokenStart: antes.length - at[1].length - 1,
+    tokenEnd: cursor,
+  };
+}
+
 function openSlashMenuIfNeeded() {
-  const m = /^\/([a-z-]*)$/i.exec($("input").value);
-  if (!m) {
+  const gat = detectarGatilho();
+  if (!gat) {
     closeSlashMenu();
     return;
   }
-  const fragment = m[1].toLowerCase();
-  const matches = slashMatches(fragment);
-  // Fragmento já bate exato com um comando (ex: "/clear"): nada mais a completar,
-  // fecha o menu pra o Enter seguir pro envio normal em vez de só fechar o dropdown.
-  if (matches.some((c) => c.cmd.toLowerCase() === fragment)) {
-    closeSlashMenu();
-    return;
+  state.slash.kind = gat.kind;
+  let matches;
+  if (gat.kind === "cmd") {
+    ensureSkillsLoaded();
+    matches = slashMatches(gat.fragment);
+    // Fragmento já bate exato com um comando (ex: "/clear"): nada mais a completar,
+    // fecha o menu pra o Enter seguir pro envio normal em vez de só fechar o dropdown.
+    if (matches.some((c) => c.cmd.toLowerCase() === gat.fragment)) {
+      closeSlashMenu();
+      return;
+    }
+  } else {
+    ensureMencoesLoaded();
+    matches = mencaoMatches(gat.fragment);
   }
   state.slash.matches = matches;
   state.slash.index = 0;
@@ -3609,6 +3858,19 @@ async function runSlash(text) {
       return;
     }
     await sendChatMessage(PRESET_PROMPTS[cmd]);
+    return;
+  }
+  // Skill descoberta em `.claude/skills` (projeto ou perfil): manda "/nome ..." como
+  // mensagem normal — quem invoca a skill via ferramenta Skill é o motor, não o Nexo.
+  // Recarrega se ainda não tiver rodado pra esta pasta/conta (ex: comando digitado
+  // e enviado rápido demais pro menu ter disparado a varredura antes).
+  await loadSkills();
+  if (state.skills.list.some((s) => s.name.toLowerCase() === cmd)) {
+    if (!state.threadId) {
+      appendEvent({ type: "error", message: "Abre uma conversa primeiro." });
+      return;
+    }
+    await sendChatMessage(text);
     return;
   }
   appendEvent({
@@ -3788,6 +4050,37 @@ async function enviarProximoDaFila() {
   await sendChatMessage(item.text, item.images);
 }
 
+/**
+ * `@menção` na mensagem dispara um Run de verdade em paralelo ao turno de chat — não muda o
+ * texto que vai pro modelo, só roda ao lado (mesmo `POST /v1/runs` que o Team Studio já usa).
+ *
+ * Time citado direto usa o id dele; agente avulso vira (ou reusa) um time-pipeline-de-1 oculto
+ * via `/v1/teams/mencao/:agentId` (ver `teams.ts`). Cada menção é o seu próprio Run: erro numa
+ * não impede as outras nem desfaz o turno de chat, que já foi decidido e mandado à parte.
+ */
+async function dispararMencoes(texto) {
+  const { ids, goal } = extrairMencoes(texto);
+  if (!ids.length) return;
+  const projectPath = state.projectPath;
+  if (!state.agents.defs.length) await loadAgentDefs();
+  await loadTeams();
+  for (const id of ids) {
+    const time = state.teams.find((t) => t.id === id);
+    const agente = time ? null : state.agents.defs.find((a) => a.id === id);
+    if (!time && !agente) {
+      appendEvent({ type: "sys", message: `@${id} — não achei agente nem time com esse nome.` });
+      continue;
+    }
+    try {
+      const teamId = time ? time.id : (await req(`/v1/teams/mencao/${encodeURIComponent(id)}`, { method: "POST" })).id;
+      const run = await req("/v1/runs", { method: "POST", body: JSON.stringify({ teamId, projectPath, goal }) });
+      appendEvent({ type: "sys", message: `→ Run disparado: ${time?.name ?? agente.name} (${run.id})` });
+    } catch (err) {
+      appendEvent({ type: "sys", message: `@${id} — run não disparou: ${err.message || "erro"}` });
+    }
+  }
+}
+
 /** Caminho real de envio: usado tanto pelo composer quanto pelos comandos de tarefa (/init, /review…). */
 async function sendChatMessage(text, pendentes = null) {
   if (!state.threadId) return;
@@ -3811,6 +4104,7 @@ async function sendChatMessage(text, pendentes = null) {
   }
   const previews = itens.map((item) => ({ url: item.url, name: item.name }));
   appendEvent({ type: "user", text, previews });
+  void dispararMencoes(text);
   try {
     await req(`/v1/threads/${state.threadId}/messages`, {
       method: "POST",
@@ -4295,6 +4589,7 @@ window.nexo.onMod?.((id) => handleMod(id));
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    if (state.inspector.on) desligaInspector();
     if (state.paletteOpen) closePalette();
     else if (state.agents.open) toggleAgents(false);
     $("settings").classList.add("hidden");

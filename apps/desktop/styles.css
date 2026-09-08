@@ -510,6 +510,19 @@ body[data-side-mini="1"] .side .ico-only {
   white-space: nowrap;
 }
 
+/* Sempre visível como o .repo-forget: some no hover ninguém acha o botão. */
+.run-info {
+  opacity: 0.45;
+  flex: 0 0 auto;
+  min-width: 20px;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.run-group > summary:hover .run-info {
+  opacity: 1;
+}
+
 .run-group > ul {
   margin: 0 0 2px 12px;
   padding: 0;
@@ -714,6 +727,14 @@ body[data-side-mini="1"] .side .ico-only {
   transform: translateY(1px);
 }
 
+#btn-browser-inspect[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+#btn-browser-inspect[aria-pressed="true"] .ico {
+  color: var(--accent);
+}
+
 .status[data-on="1"] {
   color: var(--ok);
 }
@@ -845,6 +866,10 @@ body[data-focus="1"] .work #pane-chat {
 .file-tree summary,
 .file-tree button.tree-file {
   display: flex;
+  /* o marcador tem altura própria (a placa do ::before); sem isto o flex o
+     esticaria e a placa deixaria de ser quadrada */
+  align-items: center;
+  gap: 6px;
   width: 100%;
   text-align: left;
   padding: 4px 8px;
@@ -860,13 +885,146 @@ body[data-focus="1"] .work #pane-chat {
 
 .file-tree summary::before {
   content: "▸";
-  color: var(--muted);
-  width: 14px;
-  flex: 0 0 14px;
+  /* azul-acinzentado de pasta, no lugar do cinza de antes: separa pasta de
+     arquivo antes de o olho chegar no nome */
+  color: #8fa8bd;
+  width: 16px;
+  flex: 0 0 16px;
 }
 
 .file-tree details[open] > summary::before {
   content: "▾";
+}
+
+/* --- Marcador por tipo de arquivo -----------------------------------------
+   Espírito do Material Icon Theme sem fonte de ícone nem SVG: o JS só carimba
+   `data-kind` no botão (ver file-kind.js) e o glifo e a cor saem daqui.
+
+   A placa (quadrado arredondado tingido com a própria cor do tipo) é o que faz
+   o marcador ler como ícone e não como duas letras soltas — é ela que aproxima
+   a coluna do que o VS Code mostra. A largura fixa é a mesma do "▸/▾" da pasta,
+   pra os nomes alinharem entre arquivo e pasta.
+
+   Contraste: o marcador é conteúdo gráfico redundante (a extensão está no nome,
+   ao lado), então o critério que vale é o 1.4.11 do WCAG — 3:1 — e não o 4,5:1
+   de texto. Medido contra os três fundos que a linha pode ter — painel
+   (#181818), hover (#222) e selecionado (--accent a 22% sobre #222, ≈ #2b3d4a),
+   este o pior —, com a placa já somada: o cinza dos acessórios é o mínimo, em
+   ~3,7:1, e o resto fica acima de 4:1. Subir a placa de 12% derruba o cinza
+   abaixo de 3:1; é esse o teto.
+
+   Tipo sem regra não cai em lugar nenhum: fica no default abaixo, neutro. */
+.file-tree button.tree-file::before {
+  content: var(--kind-glifo, "•");
+  color: var(--kind-cor, var(--text));
+  background: color-mix(in srgb, var(--kind-cor, var(--text)) 12%, transparent);
+  border-radius: 4px;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  font-family: Consolas, "Cascadia Mono", "Segoe UI Mono", monospace;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: -0.5px;
+  text-align: center;
+}
+
+/* azul — documentação, tipos, estilo, python */
+.file-tree button.tree-file[data-kind="md"] {
+  --kind-glifo: "M↓";
+  --kind-cor: #6cb6d9;
+}
+
+.file-tree button.tree-file[data-kind="ts"] {
+  --kind-glifo: "TS";
+  --kind-cor: #6cb6d9;
+}
+
+.file-tree button.tree-file[data-kind="css"] {
+  --kind-glifo: "#";
+  --kind-cor: #6cb6d9;
+}
+
+.file-tree button.tree-file[data-kind="py"] {
+  --kind-glifo: "Py";
+  --kind-cor: #6cb6d9;
+}
+
+.file-tree button.tree-file[data-kind="docker"] {
+  --kind-glifo: "Dk";
+  --kind-cor: #6cb6d9;
+}
+
+/* amarelo — script e dado estruturado do lado JS */
+.file-tree button.tree-file[data-kind="js"] {
+  --kind-glifo: "JS";
+  --kind-cor: #cbcb41;
+}
+
+.file-tree button.tree-file[data-kind="json"] {
+  --kind-glifo: "{}";
+  --kind-cor: #cbcb41;
+}
+
+/* rosa — YAML */
+.file-tree button.tree-file[data-kind="yaml"] {
+  --kind-glifo: "≡";
+  --kind-cor: #ef8a92;
+}
+
+/* verde — shell */
+.file-tree button.tree-file[data-kind="shell"] {
+  --kind-glifo: ">_";
+  --kind-cor: #8dc149;
+}
+
+/* laranja — marcação */
+.file-tree button.tree-file[data-kind="html"] {
+  --kind-glifo: "<>";
+  --kind-cor: #f0964a;
+}
+
+/* roxo e verde-água — imagem */
+.file-tree button.tree-file[data-kind="img"] {
+  --kind-glifo: "▣";
+  --kind-cor: #c4a0e0;
+}
+
+.file-tree button.tree-file[data-kind="svg"] {
+  --kind-glifo: "◈";
+  --kind-cor: #4ec9b0;
+}
+
+/* cinza — o que é acessório: configuração, texto solto, atalho, binário */
+.file-tree button.tree-file[data-kind="config"] {
+  --kind-glifo: "⚙";
+  --kind-cor: #a6a6a6;
+}
+
+.file-tree button.tree-file[data-kind="link"] {
+  --kind-glifo: "↗";
+  --kind-cor: #a6a6a6;
+}
+
+.file-tree button.tree-file[data-kind="texto"] {
+  --kind-glifo: "T";
+  --kind-cor: #a6a6a6;
+}
+
+.file-tree button.tree-file[data-kind="arq"] {
+  --kind-glifo: "▦";
+  --kind-cor: #a6a6a6;
+}
+
+.file-tree button.tree-file[data-kind="bin"] {
+  --kind-glifo: "◼";
+  --kind-cor: #a6a6a6;
+}
+
+.file-tree button.tree-file[data-kind="doc"] {
+  --kind-glifo: "©";
+  --kind-cor: #a6a6a6;
 }
 
 .file-tree summary:hover,
@@ -973,6 +1131,9 @@ body[data-focus="1"] .work #pane-chat {
 }
 
 #browser-frame {
+  /* <webview> não é display:inline por padrão como <iframe> — sem display:flex aqui ele
+     não respeita o flex:1 do pai e some (altura 0) */
+  display: flex;
   flex: 1;
   width: 100%;
   border: 0;
@@ -2493,6 +2654,17 @@ button:disabled {
   padding: 7px 8px;
   border-radius: 6px;
   cursor: pointer;
+  transition: background 100ms ease;
+}
+
+/* Hover discreto, e só no fundo: a descrição não muda de cor junto porque o
+   olho já está em movimento sobre a lista e dois estímulos por linha viram
+   ruído. #363636 e não o #1f1f1f das outras listas do app: o menu senta sobre
+   --elev (#2b2b2b), um hover mais escuro que a própria superfície pareceria
+   afundar. O item selecionado pelo teclado ([data-on="1"]) tem a mesma
+   especificidade e vem depois, então vence — não reordene. */
+.slash-item:hover {
+  background: #363636;
 }
 
 .slash-item[data-on="1"] {
@@ -2787,6 +2959,86 @@ body[data-side-mini="1"] .svc-strip {
 
 .browser-fail-acts .hidden {
   display: none;
+}
+
+/* ---------- inspector de elemento ---------- */
+
+.inspector-box {
+  position: absolute;
+  inset: 0 0 0 auto;
+  z-index: 3;
+  width: 280px;
+  max-width: 80%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg);
+  border-left: 1px solid var(--line);
+  overflow-y: auto;
+}
+
+.inspector-box header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inspector-box h2 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+#inspector-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+}
+
+#inspector-list li {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+#inspector-list .insp-seletor {
+  display: block;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  color: var(--accent);
+  word-break: break-all;
+}
+
+#inspector-list .insp-texto {
+  display: block;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+#inspector-pedido {
+  font: inherit;
+  color: var(--text);
+  background: #222;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+#inspector-pedido:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.inspector-acts {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .svc-empty {
