@@ -1,9 +1,13 @@
 import { EventEmitter } from "node:events";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { EngineEvent, EngineKind, Profile, SwitchReason, ThreadEvent } from "@nexo/shared";
 import { TURNO_TETO_MS } from "@nexo/shared";
 import { agentOverrides, getAgent } from "./agents.ts";
 import { promptWithAttachments, removeThreadAttachments, saveImages, type IncomingImage } from "./attachments.ts";
 import { loadConfig } from "./config.ts";
+import { tokenPath } from "./home.ts";
+import { configDeMcpAutoria, MCP_TOOLS_AUTORIA } from "./mcp.ts";
 import { ApiEngine } from "./engines/api.ts";
 import { claudeEngine, codexEngine } from "./engines/cli.ts";
 import { contextWindowOf } from "./engines/parse-claude.ts";
@@ -267,11 +271,62 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
       // que o motor de CLI aceita (o `api` usa o pack como system de verdade).
       contextPack: withInstructions(meta.agentId, packed.text, home),
       ...(meta.agentId ? { agentId: meta.agentId } : {}),
-      ...(meta.mcpConfig ? { mcpConfig: meta.mcpConfig } : {}),
+      ...mcpDaConversa(meta, p, home),
     },
     (ev) => onEngineEvent(threadId, home, ev),
   );
   return live;
+}
+
+/**
+ * Qual servidor MCP esta conversa recebe.
+ *
+ * Conversa de SUPERVISOR já vem com o dela carimbado no `thread_meta` — presa
+ * ao run, porque as ferramentas dela executam membros. Conversa normal ganha as
+ * de AUTORIA: criar e editar agente e time, sem executar nada.
+ *
+ * Só `claude`, porque só ele fala MCP. Nas outras contas a conversa segue igual
+ * ao que era — o modelo simplesmente não tem as ferramentas, e é por isso que a
+ * tela continua sendo o caminho garantido pra criar time.
+ */
+function mcpDaConversa(
+  meta: { mcpConfig?: string; mcpTools?: string[] },
+  perfil: Profile,
+  home: string,
+): { mcpConfig?: string; mcpTools?: string[] } {
+  if (meta.mcpConfig) {
+    return {
+      mcpConfig: meta.mcpConfig,
+      ...(meta.mcpTools?.length ? { mcpTools: meta.mcpTools } : {}),
+    };
+  }
+  if (perfil.engine !== "claude") return {};
+  const arquivo = arquivoDeAutoria(home);
+  return arquivo ? { mcpConfig: arquivo, mcpTools: [...MCP_TOOLS_AUTORIA] } : {};
+}
+
+/**
+ * O arquivo de config das ferramentas de autoria.
+ *
+ * Um por home, não um por conversa: o conteúdo só depende da porta e do token,
+ * e reescrever a cada turno seria I/O por nada. Ele é reescrito sempre porque a
+ * porta pode ter mudado e o token pode ter sido rotacionado — arquivo velho
+ * daria 401 no meio do turno, que o modelo leria como "a ferramenta sumiu".
+ *
+ * `0600` e em arquivo, não em argv: ele carrega o token, e argv é legível por
+ * qualquer processo do mesmo usuário.
+ */
+function arquivoDeAutoria(home: string): string {
+  const token = existsSync(tokenPath(home)) ? readFileSync(tokenPath(home), "utf8").trim() : "";
+  if (!token) return "";
+  const dir = join(home, "run");
+  mkdirSync(dir, { recursive: true });
+  const arquivo = join(dir, "mcp-autoria.json");
+  writeFileSync(arquivo, configDeMcpAutoria(loadConfig(home).port, token), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  return arquivo;
 }
 
 function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {

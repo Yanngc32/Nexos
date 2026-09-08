@@ -8,6 +8,7 @@ import {
   MCP_TOOL_TIMEOUT_MS,
   tratarMcp,
   type Ferramentas,
+  ferramentasDoSupervisor,
 } from "../src/mcp.ts";
 import { TURNO_TETO_MS } from "@nexo/shared";
 
@@ -44,7 +45,7 @@ function texto(res: Record<string, unknown>): string {
 
 describe("handshake", () => {
   it("initialize devolve a versão do protocolo e a capacidade de ferramentas", async () => {
-    const r = await tratarMcp({ jsonrpc: "2.0", id: 1, method: "initialize" }, ferramentas());
+    const r = await tratarMcp({ jsonrpc: "2.0", id: 1, method: "initialize" }, ferramentasDoSupervisor(ferramentas()));
     expect(resultado(r)).toMatchObject({
       protocolVersion: MCP_PROTOCOL,
       capabilities: { tools: {} },
@@ -53,19 +54,19 @@ describe("handshake", () => {
   });
 
   it("notificação não tem resposta: 202 sem corpo", async () => {
-    const r = await tratarMcp({ jsonrpc: "2.0", method: "notifications/initialized" }, ferramentas());
+    const r = await tratarMcp({ jsonrpc: "2.0", method: "notifications/initialized" }, ferramentasDoSupervisor(ferramentas()));
     expect(r).toEqual({ corpo: null, status: 202 });
   });
 
   it("pedido sem id também é notificação — responder com corpo faria cliente estrito reclamar", async () => {
-    expect(await tratarMcp({ jsonrpc: "2.0", method: "tools/list" }, ferramentas())).toEqual({
+    expect(await tratarMcp({ jsonrpc: "2.0", method: "tools/list" }, ferramentasDoSupervisor(ferramentas()))).toEqual({
       corpo: null,
       status: 202,
     });
   });
 
   it("método que não existe é 'method not found', não erro genérico", async () => {
-    const r = await tratarMcp({ jsonrpc: "2.0", id: 2, method: "resources/list" }, ferramentas());
+    const r = await tratarMcp({ jsonrpc: "2.0", id: 2, method: "resources/list" }, ferramentasDoSupervisor(ferramentas()));
     expect(erro(r).code).toBe(-32601);
   });
 
@@ -76,7 +77,7 @@ describe("handshake", () => {
 
 describe("tools/list", () => {
   it("expõe as duas ferramentas, com os ids do time no enum", async () => {
-    const r = await tratarMcp({ jsonrpc: "2.0", id: 1, method: "tools/list" }, ferramentas());
+    const r = await tratarMcp({ jsonrpc: "2.0", id: 1, method: "tools/list" }, ferramentasDoSupervisor(ferramentas()));
     const tools = resultado(r).tools as Array<{
       name: string;
       inputSchema: { properties: { membro?: { enum?: string[] } } };
@@ -87,12 +88,12 @@ describe("tools/list", () => {
   });
 
   it("time vazio não gera enum vazio, que recusaria qualquer valor", () => {
-    const tools = definicoesDeFerramenta([]) as Array<{ inputSchema: { properties: Record<string, object> } }>;
+    const tools = definicoesDeFerramenta(ferramentasDoSupervisor(ferramentas({ membros: () => [] }))()) as Array<{ inputSchema: { properties: Record<string, object> } }>;
     expect(tools[1]?.inputSchema.properties.membro).not.toHaveProperty("enum");
   });
 
   it("os nomes que o CLI enxerga batem com o que vai no --allowed-tools", async () => {
-    const r = await tratarMcp({ jsonrpc: "2.0", id: 1, method: "tools/list" }, ferramentas());
+    const r = await tratarMcp({ jsonrpc: "2.0", id: 1, method: "tools/list" }, ferramentasDoSupervisor(ferramentas()));
     const tools = resultado(r).tools as Array<{ name: string }>;
     expect(tools.map((t) => `mcp__nexo__${t.name}`)).toEqual(MCP_TOOLS);
   });
@@ -102,7 +103,7 @@ describe("nexo_membros", () => {
   it("lista quem dá pra chamar, com o papel", async () => {
     const r = await tratarMcp(
       { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "nexo_membros" } },
-      ferramentas(),
+      ferramentasDoSupervisor(ferramentas()),
     );
     expect(texto(resultado(r))).toBe("- leitor — Leitor: lê o código\n- escritor — Escritor");
   });
@@ -117,14 +118,14 @@ describe("nexo_chamar", () => {
   });
 
   it("roda o membro e devolve o que ele produziu", async () => {
-    const r = await tratarMcp(chamada({ membro: "leitor", pedido: "olha o src" }), ferramentas());
+    const r = await tratarMcp(chamada({ membro: "leitor", pedido: "olha o src" }), ferramentasDoSupervisor(ferramentas()));
     expect(texto(resultado(r))).toBe("leitor fez: olha o src");
     expect(resultado(r).isError).toBeUndefined();
   });
 
   it("argumento faltando é erro DE FERRAMENTA, pro modelo corrigir a chamada", async () => {
     const chamar = vi.fn();
-    const r = await tratarMcp(chamada({ membro: "leitor" }), ferramentas({ chamar }));
+    const r = await tratarMcp(chamada({ membro: "leitor" }), ferramentasDoSupervisor(ferramentas({ chamar })));
     // isError deixa o turno seguir: o modelo lê a mensagem e tenta de novo
     expect(resultado(r).isError).toBe(true);
     expect(texto(resultado(r))).toMatch(/membro.*pedido/);
@@ -134,7 +135,7 @@ describe("nexo_chamar", () => {
   it("membro recusado volta como isError, não derruba o turno", async () => {
     const r = await tratarMcp(
       chamada({ membro: "fantasma", pedido: "x" }),
-      ferramentas({ chamar: async () => ({ ok: false, texto: "não está no time" }) }),
+      ferramentasDoSupervisor(ferramentas({ chamar: async () => ({ ok: false, texto: "não está no time" }) })),
     );
     expect(resultado(r).isError).toBe(true);
     expect(texto(resultado(r))).toBe("não está no time");
@@ -143,11 +144,13 @@ describe("nexo_chamar", () => {
   it("exceção do daemon vira erro de protocolo: é defeito nosso, não do modelo", async () => {
     const r = await tratarMcp(
       chamada({ membro: "leitor", pedido: "x" }),
-      ferramentas({
-        chamar: async () => {
-          throw new Error("disco cheio");
-        },
-      }),
+      ferramentasDoSupervisor(
+        ferramentas({
+          chamar: async () => {
+            throw new Error("disco cheio");
+          },
+        }),
+      ),
     );
     expect(erro(r)).toMatchObject({ code: -32603, message: "disco cheio" });
   });
@@ -155,7 +158,7 @@ describe("nexo_chamar", () => {
   it("ferramenta desconhecida é recusada pelo nome", async () => {
     const r = await tratarMcp(
       { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "rm_rf" } },
-      ferramentas(),
+      ferramentasDoSupervisor(ferramentas()),
     );
     expect(erro(r).message).toMatch(/rm_rf/);
   });

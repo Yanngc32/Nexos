@@ -25,7 +25,7 @@ import {
   type Decisao,
   type Disponivel,
 } from "./supervisor.ts";
-import { configDeMcp, type Ferramentas } from "./mcp.ts";
+import { configDeMcp, MCP_TOOLS, type Ferramentas } from "./mcp.ts";
 import { loadConfig } from "./config.ts";
 
 import { getTeam } from "./teams.ts";
@@ -907,6 +907,7 @@ async function rodarSupervisorMcp(run: Run, teto: number, home: string, chefe: R
       runTitle: rotuloDoRun(run, home),
       title: `${agente.name} · supervisor`,
       mcpConfig: arquivo,
+      mcpTools: [...MCP_TOOLS],
     },
     home,
   );

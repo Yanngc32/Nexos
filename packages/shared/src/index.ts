@@ -222,6 +222,8 @@ export type ThreadEvent =
       runTitle?: string;
       /** Config MCP desta conversa; ver `StartOpts.mcpConfig`. */
       mcpConfig?: string;
+      /** Ferramentas que esse MCP oferece; ver `StartOpts.mcpTools`. */
+      mcpTools?: string[];
     }
   | { ts: string; type: "user"; threadId: string; text: string; attachments?: Attachment[] }
   | { ts: string; type: "assistant"; threadId: string; text: string }
@@ -333,11 +335,21 @@ export type StartOpts = {
   contextPack: string;
   agentId?: string;
   /**
-   * Arquivo de config MCP pro motor de CLI (`--mcp-config`). Só o supervisor em
-   * canal `mcp` usa: é por ele que o modelo alcança os membros do time sem sair
-   * do turno.
+   * Arquivo de config MCP pro motor de CLI (`--mcp-config`). Dois usos: o
+   * supervisor em canal `mcp`, que alcança os membros do time sem sair do
+   * turno, e a conversa normal, que ganha as ferramentas de autoria.
    */
   mcpConfig?: string;
+  /**
+   * Nomes das ferramentas desse servidor MCP, pro `--allowed-tools`.
+   *
+   * Vem JUNTO do `mcpConfig` em vez de ser deduzido dele porque os dois
+   * conjuntos que existem — supervisor e autoria — moram no mesmo servidor, em
+   * caminhos diferentes. Liberar a lista errada faz a chamada ser negada em
+   * silêncio: em `--print` não há canal pra aprovar permissão, e o modelo
+   * conclui que a ferramenta não existe.
+   */
+  mcpTools?: string[];
 };
 
 /* ---------- times de agentes ---------- */

@@ -86,6 +86,7 @@ export class CliEngine implements Engine {
   private threadId = "";
   private agentId?: string;
   private mcpConfig?: string;
+  private mcpTools?: string[];
   private aborted = false;
   private finished = false;
   lastEnv: Record<string, string | undefined> = {};
@@ -107,6 +108,7 @@ export class CliEngine implements Engine {
     this.threadId = opts.threadId;
     this.agentId = opts.agentId;
     this.mcpConfig = opts.mcpConfig;
+    this.mcpTools = opts.mcpTools;
     this.syncArgs();
     this.extra = engineEnv(profile, this.home);
     this.spawnEnv = engineSpawnEnv(profile, this.home);
@@ -152,7 +154,10 @@ export class CliEngine implements Engine {
    */
   private mcpFlags(engine?: string): { flags: string[]; tools: string[] } {
     if (engine !== "claude" || !this.mcpConfig) return { flags: [], tools: [] };
-    return { flags: ["--mcp-config", this.mcpConfig, "--strict-mcp-config"], tools: [...MCP_TOOLS] };
+    return {
+      flags: ["--mcp-config", this.mcpConfig, "--strict-mcp-config"],
+      tools: [...(this.mcpTools?.length ? this.mcpTools : MCP_TOOLS)],
+    };
   }
 
   /**

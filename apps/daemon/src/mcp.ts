@@ -58,33 +58,86 @@ export type Ferramentas = {
   chamar: (membro: string, pedido: string) => Promise<{ ok: boolean; texto: string }>;
 };
 
-export function definicoesDeFerramenta(membros: MembroMcp[]): unknown[] {
-  const ids = membros.map((m) => m.id);
-  return [
-    {
-      name: "nexo_membros",
-      description:
-        "Lista os membros do time que você pode pôr pra trabalhar, com o papel de cada um neste time.",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
-    },
-    {
-      name: "nexo_chamar",
-      description:
-        "Põe um membro do time pra trabalhar e devolve o que ele produziu. Ele roda na pasta do " +
-        "projeto, com as ferramentas dele. Chame um de cada vez e use o resultado pra decidir o " +
-        "próximo. Você NÃO executa o trabalho: quem lê arquivo, escreve código e roda comando são " +
-        "os membros.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          membro: { type: "string", description: "id do membro", ...(ids.length ? { enum: ids } : {}) },
-          pedido: { type: "string", description: "o que ele deve fazer, com o contexto necessário" },
+/** O que o modelo pediu não deu, mas ele pode corrigir e tentar de novo. */
+export type Saida = { ok: boolean; texto: string };
+
+/**
+ * Uma ferramenta MCP: o que o modelo vê e o que ela faz.
+ *
+ * Descrição e schema juntos com a execução de propósito. São a MESMA decisão:
+ * o modelo só chama certo o que a descrição explica, e uma descrição que
+ * envelhece longe do código vira armadilha.
+ */
+export type Ferramenta = {
+  name: string;
+  description: string;
+  inputSchema: unknown;
+  executar: (args: Record<string, unknown>) => Promise<Saida> | Saida;
+};
+
+/**
+ * Um conjunto é uma FUNÇÃO, não uma lista: o que existe muda entre chamadas —
+ * os membros do run, as contas e os agentes já criados — e a descrição precisa
+ * refletir o mundo na hora do `tools/list`, não na hora em que o daemon subiu.
+ */
+export type Conjunto = () => Ferramenta[];
+
+/** O que vai no `tools/list`: a ferramenta sem o que o modelo não precisa ver. */
+export function definicoesDeFerramenta(ferramentas: Ferramenta[]): unknown[] {
+  return ferramentas.map((f) => ({ name: f.name, description: f.description, inputSchema: f.inputSchema }));
+}
+
+/**
+ * As ferramentas do supervisor: ele não trabalha, ele chama quem trabalha.
+ *
+ * Presas a UM run — quem constrói este conjunto já sabe de qual — porque um
+ * supervisor alcançar membro de outro run transformaria um token vazado em
+ * "dispare qualquer agente da máquina".
+ */
+export function ferramentasDoSupervisor(fer: Ferramentas): Conjunto {
+  return () => {
+    const ids = fer.membros().map((m) => m.id);
+    return [
+      {
+        name: "nexo_membros",
+        description:
+          "Lista os membros do time que você pode pôr pra trabalhar, com o papel de cada um neste time.",
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        executar: () => {
+          const lista = fer
+            .membros()
+            .map((m) => `- ${m.id} — ${m.nome}${m.papel ? `: ${m.papel}` : ""}`)
+            .join("\n");
+          return { ok: true, texto: lista || "o time não tem mais ninguém" };
         },
-        required: ["membro", "pedido"],
-        additionalProperties: false,
       },
-    },
-  ];
+      {
+        name: "nexo_chamar",
+        description:
+          "Põe um membro do time pra trabalhar e devolve o que ele produziu. Ele roda na pasta do " +
+          "projeto, com as ferramentas dele. Chame um de cada vez e use o resultado pra decidir o " +
+          "próximo. Você NÃO executa o trabalho: quem lê arquivo, escreve código e roda comando são " +
+          "os membros.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            membro: { type: "string", description: "id do membro", ...(ids.length ? { enum: ids } : {}) },
+            pedido: { type: "string", description: "o que ele deve fazer, com o contexto necessário" },
+          },
+          required: ["membro", "pedido"],
+          additionalProperties: false,
+        },
+        executar: async (args) => {
+          const membro = typeof args.membro === "string" ? args.membro.trim() : "";
+          const pedido = typeof args.pedido === "string" ? args.pedido.trim() : "";
+          if (!membro || !pedido) {
+            return { ok: false, texto: 'faltou "membro" ou "pedido" — os dois são obrigatórios' };
+          }
+          return fer.chamar(membro, pedido);
+        },
+      },
+    ];
+  };
 }
 
 /** Conteúdo de resposta de ferramenta. `isError` é o jeito do MCP dizer "deu errado, mas continue". */
@@ -99,7 +152,7 @@ function conteudo(texto: string, erro = false): unknown {
  * que o transporte HTTP do MCP espera. Responder 200 com corpo a uma notificação
  * faz cliente estrito reclamar.
  */
-export async function tratarMcp(msg: JsonRpc, fer: Ferramentas): Promise<Resposta> {
+export async function tratarMcp(msg: JsonRpc, conjunto: Conjunto): Promise<Resposta> {
   if (!msg || typeof msg !== "object") return falha(null, ERRO.pedido, "mensagem inválida");
   const { method, id } = msg;
   const notificacao = id === undefined || id === null;
@@ -119,35 +172,29 @@ export async function tratarMcp(msg: JsonRpc, fer: Ferramentas): Promise<Respost
 
   if (method === "ping") return ok(id, {});
 
-  if (method === "tools/list") {
-    return ok(id, { tools: definicoesDeFerramenta(fer.membros()) });
-  }
+  if (method === "tools/list") return ok(id, { tools: definicoesDeFerramenta(conjunto()) });
 
   if (method === "tools/call") {
     const p = (msg.params ?? {}) as { name?: unknown; arguments?: unknown };
-    const args = (p.arguments ?? {}) as { membro?: unknown; pedido?: unknown };
-    if (p.name === "nexo_membros") {
-      const lista = fer
-        .membros()
-        .map((m) => `- ${m.id} — ${m.nome}${m.papel ? `: ${m.papel}` : ""}`)
-        .join("\n");
-      return ok(id, conteudo(lista || "o time não tem mais ninguém"));
-    }
-    if (p.name !== "nexo_chamar") {
-      return falha(id, ERRO.metodo, `ferramenta desconhecida: ${String(p.name)}`);
-    }
-    const membro = typeof args.membro === "string" ? args.membro.trim() : "";
-    const pedido = typeof args.pedido === "string" ? args.pedido.trim() : "";
-    // Argumento faltando é erro DE FERRAMENTA, não de protocolo: assim o modelo
-    // lê a mensagem e corrige a chamada, em vez de o turno morrer no cliente.
-    if (!membro || !pedido) {
-      return ok(id, conteudo('faltou "membro" ou "pedido" — os dois são obrigatórios', true));
-    }
+    const achada = conjunto().find((f) => f.name === p.name);
+    if (!achada) return falha(id, ERRO.metodo, `ferramenta desconhecida: ${String(p.name)}`);
+    const args = (p.arguments ?? {}) as Record<string, unknown>;
     try {
-      const r = await fer.chamar(membro, pedido);
+      /*
+       * Argumento errado ou regra violada é erro DE FERRAMENTA (`isError`), não
+       * de protocolo: assim o modelo LÊ a mensagem e corrige a chamada. Erro de
+       * JSON-RPC mata o turno no cliente e ele nunca fica sabendo o motivo.
+       * Erro de protocolo fica pra defeito nosso, que ele não pode contornar.
+       */
+      const r = await achada.executar(args);
       return ok(id, conteudo(r.texto, !r.ok));
     } catch (e) {
-      return falha(id, ERRO.interno, (e as Error).message || "falhou ao chamar o membro");
+      const err = e as Error & { status?: number };
+      // 4xx é o daemon dizendo "seu pedido está errado" — isso o modelo conserta
+      if (err.status && err.status >= 400 && err.status < 500) {
+        return ok(id, conteudo(err.message, true));
+      }
+      return falha(id, ERRO.interno, err.message || "a ferramenta falhou");
     }
   }
 
@@ -181,12 +228,12 @@ export const MCP_TOOL_TIMEOUT_MS = TURNO_TETO_MS + FOLGA_MS;
  * argumento porque carrega o token do daemon: argv de processo é legível por
  * qualquer processo do mesmo usuário, e um arquivo `0600` não é.
  */
-export function configDeMcp(porta: number, token: string, runId: string): string {
+function configPara(porta: number, token: string, caminho: string): string {
   return JSON.stringify({
     mcpServers: {
       nexo: {
         type: "http",
-        url: `http://127.0.0.1:${porta}/v1/mcp/${runId}`,
+        url: `http://127.0.0.1:${porta}${caminho}`,
         headers: { Authorization: `Bearer ${token}` },
         timeout: MCP_TOOL_TIMEOUT_MS,
       },
@@ -194,5 +241,29 @@ export function configDeMcp(porta: number, token: string, runId: string): string
   });
 }
 
+/** Config do supervisor: presa ao run, porque as ferramentas dele são. */
+export function configDeMcp(porta: number, token: string, runId: string): string {
+  return configPara(porta, token, `/v1/mcp/${runId}`);
+}
+
+/**
+ * Config da conversa normal: as ferramentas de AUTORIA.
+ *
+ * Sem run no caminho porque não há run — o que estas ferramentas fazem é
+ * escrever `agents.json` e `teams.json`. Nenhuma delas executa nada, e é isso
+ * que torna aceitável estarem numa conversa comum: definição ruim se apaga num
+ * segundo, enquanto um run gasta quota e escreve branch no repositório.
+ */
+export function configDeMcpAutoria(porta: number, token: string): string {
+  return configPara(porta, token, "/v1/mcp");
+}
+
 /** Nomes das ferramentas como o CLI as enxerga — é isso que entra no --allowed-tools. */
 export const MCP_TOOLS = ["mcp__nexo__nexo_membros", "mcp__nexo__nexo_chamar"];
+
+/** As de autoria, que entram na conversa normal. */
+export const MCP_TOOLS_AUTORIA = [
+  "mcp__nexo__nexo_contexto",
+  "mcp__nexo__nexo_agente_salvar",
+  "mcp__nexo__nexo_time_salvar",
+];

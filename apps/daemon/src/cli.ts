@@ -16,6 +16,7 @@ import { postMessage, sessionBus, switchThread } from "./session.ts";
 import { loginProfile } from "./login.ts";
 import { pidPath, startDaemon, waitClosed } from "./server.ts";
 import { fecharTudo, pararDeManter } from "./escuta.ts";
+import { instalarSkill } from "./skill.ts";
 import {
   isTrusted,
   listServices,
@@ -102,6 +103,20 @@ async function main(): Promise<void> {
 
   if (cmd === "up") return cmdUp();
   if (cmd === "down") return cmdDown();
+
+  if (cmd === "skill") {
+    if (argv[1] !== "install") throw new Error("uso: nexo skill install");
+    const r = instalarSkill();
+    if (!r.ok) {
+      console.error(r.motivo);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`skill instalada em ${r.destino}`);
+    console.log("Ela vale em todos os projetos. As ferramentas de criar agente e time já");
+    console.log("funcionavam sem isto — a skill acrescenta o julgamento de QUANDO usá-las.");
+    return;
+  }
 
   if (cmd === "profile" && argv[1] === "ls") {
     for (const p of listProfiles(home)) console.log(`${p.id}\t${p.engine}\t${p.status}`);

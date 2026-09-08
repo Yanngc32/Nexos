@@ -46,7 +46,8 @@ import {
   runAtual,
   runsBus,
 } from "./runs.ts";
-import { erroDeParse, tratarMcp, type JsonRpc } from "./mcp.ts";
+import { erroDeParse, ferramentasDoSupervisor, tratarMcp, type Conjunto, type JsonRpc } from "./mcp.ts";
+import { ferramentasDeAutoria } from "./autoria.ts";
 import { estadoAtual, melhorHost } from "./escuta.ts";
 import { abrirPareamento, fecharPareamento, pareamentoAberto, resgatar } from "./pair.ts";
 import { servirWeb } from "./web.ts";
@@ -77,6 +78,13 @@ function responderWeb(c: { req: { path: string }; body: BodyResponder }, caminho
 }
 
 type BodyResponder = (corpo: Buffer | string, status: number, headers?: Record<string, string>) => Response;
+
+/** O mínimo do contexto do Hono que o MCP usa. */
+type McpCtx = {
+  req: { json: () => Promise<unknown> };
+  json: (corpo: unknown, status: 200) => Response;
+  body: (corpo: null, status: 202) => Response;
+};
 
 export function createApp(home: string, token: string): Hono {
   const app = new Hono();
@@ -733,9 +741,7 @@ export function createApp(home: string, token: string): Hono {
    * supervisor (ou qualquer coisa com o token) poderia disparar agente de outro
    * run. Run que não está em voo não tem ferramenta — 404, não 500.
    */
-  app.post("/v1/mcp/:id", async (c) => {
-    const fer = ferramentasDoRun(c.req.param("id"), home);
-    if (!fer) return c.json({ error: "run não está em voo" }, 404);
+  async function responderMcp(c: McpCtx, conjunto: Conjunto): Promise<Response> {
     let msg: unknown;
     try {
       msg = await c.req.json();
@@ -743,10 +749,29 @@ export function createApp(home: string, token: string): Hono {
       const r = erroDeParse();
       return c.json(r.corpo, r.status as 200);
     }
-    const r = await tratarMcp(msg as JsonRpc, fer);
+    const r = await tratarMcp(msg as JsonRpc, conjunto);
     // 202 sem corpo é a resposta certa a notificação: o cliente não espera JSON
     if (r.status === 202) return c.body(null, 202);
     return c.json(r.corpo, r.status as 200);
+  }
+
+  /*
+   * Duas bocas de MCP, com alcances de propósito diferentes.
+   *
+   * `/v1/mcp/:id` é do SUPERVISOR e presa a um run: as ferramentas dele
+   * EXECUTAM membros, então o id no caminho é o que impede um supervisor de
+   * alcançar membro de outro run.
+   *
+   * `/v1/mcp` é da conversa normal e serve as ferramentas de AUTORIA, que só
+   * escrevem `agents.json` e `teams.json`. Não precisa de run porque não há run
+   * — e não executa nada, que é o que a torna aceitável numa conversa comum.
+   */
+  app.post("/v1/mcp", (c) => responderMcp(c, ferramentasDeAutoria(home)));
+
+  app.post("/v1/mcp/:id", async (c) => {
+    const fer = ferramentasDoRun(c.req.param("id"), home);
+    if (!fer) return c.json({ error: "run não está em voo" }, 404);
+    return responderMcp(c, ferramentasDoSupervisor(fer));
   });
 
   app.get("/v1/runs/:id", (c) => {

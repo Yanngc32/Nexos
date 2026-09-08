@@ -40,6 +40,7 @@ No Windows, `run.bat` instala as dependências se faltarem e abre o app.
 
 ```
 nexo up | down
+nexo skill install
 nexo profile add <id> --engine stub|claude|codex|api
 nexo profile ls | rm <id>
 nexo profile set <id> [--model ...] [--effort ...] [--mode ...]
@@ -99,6 +100,27 @@ O supervisor manda por um de dois canais:
 
 Nos dois casos quem executa o membro é o daemon, e quantas rodadas vão acontecer é o supervisor
 quem escolhe — use `maxSteps` no orçamento do run pra fechar a conta.
+
+### O modelo montando o time
+
+Numa conversa com conta `claude`, o modelo recebe três ferramentas pra **criar e
+editar** agentes e times: `nexo_contexto` (o que existe), `nexo_agente_salvar` e
+`nexo_time_salvar`. Elas validam com as mesmas funções que a tela usa, então o que
+ele cria é o que você criaria.
+
+**Ele não executa.** Nem dispara run, nem apaga definição. A assimetria é o
+critério: definição errada você conserta em um segundo, enquanto um run gasta
+quota e escreve branch no seu repositório — isso continua sendo seu clique. Quem
+quer o run pede o run.
+
+As regras moram nas descrições das ferramentas, então isso funciona sem instalar
+nada. `nexo skill install` acrescenta a camada de julgamento — quando vale montar
+um time em vez de fazer o trabalho, qual topologia serve pra quê, o que faz um
+`instructions` prestar — em `~/.claude/skills/`, valendo em todos os projetos. É
+comando explícito porque `~/.claude` é configuração de outra ferramenta.
+
+Nas contas que não são `claude` nada disso existe: só o `claude` fala MCP. A tela
+continua sendo o caminho garantido.
 
 ### O que o Nexo escreve no SEU repositório
 
