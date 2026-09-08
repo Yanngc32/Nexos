@@ -6,8 +6,13 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "declaration": true,
-    "outDir": "dist",
-    "rootDir": "src"
+    /*
+     * Nada aqui compila: os pacotes são consumidos como fonte (tsx no daemon,
+     * esbuild no vitest, `exports` do @nexo/shared aponta pro .ts). O tsc serve
+     * só de checador — por isso noEmit, e por isso os imports podem manter a
+     * extensão .ts que o runtime exige.
+     */
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   }
 }

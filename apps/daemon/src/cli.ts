@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { createInterface } from "node:readline";
-import type { EngineKind } from "@nexo/shared";
+import { hostNaUrl, type EngineKind } from "@nexo/shared";
 import { configPath, ensureHome, nexoHome } from "./home.ts";
 import {
   accountInfo,
@@ -15,6 +15,8 @@ import { createThread, listThreads, readThread } from "./threads.ts";
 import { postMessage, sessionBus, switchThread } from "./session.ts";
 import { loginProfile } from "./login.ts";
 import { pidPath, startDaemon, waitClosed } from "./server.ts";
+import { fecharTudo, pararDeManter } from "./escuta.ts";
+import { instalarSkill } from "./skill.ts";
 import {
   isTrusted,
   listServices,
@@ -40,11 +42,22 @@ async function cmdUp(): Promise<void> {
     console.log(`nexo already up  http://127.0.0.1:${started.port}`);
     return;
   }
-  console.log(`nexo up  http://127.0.0.1:${started.port}`);
+  for (const f of started.falhas) {
+    // túnel fora do ar é normal e ele volta sozinho; dizer o motivo evita que
+    // "o celular não conecta" vire caça ao tesouro
+    console.error(`nexo: não consegui escutar em ${f.host} (${f.motivo})`);
+  }
+  for (const h of started.hosts) {
+    const mostrar = h === "0.0.0.0" || h === "::" ? "127.0.0.1" : h;
+    console.log(`nexo up  http://${hostNaUrl(mostrar)}:${started.port}`);
+  }
   // serviço é filho nosso: não sobrevive ao daemon
   const shutdown = () => {
     stopAllServices();
-    started.server.close();
+    // os sockets extras seguram o event loop vivo: fechar só o principal
+    // deixaria o processo pendurado pra sempre
+    pararDeManter();
+    fecharTudo();
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
@@ -90,6 +103,20 @@ async function main(): Promise<void> {
 
   if (cmd === "up") return cmdUp();
   if (cmd === "down") return cmdDown();
+
+  if (cmd === "skill") {
+    if (argv[1] !== "install") throw new Error("uso: nexo skill install");
+    const r = instalarSkill();
+    if (!r.ok) {
+      console.error(r.motivo);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`skill instalada em ${r.destino}`);
+    console.log("Ela vale em todos os projetos. As ferramentas de criar agente e time já");
+    console.log("funcionavam sem isto — a skill acrescenta o julgamento de QUANDO usá-las.");
+    return;
+  }
 
   if (cmd === "profile" && argv[1] === "ls") {
     for (const p of listProfiles(home)) console.log(`${p.id}\t${p.engine}\t${p.status}`);

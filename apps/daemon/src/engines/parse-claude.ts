@@ -208,9 +208,27 @@ function streamEventToEvents(obj: Record<string, unknown>): EngineEvent[] {
 const CONTEXT_1M = 1_000_000;
 const CONTEXT_DEFAULT = 200_000;
 
-/** O CLI escreve a janela no nome: "claude-opus-5[1m]". Sem sufixo, 200k. */
+/**
+ * Janela deduzida do NOME do modelo: "claude-opus-5[1m]" é 1M, sem sufixo 200k.
+ *
+ * É palpite, e subestima: o CLI de verdade reporta `claude-sonnet-5` (sem
+ * sufixo) numa sessão cuja janela efetiva é 980k. Serve como último recurso —
+ * quando o motor ainda não disse a janela dele (evento `window`), ou quando o
+ * daemon subiu agora e não viu turno nenhum daquela conta.
+ */
 export function contextWindowOf(model: string): number {
   return /\[1m\]/i.test(model) ? CONTEXT_1M : CONTEXT_DEFAULT;
+}
+
+/**
+ * `autocompact_state` carrega a janela efetiva da sessão — o número que o
+ * próprio CLI usa pra decidir quando compactar. É a fonte boa: o nome do modelo
+ * não diz isso, e essa linha chega em toda sessão.
+ */
+function windowEvents(obj: Record<string, unknown>): EngineEvent[] {
+  const v = obj.value as Record<string, unknown> | undefined;
+  const janela = int(v?.effective_window);
+  return janela > 0 ? [{ type: "window", contextWindow: janela }] : [];
 }
 
 function int(v: unknown): number {
@@ -307,6 +325,7 @@ function rateLimitToEvents(obj: Record<string, unknown>): EngineEvent[] {
 export function parseClaudeJson(obj: Record<string, unknown>): EngineEvent[] {
   const type = String(obj.type ?? "");
   if (type === "stream_event") return streamEventToEvents(obj);
+  if (type === "autocompact_state") return windowEvents(obj);
   if (type === "rate_limit_event") return rateLimitToEvents(obj);
   // eco do tool_result: o resultado da ferramenta já foi mostrado como evento tool
   if (type === "user") return [];

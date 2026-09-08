@@ -77,6 +77,15 @@
         <span class="status" id="motor-status" data-on="0">Desligado</span>
         <span class="foot-actions">
           <button type="button" id="btn-focus" class="ghost" data-ico="⤢" title="Modo foco (Ctrl+Shift+F)">Foco</button>
+          <button
+            type="button"
+            id="btn-widget"
+            class="ghost"
+            data-ico="▤"
+            title="Painel flutuante, sempre por cima (Ctrl+Shift+W)"
+          >
+            Painel
+          </button>
           <button type="button" id="btn-settings" class="ghost ico-only ico-gear" title="Configurações" aria-label="Configurações">
             <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
               <circle cx="12" cy="12" r="3" />
@@ -165,6 +174,170 @@
         <canvas id="sketch"></canvas>
         <textarea id="canvas-note" rows="3" placeholder="Notas deste projeto…"></textarea>
       </section>
+      <section class="pane hidden" id="pane-agent">
+        <header class="mod-head">
+          <h1>Agente</h1>
+          <span id="ag-head-name" class="mod-meta"></span>
+          <span id="ag-dirty" class="ag-dirty hidden" title="Há mudanças não salvas">•</span>
+          <button type="button" id="btn-ag-save" class="primary">Salvar</button>
+          <button type="button" id="btn-ag-del" class="ghost danger">Excluir</button>
+          <button type="button" id="btn-close-agent" class="ghost mod-close" title="Fechar">✕</button>
+        </header>
+        <div class="ag-split">
+          <div class="ag-edit" id="ag-edit">
+            <section class="ag-sec" id="ag-tpl-sec">
+              <h2>Modelo de criação</h2>
+              <p class="ag-hint">
+                Formatos inspirados no ADK do Google. O Nexo não orquestra sub-agentes — cada
+                modelo dá a forma de trabalho pela instrução. Cada um explica onde difere.
+              </p>
+              <div class="ag-tpls" id="ag-tpls"></div>
+              <p class="ag-tpl-nota" id="ag-tpl-nota"></p>
+            </section>
+
+            <section class="ag-sec">
+              <h2>Identidade</h2>
+              <div class="ag-row">
+                <label class="ag-f"><span>Nome</span>
+                  <input id="ag-name" type="text" maxlength="60" placeholder="Revisor de PR" /></label>
+                <label class="ag-f ag-narrow"><span>id</span>
+                  <input id="ag-id" type="text" maxlength="40" placeholder="revisor" /></label>
+                <label class="ag-f ag-color"><span>Cor</span>
+                  <input id="ag-color" type="color" value="#4d9cd6" /></label>
+              </div>
+              <label class="ag-f"><span>Descrição</span>
+                <input id="ag-desc" type="text" maxlength="200" placeholder="Para que serve este agente" /></label>
+            </section>
+
+            <section class="ag-sec">
+              <h2>Motor</h2>
+              <div class="ag-row">
+                <label class="ag-f"><span>Conta</span><select id="ag-profile"></select></label>
+                <label class="ag-f"><span>Modelo</span>
+                  <input id="ag-model" type="text" list="ag-models" placeholder="padrão da conta" />
+                  <datalist id="ag-models">
+                    <option value="opus"></option><option value="sonnet"></option>
+                    <option value="haiku"></option><option value="fable"></option>
+                  </datalist></label>
+              </div>
+              <div class="ag-row">
+                <label class="ag-f"><span>Esforço</span>
+                  <select id="ag-effort">
+                    <option value="">padrão</option><option value="low">low</option>
+                    <option value="medium">medium</option><option value="high">high</option>
+                    <option value="xhigh">xhigh</option><option value="max">max</option>
+                  </select></label>
+                <label class="ag-f"><span>Permissão</span>
+                  <select id="ag-mode">
+                    <option value="">padrão</option><option value="auto">auto</option>
+                    <option value="manual">manual</option><option value="acceptEdits">acceptEdits</option>
+                    <option value="plan">plan</option><option value="bypassPermissions">bypassPermissions</option>
+                  </select></label>
+              </div>
+            </section>
+
+            <section class="ag-sec ag-sec-grow">
+              <h2>Instruções</h2>
+              <p class="ag-hint">Vai no topo do contexto de toda conversa deste agente.</p>
+              <textarea id="ag-instructions" maxlength="8000"
+                placeholder="Como este agente deve trabalhar."></textarea>
+              <p class="ag-gaps hidden" id="ag-gaps"></p>
+              <p class="ag-count" id="ag-count"></p>
+            </section>
+            <p class="ag-err hidden" id="ag-err"></p>
+          </div>
+
+          <div class="ag-bench" id="ag-bench">
+            <header class="ag-bench-head">
+              <h2>Bancada</h2>
+              <div class="ag-tabs">
+                <button type="button" id="ag-tab-steps" class="ag-tab" data-on="1">Etapas</button>
+                <button type="button" id="ag-tab-chat" class="ag-tab" data-on="0">Resposta</button>
+              </div>
+              <button type="button" id="btn-ag-clear" class="ghost" title="Limpar a conversa de teste">Limpar</button>
+            </header>
+            <p class="ag-bench-note" id="ag-bench-note"></p>
+            <div class="ag-bench-body">
+              <ol class="ag-steps" id="ag-steps"></ol>
+              <div class="ag-chat md hidden" id="ag-chat"></div>
+            </div>
+            <div class="ag-sum" id="ag-sum"></div>
+            <form class="ag-ask" id="ag-ask">
+              <textarea id="ag-prompt" rows="2" placeholder="Mensagem de teste para o agente…"></textarea>
+              <button type="submit" class="primary" id="btn-ag-run">Testar</button>
+              <button type="button" class="ghost hidden" id="btn-ag-stop">Parar</button>
+            </form>
+          </div>
+        </div>
+      </section>
+      <section class="pane hidden" id="pane-team">
+        <header class="mod-head">
+          <h1>Time</h1>
+          <span id="tm-head-name" class="mod-meta"></span>
+          <span id="tm-dirty" class="ag-dirty hidden" title="Há mudanças não salvas">•</span>
+          <button type="button" id="btn-tm-save" class="primary">Salvar</button>
+          <button type="button" id="btn-tm-del" class="ghost danger">Excluir</button>
+          <button type="button" id="btn-close-team" class="ghost mod-close" title="Fechar">✕</button>
+        </header>
+        <div class="ag-split">
+          <div class="ag-edit" id="tm-edit">
+            <section class="ag-sec">
+              <h2>Identidade</h2>
+              <div class="ag-row">
+                <label class="ag-f"><span>Nome</span>
+                  <input id="tm-name" type="text" maxlength="60" placeholder="Time de feature" /></label>
+                <label class="ag-f ag-narrow"><span>id</span>
+                  <input id="tm-id" type="text" maxlength="40" placeholder="feature" /></label>
+              </div>
+              <label class="ag-f"><span>Descrição</span>
+                <input id="tm-desc" type="text" maxlength="200" placeholder="Para que serve este time" /></label>
+              <label class="ag-f"><span>Como trabalha</span>
+                <select id="tm-topology">
+                  <option value="pipeline">Em sequência — a saída de um vira a entrada do próximo</option>
+                  <option value="fanin">Em paralelo — todos ao mesmo tempo, o último junta</option>
+                  <option value="supervisor">Com supervisor — o primeiro decide quem trabalha, a cada rodada</option>
+                </select></label>
+              <label class="hidden" id="tm-canal-wrap"
+                >Como o supervisor manda
+                <select id="tm-canal">
+                  <option value="turno">Por turno — funciona em qualquer conta</option>
+                  <option value="mcp">Por ferramenta (MCP) — mais barato, só em conta Claude</option>
+                </select></label>
+              <p class="tm-aviso hidden" id="tm-aviso"></p>
+            </section>
+
+            <section class="ag-sec ag-sec-grow">
+              <h2>Membros, em ordem</h2>
+              <p class="ag-hint" id="tm-ordem"></p>
+              <p class="ag-hint">
+                O papel entra no pedido daquele membro, então o mesmo agente pode ocupar papéis
+                diferentes em times diferentes.
+              </p>
+              <ol id="tm-members" class="tm-members"></ol>
+              <button type="button" class="ghost" id="btn-tm-add">+ Membro</button>
+            </section>
+            <p class="ag-err hidden" id="tm-err"></p>
+          </div>
+
+          <div class="ag-bench" id="tm-run">
+            <header class="ag-bench-head">
+              <h2>Execução</h2>
+              <span id="tm-run-status" class="tm-run-status"></span>
+              <button type="button" id="btn-tm-stop" class="ghost hidden">Parar</button>
+              <button type="button" id="btn-tm-resume" class="ghost hidden">Retomar</button>
+            </header>
+            <p class="ag-bench-note" id="tm-run-note"></p>
+            <div class="ag-bench-body">
+              <ol class="ag-steps" id="tm-steps"></ol>
+            </div>
+            <div class="ag-sum" id="tm-sum"></div>
+            <form class="ag-ask" id="tm-ask">
+              <textarea id="tm-goal" rows="2" placeholder="Objetivo do time — o pedido que entra no primeiro membro…"></textarea>
+              <button type="submit" class="primary" id="btn-tm-run">Rodar</button>
+            </form>
+          </div>
+        </div>
+      </section>
       <section class="pane hidden" id="pane-chat">
         <div id="split-chat" class="splitter" role="separator" aria-orientation="vertical" title="Arraste pra redimensionar"></div>
         <button type="button" id="btn-focus-exit" class="focus-exit hidden" title="Sair do foco (Esc)">⤡</button>
@@ -205,6 +378,7 @@
               <span class="meter-title">Janela de contexto</span
               ><span class="meter-val" id="meter-ctx">—</span>
             </div>
+            <p class="meter-compact hidden" id="meter-compact" aria-live="polite"></p>
             <div class="meter-bar"><span id="meter-fill" class="meter-fill"></span></div>
             <p class="meter-sub">Seus limites de uso</p>
             <div class="meter-row"><span>Limite de 5 horas</span><span id="lim-5h" class="meter-num">—</span></div>
@@ -383,6 +557,9 @@
           <button type="button" class="set-nav-item" data-panel="contas">
             <span class="set-nav-ico" aria-hidden="true">☰</span>Contas
           </button>
+          <button type="button" class="set-nav-item" data-panel="celular">
+            <span class="set-nav-ico" aria-hidden="true">▢</span>Celular
+          </button>
           <button type="button" class="set-nav-item" data-panel="fallback">
             <span class="set-nav-ico" aria-hidden="true">⇅</span>Fallback
           </button>
@@ -486,6 +663,50 @@
                 </div>
               </div>
             </section>
+            <section class="set-sec hidden" data-panel="celular">
+              <h3>Celular</h3>
+              <div class="set-row">
+                <div class="set-txt">
+                  <h4>Conectar um celular</h4>
+                  <p>
+                    Aponte a câmera do celular para o código: ele abre a página e conecta sozinho.
+                    Dali, <b>Adicionar à tela de início</b> deixa o Nexo como um app. Sem câmera,
+                    abra <b id="cel-url">http://…/app/</b> e digite o código.
+                    Ele vale 2 minutos e serve uma vez; depois disso o celular fica conectado.
+                  </p>
+                </div>
+                <div class="set-ctl">
+                  <button type="button" class="primary" id="btn-cel-codigo">Gerar código</button>
+                </div>
+              </div>
+              <div class="cel-qr hidden" id="cel-qr">
+                <div class="cel-qr-img" id="cel-qr-img"></div>
+                <div class="cel-qr-lado">
+                  <span class="cel-codigo" id="cel-codigo"></span>
+                  <span class="cel-qr-sub">para digitar à mão</span>
+                </div>
+              </div>
+              <p class="set-aviso" id="cel-aviso"></p>
+              <div class="set-row">
+                <div class="set-txt">
+                  <h4>Onde o celular alcança o Nexo</h4>
+                  <p id="cel-alcance">…</p>
+                </div>
+                <div class="set-ctl">
+                  <button type="button" class="ghost" id="btn-cel-revogar">Desconectar celulares</button>
+                </div>
+              </div>
+              <details class="set-det" id="cel-avancado">
+                <summary>Endereço de escuta (avançado)</summary>
+                <p>
+                  O Nexo já escuta sozinho no loopback e em qualquer túnel que a máquina tenha
+                  (Tailscale, WireGuard) — inclusive em túnel que subir depois, sem reiniciar nada.
+                  Só preencha aqui se precisar de um endereço específico. <code>0.0.0.0</code>
+                  publica na rede inteira, e aí o token é a única barreira.
+                </p>
+                <input type="text" id="cel-host" spellcheck="false" maxlength="45" placeholder="automático" aria-label="Endereço de escuta" />
+              </details>
+            </section>
             <section class="set-sec hidden" data-panel="fallback">
               <h3>Fallback</h3>
               <div class="set-row">
@@ -531,92 +752,27 @@
       </div>
       <div class="agents-tabs" role="tablist">
         <button type="button" id="tab-agents-run" class="agents-tab" role="tab" data-on="1">Rodando</button>
-        <button type="button" id="tab-agents-def" class="agents-tab" role="tab">Meus agentes</button>
+        <button type="button" id="tab-agents-team" class="agents-tab" data-on="0">Times</button>
+          <button type="button" id="tab-agents-def" class="agents-tab" role="tab">Meus agentes</button>
       </div>
       <div id="agents-pane-run" class="agents-pane">
         <ul id="agents-list" class="agents-list"></ul>
         <p id="agents-empty" class="agents-empty">Nenhum agente rodando agora.</p>
+      </div>
+      <div id="agents-pane-team" class="agents-pane hidden">
+        <ul id="team-list" class="agents-list"></ul>
+        <p id="team-empty" class="agents-empty">
+          Nenhum time criado. Um time roda seus agentes em sequência: a saída de um vira a entrada do próximo.
+        </p>
+        <div class="agents-foot">
+          <button type="button" class="primary" id="btn-team-new">Novo time</button>
+        </div>
       </div>
       <div id="agents-pane-def" class="agents-pane hidden">
         <ul id="agent-defs" class="agents-list"></ul>
         <p id="agent-defs-empty" class="agents-empty">
           Nenhum agente criado. Um agente guarda conta, modelo e instruções próprias.
         </p>
-        <form id="agent-form" class="agent-form hidden">
-          <div class="agent-form-row">
-            <label class="agent-f" for="agent-f-name">
-              <span>Nome</span>
-              <input id="agent-f-name" type="text" maxlength="60" placeholder="Revisor de PR" required />
-            </label>
-            <label class="agent-f agent-f-narrow" for="agent-f-id">
-              <span>id</span>
-              <input id="agent-f-id" type="text" maxlength="40" placeholder="revisor" required />
-            </label>
-            <label class="agent-f agent-f-color" for="agent-f-color">
-              <span>Cor</span>
-              <input id="agent-f-color" type="color" value="#4d9cd6" />
-            </label>
-          </div>
-          <label class="agent-f" for="agent-f-desc">
-            <span>Descrição</span>
-            <input id="agent-f-desc" type="text" maxlength="200" placeholder="Para que serve este agente" />
-          </label>
-          <div class="agent-form-row">
-            <label class="agent-f" for="agent-f-profile">
-              <span>Conta</span>
-              <select id="agent-f-profile"></select>
-            </label>
-            <label class="agent-f" for="agent-f-model">
-              <span>Modelo</span>
-              <input id="agent-f-model" type="text" list="agent-models" placeholder="padrão da conta" />
-              <datalist id="agent-models">
-                <option value="opus"></option>
-                <option value="sonnet"></option>
-                <option value="haiku"></option>
-                <option value="fable"></option>
-              </datalist>
-            </label>
-          </div>
-          <div class="agent-form-row">
-            <label class="agent-f" for="agent-f-effort">
-              <span>Esforço</span>
-              <select id="agent-f-effort">
-                <option value="">padrão</option>
-                <option value="low">low</option>
-                <option value="medium">medium</option>
-                <option value="high">high</option>
-                <option value="xhigh">xhigh</option>
-                <option value="max">max</option>
-              </select>
-            </label>
-            <label class="agent-f" for="agent-f-mode">
-              <span>Permissão</span>
-              <select id="agent-f-mode">
-                <option value="">padrão</option>
-                <option value="auto">auto</option>
-                <option value="manual">manual</option>
-                <option value="acceptEdits">acceptEdits</option>
-                <option value="plan">plan</option>
-                <option value="bypassPermissions">bypassPermissions</option>
-              </select>
-            </label>
-          </div>
-          <label class="agent-f" for="agent-f-instructions">
-            <span>Instruções</span>
-            <textarea
-              id="agent-f-instructions"
-              rows="5"
-              maxlength="8000"
-              placeholder="Como este agente deve trabalhar. Vai no topo do contexto de toda conversa dele."
-            ></textarea>
-          </label>
-          <p id="agent-form-err" class="agent-form-err hidden"></p>
-          <div class="agent-form-acts">
-            <button type="submit" class="primary" id="btn-agent-save">Salvar</button>
-            <button type="button" class="ghost" id="btn-agent-cancel">Cancelar</button>
-            <button type="button" class="ghost danger" id="btn-agent-del">Excluir</button>
-          </div>
-        </form>
         <div class="agents-foot">
           <button type="button" class="primary" id="btn-agent-new">Novo agente</button>
         </div>
@@ -631,6 +787,6 @@
     </div>
     <script src="./node_modules/@xterm/xterm/lib/xterm.js"></script>
     <script src="./node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
-    <script src="./renderer.js"></script>
+    <script type="module" src="./renderer.js"></script>
   </body>
 </html>

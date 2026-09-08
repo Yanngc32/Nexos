@@ -1,19 +1,30 @@
 import { EventEmitter } from "node:events";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { EngineEvent, EngineKind, Profile, SwitchReason, ThreadEvent } from "@nexo/shared";
-import { getAgent } from "./agents.ts";
+import { TURNO_TETO_MS } from "@nexo/shared";
+import { agentOverrides, getAgent } from "./agents.ts";
 import { promptWithAttachments, removeThreadAttachments, saveImages, type IncomingImage } from "./attachments.ts";
 import { loadConfig } from "./config.ts";
+import { tokenPath } from "./home.ts";
+import { configDeMcpAutoria, MCP_TOOLS_AUTORIA } from "./mcp.ts";
 import { ApiEngine } from "./engines/api.ts";
 import { claudeEngine, codexEngine } from "./engines/cli.ts";
+import { contextWindowOf } from "./engines/parse-claude.ts";
 import { StubEngine } from "./engines/stub.ts";
 import type { Engine } from "./engines/types.ts";
 import { applyLoginResult, credentialVerdict, getProfile, markAuthFailed } from "./profiles.ts";
-import { pack } from "./packer.ts";
+import { pack, precisaCompactar, tetoDeToken, tokensDoHistorico } from "./packer.ts";
+import {
+  historicoParaResumir,
+  montarCompactacao,
+  pedidoDeResumo,
+  podeCompactar,
+} from "./compactar.ts";
 import { assertSwitch, suggestFallback } from "./router.ts";
-import { spawnCwd } from "./sandbox.ts";
+import { spawnCwd } from "./project-cwd.ts";
 import { activeProfileId, appendEvent, readThread, removeThread } from "./threads.ts";
 
-const TOKEN_CAP = 8000;
 const CONTINUE = "Continue de onde parou.";
 
 export type SessionEvent =
@@ -23,10 +34,37 @@ export type SessionEvent =
       chatOnly?: boolean;
     })
   /** Troca feita pelo próprio daemon (switchMode auto): o cliente não pediu, precisa saber. */
-  | { type: "switched"; threadId: string; fromProfileId: string; toProfileId: string; reason: SwitchReason };
+  | { type: "switched"; threadId: string; fromProfileId: string; toProfileId: string; reason: SwitchReason }
+  /**
+   * O histórico virou resumo. Vai pelo SSE porque acontece DEPOIS do turno, sem
+   * ninguém ter pedido: a tela aberta precisa saber que o passado dela mudou de
+   * forma, senão a próxima resposta parece ter esquecido coisas sem motivo.
+   */
+  | {
+      type: "compacted";
+      threadId: string;
+      text: string;
+      cobertos: number;
+      tokensAntes: number;
+      tokensDepois: number;
+    }
+  /**
+   * Compactação começando ou terminando.
+   *
+   * NÃO vai pro JSONL: é estado de tela, não história. O registro do que
+   * aconteceu é o `compacted`; isto existe porque resumir leva um turno inteiro
+   * e, sem sinal, a pessoa fica olhando uma conversa que parece parada.
+   *
+   * O `off` vem sempre, inclusive quando falha — animação que só sabe começar
+   * gira pra sempre.
+   */
+  | { type: "compacting"; threadId: string; on: boolean; tokens?: number; motivo?: string };
 
 /** Turno em voo: sobrevive à troca de conta pra a conta nova continuar de onde a antiga parou. */
 type PendingTurn = { text: string; partial: boolean };
+
+/** Como o turno acabou. Todo caminho que fecha um turno passa por `setTerminal`. */
+type Terminal = "done" | "quota" | "auth" | "error";
 
 type Live = {
   engine: Engine;
@@ -37,7 +75,9 @@ type Live = {
   pendingTurn: PendingTurn | null;
   retryCount: number;
   pendingQuota: boolean;
-  lastTerminal: "done" | "quota" | "auth" | "error" | null;
+  lastTerminal: Terminal | null;
+  /** Quem está esperando o fim do turno; liberados por `setTerminal`. */
+  terminalWaiters: Array<() => void>;
   /** Quando o turno em voo começou (ms). 0 = nenhum turno desde que o motor subiu. */
   startedAt: number;
   usage?: EngineEvent & { type: "usage" };
@@ -49,6 +89,16 @@ type Live = {
 
 /** Último limite visto por conta: serve pro painel mesmo sem thread ativa. */
 const limitsByProfile = new Map<string, EngineEvent & { type: "limits" }>();
+
+/**
+ * Janela que cada conta REPORTOU, por conta.
+ *
+ * Fica aqui e não no `Live` porque o teto do pack é calculado ANTES de o motor
+ * subir — então quem precisa do número é o próximo motor daquela conta, não o
+ * atual. Memória só: daemon que reinicia volta pro palpite pelo nome do modelo,
+ * que é o comportamento anterior, e reaprende no primeiro turno.
+ */
+const windowByProfile = new Map<string, number>();
 
 export function limitsOf(profileId: string): (EngineEvent & { type: "limits" }) | undefined {
   return limitsByProfile.get(profileId);
@@ -112,6 +162,23 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+/**
+ * Fecha o turno e libera quem espera. Único lugar que *fecha* (só `sendTurn`
+ * zera, ao abrir o turno seguinte): marcar o fim sem acordar os waiters deixaria
+ * o dispatch parado até o timeout.
+ *
+ * Os waiters só resolvem promise, e promise resolvida continua em microtask —
+ * então quem chama isso no meio de um branch termina o branch inteiro antes do
+ * dispatch acordar, igual ao laço de polling que existia aqui. Se um dia um
+ * waiter passar a rodar trabalho síncrono, essa ordem muda.
+ */
+function setTerminal(live: Live, kind: Terminal): void {
+  live.lastTerminal = kind;
+  const waiters = live.terminalWaiters;
+  live.terminalWaiters = [];
+  for (const acorda of waiters) acorda();
+}
+
 export function createEngine(profile: Profile, projectPath: string, home: string): Engine {
   const cwd = spawnCwd(projectPath);
   switch (profile.engine) {
@@ -145,6 +212,42 @@ function withInstructions(agentId: string | undefined, packText: string, home: s
   return packText ? `${bloco}\n\n${packText}` : bloco;
 }
 
+/**
+ * Modelo que ESTE motor vai rodar, pra saber a janela dele.
+ *
+ * A ordem é a da verdade, da mais forte pra mais fraca:
+ * 1. o que já rodou nesta conversa — o CLI carimba o nome no `usage`, com o
+ *    sufixo de janela (`[1m]`) que só ele sabe;
+ * 2. o que o agente ou a conta declara — vale antes do primeiro turno;
+ * 3. nada, e aí o teto cai no piso.
+ *
+ * Só `claude`: o sufixo `[1m]` é convenção do CLI dele, e chutar janela pra
+ * `codex` ou pra um modelo de API arbitrário seria inventar número. Piso ali é
+ * o comportamento que já existia.
+ *
+ * Exportado porque é aqui que mora a decisão: o motor de CLI não sobe em teste,
+ * então essa ordem de precedência só se verifica direto.
+ */
+export function modeloDoMotor(profile: Profile, events: ThreadEvent[], agentId: string | undefined, home: string): string {
+  if (profile.engine !== "claude") return "";
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.type === "usage" && e.model) return e.model;
+  }
+  return agentOverrides(agentId, home).model ?? profile.model ?? "";
+}
+
+/**
+ * Janela do motor, da fonte melhor pra pior: o que a conta já reportou num
+ * turno anterior, depois o palpite pelo nome do modelo, depois nada (piso).
+ */
+function janelaDaConta(profile: Profile, events: ThreadEvent[], agentId: string | undefined, home: string): number {
+  const reportada = windowByProfile.get(profile.id);
+  if (reportada) return reportada;
+  const modelo = modeloDoMotor(profile, events, agentId, home);
+  return modelo ? contextWindowOf(modelo) : 0;
+}
+
 async function ensureLive(threadId: string, home: string, profile?: Profile): Promise<Live> {
   const events = readThread(threadId, home);
   const meta = events.find((e) => e.type === "thread_meta");
@@ -162,7 +265,7 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
   const existing = lives.get(threadId);
   if (existing && existing.profileId === p.id) return existing;
 
-  const packed = pack(events, loadConfig(home).pack, TOKEN_CAP);
+  const packed = pack(events, loadConfig(home).pack, tetoDeToken(janelaDaConta(p, events, meta.agentId, home)));
   if (packed.trimmed) {
     appendEvent(
       {
@@ -185,6 +288,7 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
     retryCount: 0,
     pendingQuota: false,
     lastTerminal: null,
+    terminalWaiters: [],
     startedAt: 0,
   };
   lives.set(threadId, live);
@@ -197,10 +301,168 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
       // que o motor de CLI aceita (o `api` usa o pack como system de verdade).
       contextPack: withInstructions(meta.agentId, packed.text, home),
       ...(meta.agentId ? { agentId: meta.agentId } : {}),
+      ...mcpDaConversa(meta, p, home),
     },
     (ev) => onEngineEvent(threadId, home, ev),
   );
   return live;
+}
+
+/**
+ * Qual servidor MCP esta conversa recebe.
+ *
+ * Conversa de SUPERVISOR já vem com o dela carimbado no `thread_meta` — presa
+ * ao run, porque as ferramentas dela executam membros. Conversa normal ganha as
+ * de AUTORIA: criar e editar agente e time, sem executar nada.
+ *
+ * Só `claude`, porque só ele fala MCP. Nas outras contas a conversa segue igual
+ * ao que era — o modelo simplesmente não tem as ferramentas, e é por isso que a
+ * tela continua sendo o caminho garantido pra criar time.
+ */
+function mcpDaConversa(
+  meta: { mcpConfig?: string; mcpTools?: string[] },
+  perfil: Profile,
+  home: string,
+): { mcpConfig?: string; mcpTools?: string[] } {
+  if (meta.mcpConfig) {
+    return {
+      mcpConfig: meta.mcpConfig,
+      ...(meta.mcpTools?.length ? { mcpTools: meta.mcpTools } : {}),
+    };
+  }
+  if (perfil.engine !== "claude") return {};
+  const arquivo = arquivoDeAutoria(home);
+  return arquivo ? { mcpConfig: arquivo, mcpTools: [...MCP_TOOLS_AUTORIA] } : {};
+}
+
+/**
+ * O arquivo de config das ferramentas de autoria.
+ *
+ * Um por home, não um por conversa: o conteúdo só depende da porta e do token,
+ * e reescrever a cada turno seria I/O por nada. Ele é reescrito sempre porque a
+ * porta pode ter mudado e o token pode ter sido rotacionado — arquivo velho
+ * daria 401 no meio do turno, que o modelo leria como "a ferramenta sumiu".
+ *
+ * `0600` e em arquivo, não em argv: ele carrega o token, e argv é legível por
+ * qualquer processo do mesmo usuário.
+ */
+function arquivoDeAutoria(home: string): string {
+  const token = existsSync(tokenPath(home)) ? readFileSync(tokenPath(home), "utf8").trim() : "";
+  if (!token) return "";
+  const dir = join(home, "run");
+  mkdirSync(dir, { recursive: true });
+  const arquivo = join(dir, "mcp-autoria.json");
+  writeFileSync(arquivo, configDeMcpAutoria(loadConfig(home).port, token), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  return arquivo;
+}
+
+/**
+ * Compactação: um turno à parte que troca o histórico antigo por um resumo.
+ *
+ * Roda num motor PRÓPRIO, descartável, e não no da conversa. Três razões, todas
+ * necessárias: o motor da conversa está com o pack congelado do turno atual;
+ * mandar o pedido de resumo por ele gravaria pergunta e resposta no JSONL, ou
+ * seja, o resumo entraria no histórico que ele acabou de resumir; e um motor
+ * separado pode falhar sem contaminar a conversa.
+ *
+ * Dispara DEPOIS do turno, nunca antes: compactar antes faria a pessoa esperar
+ * um turno inteiro pela resposta que ela pediu.
+ */
+const compactando = new Set<string>();
+/** Conversa em que a compactação falhou não tenta de novo até o daemon reiniciar. */
+const desistiu = new Map<string, string>();
+
+/** Só pra teste: o estado é de módulo e vaza entre casos. */
+export function resetCompactacaoForTest(): void {
+  compactando.clear();
+  desistiu.clear();
+}
+
+export function motivoDeNaoCompactar(threadId: string): string {
+  return desistiu.get(threadId) ?? "";
+}
+
+async function talvezCompactar(threadId: string, home: string): Promise<void> {
+  const cfg = loadConfig(home);
+  if (!cfg.pack.compactar) return;
+  if (compactando.has(threadId) || desistiu.has(threadId)) return;
+
+  const events = readThread(threadId, home);
+  const meta = events.find((e) => e.type === "thread_meta");
+  if (!meta || meta.type !== "thread_meta") return;
+  const p = getProfile(meta.profileId, home);
+  if (!p || !podeCompactar(p)) return;
+  const cap = tetoDeToken(janelaDaConta(p, events, meta.agentId, home));
+  if (!precisaCompactar(events, cfg.pack, cap)) return;
+
+  const historico = historicoParaResumir(events, cfg.pack, cap);
+  if (!historico) return;
+
+  compactando.add(threadId);
+  emit(threadId, { type: "compacting", threadId, on: true, tokens: tokensDoHistorico(events) });
+  let motivo = "";
+  try {
+    const resumo = await turnoDeResumo(p, meta.projectPath, home, pedidoDeResumo(historico));
+    // relê: o turno de resumo levou tempo, e mensagem nova pode ter chegado.
+    // `cobertos` é índice absoluto, então o que chegou depois fica verbatim.
+    const agora = readThread(threadId, home);
+    const r = montarCompactacao(agora, cfg.pack, cap, threadId, resumo, nowIso());
+    if (!r.ok) {
+      motivo = r.motivo;
+      desistiu.set(threadId, r.motivo);
+      return;
+    }
+    appendEvent(r.evento, home);
+    emit(threadId, r.evento);
+  } catch (e) {
+    /*
+     * Falhou: registra e NÃO tenta de novo nesta conversa. Recompactar em loop
+     * gastaria a quota da pessoa repetindo o mesmo erro, e o `pack` já tem o
+     * corte como rede — o pior caso é o comportamento que existia antes.
+     */
+    motivo = (e as Error).message || "falhou";
+    desistiu.set(threadId, motivo);
+  } finally {
+    compactando.delete(threadId);
+    emit(threadId, { type: "compacting", threadId, on: false, ...(motivo ? { motivo } : {}) });
+  }
+}
+
+/** Um turno só, num motor descartável, devolvendo o texto que ele produziu. */
+function turnoDeResumo(p: Profile, projectPath: string, home: string, pedido: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const engine = createEngine(p, projectPath, home);
+    let buf = "";
+    let fechou = false;
+    const fim = (erro?: string) => {
+      if (fechou) return;
+      fechou = true;
+      clearTimeout(relogio);
+      void engine.abort().catch(() => {});
+      if (erro) reject(new Error(erro));
+      else resolve(buf);
+    };
+    const relogio = setTimeout(() => fim("o resumo passou do teto de turno"), TURNO_TETO_MS);
+    void engine
+      /*
+       * `compact-` e não `compact:`: o threadId vira nome de arquivo de pid
+       * (`run/engine-<id>.pid`), e dois-pontos é ilegal em nome de arquivo no
+       * Windows. No Linux passaria, o que é exatamente o tipo de bug que só
+       * aparece na máquina de outra pessoa.
+       */
+      .start({ threadId: `compact-${Date.now()}`, projectPath, profileId: p.id, contextPack: "" }, (ev) => {
+        if (ev.type === "text") buf += ev.text;
+        else if (ev.type === "done") fim();
+        else if (ev.type === "quota") fim("a quota da conta acabou");
+        else if (ev.type === "auth") fim("a credencial da conta não serve mais");
+        else if (ev.type === "error") fim(ev.message || "o motor falhou");
+      })
+      .then(() => engine.send(pedido))
+      .catch((e: Error) => fim(e.message));
+  });
 }
 
 function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
@@ -224,6 +486,13 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
    */
   if (ev.type === "context") {
     live.contextTokens = ev.contextTokens;
+    emit(threadId, { ...ev, threadId });
+    return;
+  }
+  if (ev.type === "window") {
+    windowByProfile.set(live.profileId, ev.contextWindow);
+    // o `session` pode ter chegado antes: corrige o número que veio do nome
+    if (live.session) live.session = { ...live.session, contextWindow: ev.contextWindow };
     emit(threadId, { ...ev, threadId });
     return;
   }
@@ -256,8 +525,10 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     return;
   }
   if (ev.type === "session") {
-    live.session = ev;
-    emit(threadId, { ...ev, threadId });
+    // janela reportada ganha da deduzida do nome, tenha chegado antes ou depois
+    const janela = windowByProfile.get(live.profileId);
+    live.session = janela ? { ...ev, contextWindow: janela } : ev;
+    emit(threadId, { ...live.session, threadId });
     return;
   }
   if (ev.type === "tool") {
@@ -272,13 +543,17 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     live.assistantBuf = "";
     live.pendingTurn = null;
     live.retryCount = 0;
-    live.lastTerminal = "done";
+    setTerminal(live, "done");
     emit(threadId, { ...ev, threadId });
+    // depois de responder, não antes: compactar leva um turno e a pessoa não
+    // deve esperar por ele. Sem await de propósito — falha aqui não é falha do
+    // turno que acabou de dar certo.
+    void talvezCompactar(threadId, home);
     return;
   }
   if (ev.type === "quota") {
     live.pendingQuota = true;
-    live.lastTerminal = "quota";
+    setTerminal(live, "quota");
     if (live.assistantBuf && live.pendingTurn) live.pendingTurn.partial = true;
     if (live.assistantBuf) {
       appendEvent({ ts: nowIso(), type: "assistant", threadId, text: live.assistantBuf }, home);
@@ -308,7 +583,7 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     return;
   }
   if (ev.type === "auth") {
-    live.lastTerminal = "auth";
+    setTerminal(live, "auth");
     if (live.assistantBuf && live.pendingTurn) live.pendingTurn.partial = true;
     if (live.assistantBuf) {
       appendEvent({ ts: nowIso(), type: "assistant", threadId, text: live.assistantBuf }, home);
@@ -334,7 +609,7 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     return;
   }
   if (ev.type === "error") {
-    live.lastTerminal = "error";
+    setTerminal(live, "error");
     if (live.assistantBuf && live.pendingTurn) live.pendingTurn.partial = true;
     emit(threadId, { ...ev, threadId });
   }
@@ -358,13 +633,24 @@ export async function postMessage(
   });
 }
 
-async function waitTerminal(live: Live, ms = 15 * 60 * 1000): Promise<void> {
-  if (live.lastTerminal) return;
-  const start = Date.now();
-  while (!live.lastTerminal) {
-    if (Date.now() - start > ms) throw new Error("engine timeout");
-    await new Promise((r) => setTimeout(r, 20));
-  }
+/**
+ * Espera o turno fechar. O motor já é orientado a evento, então isso dorme até
+ * `setTerminal` acordar — antes era laço de 20 ms, ~45 mil despertares num turno
+ * de 15 minutos. O teto continua sendo erro: motor que não fecha trava a thread.
+ */
+function waitTerminal(live: Live, ms = TURNO_TETO_MS): Promise<void> {
+  if (live.lastTerminal) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const acorda = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      live.terminalWaiters = live.terminalWaiters.filter((w) => w !== acorda);
+      reject(new Error("engine timeout"));
+    }, ms);
+    live.terminalWaiters.push(acorda);
+  });
 }
 
 /**

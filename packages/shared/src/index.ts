@@ -147,10 +147,35 @@ export type ProbeResult = { ok: boolean; status?: number; error?: string };
 
 export type NexoConfig = {
   port: number;
+  /**
+   * Em que interface o daemon escuta. `127.0.0.1` é o padrão e a escolha certa
+   * pra quase todo mundo: nada de fora da máquina alcança.
+   *
+   * Existe porque acessar do celular exige que o daemon esteja alcançável, e o
+   * loopback nunca está — nem por túnel, porque a interface do Tailscale ou do
+   * WireGuard tem IP próprio (`100.x.y.z`), não `127.0.0.1`. Aponte pro IP DO
+   * TÚNEL: aí quem alcança é só quem está no seu tailnet.
+   *
+   * `0.0.0.0` publica na rede inteira. O token é a única barreira e não há TLS
+   * — em Wi-Fi compartilhado isso é entregar um shell com um modelo na frente.
+   */
+  host: string;
   fallbackOrder: string[];
   /** Como tratar a troca de conta quando a quota acaba. */
   switchMode: SwitchMode;
-  pack: { keepLastMessages: number; prefixCharBudget: number };
+  pack: {
+    keepLastMessages: number;
+    prefixCharBudget: number;
+    /**
+     * Resumir o histórico antigo quando ele encosta no teto, em vez de cortar.
+     *
+     * Ligado por padrão porque a alternativa é o corte de sempre, que guarda os
+     * primeiros caracteres do que jogou fora e perde o meio da conversa. Existe
+     * o interruptor porque resumir GASTA um turno da sua conta, e há quem
+     * prefira o corte a pagar por isso.
+     */
+    compactar: boolean;
+  };
   accent: string;
   /**
    * Pastas abertas no app. Fica aqui, e não no localStorage, porque o
@@ -176,9 +201,10 @@ export type NexoConfig = {
 
 export const DEFAULT_CONFIG: NexoConfig = {
   port: 7432,
+  host: "127.0.0.1",
   fallbackOrder: [],
   switchMode: "manual",
-  pack: { keepLastMessages: 20, prefixCharBudget: 2000 },
+  pack: { keepLastMessages: 20, prefixCharBudget: 2000, compactar: true },
   accent: "#4d9cd6",
   repos: [],
   hiddenRepos: [],
@@ -197,6 +223,19 @@ export type ThreadEvent =
       profileId: string;
       /** Agente personalizado que rege a conversa; vazio = conta pura. */
       agentId?: string;
+      /**
+       * Run de time que criou esta conversa, e qual passo dele. Fica no meta
+       * porque é verdade sobre a conversa, não sobre o run: a lista de threads
+       * precisa saber disso sem varrer todos os runs do disco.
+       */
+      runId?: string;
+      runStep?: number;
+      /** Rótulo do run (time + objetivo), pra lista agrupar sem consultar o run. */
+      runTitle?: string;
+      /** Config MCP desta conversa; ver `StartOpts.mcpConfig`. */
+      mcpConfig?: string;
+      /** Ferramentas que esse MCP oferece; ver `StartOpts.mcpTools`. */
+      mcpTools?: string[];
     }
   | { ts: string; type: "user"; threadId: string; text: string; attachments?: Attachment[] }
   | { ts: string; type: "assistant"; threadId: string; text: string }
@@ -216,6 +255,26 @@ export type ThreadEvent =
       threadId: string;
       keptMessages: number;
       droppedMessages: number;
+    }
+  | {
+      /**
+       * O histórico antigo virou resumo.
+       *
+       * Aditivo, como o `cleared`: o JSONL guarda tudo pra sempre, e isto só
+       * diz ao packer que os primeiros `cobertos` eventos do arquivo estão
+       * representados por `text` e não precisam mais ir ao motor.
+       *
+       * `cobertos` é ÍNDICE no arquivo, não timestamp: o JSONL só cresce no
+       * fim, então a posição é estável pra sempre, enquanto dois eventos podem
+       * dividir o mesmo milissegundo.
+       */
+      ts: string;
+      type: "compacted";
+      threadId: string;
+      text: string;
+      cobertos: number;
+      tokensAntes: number;
+      tokensDepois: number;
     }
   /** Marca de "/clear": o pack ignora tudo antes disso, mas o JSONL guarda pra sempre. */
   | { ts: string; type: "cleared"; threadId: string }
@@ -287,6 +346,12 @@ export type EngineEvent =
   | { type: "tool"; name: string; summary: string }
   /** Contexto do ÚLTIMO request individual (não somado): o que ocupa a janela agora. */
   | { type: "context"; contextTokens: number }
+  /**
+   * Janela que o motor DISSE que a sessão tem, não a adivinhada pelo nome do
+   * modelo. Vem antes do `session` no stream do CLI, então é evento próprio em
+   * vez de campo dele — assim a ordem de chegada não decide qual valor vale.
+   */
+  | { type: "window"; contextWindow: number }
   | { type: "done" }
   | { type: "quota"; detail?: string }
   | ({ type: "usage" } & TokenUsage)
@@ -301,6 +366,251 @@ export type StartOpts = {
   profileId: string;
   contextPack: string;
   agentId?: string;
+  /**
+   * Arquivo de config MCP pro motor de CLI (`--mcp-config`). Dois usos: o
+   * supervisor em canal `mcp`, que alcança os membros do time sem sair do
+   * turno, e a conversa normal, que ganha as ferramentas de autoria.
+   */
+  mcpConfig?: string;
+  /**
+   * Nomes das ferramentas desse servidor MCP, pro `--allowed-tools`.
+   *
+   * Vem JUNTO do `mcpConfig` em vez de ser deduzido dele porque os dois
+   * conjuntos que existem — supervisor e autoria — moram no mesmo servidor, em
+   * caminhos diferentes. Liberar a lista errada faz a chamada ser negada em
+   * silêncio: em `--print` não há canal pra aprovar permissão, e o modelo
+   * conclui que a ferramenta não existe.
+   */
+  mcpTools?: string[];
 };
+
+/* ---------- times de agentes ---------- */
+
+/**
+ * Um membro do time: qual agente e o que ele faz aqui. O papel entra no pedido
+ * que o membro recebe, então o mesmo agente pode ocupar papéis diferentes em
+ * times diferentes sem virar dois agentes.
+ */
+export type TeamMember = {
+  agentId: string;
+  papel?: string;
+};
+
+/**
+ * Como o time trabalha.
+ *
+ * `pipeline`: um membro por vez, a saída de um é a entrada do próximo.
+ * `fanin`: todos menos o último rodam AO MESMO TEMPO, e o último recebe a saída
+ * de todos pra juntar. Quem agrega é o último da lista — a ordem continua sendo
+ * a semântica, como no pipeline.
+ * `supervisor`: o PRIMEIRO da lista não trabalha — ele decide, a cada rodada,
+ * qual dos outros chamar e com que pedido, até dizer que acabou. A ordem dos
+ * demais não importa aqui: quem escolhe é ele.
+ *
+ * As três o daemon executa de fora, sem exigir nada do motor: o supervisor
+ * responde a ordem em texto e o daemon é quem a executa, no turno seguinte da
+ * mesma conversa. Custa um turno por decisão e roda em qualquer motor.
+ *
+ * No `fanin` os paralelos ganham árvore de trabalho própria (`git worktree`)
+ * quando o projeto é repositório git; sem git eles dividem a mesma pasta e um
+ * sobrescreve o outro. No `supervisor` isso não aparece: ele chama um membro de
+ * cada vez, e todos trabalham na pasta do projeto.
+ */
+export type TeamTopology = "pipeline" | "fanin" | "supervisor";
+export const TEAM_TOPOLOGIES: TeamTopology[] = ["pipeline", "fanin", "supervisor"];
+
+/**
+ * Como o supervisor manda no time.
+ *
+ * `turno`: ele responde a ordem em texto, o turno fecha, o daemon executa e
+ * volta no turno seguinte. Um turno por decisão, e roda em QUALQUER motor.
+ * `mcp`: ele chama uma ferramenta e recebe a resposta sem sair do turno — o run
+ * inteiro cabe num turno só. Mais barato, mas só em motor que fala MCP
+ * (`claude`); nos outros o daemon cai de volta pro `turno` em vez de recusar o
+ * run, e registra isso em `canalOff`.
+ */
+export type TeamCanal = "turno" | "mcp";
+export const TEAM_CANAIS: TeamCanal[] = ["turno", "mcp"];
+
+export type TeamDef = {
+  id: string;
+  name: string;
+  description?: string;
+  topology: TeamTopology;
+  /** Só vale no `supervisor`; nas outras topologias não há decisão pra tomar. */
+  canal?: TeamCanal;
+  members: TeamMember[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export const TEAM_ID_RE = AGENT_ID_RE;
+export const TEAM_NAME_MAX = 60;
+export const TEAM_DESC_MAX = 200;
+export const TEAM_PAPEL_MAX = 200;
+export const TEAM_MEMBERS_MAX = 8;
+export const TEAMS_MAX = 50;
+
+/**
+ * Pareamento do celular: o desktop mostra um código curto, o celular manda, e o
+ * daemon troca o código pelo token.
+ *
+ * É código curto e não o token porque ninguém digita 48 caracteres hex no
+ * celular. O QR mostra o mesmo código, nunca o token — assim o token não
+ * aparece em tela pra ser fotografado.
+ *
+ * **Seis caracteres de base32, não seis dígitos.** Pelo mesmo trabalho de
+ * digitar, o espaço vai de 10^6 pra 32^6 ≈ 1,07×10^9. Com o teto de 5 erros,
+ * são 5 chances em mais de um bilhão pra quem já consegue alcançar a porta — e
+ * alcançar a porta já exige estar no túnel ou na LAN. O comprimento é o que
+ * limita a paciência de quem digita; a variedade é de graça.
+ *
+ * O alfabeto é o do Crockford: **sem I, L, O e U**. Os três primeiros porque se
+ * confundem com 1, 1 e 0 numa tela lida de longe, e a normalização os aceita de
+ * volta; o U porque tirá-lo evita que o sorteio escreva palavra ofensiva.
+ *
+ * As travas continuam sendo o que sustenta o desenho: vale 2 minutos, serve UMA
+ * vez, 5 tentativas erradas queimam o código, e só existe um código vivo.
+ */
+/**
+ * Endereço pronto pra entrar numa URL: IPv6 vai entre colchetes.
+ *
+ * Sem eles, `http://fd7a:115c::1:7432/` faz o navegador ler `fd7a` como host e
+ * `115c` como porta — e endereço de Tailscale é IPv6. O renderer do desktop tem
+ * a mesma regra em `apps/desktop/url.js`, porque é JS de navegador e não carrega
+ * este pacote.
+ */
+export function hostNaUrl(host: string): string {
+  const h = host.trim();
+  return h.includes(":") && !h.startsWith("[") ? `[${h}]` : h;
+}
+
+export const PAIR_CODE_LEN = 6;
+export const PAIR_ALFABETO = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+export const PAIR_TTL_MS = 2 * 60 * 1000;
+export const PAIR_MAX_ERROS = 5;
+
+/**
+ * Deixa a tentativa comparável: maiúscula, sem separador, e com as confusões
+ * óbvias desfeitas (I e L viram 1, O vira 0).
+ *
+ * Normalizar é obrigação de quem valida, não favor: o cliente pode ser um curl.
+ * O app de celular repete esta regra em `apps/mobile/pareamento.js` só pra que o
+ * campo mostre o que vai ser enviado — quem decide é aqui.
+ *
+ * **Não corta no tamanho.** Cortar faria `ABC123XYZ` valer por `ABC123`, e
+ * tentativa comprida é tentativa errada, não tentativa com sobra. Limitar o
+ * tamanho é trabalho do campo que a pessoa digita, não de quem confere.
+ */
+export function normalizarCodigo(bruto: unknown): string {
+  return String(bruto ?? "")
+    .toUpperCase()
+    .replace(/[IL]/g, "1")
+    .replace(/O/g, "0")
+    .split("")
+    .filter((c) => PAIR_ALFABETO.includes(c))
+    .join("");
+}
+
+/**
+ * Até quando o daemon espera um turno de motor fechar. Passado isso, motor que
+ * não responde é defeito, e travar a conversa pra sempre seria pior.
+ *
+ * Mora aqui, e não no `session.ts`, porque quem chama o daemon de fora precisa
+ * esperar MAIS que ele (ver `MCP_TOOL_TIMEOUT_MS`) — e `mcp.ts` não pode
+ * importar `session.ts` sem fechar ciclo, já que o motor de CLI importa o mcp.
+ */
+export const TURNO_TETO_MS = 15 * 60 * 1000;
+
+/** Objetivo do run: o pedido que entra na primeira etapa. */
+export const RUN_GOAL_MAX = 8000;
+
+export type RunStepStatus = "pending" | "running" | "done" | "error" | "skipped";
+
+export type RunStep = {
+  index: number;
+  agentId: string;
+  papel?: string;
+  status: RunStepStatus;
+  /** Conversa que este passo usou; fica no histórico pra auditoria. */
+  threadId?: string;
+  startedAt?: string;
+  endedAt?: string;
+  /** Arquivo com a saída completa deste passo, dentro do run. */
+  artifact?: string;
+  /** Árvore isolada onde este passo trabalhou; vazio = trabalhou na pasta do projeto. */
+  worktree?: string;
+  /** Branch com o que ele fez. Fica depois do run: é por ele que se acha o trabalho. */
+  branch?: string;
+  outputChars?: number;
+  costUsd?: number;
+  tokens?: number;
+  error?: string;
+  /**
+   * Passo que DECIDE em vez de trabalhar (topologia `supervisor`). Fica aberto o
+   * run inteiro, numa conversa só, e o custo dele é a soma das decisões — por
+   * isso a tela precisa saber que ele não é um passo comum.
+   */
+  supervisor?: true;
+  /** Quantas decisões esse supervisor já tomou. */
+  decisoes?: number;
+};
+
+export type RunStatus = "running" | "done" | "error" | "aborted";
+
+/**
+ * Teto do run. Existe porque um time multiplica o gasto: cinco membros é cinco
+ * vezes o custo de um turno, e um erro de instrução que faz o time girar em
+ * falso queima a conta sem ninguém ver.
+ */
+export type RunBudget = {
+  maxUsd?: number;
+  maxSteps?: number;
+};
+
+export type Run = {
+  id: string;
+  teamId: string;
+  projectPath: string;
+  goal: string;
+  status: RunStatus;
+  steps: RunStep[];
+  budget?: RunBudget;
+  createdAt: string;
+  endedAt?: string;
+  error?: string;
+  /**
+   * Membros paralelos trabalharam em árvores separadas? Quando não, o motivo —
+   * projeto sem git, sem commit — fica em `isolationOff`.
+   */
+  isolated?: boolean;
+  isolationOff?: string;
+  /**
+   * Quantas vezes este run foi posto pra rodar. 1 = nunca foi retomado. Entra
+   * no nome do branch dos paralelos, senão a retomada esbarraria no branch que
+   * a tentativa anterior deixou.
+   */
+  tentativas?: number;
+  /** Por que o supervisor não usou MCP, quando o time pediu. */
+  canalOff?: string;
+  /**
+   * O que as tentativas anteriores já custaram. Os passos refeitos perdem o
+   * `costUsd` deles (a conversa é outra), e sem isso o orçamento esqueceria o
+   * gasto e uma retomada poderia custar tudo de novo sem estourar nada.
+   */
+  gastoAnterior?: number;
+};
+
+export type RunEvent =
+  | { type: "run_start"; runId: string; teamId: string }
+  /**
+   * Passo que nasceu no meio do run. Só o `supervisor` produz isso: nas outras
+   * topologias a lista de passos já sai pronta do `criarRun`, e a tela pode
+   * confiar no índice. Vem antes do `step_start` do mesmo índice.
+   */
+  | { type: "step_add"; runId: string; step: RunStep }
+  | { type: "step_start"; runId: string; index: number; agentId: string; threadId: string }
+  | { type: "step_done"; runId: string; index: number; step: RunStep }
+  | { type: "run_end"; runId: string; status: RunStatus; error?: string };
 
 export type PackConfig = NexoConfig["pack"];

@@ -1,8 +1,11 @@
+import { randomBytes } from "node:crypto";
+import { writeFileSync } from "node:fs";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { SwitchReason } from "@nexo/shared";
 import { getAgent, listAgents, removeAgent, saveAgent, type AgentInput } from "./agents.ts";
 import { loadConfig, saveConfig } from "./config.ts";
+import { tokenPath } from "./home.ts";
 import {
   accountInfo,
   addProfile,
@@ -31,6 +34,23 @@ import {
   switchThread,
 } from "./session.ts";
 import { threadReport } from "./usage-report.ts";
+import { getTeam, listTeams, removeTeam, saveTeam, type TeamInput } from "./teams.ts";
+import {
+  abortarRun,
+  criarRun,
+  executarRun,
+  ferramentasDoRun,
+  getRun,
+  listRuns,
+  retomarRun,
+  runAtual,
+  runsBus,
+} from "./runs.ts";
+import { erroDeParse, ferramentasDoSupervisor, tratarMcp, type Conjunto, type JsonRpc } from "./mcp.ts";
+import { ferramentasDeAutoria } from "./autoria.ts";
+import { estadoAtual, melhorHost } from "./escuta.ts";
+import { abrirPareamento, fecharPareamento, pareamentoAberto, resgatar } from "./pair.ts";
+import { servirWeb } from "./web.ts";
 import {
   autostartServices,
   listServices,
@@ -45,8 +65,35 @@ import {
 } from "./services.ts";
 import { streamSSE } from "hono/streaming";
 
+/** Devolve o arquivo da interface web, ou 404 — nunca um caminho de fora dela. */
+function responderWeb(c: { req: { path: string }; body: BodyResponder }, caminho: string): Response {
+  const achado = servirWeb(caminho);
+  if (!achado) return c.body("not found", 404);
+  return c.body(achado.corpo, 200, {
+    "Content-Type": achado.tipo,
+    // sem cache: o app muda com o daemon, e celular com versão velha em cache
+    // é o pior jeito de descobrir que algo mudou
+    "Cache-Control": "no-store",
+  });
+}
+
+type BodyResponder = (corpo: Buffer | string, status: number, headers?: Record<string, string>) => Response;
+
+/** O mínimo do contexto do Hono que o MCP usa. */
+type McpCtx = {
+  req: { json: () => Promise<unknown> };
+  json: (corpo: unknown, status: 200) => Response;
+  body: (corpo: null, status: 202) => Response;
+};
+
 export function createApp(home: string, token: string): Hono {
   const app = new Hono();
+  /*
+   * O token é MUTÁVEL porque `POST /v1/token/rotate` o troca com o daemon de
+   * pé. Fica na closure e não em estado de módulo: os testes criam vários apps,
+   * e um token global vazaria entre eles.
+   */
+  let atual = token;
   app.use(
     "*",
     cors({
@@ -59,11 +106,107 @@ export function createApp(home: string, token: string): Hono {
   app.get("/health", (c) => c.json({ ok: true }));
   app.get("/v1/health", (c) => c.json({ ok: true }));
 
+  /*
+   * `POST /pair` é do CELULAR e NÃO é autenticada, porque o ponto dela é
+   * justamente entregar o token a quem ainda não tem. É a única escrita sem
+   * auth do daemon; o que a torna defensável está no `pair.ts` (2 minutos, uso
+   * único, 5 erros queimam o código) — e vale reler aquilo antes de mexer aqui.
+   *
+   * As rotas que ABREM um pareamento são do desktop e ficam LÁ EMBAIXO, depois
+   * do middleware de autenticação. A posição é o que autentica: rota registrada
+   * antes do `app.use` não passa por ele. Ver o comentário no middleware.
+   */
+  app.post("/pair", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { codigo?: unknown };
+    const r = resgatar(body.codigo);
+    // 403 e não 401: não há credencial a corrigir, o código é que não serve
+    if (!r.ok) return c.json({ error: r.motivo }, 403);
+    return c.json({ token: atual, port: loadConfig(home).port });
+  });
+
+  /*
+   * A interface web, servida sem autenticação: a página tem que carregar ANTES
+   * de existir token, porque é nela que se digita o código de pareamento. Sem
+   * token ela não faz nada — todo `/v1/*` abaixo continua exigindo o bearer.
+   */
+  /*
+   * `/app` redireciona pra `/app/`, e a barra não é estética: sem ela o
+   * documento tem base `/`, e o `./mobile.js` do HTML é pedido como
+   * `/mobile.js` — 404, módulo nenhum carrega, e a tela fica muda sem dar erro.
+   * Custou um teste no navegador pra descobrir.
+   */
+  app.get("/app", (c) => c.redirect("/app/", 302));
+  app.get("/app/*", (c) => responderWeb(c, c.req.path));
+
+  /*
+   * A partir daqui, `/v1/*` exige o bearer.
+   *
+   * **A POSIÇÃO É O QUE AUTENTICA.** O Hono compõe as rotas na ordem em que
+   * foram registradas, então uma rota escrita ACIMA deste `app.use` responde
+   * antes de o middleware rodar e fica aberta — sem erro, sem aviso, e com o
+   * comentário do lado dela dizendo que é autenticada.
+   *
+   * Foi exatamente o que me aconteceu: subi `POST /v1/pair` no bloco de
+   * pareamento, acima daqui, e virou um bypass completo. Qualquer um que
+   * alcançasse a porta pedia um código, trocava pelo token e era dono do
+   * daemon — em duas requisições, sem adivinhar nada. E com CORS `*`, dava pra
+   * fazer isso de uma página web qualquer aberta no navegador da vítima.
+   *
+   * `route-guard.test.ts` varre a tabela de rotas e falha se qualquer `/v1/*`
+   * responder sem bearer. É esse teste, e não a leitura do arquivo, que impede
+   * a repetição — a armadilha é invisível no diff.
+   */
   app.use("/v1/*", async (c, next) => {
     if (c.req.path.endsWith("/health")) return next();
     const hdr = c.req.header("authorization") ?? "";
-    if (hdr !== `Bearer ${token}`) return c.json({ error: "unauthorized" }, 401);
+    if (hdr !== `Bearer ${atual}`) return c.json({ error: "unauthorized" }, 401);
     await next();
+  });
+
+  /*
+   * Pareamento visto do DESKTOP: quem já tem o token abre um pareamento pra
+   * mostrar o código e o QR na tela. Autenticadas por estarem aqui, depois do
+   * middleware — e não podem subir pro bloco do `POST /pair`.
+   */
+  app.post("/v1/pair", (c) => c.json(abrirPareamento()));
+
+  app.get("/v1/pair", (c) => c.json(pareamentoAberto() ?? null));
+
+  app.delete("/v1/pair", (c) => {
+    fecharPareamento();
+    return c.json({ ok: true });
+  });
+
+  /*
+   * Onde o daemon escuta AGORA, descoberto e mantido em dia pelo `escuta.ts` —
+   * não é `config.host`, que é só um acréscimo manual. A tela usa isto pro QR:
+   * QR com endereço que ninguém atende falha calado no celular.
+   *
+   * `melhor` é o que a tela deve mostrar: o túnel quando há um, porque é o
+   * único por onde o celular chega.
+   */
+  app.get("/v1/escuta", (c) => {
+    const e = estadoAtual();
+    return c.json({ ...e, melhor: melhorHost(e), port: loadConfig(home).port });
+  });
+
+  /*
+   * Troca o token e derruba todos os celulares pareados.
+   *
+   * Existe porque o token passou a sobreviver às subidas do daemon: antes ele
+   * era sorteado a cada `up`, e a revogação acontecia por acidente toda vez que
+   * a máquina reiniciava. Sessão que morre sozinha não é segurança, é atrito —
+   * mas sem revogação explícita, celular perdido não tem solução. Agora é botão.
+   *
+   * O app do desktop também perde o token, e é por isso que ele relê o arquivo
+   * depois de chamar aqui.
+   */
+  app.post("/v1/token/rotate", (c) => {
+    atual = randomBytes(24).toString("hex");
+    writeFileSync(tokenPath(home), atual, { encoding: "utf8", mode: 0o600 });
+    // pareamento aberto com o token velho não serve mais pra nada
+    fecharPareamento();
+    return c.json({ ok: true });
   });
 
   app.get("/v1/profiles", (c) => c.json(listProfiles(home)));
@@ -206,6 +349,9 @@ export function createApp(home: string, token: string): Hono {
         preview: head?.preview ?? "",
         updatedAt: head?.updatedAt ?? "",
         engine: getProfile(a.profileId, home)?.engine ?? "",
+        // de qual run de time esta conversa é passo; o painel usa pra não
+        // contar duas vezes o que já aparece como passo do run
+        ...(head?.runId ? { runId: head.runId } : {}),
         // Nome e cor vêm daqui pro painel não ter que cruzar duas listas.
         ...(def ? { agentName: def.name, ...(def.color ? { agentColor: def.color } : {}) } : {}),
       };
@@ -267,16 +413,17 @@ export function createApp(home: string, token: string): Hono {
   app.post("/v1/threads", async (c) => {
     const body = (await c.req.json()) as { projectPath: string; profileId?: string; agentId?: string };
     try {
+      // Sem pasta a conversa nasce órfã: some da listagem (que filtra por
+      // projectPath) e de /v1/projects, sem erro nenhum pra quem criou.
+      const projectPath = typeof body.projectPath === "string" ? body.projectPath.trim() : "";
+      if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
       // Com agente, a conta dele é o padrão — mas um profileId explícito ainda manda.
       const def = body.agentId ? getAgent(body.agentId, home) : undefined;
       if (body.agentId && !def) return c.json({ error: `agente não existe: ${body.agentId}` }, 400);
       const profileId = body.profileId || def?.profileId || "";
       if (!profileId) return c.json({ error: "profileId obrigatório" }, 400);
       return c.json(
-        createThread(
-          { projectPath: body.projectPath, profileId, ...(def ? { agentId: def.id } : {}) },
-          home,
-        ),
+        createThread({ projectPath, profileId, ...(def ? { agentId: def.id } : {}) }, home),
         201,
       );
     } catch (e) {
@@ -493,6 +640,183 @@ export function createApp(home: string, token: string): Hono {
       const err = e as Error & { status?: number };
       return c.json({ error: err.message }, (err.status ?? 400) as 400);
     }
+  });
+
+
+  /* ---------- times de agentes ---------- */
+
+  app.get("/v1/teams", (c) => c.json(listTeams(home)));
+
+  app.post("/v1/teams", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as TeamInput;
+    try {
+      return c.json(saveTeam(body, home), 201);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.put("/v1/teams/:id", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as TeamInput;
+    try {
+      // igual ao agents: a rota manda no id, body com outro não renomeia nada
+      return c.json(saveTeam({ ...body, id: c.req.param("id") }, home));
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.get("/v1/teams/:id", (c) => {
+    const t = getTeam(c.req.param("id"), home);
+    if (!t) return c.json({ error: "not found" }, 404);
+    return c.json(t);
+  });
+
+  app.delete("/v1/teams/:id", (c) => {
+    try {
+      removeTeam(c.req.param("id"), home);
+      return c.json({ ok: true });
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 404) as 404);
+    }
+  });
+
+  /* ---------- execuções de time ---------- */
+
+  app.get("/v1/runs", (c) => c.json(listRuns(home, c.req.query("projectPath") || undefined)));
+
+  /**
+   * O run que interessa agora. Antes de `/v1/runs/:id`, senão o Hono casa
+   * :id = "atual".
+   *
+   * Existe porque o painel flutuante consulta a cada 2s e só mostra UM run:
+   * pedir a lista inteira pra isso lia todo `run.json` da máquina e serializava
+   * megabytes por consulta. Aqui o caso comum não toca no disco.
+   */
+  app.get("/v1/runs/atual", (c) => c.json(runAtual(home, c.req.query("projectPath") || undefined) ?? null));
+
+  /**
+   * Cria e dispara. Responde 201 com o run parado nos passos pendentes: a
+   * execução segue em segundo plano e o progresso sai pelo SSE — segurar a
+   * resposta até o fim deixaria a requisição aberta por minutos.
+   */
+  app.post("/v1/runs", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      teamId?: string;
+      projectPath?: string;
+      goal?: string;
+      budget?: unknown;
+    };
+    try {
+      const run = criarRun(
+        {
+          teamId: body.teamId ?? "",
+          projectPath: body.projectPath ?? "",
+          goal: body.goal ?? "",
+          budget: body.budget,
+        },
+        home,
+      );
+      // Cópia antes de disparar: `executarRun` roda síncrono até o primeiro
+      // await e já marca o passo 1 como "running". Sem isso, o corpo da
+      // resposta dependeria de onde a execução tivesse chegado ao serializar.
+      const criado = structuredClone(run);
+      void executarRun(run, home);
+      return c.json(criado, 201);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  /**
+   * Servidor MCP de UM run: é por aqui que o supervisor em canal `mcp` chama os
+   * membros do time sem sair do turno dele.
+   *
+   * Preso ao run no caminho de propósito. O bearer já é exigido pelo middleware
+   * de `/v1/*`, mas ele é o token da máquina inteira: sem o escopo do run, um
+   * supervisor (ou qualquer coisa com o token) poderia disparar agente de outro
+   * run. Run que não está em voo não tem ferramenta — 404, não 500.
+   */
+  async function responderMcp(c: McpCtx, conjunto: Conjunto): Promise<Response> {
+    let msg: unknown;
+    try {
+      msg = await c.req.json();
+    } catch {
+      const r = erroDeParse();
+      return c.json(r.corpo, r.status as 200);
+    }
+    const r = await tratarMcp(msg as JsonRpc, conjunto);
+    // 202 sem corpo é a resposta certa a notificação: o cliente não espera JSON
+    if (r.status === 202) return c.body(null, 202);
+    return c.json(r.corpo, r.status as 200);
+  }
+
+  /*
+   * Duas bocas de MCP, com alcances de propósito diferentes.
+   *
+   * `/v1/mcp/:id` é do SUPERVISOR e presa a um run: as ferramentas dele
+   * EXECUTAM membros, então o id no caminho é o que impede um supervisor de
+   * alcançar membro de outro run.
+   *
+   * `/v1/mcp` é da conversa normal e serve as ferramentas de AUTORIA, que só
+   * escrevem `agents.json` e `teams.json`. Não precisa de run porque não há run
+   * — e não executa nada, que é o que a torna aceitável numa conversa comum.
+   */
+  app.post("/v1/mcp", (c) => responderMcp(c, ferramentasDeAutoria(home)));
+
+  app.post("/v1/mcp/:id", async (c) => {
+    const fer = ferramentasDoRun(c.req.param("id"), home);
+    if (!fer) return c.json({ error: "run não está em voo" }, 404);
+    return responderMcp(c, ferramentasDoSupervisor(fer));
+  });
+
+  app.get("/v1/runs/:id", (c) => {
+    const run = getRun(c.req.param("id"), home);
+    if (!run) return c.json({ error: "not found" }, 404);
+    return c.json(run);
+  });
+
+  /**
+   * Retoma de onde parou. Mesma forma do POST: responde o retrato do run antes
+   * de disparar, e o progresso sai pelo SSE. O `budget` do corpo SUBSTITUI o
+   * antigo — retomar com o mesmo teto que parou o run pararia na mesma linha.
+   */
+  app.post("/v1/runs/:id/resume", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { budget?: unknown };
+    try {
+      const run = retomarRun(c.req.param("id"), home, body.budget);
+      const retomado = structuredClone(run);
+      void executarRun(run, home);
+      return c.json(retomado);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.post("/v1/runs/:id/abort", async (c) => {
+    const parou = await abortarRun(c.req.param("id"));
+    return c.json({ ok: true, running: parou });
+  });
+
+  app.get("/v1/runs/:id/events", (c) => {
+    const runId = c.req.param("id");
+    return streamSSE(c, async (stream) => {
+      const onEv = (ev: unknown) => {
+        void stream.writeSSE({ data: JSON.stringify(ev) });
+      };
+      runsBus.on(runId, onEv);
+      await new Promise<void>((resolve) => {
+        stream.onAbort(() => {
+          runsBus.off(runId, onEv);
+          resolve();
+        });
+      });
+    });
   });
 
   app.get("/v1/config", (c) => c.json(loadConfig(home)));

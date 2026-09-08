@@ -1,3 +1,28 @@
+import { createApiClient } from "./api.js";
+import { createFileTree } from "./file-tree.js";
+import { createServicesPanel } from "./services.js";
+import { aplicarNoRetrato } from "./agent-events.js";
+import { createAgentStudio } from "./agent-studio.js";
+import { createTeamStudio } from "./team-studio.js";
+import { lerEventos } from "./sse.js";
+import { agruparConversas } from "./thread-groups.js";
+import { escapeHtml, renderMd } from "./markdown.js";
+import {
+  ago,
+  clip,
+  elapsed,
+  fmtDetail,
+  fmtReset,
+  fmtTokens,
+  fmtWhen,
+  folderName,
+  normPath,
+  samePath,
+} from "./format.js";
+import { portaDaUrl, safeUrl, urlDoCelular } from "./url.js";
+import { qrSvg } from "./qr.js";
+import { celAlcance, celAviso } from "./celular.js";
+
 const $ = (id) => document.getElementById(id);
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -12,8 +37,6 @@ const MODULES = [
 ];
 
 const state = {
-  port: 7432,
-  token: "",
   ok: false,
   projectPath: localStorage.getItem("nexo.project") || "",
   threadId: localStorage.getItem("nexo.thread") || "",
@@ -48,9 +71,10 @@ const state = {
   repos: [],
   hiddenRepos: new Set(),
   reposOpen: new Set(),
+  /** Grupos de run abertos na lista. Só em memória: é estado da sessão, não preferência. */
+  runsOpen: new Set(),
   threadsByRepo: {},
   setPanel: "aparencia",
-  fileSelected: "",
   fileCache: null,
   termBuf: "",
   termRunning: false,
@@ -73,7 +97,6 @@ const state = {
   /** Fila pausada porque o turno acabou mal (quota/login/erro). */
   queuePaused: false,
   /** Serviços locais declarados no nexo.json do projeto. */
-  svc: { list: [], error: "", trusted: false, logId: "", abort: null, portes: {} },
   /**
    * Painel de agentes: um retrato por conversa com motor de pé, alimentado pelo
    * SSE global. É o que permite acompanhar duas contas trabalhando ao mesmo tempo.
@@ -96,79 +119,24 @@ const state = {
     /** Aba visível do painel: "run" (rodando) ou "def" (meus agentes). */
     tab: localStorage.getItem("nexo.agentsTab") === "def" ? "def" : "run",
     /** id em edição no formulário; "" = criando; null = formulário fechado. */
-    editing: null,
   },
   /** Agente personalizado da conversa aberta; "" = conta pura. */
   agentId: "",
+  /** Times de agentes; a lista vive aqui porque o painel e a tela cheia leem. */
+  teams: [],
 };
 
-function headers() {
-  return { authorization: `Bearer ${state.token}`, "content-type": "application/json" };
-}
-
-function api(path) {
-  return `http://127.0.0.1:${state.port}${path}`;
-}
-
-/** Relê porta e token do motor: eles mudam quando o daemon reinicia. */
-async function renovarCredenciais() {
-  try {
-    const info = await window.nexo.daemonInfo();
-    const mudou = info.port !== state.port || info.token !== state.token;
-    state.port = info.port;
-    state.token = info.token;
+const { api, aplicar: aplicarInfoDoMotor, headers, renovarCredenciais, req, reqBlob } = createApiClient({
+  daemonInfo: () => window.nexo.daemonInfo(),
+  // porta e token ficam no cliente; "o motor está de pé?" a UI lê em dezenas de pontos
+  onInfo: (info) => {
     state.ok = info.ok;
-    return mudou || info.ok;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Uma re-tentativa em dois casos, ambos sem efeito no servidor: falha de
- * conexão (a requisição não chegou) e 401 (token antigo depois de reiniciar o
- * motor). Sem isso, qualquer reinício do daemon virava "Failed to fetch" na
- * cara do usuário até o próximo poll.
- */
-async function req(path, opts = {}) {
-  const chamar = () => fetch(api(path), { ...opts, headers: { ...headers(), ...opts.headers } });
-  let res;
-  try {
-    res = await chamar();
-  } catch (e) {
-    if (!(await renovarCredenciais())) {
-      throw new Error("O motor não está respondendo. Liga o motor e tenta de novo.");
-    }
-    try {
-      res = await chamar();
-    } catch {
-      throw new Error("O motor não está respondendo. Liga o motor e tenta de novo.");
-    }
-  }
-  if (res.status === 401) {
-    await renovarCredenciais();
-    res = await chamar().catch(() => res);
-  }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || res.statusText);
-  return data;
-}
+  },
+});
 
 const IMAGE_MIMES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 const ATTACH_MAX_BYTES = 10 * 1024 * 1024;
 const ATTACH_MAX_PER_MESSAGE = 6;
-
-/** Igual ao req, mas devolve bytes: anexo não é JSON. */
-async function reqBlob(path) {
-  const chamar = () => fetch(api(path), { headers: { authorization: `Bearer ${state.token}` } });
-  let res = await chamar();
-  if (res.status === 401) {
-    await renovarCredenciais();
-    res = await chamar();
-  }
-  if (!res.ok) throw new Error(`anexo ${res.status}`);
-  return res.blob();
-}
 
 function trackLogUrl(blob) {
   const url = URL.createObjectURL(blob);
@@ -295,28 +263,9 @@ async function fillShot(img, file, threadId) {
   }
 }
 
-function folderName(p) {
-  if (!p) return "Nenhum projeto";
-  const parts = p.split(/[/\\]/).filter(Boolean);
-  return parts.at(-1) || p;
-}
 
-function ago(ts) {
-  if (!ts) return "";
-  const s = Math.max(0, (Date.now() - new Date(ts).getTime()) / 1000);
-  if (s < 45) return "agora";
-  if (s < 3600) return `${Math.max(1, Math.floor(s / 60))}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  return `${Math.floor(s / 86400)}d`;
-}
 
-function normPath(p) {
-  return String(p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-}
 
-function samePath(a, b) {
-  return Boolean(a && b && normPath(a) === normPath(b));
-}
 
 function hydrateRepos() {
   let repos = [];
@@ -552,29 +501,7 @@ function dragSplitter(handleId, onMove) {
   });
 }
 
-function fmtTokens(n) {
-  const v = Number(n) || 0;
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(v % 1_000_000 === 0 ? 0 : 1)}M`;
-  if (v >= 1000) return `${(v / 1000).toFixed(v >= 100_000 ? 1 : 1)}k`;
-  return String(v);
-}
 
-/** Igual ao painel do Claude Code: contagem curta pra hoje, dia da semana pra depois. */
-function fmtReset(unixSeconds) {
-  const ms = Number(unixSeconds) * 1000;
-  if (!ms || Number.isNaN(ms)) return "";
-  const diff = ms - Date.now();
-  if (diff <= 0) return "Reinicia agora";
-  if (diff < 24 * 3600_000) {
-    const h = Math.floor(diff / 3600_000);
-    const m = Math.round((diff % 3600_000) / 60_000);
-    return h ? `Reinicia em ${h} h ${m} min` : `Reinicia em ${m} min`;
-  }
-  const d = new Date(ms);
-  const dia = d.toLocaleDateString("pt-BR", { weekday: "short" });
-  const hora = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  return `Reinicia ${dia}, ${hora}`;
-}
 
 function setBar(fillId, ratio) {
   const el = $(fillId);
@@ -586,6 +513,28 @@ function setBar(fillId, ratio) {
 
 /** Perímetro do anel da bolinha (r=15.5 no viewBox 36x36). */
 const RING_LEN = 2 * Math.PI * 15.5;
+
+/**
+ * Compactação em curso.
+ *
+ * Anima o ANEL DO CONTEXTO, e não um canto qualquer da tela, porque é o número
+ * dele que vai mudar quando o resumo entrar. Quem vê o anel pulsando está
+ * olhando pra coisa certa.
+ *
+ * O motivo da falha vira aviso no painel: resumir gasta um turno, e falhar em
+ * silêncio deixaria a pessoa achando que a conversa está encolhendo quando não
+ * está — ela vai seguir sendo cortada como antes.
+ */
+function pintarCompactando(on, motivo) {
+  state.compactando = Boolean(on);
+  document.body.dataset.compactando = on ? "1" : "0";
+  const rotulo = $("meter-compact");
+  if (rotulo) {
+    rotulo.textContent = on ? "resumindo o histórico…" : motivo ? `resumo falhou: ${motivo}` : "";
+    rotulo.classList.toggle("hidden", !on && !motivo);
+    rotulo.dataset.erro = !on && motivo ? "1" : "0";
+  }
+}
 
 function paintContext() {
   const m = state.meter;
@@ -1253,6 +1202,8 @@ function applyWorkLayout() {
   $("pane-terminal").classList.toggle("hidden", state.view !== "terminal");
   $("pane-browser").classList.toggle("hidden", state.view !== "browser");
   $("pane-canvas").classList.toggle("hidden", state.view !== "canvas");
+  $("pane-agent").classList.toggle("hidden", state.view !== "agent");
+  $("pane-team").classList.toggle("hidden", state.view !== "team");
   // Sem módulo aberto o chat vira o conteúdo principal — não depende de sideChat aqui.
   $("pane-chat").classList.toggle("hidden", !state.sideChat && !noModule);
 }
@@ -1282,20 +1233,6 @@ function storeKey(kind) {
   return `nexo.${kind}:${state.projectPath || "_none"}`;
 }
 
-function safeUrl(raw) {
-  const t = String(raw || "").trim();
-  if (!t) return "about:blank";
-  let u = t;
-  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(u)) u = "https://" + u;
-  try {
-    const parsed = new URL(u);
-    if (parsed.protocol === "http:" || parsed.protocol === "https:") return parsed.href;
-    if (parsed.protocol === "about:") return "about:blank";
-  } catch {
-    /* ignore */
-  }
-  return "about:blank";
-}
 
 function setBrowserUrl(raw, persist = true) {
   const href = safeUrl(raw);
@@ -1353,17 +1290,9 @@ function esconderFalhaBrowser() {
 function servicoDaUrl(href) {
   const porta = portaDaUrl(href);
   if (!porta) return null;
-  return state.svc.list.find((s) => s.portNumber === porta) ?? null;
+  return svcPanel.servicos().find((s) => s.portNumber === porta) ?? null;
 }
 
-function portaDaUrl(href) {
-  try {
-    const u = new URL(href);
-    return u.port ? Number(u.port) : u.protocol === "https:" ? 443 : 80;
-  } catch {
-    return 0;
-  }
-}
 
 function mostrarFalhaBrowser({ msg, hint, url, externo }) {
   $("browser-fail-msg").textContent = msg;
@@ -1374,7 +1303,7 @@ function mostrarFalhaBrowser({ msg, hint, url, externo }) {
   if (svc) {
     run.textContent = `Rodar "${svc.name}"`;
     run.onclick = async () => {
-      await acionarServico(svc.id, "start");
+      await svcPanel.acionar(svc.id, "start");
       // dá um tempo do servidor subir antes de recarregar
       setTimeout(reiniciarBrowser, 1200);
     };
@@ -1414,96 +1343,13 @@ function loadBrowser() {
   setBrowserUrl(localStorage.getItem(storeKey("browser")) || "about:blank", false);
 }
 
-async function loadFileTree() {
-  await fillTree($("file-tree"), ".");
-}
-
-async function fillTree(container, rel) {
-  container.replaceChildren();
-  if (!window.nexo?.listDir) {
-    const p = document.createElement("p");
-    p.className = "tree-empty";
-    p.textContent = "API de arquivos indisponível.";
-    container.append(p);
-    return;
-  }
-  if (!state.projectPath) {
-    const p = document.createElement("p");
-    p.className = "tree-empty";
-    p.textContent = "Abre um projeto na barra esquerda.";
-    container.append(p);
-    return;
-  }
-  let data;
-  try {
-    data = await window.nexo.listDir(rel);
-  } catch (e) {
-    const p = document.createElement("p");
-    p.className = "tree-empty";
-    p.textContent = e.message || "Não deu pra listar.";
-    container.append(p);
-    return;
-  }
-  if (!data.entries.length) {
-    const p = document.createElement("p");
-    p.className = "tree-empty";
-    p.textContent = "Pasta vazia.";
-    container.append(p);
-    return;
-  }
-  for (const ent of data.entries) {
-    if (ent.dir) {
-      const det = document.createElement("details");
-      const sum = document.createElement("summary");
-      sum.textContent = ent.name;
-      const kids = document.createElement("div");
-      det.append(sum, kids);
-      det.addEventListener("toggle", () => {
-        if (det.open && !det.dataset.loaded) {
-          det.dataset.loaded = "1";
-          void fillTree(kids, ent.path);
-        }
-      });
-      container.append(det);
-    } else {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "tree-file";
-      btn.textContent = ent.name;
-      btn.dataset.path = ent.path;
-      btn.dataset.on = ent.path === state.fileSelected ? "1" : "0";
-      btn.addEventListener("click", () => void openFile(ent.path));
-      container.append(btn);
-    }
-  }
-}
-
-async function openFile(rel) {
-  state.fileSelected = rel;
-  for (const btn of $("file-tree").querySelectorAll("button.tree-file")) {
-    btn.dataset.on = btn.dataset.path === rel ? "1" : "0";
-  }
-  const preview = $("file-preview");
-  preview.textContent = "Lendo…";
-  try {
-    const data = await window.nexo.readFile(rel);
-    if (data.dir) {
-      preview.textContent = "Pasta — abre na árvore.";
-      return;
-    }
-    if (data.tooBig) {
-      preview.textContent = `${rel}\n\nArquivo grande demais para prévia (${Math.round(data.size / 1024)} KB).`;
-      return;
-    }
-    if (data.binary) {
-      preview.textContent = `${rel}\n\nBinário — sem prévia.`;
-      return;
-    }
-    preview.textContent = data.text || "(vazio)";
-  } catch (e) {
-    preview.textContent = e.message || "Falha ao ler.";
-  }
-}
+const fileTree = createFileTree({
+  nexo: () => window.nexo,
+  getProjectPath: () => state.projectPath,
+  treeEl: () => $("file-tree"),
+  previewEl: () => $("file-preview"),
+});
+const loadFileTree = () => fileTree.load();
 
 let palFilesSeq = 0;
 async function refreshPalFiles() {
@@ -1777,10 +1623,6 @@ function renderPalChat() {
   }
 }
 
-function clip(s, n) {
-  const t = String(s || "");
-  return t.length > n ? t.slice(0, n) + "…" : t;
-}
 
 function openPalette() {
   state.paletteOpen = true;
@@ -1807,9 +1649,7 @@ function pickModule(id) {
 
 async function refreshDaemon() {
   const info = await window.nexo.daemonInfo();
-  state.port = info.port;
-  state.token = info.token;
-  state.ok = info.ok;
+  aplicarInfoDoMotor(info);
   // preserva o "falando": o poll não pode derrubar o estado no meio da resposta
   setMotor(info.ok, info.ok && state.talking);
   if (!info.ok) {
@@ -1822,6 +1662,7 @@ async function refreshDaemon() {
   try {
     const cfg = await req("/v1/config");
     if (cfg.accent) applyAccent(cfg.accent);
+    void celPintarUrl(cfg);
     // /v1/projects já vem com as pastas do config + as que as conversas revelam
     let fonte = cfg;
     try {
@@ -2070,7 +1911,8 @@ function renderRepoTree() {
       dot.title = "Agente trabalhando neste repositório";
       sum.insertBefore(dot, forget);
     }
-    for (const t of list) {
+    /** Uma linha de conversa. Serve solta na lista e dentro do grupo de um run. */
+    const linhaDeConversa = (t) => {
       const li = document.createElement("li");
       li.dataset.on = t.id === state.threadId ? "1" : "0";
       const busy = isBusy(t);
@@ -2100,7 +1942,49 @@ function renderRepoTree() {
         li.prepend(dot);
       }
       li.addEventListener("click", () => void openThreadInRepo(path, t.id));
-      ul.append(li);
+      return li;
+    };
+
+    /**
+     * Passos de um run entram numa pasta só. Soltos, um time de dez passos
+     * afogava a lista e empurrava pra baixo a conversa que a pessoa estava
+     * usando. Fechada por padrão: o interesse ali é o resultado, não cada passo.
+     */
+    const grupoDeRun = (g) => {
+      const sub = document.createElement("details");
+      sub.className = "run-group";
+      sub.open = state.runsOpen.has(g.runId);
+      sub.addEventListener("toggle", () => {
+        if (sub.open) state.runsOpen.add(g.runId);
+        else state.runsOpen.delete(g.runId);
+      });
+      const cab = document.createElement("summary");
+      const nome = document.createElement("span");
+      nome.className = "stub-title";
+      nome.textContent = g.titulo;
+      cab.title = g.titulo;
+      const quantos = document.createElement("span");
+      quantos.className = "stub-meta";
+      quantos.textContent = `${g.threads.length} passos`;
+      cab.append(nome, quantos);
+      // fechado, o ponto sobe pro cabeçalho pra atividade não sumir da lista
+      if (g.threads.some(isBusy)) {
+        const dot = document.createElement("span");
+        dot.className = "run-dot";
+        dot.title = "Um passo deste time está trabalhando";
+        cab.prepend(dot);
+      }
+      const dentro = document.createElement("ul");
+      for (const t of g.threads) dentro.append(linhaDeConversa(t));
+      sub.append(cab, dentro);
+      const li = document.createElement("li");
+      li.className = "run-group-li";
+      li.append(sub);
+      return li;
+    };
+
+    for (const item of agruparConversas(list)) {
+      ul.append(item.tipo === "run" ? grupoDeRun(item) : linhaDeConversa(item.thread));
     }
     det.append(sum, ul);
     tree.append(det);
@@ -2216,6 +2100,25 @@ function appendEvent(ev, scroll = true) {
     li.innerHTML = `<div class="panel"><h3>${escapeHtml(ev.title)}</h3><dl>${rows}</dl></div>`;
   } else if (ev.type === "context_trimmed") {
     li.innerHTML = `<span class="stamp">Contexto cortado · ficou ${escapeHtml(String(ev.keptMessages))} msgs</span>`;
+  } else if (ev.type === "compacting") {
+    // não é linha na conversa: é estado. Sai pelo anel do contexto, que é
+    // justamente o número que a compactação vai mudar.
+    pintarCompactando(ev.on, ev.motivo);
+    return;
+  } else if (ev.type === "compacted") {
+    /*
+     * Dobrável, e fechado: o resumo é longo e a pessoa quase nunca quer lê-lo —
+     * ela quer saber que ele existe. Mas quando a resposta seguinte parecer ter
+     * esquecido algo, é aqui que se descobre o que foi guardado.
+     */
+    const de = fmtTokens(ev.tokensAntes);
+    const pra = fmtTokens(ev.tokensDepois);
+    li.innerHTML =
+      `<details class="compact"><summary><span class="stamp">Histórico resumido · ` +
+      `${escapeHtml(de)} → ${escapeHtml(pra)} tokens</span></summary>` +
+      `<div class="compact-txt"></div></details>`;
+    const alvo = li.querySelector(".compact-txt");
+    if (alvo) renderMd(alvo, ev.text);
   } else {
     return;
   }
@@ -2224,151 +2127,6 @@ function appendEvent(ev, scroll = true) {
   if (scroll) log.scrollTop = log.scrollHeight;
 }
 
-/* ---------- markdown mínimo, sem dependência (a CSP só deixa 'self') ---------- */
-
-/** Escapa primeiro, formata depois: nada do modelo entra como HTML. */
-function mdInline(raw) {
-  let t = escapeHtml(raw);
-  // code inline sai de cena antes de bold/itálico, senão * dentro de código formata
-  const codes = [];
-  t = t.replace(/`([^`]+)`/g, (_m, code) => {
-    codes.push(code);
-    return `\uE000${codes.length - 1}\uE000`;
-  });
-  t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  t = t.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, "$1<em>$2</em>");
-  t = t.replace(/(^|[\s(])_([^_\n]+)_(?=[\s).,;:!?]|$)/g, "$1<em>$2</em>");
-  // link só https/http; o href já está escapado por escapeHtml
-  t = t.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" data-ext="1">$1</a>');
-  return t.replace(/\uE000(\d+)\uE000/g, (_m, i) => `<code>${codes[Number(i)]}</code>`);
-}
-
-function mdTableRow(line) {
-  return line
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((c) => c.trim());
-}
-
-function isTableSep(line) {
-  return /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(line);
-}
-
-/** Blocos: código, tabela, título, lista, citação, régua, parágrafo. */
-function mdToHtml(src) {
-  const lines = String(src ?? "").replace(/\r\n/g, "\n").split("\n");
-  const out = [];
-  let i = 0;
-
-  const flushList = (tag, items) => {
-    out.push(`<${tag}>${items.map((li) => `<li>${mdInline(li)}</li>`).join("")}</${tag}>`);
-  };
-
-  while (i < lines.length) {
-    const line = lines[i];
-
-    if (/^\s*```/.test(line)) {
-      const lang = line.replace(/^\s*```/, "").trim();
-      const buf = [];
-      i += 1;
-      while (i < lines.length && !/^\s*```/.test(lines[i])) {
-        buf.push(lines[i]);
-        i += 1;
-      }
-      i += 1;
-      const cls = /^[a-z0-9+#-]{1,20}$/i.test(lang) ? ` class="lang-${lang.toLowerCase()}"` : "";
-      out.push(`<pre${cls}><code>${escapeHtml(buf.join("\n"))}</code></pre>`);
-      continue;
-    }
-
-    if (/^\s*(\*\s*){3,}$/.test(line) || /^\s*(-\s*){3,}$/.test(line) || /^\s*_{3,}\s*$/.test(line)) {
-      out.push("<hr />");
-      i += 1;
-      continue;
-    }
-
-    const head = /^\s*(#{1,6})\s+(.*)$/.exec(line);
-    if (head) {
-      const level = head[1].length <= 2 ? 3 : head[1].length === 3 ? 4 : 5;
-      out.push(`<h${level}>${mdInline(head[2])}</h${level}>`);
-      i += 1;
-      continue;
-    }
-
-    if (line.includes("|") && lines[i + 1] && isTableSep(lines[i + 1])) {
-      const head2 = mdTableRow(line);
-      i += 2;
-      const rows = [];
-      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) {
-        rows.push(mdTableRow(lines[i]));
-        i += 1;
-      }
-      const th = head2.map((c) => `<th>${mdInline(c)}</th>`).join("");
-      const tb = rows
-        .map((r) => `<tr>${r.map((c) => `<td>${mdInline(c)}</td>`).join("")}</tr>`)
-        .join("");
-      out.push(`<div class="md-table"><table><thead><tr>${th}</tr></thead><tbody>${tb}</tbody></table></div>`);
-      continue;
-    }
-
-    if (/^\s*[-*+]\s+/.test(line)) {
-      const items = [];
-      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*[-*+]\s+/, ""));
-        i += 1;
-      }
-      flushList("ul", items);
-      continue;
-    }
-
-    if (/^\s*\d+[.)]\s+/.test(line)) {
-      const items = [];
-      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*\d+[.)]\s+/, ""));
-        i += 1;
-      }
-      flushList("ol", items);
-      continue;
-    }
-
-    if (/^\s*>\s?/.test(line)) {
-      const buf = [];
-      while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
-        buf.push(lines[i].replace(/^\s*>\s?/, ""));
-        i += 1;
-      }
-      out.push(`<blockquote>${mdInline(buf.join("\n")).replace(/\n/g, "<br />")}</blockquote>`);
-      continue;
-    }
-
-    if (!line.trim()) {
-      i += 1;
-      continue;
-    }
-
-    const buf = [];
-    while (i < lines.length && lines[i].trim() && !/^\s*(#{1,6}\s|```|>|[-*+]\s|\d+[.)]\s)/.test(lines[i])) {
-      buf.push(lines[i]);
-      i += 1;
-    }
-    out.push(`<p>${mdInline(buf.join("\n")).replace(/\n/g, "<br />")}</p>`);
-  }
-
-  return out.join("");
-}
-
-/** Links do markdown abrem no navegador do sistema, não dentro do app. */
-function wireExternalLinks(root) {
-  for (const a of root.querySelectorAll('a[data-ext="1"]')) {
-    a.addEventListener("click", (e) => {
-      e.preventDefault();
-      const href = a.getAttribute("href") || "";
-      if (/^https?:\/\//i.test(href)) void window.nexo?.openExternal?.(href).catch(() => {});
-    });
-  }
-}
 
 /* markdown no streaming: no máximo um render por frame, e um final no done */
 let streamPending = null;
@@ -2390,22 +2148,7 @@ function flushStreamRender() {
   streamPending = null;
 }
 
-function renderMd(el, text) {
-  el.innerHTML = mdToHtml(text);
-  wireExternalLinks(el);
-}
 
-// Escapa aspas também: o resultado entra em valor de atributo em vários pontos
-// (href do markdown, class, data-*). Sem isso, texto do modelo com `"` fecha o
-// atributo e injeta outro — o CSP barra o handler, mas a saída já sai torta.
-function escapeHtml(s) {
-  return String(s)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
 
 async function openThread(id) {
   // Imagem no composer é da conversa onde foi colada: não segue pra outra.
@@ -2473,22 +2216,7 @@ function listenSse() {
     signal: ac.signal,
   })
     .then(async (res) => {
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const chunks = buf.split("\n\n");
-        buf = chunks.pop() ?? "";
-        for (const chunk of chunks) {
-          const line = chunk.split("\n").find((l) => l.startsWith("data:"));
-          if (!line) continue;
-          const ev = JSON.parse(line.slice(5).trim());
-          onLive(ev);
-        }
-      }
+      await lerEventos(res, onLive);
       religar();
     })
     .catch((e) => {
@@ -2512,17 +2240,6 @@ function pausarFila(motivo) {
   });
 }
 
-function fmtDetail(d) {
-  if (d == null || d === "") return "";
-  if (typeof d === "object") {
-    return fmtDetail(d.message || d.result || d.detail || d.type);
-  }
-  const s = String(d).replace(/\[object Object\]/gi, " ").replace(/\s+/g, " ").trim();
-  if (/rate_limit/i.test(s) && !/you've hit your|session limit|resets /i.test(s)) {
-    return "Limite de uso do Claude (rate limit). Espera um pouco ou troca de conta.";
-  }
-  return s;
-}
 
 function onLive(ev) {
   if (ev.type === "text") {
@@ -2854,221 +2571,123 @@ async function doSwitch(id, reason) {
 
 /* ---------- serviços locais ---------- */
 
-function svcDotState(s) {
-  if (!s.url) return s.proc === "running" ? "up" : s.proc === "off" ? "" : "down";
-  if (s.proc !== "running") return "down";
-  // rodando: quem manda na bolinha é a porta responder ou não
-  return state.svc.portes[s.id] === "up" ? "up" : "waiting";
+const svcPanel = createServicesPanel({
+  req,
+  api,
+  headers,
+  getProjectPath: () => state.projectPath,
+  isOk: () => state.ok,
+  el: $,
+  // o painel não precisa saber o que é aba de browser nem log de chat
+  abrirNoBrowser: (url) => {
+    setBrowserUrl(url);
+    state.view = "browser";
+    applyWorkLayout();
+  },
+  aoErro: (message) => appendEvent({ type: "error", message }),
+});
+
+/* ---------- times ---------- */
+
+async function loadTeams() {
+  if (!state.ok) return;
+  try {
+    state.teams = await req("/v1/teams");
+  } catch {
+    // motor antigo sem a rota: painel vazio, não erro na cara
+    state.teams = [];
+  }
+  paintTeams();
 }
 
-function paintServices() {
-  const strip = $("svc-strip");
-  const { list, error, trusted } = state.svc;
-  // Some sem projeto ou com motor desligado (aí a lista não é confiável: o "vazio"
-  // seria mentira). Antes eu escondia toda seção vazia "pra não poluir", e o efeito
-  // foi ninguém descobrir que serviços existem — agora o vazio aparece.
-  strip.classList.toggle("hidden", !state.projectPath || !state.ok);
-  $("svc-empty").classList.toggle("hidden", Boolean(list.length || error));
-  $("svc-error").textContent = error;
-  $("svc-error").classList.toggle("hidden", !error);
-  // só oferece confiar quando existe autostart declarado esperando liberação
-  const querAutostart = list.some((s) => s.autostart);
-  $("btn-svc-trust").classList.toggle("hidden", trusted || !querAutostart);
-
-  const ul = $("svc-list");
+function paintTeams() {
+  const ul = $("team-list");
   ul.replaceChildren();
-  for (const s of list) {
+  $("team-empty").classList.toggle("hidden", state.teams.length > 0);
+  for (const t of state.teams) {
     const li = document.createElement("li");
-    const dot = document.createElement("span");
-    dot.className = "svc-dot";
-    dot.dataset.state = svcDotState(s);
-    dot.title = s.proc === "exited" ? `saiu com código ${s.exitCode}` : s.proc;
-
-    const nome = document.createElement("span");
-    nome.className = "svc-name";
-    nome.textContent = s.name;
-    nome.title = `${s.cmd} (${s.cwd})`;
-    nome.addEventListener("click", () => void abrirLogServico(s.id, s.name));
-
-    const porta = document.createElement("span");
-    porta.className = "svc-port";
-    porta.textContent = s.portNumber ? String(s.portNumber) : "";
-
-    const acao = document.createElement("button");
-    acao.type = "button";
-    acao.className = "ghost svc-act";
-    const vivo = s.proc === "running";
-    acao.textContent = vivo ? "■" : "▶";
-    acao.title = vivo ? "Parar" : "Rodar";
-    acao.addEventListener("click", () => void acionarServico(s.id, vivo ? "stop" : "start"));
-
-    li.append(dot, nome, porta, acao);
-    if (s.url) {
-      const abrir = document.createElement("button");
-      abrir.type = "button";
-      abrir.className = "ghost svc-act";
-      abrir.textContent = "↗";
-      abrir.title = `Abrir ${s.url} no Browser`;
-      abrir.addEventListener("click", () => {
-        setBrowserUrl(s.url);
-        state.view = "browser";
-        applyWorkLayout();
-      });
-      li.append(abrir);
-    }
+    li.className = "agent-card";
+    const nome = document.createElement("strong");
+    nome.textContent = t.name;
+    const meta = document.createElement("span");
+    meta.className = "agent-card-meta";
+    meta.textContent = `${t.members.length} membro${t.members.length === 1 ? "" : "s"} · ${t.members
+      .map((m) => m.agentId)
+      .join(" → ")}`;
+    const editar = document.createElement("button");
+    editar.type = "button";
+    editar.className = "ghost";
+    editar.textContent = "✎";
+    editar.title = "Abrir";
+    editar.addEventListener("click", () => void abrirTime(t));
+    li.append(nome, meta, editar);
+    li.addEventListener("click", (e) => {
+      if (e.target === editar) return;
+      void abrirTime(t);
+    });
     ul.append(li);
   }
 }
 
-async function loadServices() {
-  if (!state.projectPath || !state.ok) {
-    state.svc.list = [];
-    paintServices();
-    return;
-  }
-  try {
-    const rel = await req(`/v1/services?projectPath=${encodeURIComponent(state.projectPath)}`);
-    state.svc.list = rel.services || [];
-    state.svc.error = rel.error || "";
-    state.svc.trusted = Boolean(rel.trusted);
-  } catch (e) {
-    // Nada de engolir: daemon antigo (sem a rota) parecia "projeto sem serviço".
-    state.svc.list = [];
-    state.svc.error = /404|not found/i.test(e.message || "")
-      ? "Motor antigo, sem suporte a serviços. Desliga e liga o motor pra recarregar."
-      : e.message || "não consegui ler os serviços";
-  }
-  paintServices();
-  void probeServices();
-  void autostartServices();
-}
-
 /**
- * Sobe o que o nexo.json marcou como autostart. O daemon ignora em projeto não
- * confiável, então chamar sempre é seguro; só vale a pena se há algo parado.
+ * Painel lateral fecha e a tela cheia assume, igual ao agente. Espera os agentes
+ * carregarem antes: o seletor de membro é montado a partir deles, e abrir sem a
+ * lista deixava o time novo sem membro nenhum e sem explicação.
  */
-async function autostartServices() {
-  if (!state.svc.trusted) return;
-  if (!state.svc.list.some((s) => s.autostart && s.proc !== "running")) return;
-  try {
-    await req("/v1/services/autostart", {
-      method: "POST",
-      body: JSON.stringify({ projectPath: state.projectPath }),
-    });
-  } catch {
-    return;
-  }
-  const rel = await req(`/v1/services?projectPath=${encodeURIComponent(state.projectPath)}`);
-  state.svc.list = rel.services || [];
-  paintServices();
-  void probeServices();
+async function abrirTime(def) {
+  toggleAgents(false);
+  state.view = "team";
+  applyWorkLayout();
+  if (!state.agents.defs.length) await loadAgentDefs();
+  teamStudio.abrir(def);
 }
 
-/** Sonda a porta de cada serviço vivo: processo de pé ainda não quer dizer que atende. */
-async function probeServices() {
-  for (const s of state.svc.list) {
-    if (!s.url || s.proc !== "running") continue;
-    try {
-      const r = await req(`/v1/probe?url=${encodeURIComponent(s.url)}`);
-      state.svc.portes[s.id] = r.ok ? "up" : "down";
-    } catch {
-      state.svc.portes[s.id] = "down";
-    }
-  }
-  paintServices();
+/** Painel lateral fecha e a tela cheia assume: criar agente virou tela, não formulário. */
+function abrirEstudio(def) {
+  toggleAgents(false);
+  state.view = "agent";
+  applyWorkLayout();
+  agentStudio.abrir(def);
 }
 
-async function acionarServico(id, acao) {
-  try {
-    await req(`/v1/services/${encodeURIComponent(id)}/${acao}`, {
-      method: "POST",
-      body: JSON.stringify({ projectPath: state.projectPath }),
-    });
-  } catch (e) {
-    appendEvent({ type: "error", message: e.message || `não deu pra ${acao} ${id}` });
-  }
-  if (acao === "stop") delete state.svc.portes[id];
-  await loadServices();
-}
+const teamStudio = createTeamStudio({
+  req,
+  api,
+  headers,
+  el: $,
+  getProjectPath: () => state.projectPath,
+  isOk: () => state.ok,
+  getAgents: () => state.agents.defs,
+  lerEventos,
+  aoSalvar: () => loadTeams(),
+  aoFechar: () => {
+    state.view = "none";
+    applyWorkLayout();
+  },
+});
 
-async function abrirLogServico(id, nome) {
-  state.svc.logId = id;
-  $("svc-log-title").textContent = nome;
-  $("svc-log").classList.remove("hidden");
-  try {
-    const r = await req(`/v1/services/${encodeURIComponent(id)}/logs?projectPath=${encodeURIComponent(state.projectPath)}`);
-    $("svc-log-body").textContent = r.log || "(sem saída ainda)";
-  } catch {
-    $("svc-log-body").textContent = "(não consegui ler o log)";
-  }
-  const box = $("svc-log-body");
-  box.scrollTop = box.scrollHeight;
-}
+const agentStudio = createAgentStudio({
+  req,
+  api,
+  headers,
+  el: $,
+  getProjectPath: () => state.projectPath,
+  isOk: () => state.ok,
+  getProfiles: () => state.profiles,
+  lerEventos,
+  renderMd,
+  aoSalvar: () => loadAgentDefs(),
+  aoFechar: () => {
+    state.view = "none";
+    applyWorkLayout();
+  },
+});
 
-function fecharLogServico() {
-  state.svc.logId = "";
-  $("svc-log").classList.add("hidden");
-}
-
-/** SSE dos serviços: status muda sozinho quando um processo cai. */
-function listenServices() {
-  state.svc.abort?.abort();
-  if (!state.projectPath || !state.ok) return;
-  const ac = new AbortController();
-  state.svc.abort = ac;
-  fetch(api(`/v1/services/events?projectPath=${encodeURIComponent(state.projectPath)}`), {
-    headers: headers(),
-    signal: ac.signal,
-  })
-    .then(async (res) => {
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const chunks = buf.split("\n\n");
-        buf = chunks.pop() ?? "";
-        for (const chunk of chunks) {
-          const line = chunk.split("\n").find((l) => l.startsWith("data:"));
-          if (!line) continue;
-          const ev = JSON.parse(line.slice(5).trim());
-          if (ev.type === "status") {
-            state.svc.list = state.svc.list.map((s) => (s.id === ev.service.id ? ev.service : s));
-            if (ev.service.proc !== "running") delete state.svc.portes[ev.service.id];
-            paintServices();
-            if (ev.service.proc === "running") void probeServices();
-          }
-          if (ev.type === "log" && ev.id === state.svc.logId) {
-            const box = $("svc-log-body");
-            const colado = box.scrollTop + box.clientHeight >= box.scrollHeight - 8;
-            box.textContent += ev.chunk;
-            if (colado) box.scrollTop = box.scrollHeight;
-          }
-        }
-      }
-      religarServicos();
-    })
-    .catch(() => {
-      religarServicos();
-    });
-
-  function religarServicos() {
-    // mesmo defeito do SSE do chat: fim limpo do stream (daemon reiniciando)
-    // não pode deixar o status congelado até alguém recarregar a tela
-    if (state.svc.abort !== ac || !state.projectPath) return;
-    setTimeout(() => {
-      if (state.svc.abort !== ac || !state.projectPath || !state.ok) return;
-      void loadServices();
-      listenServices();
-    }, 1500);
-  }
-}
+const loadServices = () => svcPanel.load();
+const listenServices = () => svcPanel.listen();
+const fecharLogServico = () => svcPanel.fecharLog();
 
 /* ---------- painel de agentes ---------- */
-
-const AGENT_TAIL_CHARS = 400;
 
 async function loadAgents() {
   if (!state.ok) {
@@ -3104,46 +2723,7 @@ function applyAgentEvent(ev) {
     agendarRetrato();
     return;
   }
-  switch (ev.type) {
-    case "text":
-      a.busy = true;
-      a.tail = (a.tail + ev.text).slice(-AGENT_TAIL_CHARS);
-      if (!a.startedAt) a.startedAt = Date.now();
-      break;
-    case "thinking":
-      a.busy = true;
-      if (!a.startedAt) a.startedAt = Date.now();
-      break;
-    case "session":
-      if (ev.model) a.model = ev.model;
-      break;
-    case "context":
-    case "usage":
-      if (ev.contextTokens) a.contextTokens = ev.contextTokens;
-      break;
-    case "switched":
-      a.profileId = ev.toProfileId;
-      a.pendingQuota = false;
-      break;
-    case "quota":
-      a.busy = false;
-      a.pendingQuota = true;
-      a.lastTerminal = "quota";
-      break;
-    case "auth":
-    case "error":
-      a.busy = false;
-      a.lastTerminal = ev.type === "auth" ? "auth" : "error";
-      break;
-    case "done":
-      a.busy = false;
-      a.pendingQuota = false;
-      a.lastTerminal = "done";
-      break;
-    default:
-      return;
-  }
-  schedulePaintAgents();
+  if (aplicarNoRetrato(a, ev)) schedulePaintAgents();
 }
 
 /** Coalesce: um turno em stream emite dezenas de eventos por segundo. */
@@ -3164,21 +2744,7 @@ function listenAgents() {
   fetch(api("/v1/agents/events"), { headers: headers(), signal: ac.signal })
     .then(async (res) => {
       if (!res.ok || !res.body) throw new Error(`agents sse ${res.status}`);
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const chunks = buf.split("\n\n");
-        buf = chunks.pop() ?? "";
-        for (const chunk of chunks) {
-          const line = chunk.split("\n").find((l) => l.startsWith("data:"));
-          if (!line) continue;
-          applyAgentEvent(JSON.parse(line.slice(5).trim()));
-        }
-      }
+      await lerEventos(res, applyAgentEvent);
       religarAgentes();
     })
     .catch((e) => {
@@ -3204,12 +2770,6 @@ function agentesAtivos() {
   return state.agents.list.filter((a) => a.busy || a.pendingQuota);
 }
 
-function elapsed(startedAt) {
-  if (!startedAt) return "";
-  const s = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
-  if (s < 60) return `${s}s`;
-  return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}`;
-}
 
 function toggleAgents(want) {
   state.agents.open = want === undefined ? !state.agents.open : Boolean(want);
@@ -3221,15 +2781,19 @@ function toggleAgents(want) {
   paintAgents();
 }
 
+const ABAS_AGENTES = ["run", "team", "def"];
+
 function setAgentsTab(tab) {
-  state.agents.tab = tab === "def" ? "def" : "run";
+  state.agents.tab = ABAS_AGENTES.includes(tab) ? tab : "run";
   localStorage.setItem("nexo.agentsTab", state.agents.tab);
-  const naDef = state.agents.tab === "def";
-  $("tab-agents-run").dataset.on = naDef ? "0" : "1";
-  $("tab-agents-def").dataset.on = naDef ? "1" : "0";
-  $("agents-pane-run").classList.toggle("hidden", naDef);
-  $("agents-pane-def").classList.toggle("hidden", !naDef);
-  if (naDef) void loadAgentDefs();
+  for (const aba of ABAS_AGENTES) {
+    const ativa = aba === state.agents.tab;
+    $(`tab-agents-${aba}`).dataset.on = ativa ? "1" : "0";
+    $(`agents-pane-${aba}`).classList.toggle("hidden", !ativa);
+  }
+  // times listam agentes junto: o seletor de membro precisa deles
+  if (state.agents.tab === "def" || state.agents.tab === "team") void loadAgentDefs();
+  if (state.agents.tab === "team") void loadTeams();
 }
 
 /* ---------- agentes personalizados: definições ---------- */
@@ -3307,7 +2871,7 @@ function agentDefCard(d) {
   editar.type = "button";
   editar.className = "ghost";
   editar.textContent = "Editar";
-  editar.addEventListener("click", () => openAgentForm(d));
+  editar.addEventListener("click", () => abrirEstudio(d));
   acts.append(usar, editar);
 
   li.append(head, badges);
@@ -3334,89 +2898,11 @@ function fillAgentProfiles(escolhido) {
   if (escolhido) sel.value = escolhido;
 }
 
-function openAgentForm(def) {
-  state.agents.editing = def ? def.id : "";
-  fillAgentProfiles(def?.profileId || state.profileId);
-  $("agent-f-name").value = def?.name || "";
-  $("agent-f-id").value = def?.id || "";
-  // O id é a identidade gravada na conversa: renomear quebraria o vínculo.
-  $("agent-f-id").disabled = Boolean(def);
-  $("agent-f-color").value = def?.color || getComputedStyle(document.body).getPropertyValue("--accent").trim() || "#4d9cd6";
-  $("agent-f-desc").value = def?.description || "";
-  $("agent-f-model").value = def?.model || "";
-  $("agent-f-effort").value = def?.effort || "";
-  $("agent-f-mode").value = def?.permissionMode || "";
-  $("agent-f-instructions").value = def?.instructions || "";
-  $("btn-agent-del").classList.toggle("hidden", !def);
-  erroAgente("");
-  $("agent-form").classList.remove("hidden");
-  $("agent-f-name").focus();
-}
 
-function closeAgentForm() {
-  state.agents.editing = null;
-  $("agent-form").classList.add("hidden");
-  erroAgente("");
-}
 
-function erroAgente(msg) {
-  const p = $("agent-form-err");
-  p.textContent = msg;
-  p.classList.toggle("hidden", !msg);
-}
 
-/** Sugere um id a partir do nome enquanto o campo não foi tocado à mão. */
-function slugAgente(nome) {
-  return nome
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40);
-}
 
-async function saveAgentForm() {
-  const editando = state.agents.editing;
-  const id = editando || slugAgente($("agent-f-id").value || $("agent-f-name").value);
-  if (!id) return erroAgente("id inválido: use minúsculas, números, - e _");
-  const profileId = $("agent-f-profile").value;
-  if (!profileId) return erroAgente("Crie uma conta antes: Configurações → Nova conta.");
-  // Campo vazio é apagar de propósito — o motor trata "" como "voltar ao padrão".
-  const body = {
-    id,
-    name: $("agent-f-name").value.trim(),
-    description: $("agent-f-desc").value.trim(),
-    profileId,
-    model: $("agent-f-model").value.trim(),
-    effort: $("agent-f-effort").value,
-    permissionMode: $("agent-f-mode").value,
-    instructions: $("agent-f-instructions").value,
-    color: $("agent-f-color").value,
-  };
-  if (!body.name) return erroAgente("Nome obrigatório.");
-  try {
-    if (editando) await req(`/v1/agents/defs/${editando}`, { method: "PUT", body: JSON.stringify(body) });
-    else await req("/v1/agents/defs", { method: "POST", body: JSON.stringify(body) });
-  } catch (e) {
-    return erroAgente(e.message || "Falhou ao salvar.");
-  }
-  closeAgentForm();
-  await loadAgentDefs();
-}
 
-async function deleteAgentDef() {
-  const id = state.agents.editing;
-  if (!id) return;
-  if (!window.confirm(`Excluir o agente "${id}"? As conversas dele continuam, mas voltam ao padrão da conta.`)) return;
-  try {
-    await req(`/v1/agents/defs/${id}`, { method: "DELETE" });
-  } catch (e) {
-    return erroAgente(e.message || "Falhou ao excluir.");
-  }
-  closeAgentForm();
-  await loadAgentDefs();
-}
 
 async function novaConversaComAgente(d) {
   if (!state.projectPath) {
@@ -3588,7 +3074,7 @@ async function bindProject(path) {
   localStorage.setItem("nexo.project", path);
   setProjectLabel();
   state.fpThreads = "";
-  state.fileSelected = "";
+  fileTree.limparSelecao();
   state.fileCache = null;
   $("file-preview").textContent = "Escolhe um arquivo na árvore.";
   await window.nexo.setProject?.(path);
@@ -3600,7 +3086,7 @@ async function bindProject(path) {
   updatePalTerm();
   await loadFileTree();
   fecharLogServico();
-  state.svc.portes = {};
+  svcPanel.limparPortas();
   if (state.ok) await loadThreads();
   await loadServices();
   listenServices();
@@ -3656,6 +3142,127 @@ document.addEventListener("click", (e) => {
 });
 
 $("btn-focus").addEventListener("click", () => setFocus(document.body.dataset.focus !== "1"));
+$("btn-widget").addEventListener("click", () => void window.nexo.toggleWidget());
+
+/* ---------- celular ---------- */
+
+/**
+ * Pareamento visto do desktop: pede o código, desenha o QR, e some em 2 minutos.
+ *
+ * **O QR carrega o endereço e o CÓDIGO — nunca o token.** Quem fotografa a tela
+ * leva um código de 6 caracteres que vale 2 minutos, serve uma vez e queima em
+ * 5 erros, e não uma credencial permanente. O QR só poupa a pessoa de digitar
+ * `http://100.101.102.103:7432/app/` num teclado de telefone.
+ *
+ * O código continua visível ao lado: celular sem câmera, câmera negada e leitor
+ * que não abre link são reais.
+ *
+ * Ele expira na tela junto com o daemon, e não só no daemon: QR velho à mostra
+ * convida a escanear o que já não serve, e o erro apareceria no telefone, longe
+ * de quem poderia entender.
+ */
+let celTimer = 0;
+let celPar = null;
+/** O que `GET /v1/escuta` devolveu: onde o daemon está de fato escutando. */
+let celEscuta = null;
+
+function celMostrar(par) {
+  if (celTimer) clearInterval(celTimer);
+  celPar = par ?? null;
+  if (!par) {
+    $("cel-qr").classList.add("hidden");
+    $("cel-qr-img").textContent = "";
+    $("btn-cel-codigo").textContent = "Gerar código";
+    return;
+  }
+  /*
+   * O endereço do QR é o que o daemon está ESCUTANDO, e o melhor deles: com
+   * túnel de pé, é o do túnel, porque é o único por onde o celular chega. QR
+   * com o endereço errado manda o telefone pra um lugar onde não há ninguém, e
+   * ele falha calado.
+   */
+  const url = urlDoCelular(celEscuta?.melhor, celEscuta?.port, par.codigo);
+  $("cel-qr").classList.remove("hidden");
+  // innerHTML com SVG que este módulo acabou de gerar a partir de um endereço e
+  // 6 caracteres — nada aqui vem de fora, e SVG inline não carrega nem executa nada
+  $("cel-qr-img").innerHTML = qrSvg(url);
+  const tique = () => {
+    const resta = Math.max(0, Math.round((par.expiraEm - Date.now()) / 1000));
+    if (!resta) return celMostrar(null);
+    $("cel-codigo").textContent = par.codigo;
+    $("btn-cel-codigo").textContent = `expira em ${resta}s`;
+  };
+  tique();
+  celTimer = setInterval(tique, 1000);
+}
+
+async function celPedirCodigo() {
+  try {
+    // relê a escuta antes: o túnel pode ter subido desde a última pintura, e
+    // gerar um QR com o endereço velho seria o pior momento pra errar
+    await celPintar();
+    celMostrar(await req("/v1/pair", { method: "POST" }));
+  } catch (e) {
+    $("cel-aviso").textContent = e.message || "Não deu pra gerar o código.";
+  }
+}
+
+/**
+ * Pinta o painel a partir do que o daemon está escutando AGORA.
+ *
+ * Não existe mais "vale a partir da próxima subida": o daemon descobre os
+ * endereços sozinho e os mantém em dia enquanto roda, então isto é um relatório
+ * e não um formulário.
+ */
+async function celPintar() {
+  celEscuta = await req("/v1/escuta").catch(() => null);
+  const host = celEscuta?.melhor || "127.0.0.1";
+  const porta = celEscuta?.port || 7432;
+  $("cel-url").textContent = urlDoCelular(host, porta);
+  $("cel-alcance").textContent = celAlcance(celEscuta);
+  $("cel-aviso").textContent = celAviso(celEscuta);
+  if (celPar) celMostrar(celPar);
+}
+
+/** O campo avançado: só o que foi escrito à mão, que é acréscimo e não escolha única. */
+function celPintarUrl(cfg) {
+  const manual = cfg?.host && cfg.host !== "127.0.0.1" ? cfg.host : "";
+  if ($("cel-host") !== document.activeElement) $("cel-host").value = manual;
+  if (manual) $("cel-avancado").open = true;
+  return celPintar();
+}
+
+$("btn-cel-codigo").addEventListener("click", () => void celPedirCodigo());
+
+/**
+ * Desconecta todos os celulares de uma vez.
+ *
+ * O token passou a sobreviver às subidas do daemon, então a revogação deixou de
+ * acontecer por acidente a cada reinício — e sem isto, celular perdido não teria
+ * solução. Confirma antes porque também derruba este app por um instante: ele
+ * relê o token do disco em seguida.
+ */
+$("btn-cel-revogar").addEventListener("click", async () => {
+  if (!confirm("Desconectar todos os celulares? Eles vão pedir um código novo.")) return;
+  try {
+    await req("/v1/token/rotate", { method: "POST" });
+  } catch {
+    /* a própria rotação derruba a resposta às vezes; o que vale é reler abaixo */
+  }
+  await renovarCredenciais();
+  celMostrar(null);
+  await celPintar();
+  $("cel-aviso").textContent = "Pronto: os celulares foram desconectados.";
+});
+
+$("cel-host").addEventListener("change", async () => {
+  try {
+    const valor = $("cel-host").value.trim();
+    await celPintarUrl(await req("/v1/config", { method: "PUT", body: JSON.stringify({ host: valor || "127.0.0.1" }) }));
+  } catch (e) {
+    $("cel-aviso").textContent = e.message || "Endereço inválido.";
+  }
+});
 $("btn-focus-exit").addEventListener("click", () => setFocus(false));
 $("btn-file-preview").addEventListener("click", () => setFilePreview($("file-split").dataset.preview === "0"));
 $("btn-browser-retry").addEventListener("click", reiniciarBrowser);
@@ -3698,18 +3305,7 @@ $("btn-svc-create").addEventListener("click", async () => {
 
 $("btn-svc-refresh").addEventListener("click", () => void loadServices());
 $("btn-svc-log-close").addEventListener("click", fecharLogServico);
-$("btn-svc-trust").addEventListener("click", async () => {
-  try {
-    await req("/v1/services/trust", {
-      method: "POST",
-      body: JSON.stringify({ projectPath: state.projectPath }),
-    });
-  } catch (e) {
-    appendEvent({ type: "error", message: e.message || "não deu pra confiar no projeto" });
-    return;
-  }
-  await loadServices();
-});
+$("btn-svc-trust").addEventListener("click", () => void svcPanel.confiar());
 $("btn-close-file").addEventListener("click", closeModule);
 $("btn-close-terminal").addEventListener("click", closeModule);
 $("btn-close-browser").addEventListener("click", closeModule);
@@ -3927,11 +3523,6 @@ function accountRows(a) {
   return rows;
 }
 
-function fmtWhen(iso) {
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return iso;
-  return new Date(ms).toLocaleString("pt-BR");
-}
 
 async function runSlash(text) {
   const [raw, ...rest] = text.slice(1).split(/\s+/);
@@ -4587,22 +4178,11 @@ $("btn-agents").addEventListener("click", () => toggleAgents());
 $("btn-agents-close").addEventListener("click", () => toggleAgents(false));
 $("tab-agents-run").addEventListener("click", () => setAgentsTab("run"));
 $("tab-agents-def").addEventListener("click", () => setAgentsTab("def"));
-$("btn-agent-new").addEventListener("click", () => openAgentForm(null));
-$("btn-agent-cancel").addEventListener("click", () => closeAgentForm());
-$("btn-agent-del").addEventListener("click", () => void deleteAgentDef());
-$("agent-form").addEventListener("submit", (ev) => {
-  ev.preventDefault();
-  void saveAgentForm();
-});
-// id sugerido pelo nome só enquanto o campo não foi editado à mão.
-$("agent-f-name").addEventListener("input", () => {
-  const idInput = $("agent-f-id");
-  if (state.agents.editing || idInput.dataset.touched === "1") return;
-  idInput.value = slugAgente($("agent-f-name").value);
-});
-$("agent-f-id").addEventListener("input", () => {
-  $("agent-f-id").dataset.touched = $("agent-f-id").value ? "1" : "0";
-});
+$("tab-agents-team").addEventListener("click", () => setAgentsTab("team"));
+$("btn-team-new").addEventListener("click", () => void abrirTime(null));
+teamStudio.ligar();
+$("btn-agent-new").addEventListener("click", () => abrirEstudio(null));
+agentStudio.ligar();
 setAgentsTab(state.agents.tab);
 
 $("btn-palette").addEventListener("click", () => handleMod("palette"));

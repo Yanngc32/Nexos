@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createApp } from "../src/http.ts";
 import { addProfile, engineEnv, getProfile } from "../src/profiles.ts";
@@ -496,5 +496,153 @@ describe("http", () => {
     expect(del.status).toBe(200);
     const again = await app.request(`/v1/threads/${t.id}`, { method: "DELETE", headers: hdr });
     expect(again.status).toBe(404);
+  });
+
+  /**
+   * O id da conversa vem do caminho da rota e virava nome de arquivo. Com `..`
+   * escapava do NEXO_HOME: a mensagem era gravada antes da validação e criava
+   * arquivo (e pasta) em qualquer lugar onde o daemon tenha escrita.
+   */
+  it("threadId com .. na rota não cria arquivo fora do home", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const app = createApp(home, token);
+    const fora = join(home, "..", "escapou.jsonl");
+    const res = await app.request("/v1/threads/..%2Fescapou/messages", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ text: "oi" }),
+    });
+    expect(res.status).toBe(400);
+    expect(existsSync(fora)).toBe(false);
+  });
+
+  it("conversa sem projectPath é recusada em vez de nascer órfã", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const app = createApp(home, token);
+    const res = await app.request("/v1/threads", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ profileId: "p1" }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/projectPath/);
+  });
+
+  it("perfil com .. na rota é 404, não erro de servidor", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const res = await app.request("/v1/profiles/..%2F..%2Fetc", {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("http teams e runs", () => {
+  const hdr = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+
+  function base() {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    return { home, app: createApp(home, token) };
+  }
+
+  async function criarAgente(app: ReturnType<typeof createApp>, id: string) {
+    return app.request("/v1/agents/defs", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ id, name: id.toUpperCase(), profileId: "p1" }),
+    });
+  }
+
+  it("CRUD de time pela API", async () => {
+    const { app } = base();
+    await criarAgente(app, "a1");
+
+    const criar = await app.request("/v1/teams", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ id: "time", name: "Time", members: [{ agentId: "a1", papel: "faz" }] }),
+    });
+    expect(criar.status).toBe(201);
+
+    expect((await (await app.request("/v1/teams", { headers: hdr })).json())).toHaveLength(1);
+    expect((await (await app.request("/v1/teams/time", { headers: hdr })).json()).name).toBe("Time");
+
+    const put = await app.request("/v1/teams/time", {
+      method: "PUT",
+      headers: hdr,
+      body: JSON.stringify({ id: "outro", name: "Renomeado" }),
+    });
+    // a rota manda no id: o body com outro id não cria nem renomeia
+    expect((await put.json()).id).toBe("time");
+
+    expect((await app.request("/v1/teams/time", { method: "DELETE", headers: hdr })).status).toBe(200);
+    expect((await app.request("/v1/teams/time", { headers: hdr })).status).toBe(404);
+  });
+
+  it("time com agente inexistente é 400, com o motivo", async () => {
+    const { app } = base();
+    const res = await app.request("/v1/teams", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ id: "t", name: "T", members: [{ agentId: "fantasma" }] }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/agente não existe/);
+  });
+
+  it("run roda o pipeline inteiro e o resultado aparece na consulta", async () => {
+    const { app } = base();
+    await criarAgente(app, "a1");
+    await criarAgente(app, "a2");
+    await app.request("/v1/teams", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ id: "t", name: "T", members: [{ agentId: "a1" }, { agentId: "a2" }] }),
+    });
+
+    const res = await app.request("/v1/runs", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ teamId: "t", projectPath: "/proj", goal: "objetivo-de-teste" }),
+    });
+    // 201 com o run parado: a execução segue em segundo plano
+    expect(res.status).toBe(201);
+    const run = await res.json();
+    expect(run.steps.every((s: { status: string }) => s.status === "pending")).toBe(true);
+
+    // espera o run fechar, consultando como a UI faria
+    let atual = run;
+    for (let i = 0; i < 100 && atual.status === "running"; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      atual = await (await app.request(`/v1/runs/${run.id}`, { headers: hdr })).json();
+    }
+    expect(atual.status).toBe("done");
+    expect(atual.steps.map((s: { status: string }) => s.status)).toEqual(["done", "done"]);
+  });
+
+  it("run com time que não existe é 400", async () => {
+    const { app } = base();
+    const res = await app.request("/v1/runs", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ teamId: "fantasma", projectPath: "/p", goal: "x" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("abort de run que não está rodando responde running:false em vez de erro", async () => {
+    const { app } = base();
+    const res = await app.request("/v1/runs/r-nao-existe/abort", { method: "POST", headers: hdr });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, running: false });
+  });
+
+  it("run inexistente é 404", async () => {
+    const { app } = base();
+    expect((await app.request("/v1/runs/r-nada", { headers: hdr })).status).toBe(404);
   });
 });

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src http://127.0.0.1:*"
+    />
+    <title>Nexo — painel</title>
+    <link rel="stylesheet" href="widget.css" />
+  </head>
+  <body>
+    <div class="card" id="card">
+      <header class="head">
+        <span class="grip" id="grip">Nexo</span>
+        <span class="off hidden" id="off">motor desligado</span>
+        <button type="button" class="x" id="fechar" title="Esconder o painel">×</button>
+      </header>
+
+      <section class="bloco hidden" id="bl-run">
+        <p class="obj" id="run-obj"></p>
+        <div class="linha">
+          <span class="dot" id="run-dot"></span>
+          <span class="quem" id="run-quem"></span>
+          <span class="num" id="run-passos"></span>
+          <span class="num" id="run-ms"></span>
+        </div>
+        <div class="barra"><i id="run-fill"></i></div>
+        <p class="sub" id="run-custo"></p>
+      </section>
+
+      <section class="bloco hidden" id="bl-voo">
+        <p class="sub" id="voo-txt"></p>
+      </section>
+
+      <section class="bloco hidden" id="bl-contas">
+        <div class="aneis" id="contas"></div>
+      </section>
+
+      <p class="vazio hidden" id="vazio">Nada rodando.</p>
+    </div>
+    <script type="module" src="widget.js"></script>
+  </body>
+</html>

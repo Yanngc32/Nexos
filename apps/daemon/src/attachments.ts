@@ -2,7 +2,6 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 import { ATTACH_MAX_BYTES, ATTACH_MAX_PER_MESSAGE, IMAGE_MIMES, type Attachment } from "@nexo/shared";
 import { attachmentsDir } from "./home.ts";
-import { assertSlug } from "./ids.ts";
 
 /** O que o cliente manda junto da mensagem: bytes em base64, sem caminho nenhum. */
 export type IncomingImage = { name?: string; mime: string; data: string };
@@ -40,7 +39,6 @@ function cleanName(raw: string | undefined, fallback: string): string {
 }
 
 export function saveImages(threadId: string, images: IncomingImage[], home: string): Attachment[] {
-  assertSlug(threadId);
   if (images.length > ATTACH_MAX_PER_MESSAGE) {
     throw new Error(`no máximo ${ATTACH_MAX_PER_MESSAGE} imagens por mensagem`);
   }
@@ -66,7 +64,6 @@ export function saveImages(threadId: string, images: IncomingImage[], home: stri
 }
 
 export function readAttachment(threadId: string, file: string, home: string): { buf: Buffer; mime: string } {
-  assertSlug(threadId);
   if (!ATTACH_FILE_RE.test(file)) throw new Error(`anexo inválido: ${file}`);
   const path = join(attachmentsDir(threadId, home), file);
   if (!existsSync(path)) throw new Error(`anexo não existe: ${file}`);
@@ -76,7 +73,6 @@ export function readAttachment(threadId: string, file: string, home: string): { 
 }
 
 export function removeThreadAttachments(threadId: string, home: string): void {
-  assertSlug(threadId);
   rmSync(attachmentsDir(threadId, home), { recursive: true, force: true });
 }
 

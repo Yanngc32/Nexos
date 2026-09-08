@@ -23,12 +23,263 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 - CLI `nexo`: `up`, `down`, `profile`, `login`, `svc`, `thread`, `chat`, `switch`.
 - Windows: `run.bat` (instala dependências e abre o app) e `make-shortcut.ps1` (atalho sem console).
 - Licença MIT e README.
+- CI no GitHub Actions: `pnpm typecheck` + `pnpm test` em Linux e Windows, Node 20 e 22.
+- Scripts `pnpm typecheck` (por pacote, agregado na raiz) e `pnpm check` (typecheck + testes).
+- Primeiros testes do app: `apps/desktop/markdown.js` saiu do `renderer.js` pra módulo próprio e
+  ganhou 21 casos (`pnpm --filter @nexo/desktop test`), com foco em injeção — tag do modelo vira
+  texto, `javascript:`/`data:`/`file:` não viram âncora, aspas não escapam do `href`, bloco de
+  código é escapado. É o ponto onde texto do modelo vira HTML na janela; o CSP é a segunda linha
+  de defesa, a primeira é escapar antes de formatar, e agora existe teste que trava essa ordem.
+  `pnpm test` na raiz passou a rodar os dois pacotes.
+- Mais dois módulos saídos do `renderer.js`, também só recorte: `format.js` (helpers puros de
+  exibição e normalização de caminho) e `url.js` (`safeUrl`/`portaDaUrl`). `safeUrl` decide o que
+  o iframe do preview carrega — o CSP deixa `frame-src` largo de propósito, então quem barra
+  `javascript:` e `file:` é ela. 58 casos no app ao todo; os que caem em `toLocaleString` checam a
+  forma e não o literal, porque o texto varia com a versão do ICU entre os jobs do CI.
+- Interface de celular (`apps/mobile`), servida pelo próprio daemon em `/app/`: PWA, sem instalar
+  nada e sem build, igual ao resto do projeto. Mostra o run em andamento, a quota das contas, a
+  lista de conversas do projeto aberto, e deixa conversar com stream de verdade. Árvore de arquivos
+  e terminal ficam de fora: hoje não existem como HTTP (vivem no processo principal do Electron), e
+  telefone não é onde se lê diff.
+  **Pareamento por código curto**, não por QR: o desktop mostra 6 dígitos, o celular digita, e o
+  daemon troca o código pelo token. Assim o TOKEN nunca aparece numa tela — QR é foto, e foto vaza.
+  `POST /pair` é a única rota de escrita sem autenticação do daemon, e o que a torna defensável são
+  as travas: vale 2 minutos, serve uma vez, 5 erros queimam o código, comparação em tempo constante,
+  e pedir um novo invalida o anterior. Dá 5 chances em 10^6 pra quem já alcança a porta.
+  **Endereço de escuta configurável** (`config.host`, `NEXO_HOST`), com `127.0.0.1` de padrão. Sem
+  isso o celular não alcança nem por túnel: a interface do Tailscale tem IP próprio, não é loopback.
+  A tela avisa quando o endereço só aceita a própria máquina, e avisa mais forte no `0.0.0.0`.
+  O que a interface reaproveita do desktop vem de `/app/comum/`, com **lista branca** de módulos
+  (`markdown.js`, `format.js`, `sse.js`, `widget-view.js`, `agent-trace.js`…). Sem cópia, porque
+  arquivo copiado diverge; e lista branca porque servir uma pasta por prefixo é como se serve o
+  disco por acidente.
+  `/app` redireciona pra `/app/`, e a barra não é estética: sem ela o documento tem base `/`, os
+  `./modulo.js` do HTML são pedidos na raiz, e a tela abre muda sem dar erro nenhum. Só apareceu
+  carregando a página num navegador de verdade.
+- O servidor MCP do supervisor declara `timeout` por servidor, maior que a paciência do próprio
+  daemon. O padrão do CLI é 5 minutos por chamada de ferramenta, e é limite de PAREDE — a
+  documentação interna dele diz que notificação de progresso não estica. Um membro fazendo trabalho
+  de verdade passa disso: a chamada morreria no cliente com o membro ainda rodando, e o supervisor
+  receberia um timeout cego em vez de um motivo.
+  O valor é o teto de turno do daemon (`TURNO_TETO_MS`, 15 min) mais um minuto de folga. A ordem
+  importa: quem tem que desistir primeiro é o daemon, porque só ele sabe DIZER o motivo ("motor
+  falhou", "quota estourou") de um jeito que o supervisor entende e pode contornar.
+  A constante mudou de casa pro `@nexo/shared` porque `mcp.ts` não pode importar `session.ts` sem
+  fechar ciclo — o motor de CLI importa o mcp.
+- `GET /v1/runs/atual`, e o painel flutuante passou a usar essa em vez da listagem. Ele consulta a
+   cada 2s e mostra UM run; pedir a lista pra isso abria todo `run.json` da máquina e serializava o
+   histórico inteiro. Medido com 1000 runs no disco: **29 ms e 2,3 MB por consulta viraram 0,5 ms e
+   2 KB**, e agora é plano conforme o histórico cresce.
+  O caso comum não toca no disco: o daemon já sabe em memória quais runs estão em voo, e é
+  justamente quando há um rodando que o painel é consultado sem parar. Sem nada em voo, ele abre no
+  máximo 40 arquivos — corte honesto pro que a rota responde ("está andando algo?"); histórico é o
+  `GET /v1/runs`.
+  Quem escolhe o run do momento passou a ser o daemon, não a tela: escolher na tela obrigava a
+  baixar tudo pra jogar quase tudo fora. A listagem também ganhou teto de resultado (50) e ordem
+  pelo id — que é cronológica, porque o id carrega o tempo em base36 com largura fixa.
+- Teto do context pack derivado da janela do motor, em vez de 8000 fixo pra toda conta. Uma conta de
+  janela grande recebia o mesmo corte de uma de 8k, então conversa longa "esquecia" coisa que
+  caberia folgado. Agora é metade da janela, com piso em 8000 (o valor antigo, pra motor de janela
+  desconhecida — nada regride) e teto em 128k. A outra metade da janela não é folga: paga o system
+  prompt, as instruções do agente, a definição das ferramentas, o resultado de cada ida e volta de
+  ferramenta DENTRO do turno, e a resposta. O teto de 128k existe porque o pack vai inteiro em TODO
+  turno: 1M sem limite mandaria 500 mil tokens por mensagem.
+  A janela vem do evento `window` novo, tirado do `autocompact_state` do CLI — a janela EFETIVA da
+  sessão, que é o número que o próprio CLI usa pra decidir quando compactar. Medido contra o CLI de
+  verdade: ele reporta o modelo como `claude-sonnet-5`, sem sufixo, numa sessão de janela 980k — a
+  heurística antiga (`[1m]` no nome, senão 200k) subestimava em 5×. Ela continua como último
+  recurso, pra quando o daemon subiu agora e ainda não viu turno daquela conta.
+  De quebra o medidor de contexto da tela parou de mentir: passou de `40.4k / 200.0k (20%)` pra
+  `40.4k / 980.0k (4%)` na mesma conversa.
+- Teto de tempo dos testes que rodam `git` de verdade subiu pra 30s (`worktree.test.ts` inteiro e o
+  `isolamento no fan-in` do `runs.test.ts`). Os 5s padrão do vitest são pra teste de lógica; esses
+  casos disparam de 5 a 10 processos contra disco, e num runner Windows lento um `worktree add` +
+  `commit` + `worktree remove` passa disso — o caso morria por tempo sem nada de errado no código.
+  O teto continua existindo em vez de virar infinito: git que não volta é defeito, e o teste tem que
+  dizer isso em vez de pendurar o CI.
+- Canal `mcp` no supervisor: o daemon vira servidor MCP e o supervisor chama os membros DENTRO do
+  turno dele, em vez de um turno por decisão. Um run de 5 chamadas passa de 6 turnos pra 1.
+  A ferramenta é presa a UM run pelo caminho (`/v1/mcp/<run>`): o bearer sozinho é o token da
+  máquina inteira, e sem o escopo qualquer coisa com o token poderia disparar agente de outro run.
+  A config vai em arquivo `0600` e não em argumento, porque carrega o token — argv é legível por
+  qualquer processo do mesmo usuário. `--strict-mcp-config` impede que servidor MCP herdado do
+  `~/.claude.json` entre no turno de um agente que ninguém configurou pra isso.
+  Motor que não fala MCP (`api`, `stub`) cai de volta pro modo por turno, com o motivo em
+  `canalOff` — recusar o run seria pior: o time continua fazendo sentido, só que mais caro. Por isso
+  o `turno` segue sendo o padrão, e a tela só mostra a escolha no supervisor.
+  O teto de passos vale dentro da ferramenta também: em MCP o laço é do modelo, e sem isso ele não
+  passaria por nenhuma trava do daemon. Erro de argumento e membro inexistente voltam como
+  `isError` (o modelo lê e corrige), enquanto exceção do daemon vira erro de protocolo — a
+  diferença entre "você errou" e "nós quebramos".
+  Duas coisas que a verificação contra o CLI de verdade corrigiu: `--allowed-tools` passou a sair
+  UMA vez só com tudo dentro (a opção é variádica, e repeti-la fazia a segunda substituir a
+  primeira, apagando as ferramentas do perfil ou as do MCP); e a resposta da ferramenta deixou de
+  apontar pro artefato — ele mora fora da pasta do projeto, o supervisor não tem ferramenta pra
+  abrir, e ele concluía que o membro não havia produzido nada.
+- Painel flutuante (botão "Painel", Ctrl+Shift+W, ou a bandeja): janela própria, sem moldura,
+  sempre por cima, com o passo do run em andamento, quantas conversas estão trabalhando, os anéis de
+  quota por conta e o custo acumulado contra o teto. Janela separada e não um canto da principal
+  porque o ponto dele é aparecer quando o Nexo NÃO está na frente — um time roda por minutos
+  enquanto você está no editor, e painel embutido some junto com a janela.
+  Ele mede o próprio conteúdo e pede a altura ao processo principal: altura fixa sobraria vazio com
+  um run só e cortaria linha com quatro contas. Abre onde estava da última vez, não rouba foco
+  (`showInactive`) e não entra na barra de tarefas nem no Alt+Tab.
+  **Poll de 2s, não SSE, e é escolha:** cada fonte tem um stream próprio e nenhuma tem um agregado;
+  três streams vivos pra uma faixa de 200px custariam mais que um GET contra um daemon da mesma
+  máquina. Com o motor desligado o poll afrouxa pra 8s. Poll que falha não apaga a tela — o retrato
+  anterior continua até a próxima resposta, senão o painel piscaria a cada soluço.
+  Conta que nunca rodou um turno fica de fora dos anéis: anel vazio pareceria "quota sobrando", que
+  é o oposto de "não sei". O relógio para no fim do run, em vez de crescer pra sempre depois de
+  acabar.
+  O painel é do PROJETO ABERTO, não da máquina: o daemon responde os runs e as conversas de todos os
+  projetos, e com dois abertos o painel mostrava o do outro — sem dizer que era de outro, o que é
+  pior que não mostrar nada. O projeto vem do processo principal (o painel é outra janela e não
+  compartilha estado com o app) e é relido a cada volta, então trocar de projeto muda o painel sem
+  reabrir; o cabeçalho passou a dizer qual é. A QUOTA não filtra: ela é da conta, não do projeto. E
+  sem projeto aberto nada é filtrado — o daemon pode estar trabalhando por fora, disparado pela CLI.
+- Conversas de um run agrupadas na barra lateral. Um time cria uma conversa por passo, e o
+  supervisor cria quantas quiser: soltas, dez linhas do mesmo run afogavam a lista e empurravam pra
+  baixo o que a pessoa estava usando. O run vira uma pasta, fechada por padrão, na posição da
+  conversa mais recente dele; dentro, a ordem é a do RUN (passo 1, 2, 3), não a de atualização. Run
+  de um passo só não vira pasta — a pasta a mais só esconderia.
+  O carimbo (`runId`, `runStep`, `runTitle`) vai no `thread_meta` na criação da conversa: é verdade
+  sobre a conversa, e sem ele a lista teria que abrir todo `run.json` do disco pra montar um
+  cabeçalho. Junto veio o título por passo ("Leitor · passo 2"), que substitui o preview do primeiro
+  pedido — nos passos de time esse pedido é o bloco inteiro de instruções, e a lista ficava com
+  várias linhas idênticas começando em "# Objetivo do time".
+- Retomada de run parado (`POST /v1/runs/:id/resume`, botão "Retomar" na tela do time): continua de
+  onde parou, sem refazer o que já ficou `done`. A quota daquele passo já foi gasta e o artefato está
+  no disco — refazer cobraria de novo por um resultado que já existe, e ainda daria um resultado
+  diferente do que os passos seguintes viram. O que é refeito é o que falhou, foi pulado ou ficou
+  preso em `running` (motor derrubado no meio).
+  O orçamento mandado na retomada SUBSTITUI o antigo, e não mandar nenhum tira o teto: retomar com o
+  mesmo teto que parou o run pararia na mesma linha, sem gastar nada, e pareceria defeito. O gasto
+  das tentativas anteriores vira `gastoAnterior` e continua contando — senão retomar zeraria a conta
+  e o teto de custo não valeria mais nada depois da primeira parada.
+  No fan-in, o paralelo que deu certo não roda de novo e a saída dele vem do artefato, na ordem do
+  time. No supervisor, a CONVERSA dele sobrevive e é o ponto todo: ele volta lembrando o que já
+  mandou fazer e o que deu errado, com um pedido de retomada que não repete objetivo nem lista.
+  Branch dos paralelos ganha sufixo por tentativa (`-r2`): o da tentativa anterior continua no
+  repositório, com trabalho que ninguém olhou ainda.
+- Topologia `supervisor` no time: o PRIMEIRO membro não trabalha — ele decide, a cada rodada, qual
+  dos outros chamar e com que pedido, até dizer que acabou. A lista de passos deixa de sair pronta
+  do `criarRun`: nasce só com o dele, e os demais são anexados durante o run (evento `step_add`).
+  **Não é MCP, de propósito.** O supervisor não age no meio do turno dele: responde a ordem em JSON,
+  o turno fecha, o daemon chama o membro e volta com o resultado no turno seguinte da MESMA conversa
+  — então ele lembra do que já mandou fazer sem o daemon reenviar histórico. Custa um turno por
+  decisão; em troca roda em qualquer motor, inclusive nos que não falam MCP (`api`, `stub`), sem
+  processo novo nem credencial saindo do daemon. MCP passa a ser otimização, não pré-requisito.
+  Três decisões que o código registra:
+  - **Formato fechado, leitura tolerante.** Cerca de código, texto em volta e exemplo antes da
+    resposta são aceitos (pega o último objeto balanceado); id de membro fora do time é RECUSADO,
+    porque adivinhar quem ele quis dizer é pior que perguntar. Resposta inutilizável ganha uma
+    correção — uma, não zero (derrubar o run por formatação desperdiçaria o que já foi gasto) e não
+    N (insistir depois do pedido de correção na mão só queima quota).
+  - **Falha de membro volta pro supervisor**, e não derruba o run: quem tem contexto pra decidir o
+    que fazer com ela é ele. É o oposto do pipeline, onde não há ninguém pra decidir.
+  - **O teto de passos é a única trava contra o laço**: o supervisor pode chamar o mesmo membro pra
+    sempre. Ele vê quantas chamadas restam a cada turno, e o run para no teto mesmo que ele não
+    queira parar.
+  Time de supervisor exige pelo menos um membro além dele — sozinho, o run morreria no primeiro
+  turno depois de já ter gasto esse turno. A tela mostra `sup` no lugar do número, avisa que o custo
+  não sai da contagem de membros, e o texto sobre o que a ORDEM da lista significa passou a mudar
+  com a topologia (dizia só o do pipeline, o que já era falso no fan-in).
+- Isolamento por `git worktree` nos membros paralelos do fan-in: cada um ganha uma árvore própria
+  do repositório, num branch `nexo/<run>/<n>-<agente>`, então dois agentes escrevendo o mesmo
+  arquivo ao mesmo tempo deixaram de se destruir. A árvore sai do disco no fim do run; o branch
+  fica, com o trabalho commitado — sem isso o `worktree remove --force` levaria a mudança junto e o
+  branch existiria vazio. Nada é mesclado automaticamente.
+  Só no fan-in: no pipeline, compartilhar a árvore costuma ser o ponto — se o primeiro escreve e o
+  segundo revisa, separá-los faria o revisor não enxergar nada. Projeto sem git (ou sem commit)
+  roda igual, sem isolar, e o run registra o motivo em `isolationOff` em vez de fingir que isolou.
+- Topologia `fanin` no time: todos os membros menos o último rodam AO MESMO TEMPO, e o último
+  recebe a saída de todos — cada uma identificada por quem produziu, senão o agregador não teria
+  como saber quem disse o quê. Quem agrega é o último da lista; a ordem continua sendo a semântica.
+  Falha de um paralelo não cancela os outros (já estão em voo, a quota já foi gasta): deixa
+  terminar e pula o agregador.
+  Aviso na tela ao escolher paralelo (ver isolamento por worktree acima): em repositório git cada
+  membro trabalha no branch dele; sem git, todos dividem a pasta e se atropelam.
+- Tela cheia do time (`team-studio.js`) e aba "Times" no painel de agentes: editor de membros à
+  esquerda — trocar o agente, escrever o papel, subir, descer e remover, com a ordem valendo como a
+  ordem do pipeline — e a execução à direita, com um passo por membro, duração, tokens e o total do
+  run. O estado da execução vem do daemon (`run-view.js` só aplica os eventos e calcula o que está
+  em voo): o tempo mostrado é o que o servidor mediu, não o de chegada do evento como na bancada de
+  um agente.
+- Times de agentes e execução de time no daemon. Um `TeamDef` é um nome, uma topologia e os membros
+  em ordem, cada um com um papel — o mesmo agente pode ocupar papéis diferentes em times diferentes
+  sem virar dois agentes. Rotas: `/v1/teams` (CRUD) e `/v1/runs` (criar, consultar, abortar, SSE de
+  progresso).
+  As topologias o daemon executa de FORA — cria a conversa do membro, manda o pedido, espera o
+  turno fechar, lê a saída e alimenta o próximo. Não exigem canal de volta nem ferramenta nova no
+  motor, então cabem no que já existe (vale também pro `supervisor`, adicionado depois).
+  O que passa entre membros é artefato, não transcrição: cada passo grava a saída inteira em
+  `~/.nexo/runs/<run>/passo-N-<agente>.md` e o seguinte recebe um trecho no pedido mais o caminho do
+  arquivo. Falha PARA o run em vez de pular ou repetir — o passo seguinte receberia entrada vazia e
+  produziria trabalho sem base, gastando quota pra piorar o resultado. Cada run aceita teto de custo
+  e de passos, porque um time multiplica o gasto: cinco membros é cinco vezes o custo de um turno.
+- Tela cheia de agente (`agent-studio.js`), no lugar do formulário espremido no painel lateral:
+  editor à esquerda, bancada de teste à direita. Abre pelo painel de agentes, em "Novo agente" ou
+  no lápis de um agente existente.
+- Modelos de criação inspirados nos formatos do ADK do Google (`agent-templates.js`): agente de
+  tarefa, pipeline sequencial, refinamento em laço, coordenador, revisor crítico e explicador de
+  código. O Nexo não orquestra sub-agentes — o motor é uma CLI em `--print`, um turno por vez —
+  então cada modelo dá a FORMA de trabalho pela instrução, e os que emprestam o nome de um agente
+  composto do ADK dizem, na própria tela, onde o mecanismo difere. Vender orquestração que não
+  existe seria mentira.
+- Bancada de teste com timeline por etapas (`agent-trace.js`): cada evento do motor vira uma etapa
+  com duração e barra proporcional, mais o total do turno em tempo, ferramentas, tokens, contexto e
+  custo. O tempo é o de chegada do evento (o stream não carrega carimbo de hora), e o token de cada
+  etapa vem marcado com `~` porque o motor reporta uso por requisição, não por etapa — o total do
+  turno, esse é exato. A conversa de teste é descartável: some ao limpar ou fechar, pra não encher
+  a lista de conversas do projeto.
+- `sse.js`: o laço de leitura de event-stream estava escrito três vezes (chat, serviços, agentes),
+  cada cópia sem teste, com a mesma sutileza repetida — o `read()` corta onde quiser, então um
+  evento pode chegar partido entre duas leituras. Virou uma função só, com 11 casos.
+- `agent-events.js`, `file-tree.js` e `services.js`: mais três módulos fora do `renderer.js`, que
+  saiu de 4.793 para 4.149 linhas. Os painéis passaram a ser donos do próprio estado (`state.svc`,
+  `state.fileSelected` e a constante do rabo de texto saíram do objeto global) e as saídas para a
+  UI entram como callback, pra não fechar ciclo de import. `apps/desktop` ganhou `happy-dom` para
+  testar código de DOM, ligado por docblock só nos arquivos que precisam.
+- `api.js`: o cliente HTTP do daemon saiu do `renderer.js` como fábrica (`createApiClient`), com
+  `daemonInfo` e `fetch` entrando por parâmetro. `req` é a função mais chamada do app e não tinha
+  teste nenhum, apesar de re-tentar em falha de conexão e em 401 — reiniciar o motor troca porta e
+  token. Agora são 23 casos cobrindo os dois retries, credencial nova na re-tentativa, corpo não
+  JSON, 204 sem corpo e o erro do servidor virando mensagem. Porta e token deixaram o objeto
+  `state` e passaram a viver só dentro do cliente; `state.ok`, que a UI lê em ~28 pontos, continua
+  onde estava e é alimentado por um callback. As 49 chamadas de `req` não mudaram.
 
 ### Corrigido
 
+- `renderMd` estava quebrado desde a extração do `markdown.js`: o `wireExternalLinks` foi junto
+  para o módulo novo sem ser exportado, e o renderer continuou chamando uma função que não
+  enxergava mais — todo render de resposta do modelo estourava. Não havia teste do renderer, então
+  passou calado. As duas funções agora moram juntas no `markdown.js`, exportadas, com teste de DOM
+  cobrindo o par.
 - `run.bat` apontava para um `run.vbs` que não existe; agora indica `make-shortcut.ps1 -Desktop`.
+- `tsc` não rodava em nenhum pacote: os imports mantêm a extensão `.ts` (exigência do runtime, que
+  consome os pacotes como fonte) sem `allowImportingTsExtensions` ligado, então a checagem morria
+  com ~60 erros `TS5097` antes de olhar uma linha de código — o `strict: true` era decorativo.
+  `tsconfig.base.json` passa a declarar `noEmit` + `allowImportingTsExtensions` (nada no
+  repositório compila; o tsc só checa) e as opções de emissão mortas (`declaration`, `outDir`,
+  `rootDir`) saíram.
+- Perfil rebaixado por recusa do servidor podia voltar a `ready` sozinho: o `mtime` da credencial
+  tem fração de milissegundo e o `authFailedAt` é ISO (milissegundo cheio), então um arquivo
+  escrito no mesmo milissegundo da recusa — antes dela — passava por "mais novo" e reabilitava o
+  perfil. O `mtime` agora é truncado antes da comparação.
+- `POST /v1/threads` sem `projectPath` criava conversa órfã: ela some da listagem (que filtra por
+  pasta) e de `/v1/projects`, sem erro nenhum pra quem criou. Agora é 400.
 
 ### Alterado
+
+- `waitTerminal` (session.ts) dorme até o turno fechar em vez de acordar a cada 20 ms — eram ~45
+  mil despertares num turno de 15 minutos. `lastTerminal` só é fechado por `setTerminal`, que
+  libera quem espera; o teto de 15 min continua virando erro.
+- `renderer.js` passou a ser carregado como `type="module"` no `index.html`, primeiro passo pra
+  quebrar o arquivo (4.793 linhas) em módulos testáveis. Verificado no app de verdade: o import
+  sobre `file://` funciona no Electron 33 e o renderer segue executando até o fim.
+- `src/sandbox.ts` virou `src/project-cwd.ts`. O módulo só resolve o `projectPath` pra usar de cwd
+  do motor e não confina nada — o nome prometia um limite que não existe. O confinamento real
+  continua onde sempre esteve: `boundPath` (main do Electron) e `assertInsideProject` (nexo.json).
 
 - Barra lateral do app reorganizada: Nova conversa, Agentes e Paleta viraram uma lista plana de
   ícone + rótulo no topo (SVG inline em vez de glifo), o `+` de adicionar pasta só aparece no
@@ -42,6 +293,15 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   `Thumbs.db`).
 
 ### Segurança
+
+- Todo caminho derivado de um id (`threadPath`, `attachmentsDir`, `enginePidPath`, `profileDir`)
+  passa por `assertSlug` dentro do próprio construtor do caminho, e não só em alguns chamadores.
+  O `appendEvent` não validava: em `POST /v1/threads/<id>/messages` o evento do usuário era
+  gravado antes de `readThread` (que é quem validava), então um id como `..%2F..%2Fevil` criava
+  arquivo — e pasta, via `mkdirSync` recursivo — em qualquer lugar onde o daemon tem escrita,
+  fora do `NEXO_HOME`. Exigia o token bearer, mas escapava do diretório de estado. Consulta de
+  perfil com id fora do formato passa a responder 404 em vez de estourar. Coberto por teste no
+  nível da rota.
 
 - Processo filho de motor/login não herda mais o `CLAUDE_CONFIG_DIR`/`CODEX_HOME` da máquina que
   subiu o daemon (novo `engineSpawnEnv`). Antes, um perfil `codex` rodava com o

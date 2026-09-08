@@ -80,7 +80,7 @@ describe("attachments", () => {
     const events: ThreadEvent[] = [
       { ts: "2026-01-01T00:00:00.000Z", type: "user", threadId: "t-abc", text: "olha", attachments: [a!] },
     ];
-    const out = pack(events, { keepLastMessages: 20, prefixCharBudget: 2000 }, 8000);
+    const out = pack(events, { keepLastMessages: 20, prefixCharBudget: 2000, compactar: true }, 8000);
     expect(out.text).toContain(`[imagem anexada: ${a?.path}]`);
   });
 });

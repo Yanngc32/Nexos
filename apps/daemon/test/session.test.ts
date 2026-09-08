@@ -14,7 +14,11 @@ import {
   sessionBus,
   switchThread,
 } from "../src/session.ts";
+import { modeloDoMotor } from "../src/session.ts";
 import { StubEngine } from "../src/engines/stub.ts";
+import type { Profile, ThreadEvent } from "@nexo/shared";
+
+const ts0 = "2026-01-01T00:00:00.000Z";
 import { saveAgent } from "../src/agents.ts";
 import { deadCred, liveCred, tempHome } from "./helpers.ts";
 import { saveConfig } from "../src/config.ts";
@@ -254,7 +258,8 @@ describe("session", () => {
       expect(totals.cacheCreate).toBe(80548);
       expect(totals.contextTokens).toBe(40376);
       expect(totals.costUsd).toBeCloseTo(0.8, 5);
-      expect(totals.model).toBe("claude-opus-5[1m]");
+      // o fixture do stub espelha o CLI real: nome sem sufixo de janela
+      expect(totals.model).toBe("claude-sonnet-5");
       // limites são da conta, não da conversa
       expect(readThread(t.id, home).some((e) => e.type === "usage")).toBe(true);
       expect(limitsOf("p1")?.fiveHour?.utilization).toBe(0.38);
@@ -394,5 +399,78 @@ describe("session", () => {
 
   it("clearThread numa thread inexistente lança", async () => {
     await expect(clearThread("nao-existe", tempHome())).rejects.toThrow(/não existe/);
+  });
+});
+
+/*
+ * O teto do pack sai da janela do modelo, e a janela sai do NOME dele
+ * (`contextWindowOf`). Quem escolhe o nome é isto — e é a única parte com
+ * decisão de verdade, já que o motor de CLI não sobe em teste.
+ */
+describe("modeloDoMotor", () => {
+  const perfil = (over = {}) => ({ id: "p", engine: "claude", createdAt: ts0, status: "ready", ...over }) as Profile;
+  const uso = (model?: string) =>
+    ({ ts: ts0, type: "usage", threadId: "t", input: 1, output: 1, cacheRead: 0, cacheCreate: 0, contextTokens: 2, ...(model ? { model } : {}) }) as ThreadEvent;
+
+  it("o que já rodou na conversa ganha: o CLI é quem sabe o sufixo de janela", () => {
+    const home = tempHome();
+    const eventos = [uso("claude-opus-5[1m]")];
+    expect(modeloDoMotor(perfil({ model: "sonnet" }), eventos, undefined, home)).toBe("claude-opus-5[1m]");
+  });
+
+  it("o ÚLTIMO turno ganha: trocar de conta no meio pode trocar o modelo", () => {
+    const home = tempHome();
+    const eventos = [uso("claude-sonnet-5"), uso("claude-opus-5[1m]")];
+    expect(modeloDoMotor(perfil(), eventos, undefined, home)).toBe("claude-opus-5[1m]");
+  });
+
+  it("antes do primeiro turno vale o que a conta declara", () => {
+    const home = tempHome();
+    expect(modeloDoMotor(perfil({ model: "opus" }), [], undefined, home)).toBe("opus");
+  });
+
+  it("o modelo do agente vence o da conta, como em todo o resto", () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    saveAgent({ id: "ag", name: "Ag", profileId: "p1", model: "haiku" }, home);
+    expect(modeloDoMotor(perfil({ model: "opus" }), [], "ag", home)).toBe("haiku");
+  });
+
+  it("sem modelo em lugar nenhum é vazio, e o teto cai no piso", () => {
+    const home = tempHome();
+    expect(modeloDoMotor(perfil(), [uso()], undefined, home)).toBe("");
+  });
+
+  it("motor que não é claude não chuta janela: o sufixo [1m] é convenção do CLI dele", () => {
+    const home = tempHome();
+    for (const engine of ["stub", "codex", "api"] as const) {
+      expect(modeloDoMotor(perfil({ engine, model: "opus" }), [uso("x[1m]")], undefined, home)).toBe("");
+    }
+  });
+});
+
+describe("janela da sessão", () => {
+  it("a janela REPORTADA ganha da deduzida do nome, mesmo chegando antes", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    // o fixture USAGE manda window(980k) antes de session(model sem sufixo = 200k)
+    await postMessage(t.id, "USAGE", home);
+    expect(getLive(t.id)?.session?.contextWindow).toBe(980_000);
+    expect(getLive(t.id)?.session?.model).toBe("claude-sonnet-5");
+  });
+
+  it("o evento window sai pro cliente: é o medidor de contexto da tela", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    const vistos: number[] = [];
+    const onEv = (ev: { type: string; contextWindow?: number }) => {
+      if (ev.type === "window" && ev.contextWindow) vistos.push(ev.contextWindow);
+    };
+    sessionBus.on(t.id, onEv);
+    await postMessage(t.id, "USAGE", home);
+    sessionBus.off(t.id, onEv);
+    expect(vistos).toEqual([980_000]);
   });
 });

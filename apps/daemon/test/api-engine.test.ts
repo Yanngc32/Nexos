@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer, type RequestListener } from "node:http";
 import { describe, it, expect, afterEach } from "vitest";
 import { addProfile } from "../src/profiles.ts";
 import { ApiEngine } from "../src/engines/api.ts";
@@ -8,7 +8,9 @@ import type { EngineEvent } from "@nexo/shared";
 let server: ReturnType<typeof createServer> | undefined;
 let base = "";
 
-async function listen(handler: Parameters<typeof createServer>[0]): Promise<void> {
+// RequestListener, não Parameters<typeof createServer>[0]: createServer é
+// sobrecarregado e Parameters pega a última assinatura, que é ServerOptions.
+async function listen(handler: RequestListener): Promise<void> {
   server = createServer(handler);
   await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", () => resolve()));
   const addr = server.address();
