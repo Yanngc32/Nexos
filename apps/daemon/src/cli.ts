@@ -17,6 +17,7 @@ import { loginProfile } from "./login.ts";
 import { pidPath, startDaemon, waitClosed } from "./server.ts";
 import { fecharTudo, pararDeManter } from "./escuta.ts";
 import { instalarSkill } from "./skill.ts";
+import { apagarBranchesNexo, listarBranchesNexo, podeIsolar } from "./worktree.ts";
 import {
   isTrusted,
   listServices,
@@ -247,6 +248,58 @@ async function main(): Promise<void> {
     throw new Error("uso: nexo svc ls|up|down|restart|logs|trust");
   }
 
+  /*
+   * Os branches que o fan-in deixa. Existe porque eles ACUMULAM: o Nexo tira a
+   * árvore de trabalho e deixa o branch de propósito (é ele que guarda o que o
+   * agente fez), então um repositório com uso regular de time junta um por
+   * membro por run e ninguém apaga dezenas à mão.
+   */
+  if (cmd === "branch" && (argv[1] === "ls" || argv[1] === "rm")) {
+    const project = argv[2] && !argv[2].startsWith("--") ? argv[2] : process.cwd();
+    const isolar = await podeIsolar(project);
+    if (!isolar.pode) {
+      console.error(`nexo: ${isolar.motivo}`);
+      process.exitCode = 1;
+      return;
+    }
+    const run = arg("--run", argv);
+    const todos = await listarBranchesNexo(project);
+    const alvo = run ? todos.filter((b) => b.runId === run) : todos;
+
+    if (!alvo.length) {
+      console.log(run ? `nenhum branch do run ${run}` : "nenhum branch nexo/*");
+      return;
+    }
+
+    if (argv[1] === "ls") {
+      for (const b of alvo) {
+        console.log(`${b.mesclado ? "mesclado    " : "não mesclado"}\t${b.ultimo.slice(0, 10)}\t${b.branch}`);
+      }
+      const sobrando = alvo.filter((b) => b.mesclado).length;
+      console.log(`\n${alvo.length} branch(es); ${sobrando} já no HEAD — 'nexo branch rm' apaga esses.`);
+      return;
+    }
+
+    /*
+     * Só o que já está no HEAD. O resto tem commit que só existe ali: apagar
+     * seria perder trabalho que ninguém olhou, que é justamente o que o
+     * `removerWorktree` evita ao preservar o branch.
+     */
+    const guardados = alvo.filter((b) => !b.mesclado);
+    const feitos = await apagarBranchesNexo(project, alvo.filter((b) => b.mesclado).map((b) => b.branch));
+    for (const f of feitos) console.log(f.ok ? `apagado ${f.branch}` : `falhou  ${f.branch}: ${f.saida}`);
+    if (guardados.length) {
+      // a linha em branco só quando teve saída antes dela: rodar a limpeza num
+      // repositório já limpo abria com linha vazia, parecendo erro engolido
+      if (feitos.length) console.log("");
+      console.log(`${guardados.length} preservado(s) por terem commit fora do HEAD:`);
+      for (const b of guardados) console.log(`  ${b.branch}  (${b.ultimo.slice(0, 10)})`);
+      console.log("Olhe com 'git log <branch>'. Pra apagar mesmo assim: git branch -D <branch>");
+    }
+    if (!feitos.length && !guardados.length) console.log("nada a apagar");
+    return;
+  }
+
   if (cmd === "thread" && argv[1] === "ls") {
     const project = argv[2] ?? process.cwd();
     for (const t of listThreads(project, home)) console.log(t.id, t.profileId);
@@ -412,6 +465,8 @@ async function main(): Promise<void> {
   nexo login <id>
   nexo svc ls | up <id>|--all | down <id>|--all | restart <id> | logs <id> | trust
   nexo thread new <perfil> | ls [pasta] | show <id>
+  nexo branch ls | rm [pasta] [--run <id>]   (branches nexo/* dos times; rm só apaga
+                                              o que já está no HEAD)
   nexo chat <perfil>        (no chat: /account, /accounts, /cost, /context, /usage,
                              /switch <id>, /help)
   nexo switch <perfil> --thread <id>`);

@@ -77,6 +77,15 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   Quem escolhe o run do momento passou a ser o daemon, não a tela: escolher na tela obrigava a
   baixar tudo pra jogar quase tudo fora. A listagem também ganhou teto de resultado (50) e ordem
   pelo id — que é cronológica, porque o id carrega o tempo em base36 com largura fixa.
+- `nexo branch ls | rm [pasta] [--run <id>]`: a limpeza dos branches que o fan-in deixa. Eles
+  acumulam por desenho — a árvore de trabalho sai do disco no fim do run e o branch fica, porque é
+  ele que guarda o que o agente fez — então um repositório com uso regular de time junta um por
+  membro por run, pra sempre, e ninguém apaga dezenas à mão. O `rm` apaga **só o que já está no
+  HEAD**, ou seja o que apagar não perde commit nenhum; o resto sai listado com a data, e forçar
+  continua sendo `git branch -D`. Branch de run em andamento também não sai, e quem recusa é o
+  próprio git (está em checkout numa árvore viva) — a checagem não é duplicada aqui pra não
+  arriscar discordar dele. "Mesclado" é sempre em relação ao HEAD atual, e isso erra pro lado
+  seguro: trabalho que entrou no `main` mas não neste HEAD é preservado.
 - Teto do context pack derivado da janela do motor, em vez de 8000 fixo pra toda conta. Uma conta de
   janela grande recebia o mesmo corte de uma de 8k, então conversa longa "esquecia" coisa que
   caberia folgado. Agora é metade da janela, com piso em 8000 (o valor antigo, pra motor de janela

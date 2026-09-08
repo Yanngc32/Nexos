@@ -131,12 +131,14 @@ effort, permission mode, limites) e **Fallback** (ordem de tentativa entre conta
 
 ```
 nexo up | down
+nexo skill install
 nexo profile add <id> --engine stub|claude|codex|api
 nexo profile ls | rm <id>
 nexo profile set <id> [--model ...] [--effort ...] [--mode ...]
 nexo login <id>
 nexo svc ls | up <id>|--all | down <id>|--all | restart <id> | logs <id> | trust
 nexo thread new <perfil> | ls [pasta] | show <id>
+nexo branch ls | rm [pasta] [--run <id>]
 nexo chat <perfil>
 nexo switch <perfil> --thread <id>
 ```

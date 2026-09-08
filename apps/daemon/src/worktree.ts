@@ -111,3 +111,86 @@ export async function commitarTrabalho(dir: string, mensagem: string): Promise<R
   if (!add.ok) return add;
   return git(["commit", "--no-verify", "-m", mensagem], dir);
 }
+
+/**
+ * A limpeza dos branches que o fan-in deixa.
+ *
+ * O `removerWorktree` tira a árvore e DEIXA o branch, de propósito — é ele que
+ * guarda o que o agente fez. O efeito acumulado é que um repositório com uso
+ * regular de time junta um branch por membro por run, pra sempre, e ninguém tem
+ * paciência de apagar dezenas à mão.
+ *
+ * O que faz isto ser seguro é o critério: só sai o que JÁ ESTÁ no HEAD, ou seja
+ * o que apagar não perde commit nenhum. O resto continua listado, com a idade,
+ * pra você decidir.
+ */
+
+export type BranchNexo = {
+  branch: string;
+  /** `nexo/<run>/<n>-<agente>`: o segundo pedaço é o run que o criou. */
+  runId: string;
+  /** Já está no HEAD — apagar não perde commit. */
+  mesclado: boolean;
+  /** Data do último commit, ISO. É o que diz a idade do trabalho parado ali. */
+  ultimo: string;
+};
+
+function runIdDoBranch(branch: string): string {
+  return branch.split("/")[1] ?? "";
+}
+
+/**
+ * Lista os branches `nexo/*` do repositório, dizendo quais já estão no HEAD.
+ *
+ * **"Mesclado" é sempre em relação ao HEAD atual**, e isso erra pro lado seguro:
+ * se você está num branch qualquer, trabalho que já entrou no `main` mas não
+ * neste HEAD aparece como não mesclado e é PRESERVADO. O contrário — apagar
+ * porque estava mesclado em outro lugar — é que seria perda.
+ */
+export async function listarBranchesNexo(projectPath: string): Promise<BranchNexo[]> {
+  const repo = resolve(projectPath);
+  const todos = await git(["for-each-ref", "--format=%(refname:short)%09%(committerdate:iso-strict)", "refs/heads/nexo"], repo);
+  if (!todos.ok || !todos.saida) return [];
+  const mesclados = await git(["for-each-ref", "--merged", "HEAD", "--format=%(refname:short)", "refs/heads/nexo"], repo);
+  const noHead = new Set(mesclados.ok ? mesclados.saida.split("\n").map((l) => l.trim()).filter(Boolean) : []);
+
+  return todos.saida
+    .split("\n")
+    .map((linha) => linha.split("\t"))
+    .filter(([branch]) => Boolean(branch))
+    .map(([branch, data]) => ({
+      branch: branch!,
+      runId: runIdDoBranch(branch!),
+      mesclado: noHead.has(branch!),
+      ultimo: data ?? "",
+    }));
+}
+
+export type Apagado = { branch: string; ok: boolean; saida: string };
+
+/**
+ * Apaga os branches pedidos, um por vez.
+ *
+ * Um por vez, e não numa chamada só, porque com vários nomes o git devolve UM
+ * código de saída pro lote: dava pra saber que algo falhou, não o quê. Aqui a
+ * lista é curta e cada resposta fica atrelada ao seu branch.
+ *
+ * `-d` (minúsculo) sempre: é o próprio git quem recusa branch com commit fora
+ * do HEAD e branch em checkout numa árvore viva — inclusive de run que está
+ * rodando agora. Duplicar essa checagem aqui seria arriscar discordar dele.
+ * Quem quer forçar usa `git branch -D` e assume.
+ */
+export async function apagarBranchesNexo(projectPath: string, branches: string[]): Promise<Apagado[]> {
+  const repo = resolve(projectPath);
+  const feitos: Apagado[] = [];
+  for (const branch of branches) {
+    // só o que este módulo cria: um nome vindo de fora não apaga branch de pessoa
+    if (!branch.startsWith("nexo/")) {
+      feitos.push({ branch, ok: false, saida: "não é branch do Nexo" });
+      continue;
+    }
+    const r = await git(["branch", "-d", branch], repo);
+    feitos.push({ branch, ok: r.ok, saida: r.saida });
+  }
+  return feitos;
+}

@@ -47,6 +47,7 @@ nexo profile set <id> [--model ...] [--effort ...] [--mode ...]
 nexo login <id>
 nexo svc ls | up <id>|--all | down <id>|--all | restart <id> | logs <id> | trust
 nexo thread new <perfil> | ls [pasta] | show <id>
+nexo branch ls | rm [pasta] [--run <id>]
 nexo chat <perfil>
 nexo switch <perfil> --thread <id>
 ```
@@ -163,6 +164,20 @@ git branch --list 'nexo/*'          # o que os agentes produziram
 git diff master..nexo/<run>/1-<ag>  # o que um membro mudou
 git branch -D nexo/<run>/1-<ag>     # descartar
 ```
+
+Como o branch fica, eles acumulam — um por membro por run. A limpeza:
+
+```bash
+nexo branch ls                # o que existe, e o que já está no HEAD
+nexo branch rm                # apaga SÓ o que já está no HEAD
+nexo branch rm --run <id>     # o mesmo, restrito a um run
+```
+
+O `rm` nunca apaga branch com commit fora do HEAD: seria jogar fora trabalho que
+ninguém olhou, que é exatamente o que preservar o branch evita. Esses aparecem
+listados, com a data, pra você decidir — e `git branch -D` continua sendo o jeito
+de forçar. Branch de run em andamento também não sai: quem recusa é o git, porque
+ele está em checkout numa árvore viva.
 
 Projeto que não é repositório git roda igual, mas sem isolamento: os membros paralelos dividem a
 mesma pasta e vão se atropelar se escreverem arquivo. O run registra isso, e a tela avisa.
