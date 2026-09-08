@@ -242,6 +242,11 @@ do projeto. Sem projeto aberto, ela mostra tudo que o daemon está fazendo.
   Trate como o que é: um shell com um modelo na frente. Não aponte para pastas que você
   não confiaria a um script de terceiros.
 
+## Contribuindo
+
+[CONTRIBUTING.md](CONTRIBUTING.md) — as convenções que não se descobrem lendo o código:
+por que nada compila, o que o Windows quebra, e a barra para uma dependência nova.
+
 ## Licença
 
 MIT — ver [LICENSE](LICENSE).
