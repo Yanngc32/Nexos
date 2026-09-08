@@ -6,7 +6,13 @@ import { destinoDaSkill, instalarSkill, origemDaSkill } from "../src/skill.ts";
 import { ferramentasDeAutoria } from "../src/autoria.ts";
 import { tempHome } from "./helpers.ts";
 
-const skill = () => readFileSync(origemDaSkill(), "utf8");
+/**
+ * Conteúdo, não bytes: no Windows o `core.autocrlf` do git faz checkout com
+ * CRLF, então o arquivo começa com `---\r\n` e toda asserção de linha falha.
+ * Já me pegou uma vez neste repositório, no teste de worktree — que normaliza
+ * do mesmo jeito e pelo mesmo motivo.
+ */
+const skill = () => readFileSync(origemDaSkill(), "utf8").replace(/\r\n/g, "\n");
 
 describe("instalarSkill", () => {
   it("põe em ~/.claude/skills, escopo de usuário", () => {
@@ -16,7 +22,7 @@ describe("instalarSkill", () => {
     const r = instalarSkill(base);
     expect(r.ok).toBe(true);
     expect(r.destino).toBe(join(base, ".claude", "skills", "nexo-times", "SKILL.md"));
-    expect(readFileSync(r.destino, "utf8")).toBe(skill());
+    expect(readFileSync(r.destino, "utf8").replace(/\r\n/g, "\n")).toBe(skill());
   });
 
   it("é idempotente: instalar de novo só sobrescreve", () => {
