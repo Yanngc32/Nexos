@@ -1,29 +1,29 @@
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { globalSkillsDir, nexoHome } from "./home.ts";
 
 /**
- * Instala a skill `nexo-times` pro CLI do Claude.
+ * Instala a skill `nexo-times` na pasta global do Nexo.
  *
  * As ferramentas MCP já bastam pro modelo criar agente e time: as regras estão
  * nas descrições delas. A skill é a camada de JULGAMENTO — quando vale montar
  * um time, qual topologia, o que faz um `instructions` prestar — que não cabe
  * em descrição de ferramenta e que ele só carrega quando o assunto aparece.
  *
- * Vai em `~/.claude/skills/` (escopo de usuário) e não no `.claude/` do
- * projeto, por dois motivos: vale em todos os projetos de uma vez, e o Nexo não
- * escreve dentro do SEU repositório sem você pedir.
- *
- * É comando explícito, e não algo que o daemon faça ao subir: `~/.claude` é a
- * configuração de outra ferramenta, e mexer nela sozinho seria abusar da
- * confiança de quem só queria um orquestrador.
+ * Vai em `~/.nexo/skills/` — a mesma pasta que `syncGlobalSkills` (ver
+ * `engines/cli.ts`) já copia pra dentro do `CLAUDE_CONFIG_DIR` isolado de cada
+ * perfil a cada turno. Instalar direto em `~/.claude/skills/` (config real do
+ * Claude Code na máquina, fora do isolamento por perfil) fazia a skill vazar
+ * pra qualquer sessão Claude Code do usuário — inclusive fora do Nexo — e
+ * ainda assim não chegar em perfil nenhum do Nexo que não usasse por acaso
+ * esse mesmo `~/.claude` como config.
  */
 
 const NOME = "nexo-times";
 
-export function destinoDaSkill(base = homedir()): string {
-  return join(base, ".claude", "skills", NOME, "SKILL.md");
+export function destinoDaSkill(base = nexoHome()): string {
+  return join(globalSkillsDir(base), NOME, "SKILL.md");
 }
 
 /**
@@ -42,7 +42,7 @@ export function origemDaSkill(): string {
 
 export type Instalacao = { ok: boolean; destino: string; motivo?: string };
 
-export function instalarSkill(base = homedir()): Instalacao {
+export function instalarSkill(base = nexoHome()): Instalacao {
   const origem = origemDaSkill();
   const destino = destinoDaSkill(base);
   if (!existsSync(origem)) {

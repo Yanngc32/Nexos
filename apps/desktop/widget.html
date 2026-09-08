@@ -14,8 +14,21 @@
       <header class="head">
         <span class="grip" id="grip">Nexo</span>
         <span class="off hidden" id="off">motor desligado</span>
+        <button type="button" class="x" id="mini" title="Minimizar">−</button>
         <button type="button" class="x" id="fechar" title="Esconder o painel">×</button>
       </header>
+
+      <!-- Pílula do modo mini. Vive fora dos blocos porque o CSS troca quem
+           aparece pelo modo, sem a pintura ter de esconder um a um. -->
+      <section class="mini" id="bl-mini">
+        <span class="dot" id="mini-dot"></span>
+        <span class="mini-passos" id="mini-passos"></span>
+        <span class="mini-ms" id="mini-ms"></span>
+        <span class="mini-quota hidden" id="mini-quota">
+          <span class="arco" id="mini-arco"></span>
+          <span class="mini-pct" id="mini-pct"></span>
+        </span>
+      </section>
 
       <section class="bloco hidden" id="bl-run">
         <p class="obj" id="run-obj"></p>

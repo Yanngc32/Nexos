@@ -6,6 +6,7 @@ import {
   emVoo,
   faixaDoRun,
   passoAtual,
+  resumoMini,
 } from "../widget-view.js";
 
 const T0 = Date.parse("2026-01-01T12:00:00.000Z");
@@ -147,6 +148,69 @@ describe("relógio do run fechado", () => {
   it("run em andamento continua crescendo", () => {
     const r = run({ steps: [{ index: 0, agentId: "a1", status: "running", startedAt: iso(0) }] });
     expect(faixaDoRun(r, T0 + 7000).ms).toBe(7000);
+  });
+});
+
+describe("resumoMini", () => {
+  const anel = (over = {}) => ({ id: "claude-outlook", engine: "claude", uso: 0.87, bloqueada: false, ...over });
+
+  it("run rodando com total: ponto aceso, progresso e tempo", () => {
+    const faixa = faixaDoRun(
+      run({
+        steps: [
+          { index: 0, agentId: "a1", status: "done" },
+          { index: 1, agentId: "a2", status: "running", startedAt: iso(0) },
+        ],
+      }),
+      T0 + 3000,
+    );
+    const r = resumoMini(faixa, [], []);
+    expect(r).toMatchObject({ ligado: true, erro: false, passos: "1/2", ms: 3000, quieto: false });
+    // o objetivo e o agente saem da pílula, mas não do painel
+    expect(r.tituloStatus).toContain("auditar");
+    expect(r.tituloStatus).toContain("a2");
+  });
+
+  it("run sem passos montados não inventa progresso", () => {
+    const r = resumoMini(faixaDoRun(run(), T0 + 1000), [], []);
+    expect(r.passos).toBe("");
+    expect(r.quieto).toBe(false);
+    expect(r.tituloStatus).toContain("passos ainda não montados");
+  });
+
+  it("nada rodando é estado quieto, não pílula vazia", () => {
+    const r = resumoMini(null, [], []);
+    expect(r).toMatchObject({ ligado: false, quieto: true, passos: "", ms: 0, quota: null });
+    expect(r.tituloStatus).toBe("nada rodando");
+    expect(r.tituloQuota).toBe("");
+  });
+
+  it("conversa em voo sem run acende o ponto: o painel existe pra isso", () => {
+    const r = resumoMini(null, [{ profileId: "p1" }], []);
+    expect(r).toMatchObject({ ligado: true, quieto: false });
+    expect(r.tituloStatus).toContain("1 conversa");
+  });
+
+  it("mostra o pior anel e diz de quem é", () => {
+    const r = resumoMini(null, [], [anel(), anel({ id: "folgada", uso: 0.1 })]);
+    expect(r.quota).toMatchObject({ id: "claude-outlook", pct: 87, bloqueada: false });
+    expect(r.tituloQuota).toBe("claude-outlook · claude — 87% da janela mais apertada");
+  });
+
+  it("conta bloqueada: o título diz o motivo, que a porcentagem não diria", () => {
+    const r = resumoMini(null, [], [anel({ uso: 0.3, bloqueada: true })]);
+    expect(r.quota.bloqueada).toBe(true);
+    expect(r.tituloQuota).toContain("conta bloqueada");
+  });
+
+  it("run com erro marca o ponto, e o custo vai pro título", () => {
+    const faixa = faixaDoRun(
+      run({ status: "error", budget: { maxUsd: 2 }, steps: [{ index: 0, status: "error", costUsd: 0.5 }] }),
+      T0,
+    );
+    const r = resumoMini(faixa, [], []);
+    expect(r).toMatchObject({ ligado: false, erro: true });
+    expect(r.tituloStatus).toContain("US$ 0.5000 de US$ 2");
   });
 });
 

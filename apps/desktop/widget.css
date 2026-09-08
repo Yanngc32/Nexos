@@ -16,6 +16,10 @@
   --ok: #4bb96f;
   --warn: #d8a13a;
   --bad: #d65c5c;
+  /* Respiro entre o cartão e a borda da janela. Tem de caber a sombra inteira:
+     a janela é retangular, então sombra que passa daqui é cortada em quadrado.
+     O widget.js lê esta variável pra medir a janela — não duplicar o número. */
+  --folga: 10px;
   color-scheme: dark;
 }
 
@@ -36,13 +40,14 @@ body {
 }
 
 .card {
-  margin: 6px;
+  margin: var(--folga);
   padding: 8px 10px 10px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: color-mix(in srgb, var(--bg) 92%, transparent);
   backdrop-filter: blur(10px);
-  box-shadow: 0 8px 26px rgb(0 0 0 / 45%);
+  /* cabe em --folga: alcance ~= desfoque/2 + deslocamento */
+  box-shadow: 0 3px 12px rgb(0 0 0 / 55%);
 }
 
 .head {
@@ -112,9 +117,11 @@ body {
   color: var(--muted);
 }
 
+/* Progresso e tempo são a resposta de "está andando?": ficam no texto cheio,
+   enquanto quem contextualiza (agente, custo, contas) fica em cinza. */
 .num {
   flex: 0 0 auto;
-  color: var(--muted);
+  color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
@@ -172,22 +179,28 @@ body {
   font-size: 11px;
 }
 
+/*
+ * Uma conta por linha. Lado a lado, dois anéis dividiam os 264px da janela e o
+ * id da segunda conta chegava cortado ("claude-outlo…") — um identificador pela
+ * metade não identifica nada. Empilhado, o id tem a largura inteira do cartão.
+ */
 .aneis {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .anel {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 /* O anel é um conic-gradient: sem SVG, sem biblioteca, e reflete 0..1 direto. */
 .arco {
-  width: 22px;
-  height: 22px;
+  flex: 0 0 auto;
+  width: var(--d, 22px);
+  height: var(--d, 22px);
   border-radius: 50%;
   background: conic-gradient(var(--cor) calc(var(--pct) * 1%), #26262c 0);
   position: relative;
@@ -196,26 +209,30 @@ body {
 .arco::after {
   content: "";
   position: absolute;
-  inset: 3px;
+  inset: calc(var(--d, 22px) / 7);
   border-radius: 50%;
   background: var(--bg);
 }
 
 .anel-txt {
   display: flex;
-  flex-direction: column;
-  line-height: 1.15;
+  flex: 1;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
 }
 
 .anel-id {
-  max-width: 78px;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--muted);
 }
 
 .anel-pct {
-  color: var(--muted);
+  flex: 0 0 auto;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
@@ -227,4 +244,105 @@ body {
 
 .hidden {
   display: none !important;
+}
+
+/*
+ * Modo mini: uma pílula de uma linha, pro painel poder ficar aberto o dia todo
+ * sem disputar espaço com o editor. Quem manda é `body[data-mini]` — a pintura
+ * enche as duas versões e o CSS escolhe qual delas existe, o que evita um
+ * segundo caminho de "esconder bloco por bloco" que sairia do passo com o outro.
+ */
+.mini,
+body[data-mini="1"] .bloco,
+body[data-mini="1"] .vazio {
+  display: none;
+}
+
+body[data-mini="1"] .card {
+  display: flex;
+  /* A pílula tem a largura do que ela mostra. Um cartão esticado até a borda da
+     janela devolveria a caixa grande que o modo mini existe pra não ter. */
+  width: max-content;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  /* A pílula não tem faixa de arrastar sobrando: ela toda é a faixa. */
+  -webkit-app-region: drag;
+}
+
+body[data-mini="1"] .mini {
+  display: flex;
+  order: 1;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+body[data-mini="1"] .head {
+  order: 2;
+  flex: 0 0 auto;
+  gap: 2px;
+  margin: 0;
+}
+
+/* O nome do projeto sai da pílula, mas volta no `title` do status. */
+body[data-mini="1"] .grip {
+  display: none;
+}
+
+/*
+ * Fora do hover a pílula é quase só o dado. O espaço dos botões continua
+ * reservado — aparecer empurrando o número seria pior que aparecer do nada.
+ */
+body[data-mini="1"] .x {
+  opacity: 0;
+  transition: opacity 0.12s ease-out;
+}
+
+body[data-mini="1"] .card:hover .x,
+body[data-mini="1"] .x:focus-visible {
+  opacity: 1;
+}
+
+.mini-passos {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Se faltar largura, o tempo é o primeiro a ceder: ele está no `title`. */
+.mini-ms {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.mini-quota {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.mini-quota .arco {
+  --d: 14px;
+}
+
+.mini-pct {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mini-pct[data-bad="1"] {
+  color: var(--bad);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-mini="1"] .x {
+    transition: none;
+  }
 }

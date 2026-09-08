@@ -15,13 +15,13 @@ import { tempHome } from "./helpers.ts";
 const skill = () => readFileSync(origemDaSkill(), "utf8").replace(/\r\n/g, "\n");
 
 describe("instalarSkill", () => {
-  it("põe em ~/.claude/skills, escopo de usuário", () => {
-    // usuário e não projeto: vale em todos de uma vez, e o Nexo não escreve
-    // dentro do repositório de ninguém sem pedir
+  it("põe em ~/.nexo/skills, escopo global do Nexo", () => {
+    // pasta global do Nexo, não ~/.claude direto: syncGlobalSkills copia daqui
+    // pra dentro do CLAUDE_CONFIG_DIR isolado de cada perfil a cada turno
     const base = mkdtempSync(join(tmpdir(), "nexo-skill-"));
     const r = instalarSkill(base);
     expect(r.ok).toBe(true);
-    expect(r.destino).toBe(join(base, ".claude", "skills", "nexo-times", "SKILL.md"));
+    expect(r.destino).toBe(join(base, "skills", "nexo-times", "SKILL.md"));
     expect(readFileSync(r.destino, "utf8").replace(/\r\n/g, "\n")).toBe(skill());
   });
 
@@ -33,7 +33,7 @@ describe("instalarSkill", () => {
 
   it("cria a árvore de pastas que não existe", () => {
     const base = mkdtempSync(join(tmpdir(), "nexo-skill-"));
-    expect(existsSync(join(base, ".claude"))).toBe(false);
+    expect(existsSync(join(base, "skills"))).toBe(false);
     expect(instalarSkill(base).ok).toBe(true);
   });
 });

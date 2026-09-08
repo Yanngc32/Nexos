@@ -5,11 +5,13 @@ import type { EngineEvent, EngineOverrides, Profile, StartOpts } from "@nexo/sha
 import { EFFORT_LEVELS, MODEL_RE, PERMISSION_MODES, TOOL_PATTERN_RE } from "@nexo/shared";
 import type { Engine, EngineHandler } from "./types.ts";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { attachmentsDir, enginePidPath } from "../home.ts";
+import { join } from "node:path";
+import { attachmentsDir, enginePidPath, globalSkillsDir } from "../home.ts";
 import { killTree } from "../kill-tree.ts";
 import { spawnCwd } from "../project-cwd.ts";
 import { agentOverrides } from "../agents.ts";
 import { engineEnv, engineSpawnEnv, getProfile } from "../profiles.ts";
+import { syncGlobalSkills } from "../skills.ts";
 import { isNodeScript, spawnBin } from "../spawn-bin.ts";
 import { ENV_TOKEN_MCP, flagsDeMcpCodex, MCP_TOOLS } from "../mcp.ts";
 import { parseCliLine } from "./parse-claude.ts";
@@ -147,6 +149,12 @@ export class CliEngine implements Engine {
     this.args.push(...this.attachmentFlags(profile?.engine));
     this.args.push(...mcp.flags);
     this.lastArgs = this.args;
+    // Skill de `~/.nexo/skills` só chega no motor se estiver dentro do CLAUDE_CONFIG_DIR
+    // isolado deste perfil — sincroniza a cada turno pra qualquer conta enxergar a mesma skill.
+    if (profile?.engine === "claude") {
+      const dir = engineEnv(profile, this.home).CLAUDE_CONFIG_DIR;
+      if (dir) syncGlobalSkills(join(dir, "skills"), globalSkillsDir(this.home));
+    }
   }
 
   /**

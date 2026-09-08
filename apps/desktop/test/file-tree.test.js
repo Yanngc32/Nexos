@@ -81,6 +81,23 @@ describe("árvore: montagem", () => {
     expect(btn.dataset.path).toBe("README.md");
   });
 
+  it("o botão leva o tipo do arquivo, e o nome continua o texto inteiro do nó", async () => {
+    const { ft, tree } = montar({
+      listDir: pasta([
+        { name: "app.ts", dir: false, path: "app.ts" },
+        { name: "dados.xyz", dir: false, path: "dados.xyz" },
+      ]),
+    });
+    await ft.load();
+    const [ts, desconhecido] = tree.querySelectorAll("button.tree-file");
+    expect(ts.dataset.kind).toBe("ts");
+    // o marcador é ::before puro: nada entra no DOM, o textContent segue o nome
+    expect(ts.textContent).toBe("app.ts");
+    expect(ts.children).toHaveLength(0);
+    // tipo desconhecido não deixa atributo pra trás — o CSS é que tem o default
+    expect(desconhecido.hasAttribute("data-kind")).toBe(false);
+  });
+
   it("recarregar troca o conteúdo em vez de acumular", async () => {
     const { ft, tree } = montar({ listDir: pasta([{ name: "a.txt", dir: false, path: "a.txt" }]) });
     await ft.load();

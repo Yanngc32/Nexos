@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("nexo", {
   daemonInfo: () => ipcRenderer.invoke("daemon:info"),
@@ -7,7 +7,9 @@ contextBridge.exposeInMainWorld("nexo", {
   openLogin: (id) => ipcRenderer.invoke("profile:login", id),
   toggleWidget: () => ipcRenderer.invoke("widget:toggle"),
   hideWidget: () => ipcRenderer.invoke("widget:hide"),
-  resizeWidget: (altura) => ipcRenderer.invoke("widget:resize", altura),
+  resizeWidget: (w, h) => ipcRenderer.invoke("widget:resize", { w, h }),
+  setWidgetMini: (on) => ipcRenderer.invoke("widget:mini", on),
+  widgetState: () => ipcRenderer.invoke("widget:state"),
   openExternal: (url) => ipcRenderer.invoke("shell:external", url),
   clearBrowserCache: (url) => ipcRenderer.invoke("browser:clear-cache", url),
   pickFolder: () => ipcRenderer.invoke("folder:pick"),

@@ -107,3 +107,47 @@ export function aneisDeConta(contas) {
 export function emVoo(agentes, runId = "") {
   return (Array.isArray(agentes) ? agentes : []).filter((a) => a?.busy && (!runId || a.runId !== runId));
 }
+
+/**
+ * Retrato do modo mini: só o que responde "está andando?" e "quanto de quota
+ * sobrou?", mais o texto do que ficou escondido.
+ *
+ * A pílula tem ~168px e não cabe objetivo, lista de contas nem custo. Esconder
+ * sem devolver nada seria uma perda seca, então tudo que sai da tela volta como
+ * `titulo*` — o painel usa esses textos como `title` das peças. Por isso os
+ * títulos são montados aqui e não na pintura: é a parte que dá pra esquecer um
+ * campo, e teste pega.
+ */
+export function resumoMini(faixa, emVooAgora = [], aneis = []) {
+  const voo = Array.isArray(emVooAgora) ? emVooAgora : [];
+  /** O pior anel já vem primeiro: `aneisDeConta` ordena da conta mais apertada. */
+  const pior = (Array.isArray(aneis) ? aneis : [])[0] ?? null;
+  const partes = [];
+  if (faixa) {
+    partes.push(faixa.objetivo || "sem objetivo");
+    partes.push(faixa.total ? `${faixa.feitos}/${faixa.total} passos` : "passos ainda não montados");
+    partes.push(faixa.rodando ? faixa.agente || "montando…" : faixa.status);
+    if (faixa.custoUsd) {
+      partes.push(`US$ ${faixa.custoUsd.toFixed(4)}${faixa.tetoUsd ? ` de US$ ${faixa.tetoUsd}` : ""}`);
+    }
+  }
+  if (voo.length) {
+    const nomes = voo.map((a) => a.agentName || a.profileId).join(", ");
+    partes.push(`${voo.length} ${voo.length === 1 ? "conversa" : "conversas"}: ${nomes}`);
+  }
+  const pct = pior ? Math.round(pior.uso * 100) : 0;
+  const quem = pior ? `${pior.id}${pior.engine ? ` · ${pior.engine}` : ""}` : "";
+  const quanto = pior?.bloqueada ? "conta bloqueada" : `${pct}% da janela mais apertada`;
+  return {
+    ligado: Boolean(faixa?.rodando) || voo.length > 0,
+    erro: faixa?.status === "error",
+    /** Vazio quando o run ainda não tem passos: "0/0" pareceria travado. */
+    passos: faixa?.total ? `${faixa.feitos}/${faixa.total}` : "",
+    ms: faixa?.ms ?? 0,
+    /** Nada de run nem conversa: a pílula assume o estado quieto, não fica vazia. */
+    quieto: !faixa && voo.length === 0,
+    quota: pior ? { id: pior.id, pct, uso: pior.uso, bloqueada: pior.bloqueada } : null,
+    tituloStatus: partes.length ? partes.join(" · ") : "nada rodando",
+    tituloQuota: pior ? `${quem} — ${quanto}` : "",
+  };
+}

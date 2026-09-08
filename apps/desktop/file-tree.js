@@ -9,6 +9,8 @@
  * `nexo` e os elementos entram por parâmetro pelo mesmo motivo do api.js: dá pra
  * exercitar os estados de vazio, erro e seleção sem subir o app.
  */
+import { tipoDeArquivo } from "./file-kind.js";
+
 export function createFileTree({ nexo, getProjectPath, treeEl, previewEl }) {
   /** Caminho relativo do arquivo aberto; a marca de selecionado sai daqui. */
   let selecionado = "";
@@ -65,6 +67,10 @@ export function createFileTree({ nexo, getProjectPath, treeEl, previewEl }) {
         btn.textContent = ent.name;
         btn.dataset.path = ent.path;
         btn.dataset.on = ent.path === selecionado ? "1" : "0";
+        // o marcador é inteiro do CSS: aqui só se diz de que tipo é o arquivo, e
+        // tipo desconhecido não deixa atributo pra trás — cai no default
+        const kind = tipoDeArquivo(ent.name);
+        if (kind) btn.dataset.kind = kind;
         btn.addEventListener("click", () => void open(ent.path));
         container.append(btn);
       }

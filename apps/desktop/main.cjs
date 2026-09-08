@@ -1,11 +1,10 @@
-import { app, BrowserWindow, Tray, Menu, dialog, ipcMain, nativeImage, shell } from "electron";
-import { spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
-import { nexoEntry, resolveNodeBin, resolveTsxCli, spawnNexoProcess } from "../daemon/scripts/resolve-tsx.mjs";
+const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, nativeImage, shell } = require("electron");
+const { spawn } = require("node:child_process");
+const { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } = require("node:fs");
+const { readdir, readFile, stat } = require("node:fs/promises");
+const { homedir, tmpdir } = require("node:os");
+const { dirname, join, resolve, sep } = require("node:path");
+const { nexoEntry, resolveNodeBin, resolveTsxCli, spawnNexoProcess } = require("../daemon/scripts/resolve-tsx.cjs");
 
 function isEpipe(err) {
   return Boolean(err && (err.code === "EPIPE" || /EPIPE/.test(String(err.message ?? ""))));
@@ -27,7 +26,7 @@ process.on("unhandledRejection", (err) => {
   console.error(err);
 });
 
-const here = dirname(fileURLToPath(import.meta.url));
+const here = __dirname;
 const daemonRoot = join(here, "../daemon");
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "target", ".next", "coverage", ".turbo", ".nexo-test"]);
 const BIN_EXT =
@@ -319,11 +318,29 @@ function createWindow() {
     backgroundColor: "#181818",
     title: "Nexo",
     webPreferences: {
-      preload: join(here, "preload.mjs"),
+      preload: join(here, "preload.cjs"),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
+      // <webview> do painel Browser: é a única forma de o Nexo controlar (destacar,
+      // selecionar) o conteúdo carregado dentro, já que ele vive numa origem
+      // diferente (http://127.0.0.1:porta vs file://) e a Same-Origin Policy bloqueia
+      // acesso direto de fora. Ver browser-inspector-preload.cjs.
+      webviewTag: true,
     },
+  });
+  /*
+   * Trava as webPreferences de qualquer <webview> anexado nos valores esperados, em vez
+   * de confiar no que o HTML pediu — recomendação padrão do Electron pra webviewTag: sem
+   * isso, uma página comprometida poderia anexar um <webview> com nodeIntegration ligado.
+   * Só o painel Browser usa <webview>, e sempre com este preload — nenhum caso legítimo
+   * precisa de outro.
+   */
+  win.webContents.on("will-attach-webview", (_event, webPreferences) => {
+    webPreferences.preload = join(here, "browser-inspector-preload.cjs");
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = false;
   });
   const query = HEX.test(accent) ? { accent } : {};
   // NEXO_SHOT_URL (dev): captura uma página local em vez do app — serve pra
@@ -344,6 +361,24 @@ function createWindow() {
   win.webContents.on("did-fail-load", (_e, code, desc, url, isMainFrame) => {
     if (isMainFrame || win.isDestroyed()) return;
     win.webContents.send("frame:fail", { code, desc, url });
+  });
+
+  /*
+   * O <webview> do painel Browser é uma WebContents própria, separada da da janela —
+   * o did-fail-load acima (preso a win.webContents) nunca dispara pra ele. did-attach-webview
+   * entrega essa WebContents assim que ela nasce; sem este listener, a troca de <iframe>
+   * pra <webview> regrediria silenciosamente a mensagem amigável de "preview não carregou".
+   *
+   * `isMainFrame` aqui é o INVERSO do check acima de propósito: no <iframe> antigo, o preview
+   * era um SUBFRAME dentro da WebContents única da janela — por isso `if (isMainFrame) return`.
+   * No <webview>, o preview É a WebContents inteira, e a página carregada dentro dele é o
+   * frame principal DELA — por isso aqui é `if (!isMainFrame) return`.
+   */
+  win.webContents.on("did-attach-webview", (_e, webContents) => {
+    webContents.on("did-fail-load", (_ev, code, desc, url, isMainFrame) => {
+      if (!isMainFrame || win.isDestroyed()) return;
+      win.webContents.send("frame:fail", { code, desc, url });
+    });
   });
 
   win.webContents.on("before-input-event", (event, input) => {
@@ -386,7 +421,13 @@ function createWindow() {
  */
 
 const WIDGET_W = 264;
+/** Piso do clamp: a pílula mede a si mesma e pode pedir menos que isso. */
+const WIDGET_W_MIN = 72;
+/** Largura com que a janela NASCE no mini — perto do que a pílula mede, pra ela
+    não aparecer cortada num sliver enquanto o primeiro ajuste não chega. */
+const WIDGET_W_INICIAL_MINI = 180;
 const WIDGET_H_INICIAL = 150;
+const WIDGET_H_INICIAL_MINI = 52;
 /** Não deixa um conteúdo estranho esticar o painel até virar uma segunda janela. */
 const WIDGET_H_MAX = 420;
 
@@ -394,14 +435,14 @@ function widgetStatePath() {
   return join(app.getPath("userData"), "widget.json");
 }
 
-/** Onde o painel estava e se estava aberto. Some junto com o userData, e tudo bem. */
+/** Onde o painel estava, se estava aberto e se estava minimizado. Some junto com o userData, e tudo bem. */
 function readWidgetState() {
   try {
     const raw = JSON.parse(readFileSync(widgetStatePath(), "utf8"));
     const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
-    return { x: num(raw?.x), y: num(raw?.y), aberto: raw?.aberto === true };
+    return { x: num(raw?.x), y: num(raw?.y), aberto: raw?.aberto === true, mini: raw?.mini === true };
   } catch {
-    return { aberto: false };
+    return { aberto: false, mini: false };
   }
 }
 
@@ -417,8 +458,9 @@ function createWidget() {
   if (widget && !widget.isDestroyed()) return widget;
   const salvo = readWidgetState();
   widget = new BrowserWindow({
-    width: WIDGET_W,
-    height: WIDGET_H_INICIAL,
+    // nasce já no tamanho do modo salvo: evita o flash de painel cheio antes de o renderer aplicar o mini
+    width: salvo.mini ? WIDGET_W_INICIAL_MINI : WIDGET_W,
+    height: salvo.mini ? WIDGET_H_INICIAL_MINI : WIDGET_H_INICIAL,
     ...(salvo.x === undefined || salvo.y === undefined ? {} : { x: salvo.x, y: salvo.y }),
     show: false,
     frame: false,
@@ -431,7 +473,7 @@ function createWidget() {
     skipTaskbar: true,
     title: "Nexo — painel",
     webPreferences: {
-      preload: join(here, "preload.mjs"),
+      preload: join(here, "preload.cjs"),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
@@ -528,17 +570,32 @@ app.whenReady().then(() => {
     return { ok: true };
   });
   /**
-   * O painel mede o próprio conteúdo e pede a altura. Sem isso ele teria altura
-   * fixa: sobraria vazio com um run só, ou cortaria linha com quatro contas.
+   * O painel mede o próprio conteúdo e pede o tamanho. Sem isso ele teria altura
+   * fixa: sobraria vazio com um run só, ou cortaria linha com quatro contas. A
+   * largura entra na conta por causa do modo minimizado, que encolhe pra pílula.
    */
-  handle("widget:resize", (event, altura) => {
-    const alvo = Math.round(Number(altura));
+  handle("widget:resize", (event, tamanho) => {
     if (!widget || widget.isDestroyed()) return { ok: false };
     if (event.sender !== widget.webContents) return { ok: false };
-    if (!Number.isFinite(alvo) || alvo <= 0) return { ok: false };
-    widget.setSize(WIDGET_W, Math.min(WIDGET_H_MAX, alvo));
+    const largura = Math.round(Number(tamanho?.w));
+    const altura = Math.round(Number(tamanho?.h));
+    const [, alturaAtual] = widget.getSize();
+    widget.setSize(
+      Number.isFinite(largura) ? Math.min(WIDGET_W, Math.max(WIDGET_W_MIN, largura)) : WIDGET_W,
+      Number.isFinite(altura) && altura > 0 ? Math.min(WIDGET_H_MAX, altura) : alturaAtual,
+    );
     return { ok: true };
   });
+  /**
+   * Só persiste o modo. Quem redimensiona é o widget:resize que o renderer manda
+   * em seguida — duas fontes de verdade pro tamanho brigariam entre si.
+   */
+  handle("widget:mini", (_e, on) => {
+    saveWidgetState({ mini: on === true });
+    return { ok: true };
+  });
+  /** O painel pergunta o modo salvo pra já nascer certo, sem piscar entre os dois. */
+  handle("widget:state", () => ({ mini: readWidgetState().mini }));
   /**
    * Limpa o cache HTTP da sessão e, quando a URL é de um site, também o
    * service worker e o Cache Storage daquela origem — é o que segura preview

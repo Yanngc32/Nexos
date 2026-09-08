@@ -15,6 +15,7 @@ export function ensureHome(root = nexoHome()): string {
     join(root, "run"),
     join(root, "attachments"),
     join(root, "runs"),
+    join(root, "skills"),
   ]) {
     mkdirSync(dir, { recursive: true });
   }
@@ -66,4 +67,15 @@ export function enginePidPath(threadId: string, root = nexoHome()): string {
 
 export function tokenPath(root = nexoHome()): string {
   return join(root, "daemon.token");
+}
+
+/**
+ * Skills globais do Nexo: um SKILL.md aqui vale pra qualquer perfil/conta,
+ * porque `engineSpawnEnv` isola `CLAUDE_CONFIG_DIR` por perfil e o motor só
+ * lê skill de dentro dessa pasta (ou do `.claude/skills` do projeto aberto).
+ * Ver `syncGlobalSkills` em engines/cli.ts, que copia daqui pra cada perfil
+ * antes de nascer o processo.
+ */
+export function globalSkillsDir(root = nexoHome()): string {
+  return join(root, "skills");
 }

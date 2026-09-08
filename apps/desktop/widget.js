@@ -1,7 +1,7 @@
 import { createApiClient } from "./api.js";
 import { fmtDuracao } from "./agent-trace.js";
 import { folderName } from "./format.js";
-import { aneisDeConta, doProjeto, emVoo, faixaDoRun } from "./widget-view.js";
+import { aneisDeConta, doProjeto, emVoo, faixaDoRun, resumoMini } from "./widget-view.js";
 
 /**
  * Painel flutuante: o caminhar das coisas, por cima de tudo.
@@ -20,6 +20,15 @@ const PERIODO_MS = 2000;
 /** Daemon fora do ar: espaçar evita bater numa porta fechada 30 vezes por minuto. */
 const PERIODO_OFF_MS = 8000;
 
+/** No modo cheio a largura é fixa; no mini ela é medida junto com a altura. */
+const LARGURA_CHEIA = 264;
+/**
+ * Folga da janela em volta do cartão, dos dois lados. Vem do CSS (`--folga`)
+ * porque é lá que a sombra é dimensionada: número duplicado aqui volta a cortar
+ * a sombra no retângulo da janela e desenhar um quadrado em volta da pílula.
+ */
+const FOLGA = 2 * (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--folga")) || 10);
+
 const el = (id) => document.getElementById(id);
 
 const api = createApiClient({ daemonInfo: () => window.nexo.daemonInfo() });
@@ -27,6 +36,7 @@ const api = createApiClient({ daemonInfo: () => window.nexo.daemonInfo() });
 let timer = 0;
 /** Relógio próprio: o tempo do passo aberto cresce entre um poll e outro. */
 let ultimo = null;
+let mini = false;
 
 function mostrar(id, visivel) {
   el(id).classList.toggle("hidden", !visivel);
@@ -93,10 +103,50 @@ function pintarVoo(agentes) {
   el("voo-txt").title = nomes;
 }
 
-/** A janela acompanha o conteúdo: painel fixo sobraria espaço ou cortaria linha. */
-function ajustarAltura() {
-  const altura = Math.ceil(el("card").getBoundingClientRect().height) + 12;
-  window.nexo.resizeWidget(altura);
+function pintarMini(r) {
+  el("mini-dot").dataset.on = r.ligado ? "1" : "0";
+  el("mini-dot").dataset.erro = r.erro ? "1" : "0";
+  // sem passos ainda, o tempo já diz que algo anda; quieto ganha o traço, que
+  // ocupa a mesma linha e evita uma pílula de altura estranha
+  el("mini-passos").textContent = r.passos || (r.quieto ? "—" : "");
+  el("mini-ms").textContent = r.ms ? fmtDuracao(r.ms) : "";
+  // o que a pílula não mostra continua legível ao pousar o mouse
+  el("bl-mini").title = r.tituloStatus;
+  mostrar("mini-quota", Boolean(r.quota));
+  if (!r.quota) return;
+  el("mini-arco").style.setProperty("--pct", String(r.quota.pct));
+  el("mini-arco").style.setProperty("--cor", corDoUso(r.quota.uso, r.quota.bloqueada));
+  el("mini-pct").textContent = r.quota.bloqueada ? "!" : `${r.quota.pct}%`;
+  el("mini-pct").dataset.bad = r.quota.bloqueada ? "1" : "0";
+  el("mini-quota").title = r.tituloQuota;
+}
+
+/**
+ * A janela acompanha o conteúdo: painel fixo sobraria espaço ou cortaria linha.
+ * No mini a largura também é medida — a pílula é `max-content`, então sobra de
+ * janela é sobra de área morta por cima do que está atrás.
+ */
+function ajustarJanela() {
+  const r = el("card").getBoundingClientRect();
+  const largura = mini ? Math.ceil(r.width) + FOLGA : LARGURA_CHEIA;
+  window.nexo.resizeWidget(largura, Math.ceil(r.height) + FOLGA);
+}
+
+function aplicarMini(on) {
+  mini = on;
+  if (on) document.body.dataset.mini = "1";
+  else delete document.body.dataset.mini;
+  const b = el("mini");
+  b.title = on ? "Expandir" : "Minimizar";
+  b.textContent = on ? "+" : "−";
+}
+
+function alternarMini(on) {
+  aplicarMini(on);
+  window.nexo.setWidgetMini(on);
+  repintar();
+  // repintar não mede a janela sem dados; trocar de modo sempre muda o tamanho
+  ajustarJanela();
 }
 
 async function atualizar() {
@@ -113,8 +163,9 @@ async function atualizar() {
     pintarRun(null);
     pintarVoo([]);
     pintarContas([]);
+    pintarMini(resumoMini(null, [], []));
     mostrar("vazio", true);
-    ajustarAltura();
+    ajustarJanela();
     return agendar(PERIODO_OFF_MS);
   }
 
@@ -154,11 +205,15 @@ function repintar() {
   const faixa = faixaDoRun(ultimo.run, Date.now());
   const agentes = doProjeto(ultimo.agentes, ultimo.projeto);
   const emVooAgora = emVoo(agentes, faixa?.rodando ? faixa.id : "");
+  const aneis = aneisDeConta(ultimo.contas);
   pintarRun(faixa);
   pintarVoo(emVooAgora);
-  pintarContas(aneisDeConta(ultimo.contas));
-  mostrar("vazio", !faixa && !emVooAgora.length && !aneisDeConta(ultimo.contas).length);
-  ajustarAltura();
+  pintarContas(aneis);
+  // as duas versões são pintadas sempre: o CSS escolhe qual aparece, e assim
+  // voltar do mini não espera o próximo poll pra ter conteúdo
+  pintarMini(resumoMini(faixa, emVooAgora, aneis));
+  mostrar("vazio", !faixa && !emVooAgora.length && !aneis.length);
+  ajustarJanela();
 }
 
 function agendar(ms) {
@@ -166,7 +221,23 @@ function agendar(ms) {
   timer = setTimeout(() => void atualizar(), ms);
 }
 
+/**
+ * O modo vem antes do primeiro retrato: nascer cheio e encolher depois faria a
+ * janela pular no canto da tela a cada abertura. App sem a API cai no cheio.
+ */
+async function iniciar() {
+  let salvo = null;
+  try {
+    salvo = await window.nexo.widgetState?.();
+  } catch {
+    salvo = null;
+  }
+  aplicarMini(Boolean(salvo?.mini));
+  await atualizar();
+}
+
 el("fechar").addEventListener("click", () => window.nexo.hideWidget());
+el("mini").addEventListener("click", () => alternarMini(!mini));
 // entre polls, só o relógio do passo aberto muda — repintar é barato e local
 setInterval(repintar, 250);
-void atualizar();
+void iniciar();
