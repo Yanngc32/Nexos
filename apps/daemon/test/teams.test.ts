@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { addProfile } from "../src/profiles.ts";
 import { saveAgent } from "../src/agents.ts";
-import { getTeam, listTeams, removeTeam, saveTeam } from "../src/teams.ts";
+import { getTeam, listTeams, removeTeam, saveTeam, upsertTimeDeMencao } from "../src/teams.ts";
 import { tempHome } from "./helpers.ts";
 
 function base(): string {
@@ -117,5 +117,46 @@ describe("times", () => {
     const { teamsPath } = await import("../src/home.ts");
     writeFileSync(teamsPath(home), "{ não é json", "utf8");
     expect(listTeams(home)).toEqual([]);
+  });
+});
+
+describe("upsertTimeDeMencao", () => {
+  it("cria um time-pipeline-de-1 oculto pro agente citado", () => {
+    const home = base();
+    const t = upsertTimeDeMencao("revisor", home);
+    expect(t.topology).toBe("pipeline");
+    expect(t.members).toEqual([{ agentId: "revisor" }]);
+    expect(t.origem).toBe("mencao");
+    // getTeam (o que o motor de Run usa) enxerga mesmo sendo oculto
+    expect(getTeam(t.id, home)).toEqual(t);
+  });
+
+  it("some da listagem que a tela de Times usa, mesmo depois de criado", () => {
+    const home = base();
+    upsertTimeDeMencao("revisor", home);
+    expect(listTeams(home)).toEqual([]);
+  });
+
+  it("é idempotente: citar de novo atualiza o mesmo registro, não duplica", () => {
+    const home = base();
+    const primeiro = upsertTimeDeMencao("revisor", home);
+    const segundo = upsertTimeDeMencao("revisor", home);
+    expect(segundo.id).toBe(primeiro.id);
+    expect(segundo.createdAt).toBe(primeiro.createdAt);
+  });
+
+  it("time de verdade com o mesmo id que um time oculto teria não é sobrescrito por engano", () => {
+    // não é o caso coberto aqui (ids vêm com prefixo mencao-), só confirma que
+    // citar um agente não mexe em time nenhum que a pessoa criou
+    const home = base();
+    saveTeam({ id: "feature", name: "Time de feature", members: [{ agentId: "escritor" }] }, home);
+    upsertTimeDeMencao("revisor", home);
+    expect(listTeams(home)).toHaveLength(1);
+    expect(listTeams(home)[0]?.id).toBe("feature");
+  });
+
+  it("recusa agente que não existe", () => {
+    const home = base();
+    expect(() => upsertTimeDeMencao("fantasma", home)).toThrow(/agente não existe/);
   });
 });

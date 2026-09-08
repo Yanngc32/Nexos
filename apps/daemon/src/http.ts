@@ -19,6 +19,7 @@ import {
   type AddProfileInput,
 } from "./profiles.ts";
 import { readAttachment, type IncomingImage } from "./attachments.ts";
+import { listSkills } from "./skills.ts";
 import { cliAuthStatus } from "./auth-status.ts";
 import { cancelLogin, loginStatus, startLogin, submitCode } from "./login-session.ts";
 import { createThread, listThreads, projectsFromThreads, readThread, threadHead } from "./threads.ts";
@@ -34,7 +35,7 @@ import {
   switchThread,
 } from "./session.ts";
 import { threadReport } from "./usage-report.ts";
-import { getTeam, listTeams, removeTeam, saveTeam, type TeamInput } from "./teams.ts";
+import { getTeam, listTeams, removeTeam, saveTeam, upsertTimeDeMencao, type TeamInput } from "./teams.ts";
 import {
   abortarRun,
   criarRun,
@@ -394,6 +395,13 @@ export function createApp(home: string, token: string): Hono {
     }
   });
 
+  /** Skills que o menu "/" do composer oferece: as do projeto aberto mais as do perfil ativo. */
+  app.get("/v1/skills", (c) => {
+    const projectPath = c.req.query("projectPath") || undefined;
+    const profileId = c.req.query("profileId") || undefined;
+    return c.json(listSkills(home, profileId, projectPath));
+  });
+
   /** Stream global: o "*" do bus recebe o evento de qualquer conversa. */
   app.get("/v1/agents/events", (c) => {
     return streamSSE(c, async (stream) => {
@@ -681,6 +689,21 @@ export function createApp(home: string, token: string): Hono {
     } catch (e) {
       const err = e as Error & { status?: number };
       return c.json({ error: err.message }, (err.status ?? 404) as 404);
+    }
+  });
+
+  /**
+   * `@menção` de um agente avulso no composer: garante que existe um `teamId` de
+   * verdade pra apontar um Run, sem a pessoa precisar criar um time primeiro.
+   * Ver `upsertTimeDeMencao` — o time sai oculto da tela de Times, mas serve
+   * pro motor de Run igual a qualquer outro.
+   */
+  app.post("/v1/teams/mencao/:agentId", (c) => {
+    try {
+      return c.json(upsertTimeDeMencao(c.req.param("agentId"), home), 201);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
     }
   });
 

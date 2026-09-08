@@ -57,8 +57,11 @@ function writeAll(list: TeamDef[], home: string): void {
   writeFileSync(teamsPath(home), JSON.stringify({ teams: list }, null, 2), "utf8");
 }
 
+/** Os times que a tela mostra — nunca o time oculto de uma `@menção` (ver `upsertTimeDeMencao`). */
 export function listTeams(home: string): TeamDef[] {
-  return readAll(home).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  return readAll(home)
+    .filter((t) => t.origem !== "mencao")
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 }
 
 export function getTeam(id: string, home: string): TeamDef | undefined {
@@ -141,6 +144,40 @@ export function saveTeam(input: TeamInput, home: string): TeamDef {
     input.description === undefined ? atual?.description : texto(input.description, "descrição", TEAM_DESC_MAX);
   if (description) def.description = description;
 
+  writeAll(atual ? list.map((t) => (t.id === id ? def : t)) : [...list, def], home);
+  return def;
+}
+
+/** Prefixo do id de time oculto criado por `@menção` — cabe dentro do teto de `TEAM_ID_RE` (40). */
+const PREFIXO_MENCAO = "mencao-";
+
+/**
+ * `@menção` de um agente avulso (sem time salvo): cria — ou atualiza, se a mesma menção já
+ * rodou antes — um time-pipeline-de-1 oculto só pra esse agente. É só um envelope pra reusar o
+ * motor de Run como está: `runs.ts` (retomar, abortar, nome de exibição) só enxerga time por
+ * `getTeam(teamId)`, então um `teamId` que não existe em `teams.json` quebraria isso.
+ *
+ * Idempotente por id: citar o mesmo agente de novo atualiza o MESMO registro (nome, se o agente
+ * mudou o dele) em vez de duplicar — sem isso, cada menção gastaria uma vaga do teto de
+ * `TEAMS_MAX`. Oculto da tela porque `listTeams` filtra `origem === "mencao"`; `getTeam` não
+ * filtra, e é ele que o resto do motor usa.
+ */
+export function upsertTimeDeMencao(agentId: string, home: string): TeamDef {
+  const agente = getAgent(agentId, home);
+  if (!agente) throw badRequest(`agente não existe: ${agentId}`);
+  const id = (PREFIXO_MENCAO + agentId).slice(0, 40);
+  const list = readAll(home);
+  const atual = list.find((t) => t.id === id);
+  if (!atual && list.length >= TEAMS_MAX) throw badRequest(`teto de ${TEAMS_MAX} times`);
+  const def: TeamDef = {
+    id,
+    name: `Menção: ${agente.name}`,
+    topology: "pipeline",
+    members: [{ agentId }],
+    createdAt: atual?.createdAt ?? nowIso(),
+    updatedAt: nowIso(),
+    origem: "mencao",
+  };
   writeAll(atual ? list.map((t) => (t.id === id ? def : t)) : [...list, def], home);
   return def;
 }

@@ -583,6 +583,31 @@ describe("http teams e runs", () => {
     expect((await app.request("/v1/teams/time", { headers: hdr })).status).toBe(404);
   });
 
+  it("POST /v1/teams/mencao/:agentId cria o time oculto, some da listagem, e GET direto ainda acha", async () => {
+    const { app } = base();
+    await criarAgente(app, "revisor");
+
+    const criar = await app.request("/v1/teams/mencao/revisor", { method: "POST", headers: hdr });
+    expect(criar.status).toBe(201);
+    const time = await criar.json();
+    expect(time.origem).toBe("mencao");
+    expect(time.members).toEqual([{ agentId: "revisor" }]);
+
+    expect((await (await app.request("/v1/teams", { headers: hdr })).json())).toHaveLength(0);
+    expect((await app.request(`/v1/teams/${time.id}`, { headers: hdr })).status).toBe(200);
+
+    // citar de novo é idempotente: mesmo id, não aparece um segundo
+    const denovo = await app.request("/v1/teams/mencao/revisor", { method: "POST", headers: hdr });
+    expect((await denovo.json()).id).toBe(time.id);
+  });
+
+  it("POST /v1/teams/mencao/:agentId com agente inexistente é 400", async () => {
+    const { app } = base();
+    const res = await app.request("/v1/teams/mencao/fantasma", { method: "POST", headers: hdr });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/agente não existe/);
+  });
+
   it("time com agente inexistente é 400, com o motivo", async () => {
     const { app } = base();
     const res = await app.request("/v1/teams", {

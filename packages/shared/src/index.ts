@@ -473,6 +473,12 @@ export type TeamDef = {
   members: TeamMember[];
   createdAt: string;
   updatedAt: string;
+  /**
+   * Time de 1 membro criado automaticamente por uma `@menção` de agente avulso
+   * no composer (ver `upsertTimeDeMencao`). Não aparece na tela de Times —
+   * existe só pra `runs.ts` ter um `teamId` de verdade pra apontar.
+   */
+  origem?: "mencao";
 };
 
 export const TEAM_ID_RE = AGENT_ID_RE;
