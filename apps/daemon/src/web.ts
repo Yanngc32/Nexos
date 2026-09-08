@@ -34,6 +34,7 @@ const COMUM = new Set([
   "api.js",
   "format.js",
   "markdown.js",
+  "mention.js",
   "sse.js",
   "url.js",
   "run-view.js",

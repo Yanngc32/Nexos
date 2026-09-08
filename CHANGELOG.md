@@ -6,6 +6,13 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- Interface de celular ganha o que faltava pra fechar com o desktop: botão "+ Nova" abre uma
+  folha pra escolher conta pronta ou agente personalizado e cria a conversa; dentro de uma
+  conversa com conta `claude`, um botão de ajustes abre folha de modelo/effort (`PATCH
+  /v1/profiles/:id`, mesma rota do desktop); o compositor ganha o mesmo menu de autocomplete
+  `/skill` e `@agente`/`@time` do desktop, reaproveitando `mention.js` do desktop via `./comum/`
+  (adicionado à lista branca do daemon) — `@menção` dispara `POST /v1/runs` em paralelo ao turno
+  de chat, igual no desktop.
 - Árvore de arquivos ganha marcador por tipo (`file-kind.js`): reconhece por nome inteiro
   (`Dockerfile`, `.gitignore`) e por extensão, com o glifo/cor vivendo no CSS
   (`[data-kind]`) — arquivo que não se reconhece cai no marcador neutro de sempre.

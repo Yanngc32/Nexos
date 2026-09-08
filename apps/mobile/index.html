@@ -52,6 +52,7 @@
       <header class="topo">
         <button type="button" class="ghost" id="btn-voltar" hidden aria-label="Voltar">‹</button>
         <span class="titulo" id="titulo">Nexo</span>
+        <button type="button" class="ghost" id="btn-ajustes" hidden aria-label="Modelo e esforço">⚙</button>
         <span class="pill" id="motor">…</span>
       </header>
 
@@ -75,6 +76,10 @@
 
         <!-- Conversas do projeto -->
         <section class="aba hidden" id="aba-conversas">
+          <div class="cab-aba">
+            <h2>Conversas</h2>
+            <button type="button" class="primary chip" id="btn-nova">+ Nova</button>
+          </div>
           <ul class="lista" id="lista-threads"></ul>
           <p class="vazio hidden" id="threads-vazio">Nenhuma conversa neste projeto.</p>
         </section>
@@ -82,8 +87,9 @@
         <!-- Uma conversa -->
         <section class="aba hidden" id="aba-chat">
           <div class="msgs" id="msgs"></div>
+          <div class="slash-menu hidden" id="slash-menu"></div>
           <form class="compositor" id="form-msg">
-            <textarea id="txt" rows="1" placeholder="Pergunta, pede mudança…" aria-label="Mensagem"></textarea>
+            <textarea id="txt" rows="1" placeholder="Pergunta, pede mudança, /skill, @agente…" aria-label="Mensagem"></textarea>
             <button type="submit" class="primary" id="btn-enviar">↑</button>
           </form>
         </section>
@@ -93,6 +99,39 @@
         <button type="button" data-aba="agora" class="on">Agora</button>
         <button type="button" data-aba="conversas">Conversas</button>
       </nav>
+    </div>
+
+    <!-- Folha: escolher conta ou agente pra abrir conversa nova -->
+    <div class="folha hidden" id="folha-nova">
+      <div class="folha-fundo" data-fechar></div>
+      <div class="folha-painel">
+        <h3>Nova conversa</h3>
+        <p class="sub" id="folha-nova-vazio">Nenhuma conta pronta. Faça login no computador.</p>
+        <ul class="lista lista-folha" id="folha-nova-lista"></ul>
+      </div>
+    </div>
+
+    <!-- Folha: modelo e esforço da conta desta conversa -->
+    <div class="folha hidden" id="folha-ajustes">
+      <div class="folha-fundo" data-fechar></div>
+      <div class="folha-painel">
+        <h3>Modelo e esforço</h3>
+        <p class="sub" id="ajustes-conta"></p>
+        <label class="campo">
+          <span>Modelo</span>
+          <select id="ajuste-modelo">
+            <option value="">padrão do CLI</option>
+            <option value="opus">opus</option>
+            <option value="sonnet">sonnet</option>
+            <option value="haiku">haiku</option>
+            <option value="fable">fable</option>
+          </select>
+        </label>
+        <label class="campo">
+          <span>Esforço: <b id="ajuste-esforco-label">padrão</b></span>
+          <input type="range" id="ajuste-esforco" min="0" max="5" step="1" />
+        </label>
+      </div>
     </div>
 
     <script type="module" src="./mobile.js"></script>

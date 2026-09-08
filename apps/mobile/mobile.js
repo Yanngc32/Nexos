@@ -13,6 +13,7 @@ import { fmtDuracao } from "./comum/agent-trace.js";
 import { lerEventos } from "./comum/sse.js";
 import { aneisDeConta, emVoo, faixaDoRun } from "./comum/widget-view.js";
 import { agruparConversas } from "./comum/thread-groups.js";
+import { extrairMencoes } from "./comum/mention.js";
 
 /**
  * App de celular do Nexo, servido pelo próprio daemon.
@@ -24,18 +25,27 @@ import { agruparConversas } from "./comum/thread-groups.js";
  *
  * O que ele reaproveita do desktop vem de `./comum/`, servido pelo daemon a
  * partir de uma lista branca: `markdown.js`, `format.js`, `sse.js`,
- * `widget-view.js`. Sem cópia — arquivo copiado diverge.
+ * `widget-view.js`, `mention.js`. Sem cópia — arquivo copiado diverge.
  */
 
 const $ = (id) => document.getElementById(id);
 const PERIODO_MS = 3000;
+const EFFORT_STEPS = ["", "low", "medium", "high", "xhigh", "max"];
+const EFFORT_NAMES = ["padrão", "baixo", "médio", "alto", "muito alto", "máximo"];
 
 let cred = null;
 let projeto = "";
 let threadId = "";
+let threadProfileId = "";
 let abortStream = null;
 let timer = 0;
 let ultimo = null;
+
+/** Cache do que o compositor precisa pro "/" (skills) e "@" (agentes/times). */
+const mencoes = { profiles: [], agentDefs: [], teams: [], loaded: false, loading: false };
+const skills = { list: [], key: "", loading: false };
+/** Estado do menu de autocomplete acima do compositor. */
+const slash = { open: false, kind: "", matches: [], index: 0 };
 
 /* ---------- daemon ---------- */
 
@@ -250,7 +260,7 @@ function linhaDeConversa(t, dentroDeRun = false) {
   quando.className = "quando";
   quando.textContent = t.busy ? "trabalhando…" : ago(t.updatedAt);
   li.append(nome, quando);
-  li.addEventListener("click", () => void abrirChat(t.id, t.preview));
+  li.addEventListener("click", () => void abrirChat(t.id, t.preview, t.profileId));
   return li;
 }
 
@@ -281,6 +291,128 @@ function linhasDeRun(grupo) {
   return [cab, ...filhas];
 }
 
+/* ---------- nova conversa ---------- */
+
+function fecharFolha(el) {
+  el.classList.add("hidden");
+}
+
+function abrirFolha(el) {
+  el.classList.remove("hidden");
+}
+
+for (const folha of [$("folha-nova"), $("folha-ajustes")]) {
+  folha.querySelector("[data-fechar]").addEventListener("click", () => fecharFolha(folha));
+}
+
+/** Contas prontas pra receber conversa, e agentes personalizados (cada um já embute a conta dele). */
+async function carregarOpcoesDeConversa() {
+  const [profiles, agentDefs] = await Promise.all([req("/v1/profiles"), req("/v1/agents/defs")]);
+  mencoes.profiles = profiles;
+  return { profiles: profiles.filter((p) => p.status === "ready"), agentDefs };
+}
+
+function linhaDeOpcao(rotulo, desc, aoTocar) {
+  const li = document.createElement("li");
+  const nome = document.createElement("span");
+  nome.className = "nome";
+  nome.textContent = rotulo;
+  const d = document.createElement("span");
+  d.className = "desc";
+  d.textContent = desc;
+  li.append(nome, d);
+  li.addEventListener("click", aoTocar);
+  return li;
+}
+
+async function abrirFolhaNova() {
+  const ul = $("folha-nova-lista");
+  ul.replaceChildren();
+  abrirFolha($("folha-nova"));
+  let opcoes;
+  try {
+    opcoes = await carregarOpcoesDeConversa();
+  } catch {
+    opcoes = { profiles: [], agentDefs: [] };
+  }
+  $("folha-nova-vazio").classList.toggle("hidden", opcoes.profiles.length > 0 || opcoes.agentDefs.length > 0);
+  for (const p of opcoes.profiles) {
+    ul.append(
+      linhaDeOpcao(p.id, p.engine === "claude" ? p.model || "modelo padrão" : p.engine, () =>
+        void criarConversa({ profileId: p.id }, p.id),
+      ),
+    );
+  }
+  for (const a of opcoes.agentDefs) {
+    ul.append(linhaDeOpcao(`@${a.id}`, a.name, () => void criarConversa({ agentId: a.id }, a.profileId)));
+  }
+}
+
+async function criarConversa(quem, profileId) {
+  fecharFolha($("folha-nova"));
+  if (!projeto) return;
+  try {
+    const t = await req("/v1/threads", { method: "POST", body: JSON.stringify({ projectPath: projeto, ...quem }) });
+    await abrirChat(t.id, "Conversa nova", profileId || "");
+  } catch (e) {
+    mostrar("conversas");
+    bolhaErroConversas(e.message);
+  }
+}
+
+function bolhaErroConversas(msg) {
+  const p = document.createElement("p");
+  p.className = "vazio";
+  p.textContent = msg;
+  $("lista-threads").before(p);
+}
+
+$("btn-nova").addEventListener("click", () => void abrirFolhaNova());
+
+/* ---------- modelo e esforço ---------- */
+
+function perfilAtual() {
+  return mencoes.profiles.find((p) => p.id === threadProfileId);
+}
+
+async function abrirFolhaAjustes() {
+  if (!threadProfileId) return;
+  try {
+    mencoes.profiles = await req("/v1/profiles");
+  } catch {
+    return;
+  }
+  const p = perfilAtual();
+  if (!p || p.engine !== "claude") return;
+  $("ajustes-conta").textContent = threadProfileId;
+  $("ajuste-modelo").value = ["opus", "sonnet", "haiku", "fable"].includes(p.model || "") ? p.model : "";
+  const idx = Math.max(0, EFFORT_STEPS.indexOf(p.effort || ""));
+  $("ajuste-esforco").value = String(idx);
+  $("ajuste-esforco-label").textContent = EFFORT_NAMES[idx];
+  abrirFolha($("folha-ajustes"));
+}
+
+async function ajustarPerfil(patch) {
+  if (!threadProfileId) return;
+  try {
+    await req(`/v1/profiles/${encodeURIComponent(threadProfileId)}`, { method: "PATCH", body: JSON.stringify(patch) });
+  } catch {
+    // celular não é onde se resolve conta sem login/credencial: falha aqui é silenciosa,
+    // o painel de contas do computador é que mostra o motivo.
+  }
+}
+
+$("btn-ajustes").addEventListener("click", () => void abrirFolhaAjustes());
+$("ajuste-modelo").addEventListener("change", () => void ajustarPerfil({ model: $("ajuste-modelo").value }));
+$("ajuste-esforco").addEventListener("input", () => {
+  const idx = Number($("ajuste-esforco").value);
+  $("ajuste-esforco-label").textContent = EFFORT_NAMES[idx];
+});
+$("ajuste-esforco").addEventListener("change", () => {
+  const idx = Number($("ajuste-esforco").value);
+  void ajustarPerfil({ effort: EFFORT_STEPS[idx] });
+});
+
 /* ---------- chat ---------- */
 
 function bolha(de, texto) {
@@ -297,11 +429,14 @@ function rolarPraBaixo() {
   $("msgs").scrollTop = $("msgs").scrollHeight;
 }
 
-async function abrirChat(id, titulo) {
+async function abrirChat(id, titulo, profileId = "") {
   threadId = id;
+  threadProfileId = profileId;
+  fecharSlash();
   mostrar("chat");
   $("titulo").textContent = titulo || "Conversa";
   $("btn-voltar").hidden = false;
+  $("btn-ajustes").hidden = !profileId;
   $("msgs").replaceChildren();
 
   let eventos = [];
@@ -373,10 +508,12 @@ $("form-msg").addEventListener("submit", async (e) => {
   e.preventDefault();
   const texto = $("txt").value.trim();
   if (!texto || !threadId) return;
+  fecharSlash();
   $("txt").value = "";
   ajustarAltura();
   bolha("user", texto);
   rolarPraBaixo();
+  void dispararMencoes(texto);
   try {
     await req(`/v1/threads/${threadId}/messages`, { method: "POST", body: JSON.stringify({ text: texto }) });
   } catch (err) {
@@ -392,7 +529,221 @@ function ajustarAltura() {
   el.style.height = `${Math.min(el.scrollHeight, window.innerHeight * 0.4)}px`;
 }
 
-$("txt").addEventListener("input", ajustarAltura);
+/* ---------- "/" (skills) e "@" (agentes/times) no compositor ---------- */
+
+/** Chave de cache das skills: refaz a varredura só quando pasta ou conta muda. */
+function skillsKey() {
+  return `${projeto}|${threadProfileId}`;
+}
+
+async function carregarSkills() {
+  const key = skillsKey();
+  if (skills.loading || skills.key === key) return;
+  skills.loading = true;
+  try {
+    const qs = new URLSearchParams();
+    if (projeto) qs.set("projectPath", projeto);
+    if (threadProfileId) qs.set("profileId", threadProfileId);
+    skills.list = await req(`/v1/skills?${qs}`);
+    skills.key = key;
+  } catch {
+    skills.list = [];
+  } finally {
+    skills.loading = false;
+  }
+}
+
+function ensureSkillsLoaded() {
+  if (skills.key === skillsKey() || skills.loading) return;
+  void carregarSkills().then(() => {
+    if (slash.open) abrirSlashSeNecessario();
+  });
+}
+
+/** Agentes e times uma vez por sessão, pro autocomplete do "@" e pro disparo de menção. */
+let mencoesCarregando = null;
+function carregarMencoesDefs() {
+  if (mencoes.loaded) return Promise.resolve();
+  if (mencoesCarregando) return mencoesCarregando;
+  mencoes.loading = true;
+  mencoesCarregando = Promise.all([req("/v1/agents/defs"), req("/v1/teams")])
+    .then(([agentDefs, teams]) => {
+      mencoes.agentDefs = agentDefs;
+      mencoes.teams = teams;
+      mencoes.loaded = true;
+    })
+    .catch(() => {})
+    .finally(() => {
+      mencoes.loading = false;
+      mencoesCarregando = null;
+    });
+  return mencoesCarregando;
+}
+
+function ensureMencoesLoaded() {
+  if (mencoes.loaded || mencoes.loading) return;
+  void carregarMencoesDefs().then(() => {
+    if (slash.open) abrirSlashSeNecessario();
+  });
+}
+
+function slashMatches(fragment) {
+  const f = fragment.toLowerCase();
+  return skills.list
+    .filter((s) => s.name.toLowerCase().startsWith(f))
+    .map((s) => ({ cmd: s.name, desc: s.description || "(sem descrição)", grupo: "Skills" }));
+}
+
+function mencaoMatches(fragment) {
+  const f = fragment.toLowerCase();
+  const agentes = mencoes.agentDefs
+    .filter((a) => a.id.toLowerCase().startsWith(f))
+    .map((a) => ({ cmd: a.id, desc: a.name, grupo: "Agentes" }));
+  const times = mencoes.teams
+    .filter((t) => t.id.toLowerCase().startsWith(f))
+    .map((t) => ({ cmd: t.id, desc: t.name, grupo: "Times" }));
+  return [...agentes, ...times];
+}
+
+/**
+ * O que o cursor está tentando completar: "/skill" só quando é a mensagem
+ * inteira (evita casar um "/" no meio de uma frase normal), ou "@agente"/"@time"
+ * em qualquer ponto, contanto que ainda não tenha espaço depois do @.
+ */
+function detectarGatilho() {
+  const el = $("txt");
+  const value = el.value;
+  const cursor = el.selectionStart ?? value.length;
+  const cmd = /^\/([a-z0-9-]*)$/i.exec(value);
+  if (cmd) return { kind: "cmd", fragment: cmd[1].toLowerCase(), tokenStart: 0, tokenEnd: value.length };
+  const antes = value.slice(0, cursor);
+  const at = /(?:^|\s)@([a-z0-9_-]{0,40})$/i.exec(antes);
+  if (!at) return null;
+  return { kind: "mencao", fragment: at[1].toLowerCase(), tokenStart: antes.length - at[1].length - 1, tokenEnd: cursor };
+}
+
+function fecharSlash() {
+  if (!slash.open) return;
+  slash.open = false;
+  $("slash-menu").classList.add("hidden");
+}
+
+function aplicarSelecaoSlash(idx) {
+  const item = slash.matches[idx];
+  if (!item) return;
+  const el = $("txt");
+  if (slash.kind === "mencao") {
+    const gat = detectarGatilho();
+    if (gat?.kind !== "mencao") return fecharSlash();
+    const antes = el.value.slice(0, gat.tokenStart);
+    const depois = el.value.slice(gat.tokenEnd);
+    const inserido = `@${item.cmd} `;
+    el.value = antes + inserido + depois;
+    fecharSlash();
+    el.focus();
+    const pos = antes.length + inserido.length;
+    el.setSelectionRange(pos, pos);
+    return;
+  }
+  el.value = `/${item.cmd} `;
+  fecharSlash();
+  el.focus();
+  ajustarAltura();
+}
+
+function renderizarSlash() {
+  const menu = $("slash-menu");
+  const mencao = slash.kind === "mencao";
+  if (!slash.matches.length) {
+    menu.innerHTML = `<p class="slash-empty">${mencao ? "Nenhum agente ou time bate com isso." : "Nenhuma skill bate com isso."}</p>`;
+    return;
+  }
+  let html = "";
+  for (const grupo of mencao ? ["Agentes", "Times"] : ["Skills"]) {
+    const itens = slash.matches.filter((m) => m.grupo === grupo);
+    if (!itens.length) continue;
+    html += `<div class="slash-group"><h4>${grupo}</h4><ul>`;
+    for (const item of itens) {
+      const idx = slash.matches.indexOf(item);
+      html += `<li class="slash-item" data-idx="${idx}"><span class="cmd">${mencao ? "@" : "/"}${escapeHtml(item.cmd)}</span><span class="desc">${escapeHtml(item.desc)}</span></li>`;
+    }
+    html += `</ul></div>`;
+  }
+  menu.innerHTML = html;
+  for (const el of menu.querySelectorAll(".slash-item")) {
+    el.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      aplicarSelecaoSlash(Number(el.dataset.idx));
+    });
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+function abrirSlashSeNecessario() {
+  const gat = detectarGatilho();
+  if (!gat) return fecharSlash();
+  slash.kind = gat.kind;
+  let matches;
+  if (gat.kind === "cmd") {
+    ensureSkillsLoaded();
+    matches = slashMatches(gat.fragment);
+  } else {
+    ensureMencoesLoaded();
+    matches = mencaoMatches(gat.fragment);
+  }
+  slash.matches = matches;
+  slash.open = true;
+  $("slash-menu").classList.remove("hidden");
+  renderizarSlash();
+}
+
+/**
+ * `@menção` na mensagem dispara um Run de verdade em paralelo ao turno de chat
+ * normal — mesmo `POST /v1/runs` que o Team Studio do desktop já usa. Agente
+ * avulso vira (ou reaproveita) um time-pipeline-de-1 oculto via
+ * `/v1/teams/mencao/:agentId`.
+ */
+async function dispararMencoes(texto) {
+  const { ids, goal } = extrairMencoes(texto);
+  if (!ids.length) return;
+  await carregarMencoesDefs();
+  for (const id of ids) {
+    const time = mencoes.teams.find((t) => t.id === id);
+    const agente = time ? null : mencoes.agentDefs.find((a) => a.id === id);
+    if (!time && !agente) {
+      bolha("sys", `@${id} — não achei agente nem time com esse nome.`);
+      continue;
+    }
+    try {
+      const teamId = time ? time.id : (await req(`/v1/teams/mencao/${encodeURIComponent(id)}`, { method: "POST" })).id;
+      const run = await req("/v1/runs", { method: "POST", body: JSON.stringify({ teamId, projectPath: projeto, goal }) });
+      bolha("sys", `→ Run disparado: ${time?.name ?? agente.name} (${run.id})`);
+    } catch (err) {
+      bolha("sys", `@${id} — run não disparou: ${err.message || "erro"}`);
+    }
+    rolarPraBaixo();
+  }
+}
+
+$("txt").addEventListener("input", () => {
+  ajustarAltura();
+  abrirSlashSeNecessario();
+});
+
+$("txt").addEventListener("keydown", (e) => {
+  if (!slash.open) return;
+  if (e.key === "Escape") {
+    fecharSlash();
+    return;
+  }
+  if (e.key === "Enter" && slash.matches.length) {
+    e.preventDefault();
+    aplicarSelecaoSlash(0);
+  }
+});
 
 /* ---------- navegação ---------- */
 
@@ -408,6 +759,7 @@ function mostrar(aba) {
     b.classList.toggle("on", b.dataset.aba === acesa);
   }
   $("btn-voltar").hidden = aba !== "chat";
+  if (aba !== "chat") $("btn-ajustes").hidden = true;
 }
 
 async function abrirAgora() {
@@ -430,7 +782,9 @@ $("tabs").addEventListener("click", (e) => {
 
 $("btn-voltar").addEventListener("click", () => {
   abortStream?.abort();
+  fecharSlash();
   threadId = "";
+  threadProfileId = "";
   void abrirConversas();
 });
 

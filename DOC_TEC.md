@@ -247,6 +247,16 @@ contas, lista de conversas do projeto aberto, e permite conversar com stream de 
 árvore de arquivos nem terminal (só existem no processo Electron). Pareamento por código curto de
 6 caracteres (nunca QR do token), com trava de tempo/tentativa/uso único.
 
+"+ Nova" abre uma folha (bottom sheet) com conta pronta (`status: "ready"`) ou agente
+personalizado; tocar cria a thread (`POST /v1/threads`) e já abre o chat. Dentro de uma conversa
+de conta `claude`, um botão de ajustes (⚙) abre outra folha com modelo e effort — mesma rota
+`PATCH /v1/profiles/:id` do desktop; conta de outro motor ou agente sem conta própria não mostra
+o botão. O compositor tem o mesmo menu de autocomplete do desktop: `/skill` (mensagem inteira,
+`GET /v1/skills`) e `@agente`/`@time` (em qualquer ponto, `GET /v1/agents/defs` + `GET
+/v1/teams`), com `@menção` disparando `POST /v1/runs` em paralelo ao turno de chat — reaproveita
+`extrairMencoes` de `mention.js` do desktop, servido via `./comum/` (lista branca do daemon em
+`web.ts`).
+
 ## CLI
 
 ```
