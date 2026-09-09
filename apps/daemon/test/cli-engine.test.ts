@@ -536,6 +536,38 @@ describe("allowedTools no argv", () => {
   });
 });
 
+describe("updateMcp: muda ferramenta MCP sem precisar de engine novo", () => {
+  it("--mcp-config e --allowed-tools do MCP só aparecem depois do updateMcp, no send seguinte", async () => {
+    const home = tempHome();
+    addProfile({ id: "c-mcp", engine: "claude" }, home, { skipBinCheck: true });
+    markReady("c-mcp", home);
+    process.env.NEXO_CLAUDE_BIN = fake;
+    try {
+      const engine = claudeEngine(home, "c-mcp");
+      const events: EngineEvent[] = [];
+      await engine.start(
+        { threadId: "t-mcp", projectPath: spawnCwd("."), profileId: "c-mcp", contextPack: "" },
+        (ev) => events.push(ev),
+      );
+      expect(engine.lastArgs).not.toContain("--mcp-config");
+
+      // Mesmo engine, sem `start()` de novo — é exatamente o caso de uma conversa já aberta em
+      // que a pessoa muda "Delegar pra agente/time" e manda a próxima mensagem na hora.
+      engine.updateMcp({ mcpConfig: "/tmp/mcp.json", mcpTools: ["mcp__nexo__nexo_delegar"] });
+      await engine.send("oi");
+      await waitDone(events);
+
+      const i = engine.lastArgs.indexOf("--mcp-config");
+      expect(i).toBeGreaterThan(-1);
+      expect(engine.lastArgs[i + 1]).toBe("/tmp/mcp.json");
+      const j = engine.lastArgs.indexOf("--allowed-tools");
+      expect(engine.lastArgs.slice(j + 1)).toContain("mcp__nexo__nexo_delegar");
+    } finally {
+      delete process.env.NEXO_CLAUDE_BIN;
+    }
+  });
+});
+
 describe("janela da sessão", () => {
   it("autocompact_state vira evento window com a janela efetiva do CLI", () => {
     const linha = JSON.stringify({

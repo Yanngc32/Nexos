@@ -263,7 +263,8 @@ body[data-side-mini="1"] .side .ico-only {
 .word {
   font-weight: 600;
   font-size: 15px;
-  color: var(--accent);
+  color: var(--text);
+  letter-spacing: .01em;
 }
 
 .project {
@@ -293,25 +294,33 @@ body[data-side-mini="1"] .side .ico-only {
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 6px 8px;
+  padding: 7px 9px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text);
   font-size: 13px;
   text-align: left;
   cursor: pointer;
+  transition: background-color .12s ease;
 }
 
 .nav-item:hover:not(:disabled) {
-  background: #1f1f1f;
+  background: var(--elev);
 }
 
+/* Neutro em repouso — o roxo vira sinal de "algo pede atenção" (ex.: agente rodando), não
+   decoração fixa em todo ícone da barra. */
 .nav-ico {
   flex: 0 0 16px;
   width: 16px;
   height: 16px;
-  color: var(--accent);
+  color: var(--muted);
+  transition: color .12s ease;
+}
+
+.nav-item:hover:not(:disabled) .nav-ico {
+  color: var(--text);
 }
 
 .nav-label {
@@ -668,26 +677,64 @@ body[data-side-mini="1"] .side .ico-only {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 8px 10px;
   border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: 12px;
 }
 
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 20%, transparent);
+}
+
 .foot-actions {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--line) 55%, transparent);
 }
 
 .side-foot .ghost {
   font-size: 12px;
-  padding: 4px 8px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  transition: background-color .12s ease, color .12s ease;
+}
+
+.side-foot .ghost:hover:not(:disabled) {
+  background: var(--elev);
 }
 
 .side-foot .ghost.ico-only {
   font-size: 15px;
   line-height: 1;
-  padding: 3px 6px;
+  padding: 5px 8px;
+}
+
+/* Ligar/Desligar é a ação primária deste rodapé — chama mais atenção que Foco/Painel/Config. */
+.foot-actions #btn-motor {
+  font-weight: 600;
+}
+.foot-actions #btn-motor:hover:not(:disabled) {
+  color: var(--accent);
 }
 
 /* botões que são só ícone: o svg centraliza no lugar do glifo de texto */
@@ -1477,37 +1524,104 @@ li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
 .subchat .ag-step[data-tipo="pending"], .subchat .ag-step[data-tipo="skipped"] { opacity: .45; }
 
 /* ---------- bolha de nexo_perguntar ---------- */
-.log li.pergunta {
-  border: 1px solid var(--accent);
-  border-radius: 8px;
-  padding: 8px 10px;
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
+@keyframes pergunta-in {
+  from { opacity: 0; transform: translateY(8px) scale(.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
-.pergunta-texto { margin: 2px 0 8px; white-space: pre-wrap; }
-.pergunta-opcoes { display: flex; flex-wrap: wrap; gap: 6px; }
+@keyframes opcao-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* Mesma família visual das bolhas normais (`.you`: fundo sólido, 12px, sem borda cheia) — só com
+   uma faixa de destaque na lateral, porque isto pede uma ação, não é só texto pra ler. */
+.log li.pergunta {
+  background: var(--elev);
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+.log li.pergunta-viva { animation: pergunta-in .32s cubic-bezier(.2, .8, .2, 1); }
+
+.pergunta-who { color: var(--accent); }
+.pergunta-texto { margin: 4px 0 10px; font-weight: 600; white-space: pre-wrap; }
+
+.pergunta-opcoes { display: flex; flex-wrap: wrap; gap: 8px; }
 .pergunta-opcao {
   font: inherit;
   cursor: pointer;
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 4px 10px;
-  background: var(--elev);
+  border-radius: 999px;
+  padding: 6px 14px;
+  background: var(--bg);
   color: var(--text);
+  transition: border-color .15s, background .15s, transform .1s;
+  animation: opcao-in .25s backwards;
 }
-.pergunta-opcao:hover:not(:disabled) { border-color: var(--accent); }
-.pergunta-form { display: flex; gap: 6px; }
+.pergunta-opcoes .pergunta-opcao:nth-child(1) { animation-delay: .03s; }
+.pergunta-opcoes .pergunta-opcao:nth-child(2) { animation-delay: .07s; }
+.pergunta-opcoes .pergunta-opcao:nth-child(3) { animation-delay: .11s; }
+.pergunta-opcoes .pergunta-opcao:nth-child(4) { animation-delay: .15s; }
+.pergunta-opcao:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-1px); }
+.pergunta-opcao:active:not(:disabled) { transform: translateY(0); }
+.pergunta-opcao:disabled { opacity: .45; cursor: default; }
+/* A opção escolhida vira a própria resposta: preenchida, sem risco de sumir junto com as outras. */
+.pergunta-opcao.selecionada {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  opacity: 1;
+  font-weight: 600;
+}
+.pergunta-opcao.selecionada::before { content: "✓ "; }
+/* Multi-seleção: marcada é só o estado de rascunho, antes de confirmar — mais discreta que a
+   opção já confirmada (`.selecionada`), pra não confundir uma com a outra. */
+.pergunta-opcao.marcada {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg));
+  border-color: var(--accent);
+}
+.pergunta-opcao.marcada::before { content: "✓ "; }
+.pergunta-confirmar {
+  display: block;
+  margin-top: 8px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.pergunta-confirmar:disabled { opacity: .35; cursor: default; }
+
+.pergunta-form { display: flex; gap: 8px; }
 .pergunta-form input {
   flex: 1;
   font: inherit;
-  padding: 4px 8px;
+  padding: 6px 10px;
   border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--elev);
+  border-radius: 8px;
+  background: var(--bg);
   color: var(--text);
 }
-.pergunta-resposta { margin-top: 8px; font-size: 12px; color: var(--muted); }
-.log li.pergunta[data-respondida="1"] .pergunta-opcoes,
-.log li.pergunta[data-respondida="1"] .pergunta-form { opacity: .5; }
+.pergunta-form input:focus { outline: none; border-color: var(--accent); }
+.pergunta-form button {
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.pergunta-form button:disabled { opacity: .45; cursor: default; }
+/* Resposta aberta: citação no lugar do form, não uma linha separada dizendo a mesma coisa. */
+.pergunta-resposta {
+  font-style: italic;
+  color: var(--muted);
+  border-left: 2px solid var(--line);
+  padding-left: 8px;
+}
 
 /* medidor no canto superior direito do chat: fios das sessões + % da cota + bolinha do contexto */
 .meter {
@@ -1917,9 +2031,10 @@ textarea:focus {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 6px;
-  padding: 8px 10px 10px;
+  gap: 8px;
+  padding: 8px 10px;
   min-width: 0;
+  border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
 }
 
 /* linha única: os selects encolhem, os botões de ação nunca */
@@ -1928,6 +2043,21 @@ textarea:focus {
   min-width: 0;
   max-width: 190px;
   text-overflow: ellipsis;
+  /* na barra o select é discreto — a borda cheia é peso demais numa linha com 3 deles juntos */
+  background-color: transparent;
+  border-color: transparent;
+}
+
+.bar select:hover:not(:disabled),
+.bar select:focus-visible {
+  background-color: var(--bg);
+  border-color: #3a3a3a;
+}
+
+/* separa o cluster de contexto (conta/modelo/modo) do de ação (esforço + enviar) */
+.effort {
+  padding-left: 8px;
+  border-left: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
 }
 
 .bar button {
@@ -2001,6 +2131,86 @@ select:disabled {
 select option {
   background: #222;
   color: var(--text);
+}
+
+/* ---- lista customizada do combobox (combobox.js) — o popup que o Chromium não deixa estilizar ---- */
+@keyframes cb-list-in {
+  from { opacity: 0; transform: translateY(-4px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.cb-list {
+  position: fixed;
+  z-index: 200;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: #222;
+  border: 1px solid #3a3a3a;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+  max-height: 256px;
+  overflow-y: auto;
+  animation: cb-list-in .12s ease-out;
+}
+.cb-opt {
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cb-opt.ativa { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.cb-opt[aria-selected="true"] { color: var(--accent); font-weight: 600; }
+.cb-opt.desabilitada { opacity: .4; cursor: default; }
+
+/* ---- checkbox vira toggle: mesmo elemento, aparência de switch, semântica/eventos intactos ---- */
+input[type="checkbox"] {
+  appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  border-radius: 999px;
+  background: #3a3a3a;
+  cursor: pointer;
+  transition: background-color .15s ease;
+}
+input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #e8e8e8;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .35);
+  transition: transform .18s cubic-bezier(.2, .8, .2, 1);
+}
+input[type="checkbox"]:checked {
+  background: var(--accent);
+}
+input[type="checkbox"]:checked::before {
+  transform: translateX(14px);
+  background: var(--accent-ink);
+}
+input[type="checkbox"]:hover:not(:disabled) {
+  background: #4a4a4a;
+}
+input[type="checkbox"]:checked:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 85%, #000);
+}
+input[type="checkbox"]:disabled {
+  opacity: .4;
+  cursor: default;
+}
+input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 button {
@@ -3600,7 +3810,6 @@ body[data-side-mini="1"] .svc-strip {
 .ag-f input, .ag-f select { width: 100%; }
 /* Checkbox + texto lado a lado — `.ag-f` é coluna (título em cima, campo embaixo), não serve pra isto. */
 .ag-check { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.ag-check input[type="checkbox"] { width: auto; flex: 0 0 auto; }
 #ag-instructions { flex: 1; min-height: 180px; resize: vertical; font-family: var(--mono, monospace); font-size: 12px; line-height: 1.5; }
 .ag-count { margin: 0; font-size: 11px; opacity: .45; text-align: right; }
 .ag-gaps { margin: 0; font-size: 12px; color: #d8a657; }

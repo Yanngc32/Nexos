@@ -579,6 +579,9 @@ app.on("second-instance", () => {
 });
 
 app.whenReady().then(() => {
+  // Barra File/Edit/View/Window/Help é o menu padrão do Electron — o Nexo não usa nenhum item
+  // dela (o menu de verdade é a UI própria), então só sobra como ruído acima da janela.
+  Menu.setApplicationMenu(null);
   handle("daemon:info", () => daemonInfo());
   handle("daemon:start", () => {
     spawnNexo(["up"]).unref();

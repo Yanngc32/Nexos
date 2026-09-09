@@ -32,6 +32,42 @@ describe("nexo_perguntar", () => {
     expect(resposta && resposta.type === "pergunta_resposta" ? resposta.resposta : "").toBe("a");
   });
 
+  it("multiSelect: true chega no evento pergunta, e a resposta pode juntar mais de uma opção", async () => {
+    resetPerguntasForTest();
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    const ferramenta = ferramentaDePerguntar(t.id, home)()[0];
+
+    const chamada = ferramenta.executar({
+      pergunta: "quais pontos se aplicam?",
+      opcoes: ["a", "b", "c"],
+      multiSelect: true,
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const pergunta = readThread(t.id, home).find((e) => e.type === "pergunta");
+    expect(pergunta && pergunta.type === "pergunta" ? pergunta.multiSelect : undefined).toBe(true);
+
+    responderPergunta(t.id, "a; c");
+    const saida = await chamada;
+    expect(saida).toEqual({ ok: true, texto: "a; c" });
+  });
+
+  it("sem opcoes, multiSelect é ignorado (não faz sentido marcar várias sem opção nenhuma)", async () => {
+    resetPerguntasForTest();
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    const ferramenta = ferramentaDePerguntar(t.id, home)()[0];
+
+    void ferramenta.executar({ pergunta: "aberta?", multiSelect: true });
+    await new Promise((r) => setTimeout(r, 10));
+    const pergunta = readThread(t.id, home).find((e) => e.type === "pergunta");
+    expect(pergunta && pergunta.type === "pergunta" ? pergunta.multiSelect : undefined).toBeUndefined();
+    responderPergunta(t.id, "ok");
+  });
+
   it("responder thread sem pergunta pendente devolve false", () => {
     resetPerguntasForTest();
     expect(responderPergunta("thread-sem-nada", "x")).toBe(false);

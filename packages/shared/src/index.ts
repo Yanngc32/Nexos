@@ -315,7 +315,16 @@ export type ThreadEvent =
   /** Resultado de UMA chamada — sempre depois do `tool` de mesmo `id`, nunca sozinho. */
   | { ts: string; type: "tool_result"; threadId: string; id: string; result: string; isError?: boolean }
   /** `nexo_perguntar` pausou o turno pra perguntar algo — ver perguntas.ts. */
-  | { ts: string; type: "pergunta"; threadId: string; id: string; texto: string; opcoes?: string[] }
+  | {
+      ts: string;
+      type: "pergunta";
+      threadId: string;
+      id: string;
+      texto: string;
+      opcoes?: string[];
+      /** Marca quantas opções fizerem sentido antes de confirmar; só com `opcoes`. */
+      multiSelect?: boolean;
+    }
   /** Resposta que destravou a `pergunta` de mesmo `id` — sempre depois dela, nunca sozinha. */
   | { ts: string; type: "pergunta_resposta"; threadId: string; id: string; resposta: string }
   | {

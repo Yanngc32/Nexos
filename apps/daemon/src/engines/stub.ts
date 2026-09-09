@@ -1,5 +1,5 @@
 import type { EngineEvent, StartOpts } from "@nexo/shared";
-import type { Engine, EngineHandler } from "./types.ts";
+import type { Engine, EngineHandler, EngineMcp } from "./types.ts";
 
 export class StubEngine implements Engine {
   lastStart?: StartOpts;
@@ -31,6 +31,10 @@ export class StubEngine implements Engine {
 
   updatePack(pack: string): void {
     if (this.lastStart) this.lastStart = { ...this.lastStart, contextPack: pack };
+  }
+
+  updateMcp(mcp: EngineMcp): void {
+    if (this.lastStart) this.lastStart = { ...this.lastStart, ...mcp };
   }
 
   async send(text: string): Promise<void> {

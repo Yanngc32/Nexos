@@ -71,7 +71,7 @@ export type SessionEvent =
    */
   | { type: "compacting"; threadId: string; on: boolean; tokens?: number; motivo?: string }
   /** `nexo_perguntar` pausou o turno — ver perguntas.ts. NÃO passa por `onEngineEvent`: quem emite é a própria ferramenta, fora do laço do motor. */
-  | { type: "pergunta"; threadId: string; id: string; texto: string; opcoes?: string[] }
+  | { type: "pergunta"; threadId: string; id: string; texto: string; opcoes?: string[]; multiSelect?: boolean }
   | { type: "pergunta_resposta"; threadId: string; id: string; resposta: string }
   /**
    * `nexo_delegar` acabou de criar o run — ver delegar.ts. Não é histórico (por isso não vira
@@ -267,7 +267,8 @@ function withInstructions(agentId: string | undefined, projectPath: string, pack
     "# Perguntar com opções\nQuando quiser que a pessoa ESCOLHA entre opções (não só confirme algo " +
       'em texto livre), chame a ferramenta `nexo_perguntar` com `opcoes` — não liste "A) ... B) ... ' +
       'C) ..." como texto comum. Isso vira uma pergunta de verdade na tela, com botão por opção, e ' +
-      "pausa o turno até a resposta chegar.",
+      "pausa o turno até a resposta chegar. Se mais de uma opção puder valer ao mesmo tempo (ex.: " +
+      '"quais destes pontos se aplicam?"), some `multiSelect: true`.',
   );
   if (instrucoes) blocos.push(`# Agente: ${def?.name ?? agentId}\n${instrucoes}`);
   if (memoria) blocos.push(`# Memória do projeto\n${memoria}`);
@@ -382,6 +383,9 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
   const existing = lives.get(threadId);
   if (existing && existing.profileId === p.id) {
     existing.engine.updatePack(withInstructions(meta.agentId, meta.projectPath, packed.text, home));
+    // Mesma razão do updatePack: sem isto, mudar `delegacaoModo`/`allowedTools` só valeria depois
+    // de um engine NOVO (troca de conta, /clear, reiniciar o motor) — aqui vale já no próximo envio.
+    existing.engine.updateMcp(mcpDaConversa(threadId, meta, p, home));
     return existing;
   }
 

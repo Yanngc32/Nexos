@@ -2,6 +2,8 @@ import type { EngineEvent, StartOpts } from "@nexo/shared";
 
 export type EngineHandler = (ev: EngineEvent) => void;
 
+export type EngineMcp = Pick<StartOpts, "mcpConfig" | "mcpTools" | "mcpHttp">;
+
 export interface Engine {
   start(opts: StartOpts, onEvent: EngineHandler): Promise<void>;
   /**
@@ -12,6 +14,13 @@ export interface Engine {
    * própria resposta anterior e o que rodou de ferramenta desde então.
    */
   updatePack(pack: string): void;
+  /**
+   * Refaz quais ferramentas MCP o próximo `send` oferece — mesma razão do `updatePack`:
+   * sem isso, mudar `delegacaoModo`/`allowedTools` só valeria depois de um engine NOVO
+   * (troca de conta, `/clear` ou reiniciar o motor), porque `mcpConfig`/`mcpTools`/`mcpHttp`
+   * só eram lidos uma vez, em `start`.
+   */
+  updateMcp(mcp: EngineMcp): void;
   send(text: string): Promise<void>;
   abort(): Promise<void>;
 }

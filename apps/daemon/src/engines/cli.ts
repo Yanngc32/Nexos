@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import type { SpawnOptions } from "node:child_process";
 import type { EngineEvent, EngineOverrides, Profile, StartOpts } from "@nexo/shared";
 import { EFFORT_LEVELS, MODEL_RE, PERMISSION_MODES, TOOL_PATTERN_RE } from "@nexo/shared";
-import type { Engine, EngineHandler } from "./types.ts";
+import type { Engine, EngineHandler, EngineMcp } from "./types.ts";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { attachmentsDir, enginePidPath, globalSkillsDir } from "../home.ts";
@@ -141,6 +141,12 @@ export class CliEngine implements Engine {
 
   updatePack(pack: string): void {
     this.pack = pack;
+  }
+
+  updateMcp(mcp: EngineMcp): void {
+    this.mcpConfig = mcp.mcpConfig;
+    this.mcpTools = mcp.mcpTools;
+    this.mcpHttp = mcp.mcpHttp;
   }
 
   /**

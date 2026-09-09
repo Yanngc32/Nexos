@@ -6,6 +6,7 @@ import { createAgentStudio } from "./agent-studio.js";
 import { createTeamStudio } from "./team-studio.js";
 import { createHooksStudio } from "./hooks-studio.js";
 import { lerEventos } from "./sse.js";
+import { initCombobox } from "./combobox.js";
 import { aplicarEventoDeRun, rotuloDoPasso, duracaoDoPasso, larguraDosPassos } from "./run-view.js";
 import { fmtDuracao } from "./agent-trace.js";
 import { agruparConversas } from "./thread-groups.js";
@@ -2329,6 +2330,22 @@ function ehFerramentaDeDelegar(name) {
   return typeof name === "string" && name.endsWith("nexo_delegar");
 }
 
+function ehFerramentaDePerguntar(name) {
+  return typeof name === "string" && name.endsWith("nexo_perguntar");
+}
+
+/**
+ * A bolha de "Pergunta" já conta a história inteira (texto + opções) — mostrar TAMBÉM a chamada
+ * crua da ferramenta (e o `ToolSearch` que o motor faz antes, pra achar a ferramenta adiada) só
+ * duplica a mesma informação de um jeito mais feio. Esconde as duas.
+ */
+function ehRuidoDePerguntar(ev) {
+  if (ehFerramentaDePerguntar(ev.name)) return true;
+  if (ev.name !== "ToolSearch") return false;
+  const query = ev.input?.query;
+  return typeof query === "string" && query.includes("nexo_perguntar");
+}
+
 /**
  * Abre o "subchat": passos do run ao vivo dentro da própria bolha de `nexo_delegar`, reaproveitando
  * a lógica pura de `run-view.js` (mesma que a tela de Times usa) — só o desenho é local.
@@ -2402,6 +2419,7 @@ function appendEvent(ev, scroll = true) {
     li.innerHTML = `<div class="who">Conta</div><div class="md"></div>`;
     renderMd(li.querySelector(".md"), ev.text);
   } else if (ev.type === "tool") {
+    if (ehRuidoDePerguntar(ev)) return;
     const arg = ev.summary ? `<span class="tool-arg">${escapeHtml(ev.summary)}</span>` : "";
     li.className = "tool";
     if (ev.id) li.dataset.toolId = ev.id;
@@ -2442,26 +2460,25 @@ function appendEvent(ev, scroll = true) {
     }
     return;
   } else if (ev.type === "pergunta") {
-    li.className = "pergunta";
+    // Anima só quando chega ao vivo — reabrir a conversa não deve fazer toda pergunta antiga
+    // piscar de novo na tela.
+    li.className = scroll ? "pergunta pergunta-viva" : "pergunta";
     li.dataset.perguntaId = ev.id;
     li.dataset.threadId = ev.threadId ?? state.threadId;
+    if (ev.multiSelect) li.dataset.multi = "1";
     const opcoes = ev.opcoes ?? [];
     const corpo = opcoes.length
       ? `<div class="pergunta-opcoes">${opcoes
           .map((o) => `<button type="button" class="pergunta-opcao" data-valor="${escapeHtml(o)}">${escapeHtml(o)}</button>`)
-          .join("")}</div>`
+          .join("")}</div>` +
+        (ev.multiSelect ? `<button type="button" class="pergunta-confirmar" disabled>Confirmar</button>` : "")
       : `<form class="pergunta-form"><input type="text" placeholder="responder..." autocomplete="off" /><button type="submit">Enviar</button></form>`;
-    li.innerHTML = `<div class="who">Pergunta</div><div class="pergunta-texto">${escapeHtml(ev.texto)}</div>${corpo}`;
+    li.innerHTML =
+      `<div class="who pergunta-who">Pergunta</div>` +
+      `<div class="pergunta-texto">${escapeHtml(ev.texto)}</div>${corpo}`;
   } else if (ev.type === "pergunta_resposta") {
     const alvo = log.querySelector(`li.pergunta[data-pergunta-id="${CSS.escape(ev.id ?? "")}"]`);
-    if (alvo && alvo.dataset.respondida !== "1") {
-      alvo.dataset.respondida = "1";
-      alvo.querySelectorAll("button, input").forEach((el) => (el.disabled = true));
-      const resp = document.createElement("div");
-      resp.className = "pergunta-resposta";
-      resp.textContent = `Resposta: ${ev.resposta}`;
-      alvo.append(resp);
-    }
+    pintarRespostaDaPergunta(alvo, ev.resposta);
     return;
   } else if (ev.type === "switched") {
     li.innerHTML = `<span class="stamp">Trocou ${escapeHtml(ev.fromProfileId)} → ${escapeHtml(ev.toProfileId)}</span>`;
@@ -2531,9 +2548,24 @@ function flushStreamRender() {
 
 /** Delegado (não por bolha): pega tanto as ferramentas que chegam ao vivo quanto as de uma conversa reaberta. */
 $("log").addEventListener("click", (e) => {
+  const confirmar = e.target.closest(".pergunta-confirmar");
+  if (confirmar) {
+    const li = confirmar.closest("li.pergunta");
+    const marcadas = [...li.querySelectorAll(".pergunta-opcao.marcada")].map((b) => b.dataset.valor);
+    if (marcadas.length) void responderPergunta(li, marcadas.join("; "));
+    return;
+  }
   const opcao = e.target.closest(".pergunta-opcao");
   if (opcao) {
-    void responderPergunta(opcao.closest("li.pergunta"), opcao.dataset.valor);
+    const li = opcao.closest("li.pergunta");
+    if (li.dataset.multi === "1") {
+      // Multi-seleção: só marca/desmarca — quem envia é o botão Confirmar.
+      opcao.classList.toggle("marcada");
+      const confirmarBtn = li.querySelector(".pergunta-confirmar");
+      confirmarBtn.disabled = !li.querySelector(".pergunta-opcao.marcada");
+      return;
+    }
+    void responderPergunta(li, opcao.dataset.valor);
     return;
   }
   const linha = e.target.closest(".tool-line");
@@ -2556,16 +2588,47 @@ $("log").addEventListener("submit", (e) => {
   void responderPergunta(form.closest("li.pergunta"), valor);
 });
 
-/** Manda a resposta pro daemon; desabilita a bolha na hora — a confirmação de verdade chega pelo SSE (`pergunta_resposta`). */
-async function responderPergunta(li, resposta) {
+/**
+ * Pinta a resposta final na bolha: opção(ões) escolhida(s) viram a própria resposta (sem linha
+ * repetida dizendo a mesma coisa embaixo); resposta aberta substitui o form por uma citação do
+ * que foi dito. Chamado pelo eco do servidor (`pergunta_resposta`, SSE) — é a MESMA pintura pra
+ * uma pergunta respondida agora e pra uma reaberta do histórico.
+ */
+function pintarRespostaDaPergunta(li, resposta) {
   if (!li || li.dataset.respondida === "1") return;
-  const threadId = li.dataset.threadId;
   li.dataset.respondida = "1";
+  delete li.dataset.enviando;
+  const opcoes = [...li.querySelectorAll(".pergunta-opcao")];
+  // Multi-seleção junta valores com "; " (ver ferramentaDePerguntar) — separa de volta pra marcar
+  // cada botão batido, em vez de procurar um botão só com o texto inteiro.
+  const escolhidas = li.dataset.multi === "1" ? resposta.split("; ") : [resposta];
+  const marcadas = opcoes.filter((b) => escolhidas.includes(b.dataset.valor));
+  if (marcadas.length) {
+    marcadas.forEach((b) => b.classList.add("selecionada"));
+    opcoes.forEach((b) => (b.disabled = true));
+    const confirmar = li.querySelector(".pergunta-confirmar");
+    if (confirmar) confirmar.remove();
+    return;
+  }
+  li.querySelectorAll("button, input").forEach((el) => (el.disabled = true));
+  const form = li.querySelector(".pergunta-form");
+  const resp = document.createElement("div");
+  resp.className = "pergunta-resposta";
+  resp.textContent = resposta;
+  if (form) form.replaceWith(resp);
+  else li.append(resp);
+}
+
+/** Manda a resposta pro daemon e só desabilita os controles — quem pinta o estado final é o eco (`pergunta_resposta`). */
+async function responderPergunta(li, resposta) {
+  if (!li || li.dataset.respondida === "1" || li.dataset.enviando === "1") return;
+  const threadId = li.dataset.threadId;
+  li.dataset.enviando = "1";
   li.querySelectorAll("button, input").forEach((el) => (el.disabled = true));
   try {
     await req(`/v1/perguntas/${threadId}/responder`, { method: "POST", body: JSON.stringify({ resposta }) });
   } catch (e) {
-    li.dataset.respondida = "0";
+    delete li.dataset.enviando;
     li.querySelectorAll("button, input").forEach((el) => (el.disabled = false));
     appendEvent({ type: "error", message: e.message || "Não deu pra responder." });
   }
@@ -5140,7 +5203,7 @@ $("btn-allow-save").addEventListener("click", async () => {
     appendEvent({
       type: "sys",
       message: lista.length
-        ? `${id}: liberado ${lista.join(", ")}. Vale no próximo motor — reinicia pra valer agora.`
+        ? `${id}: liberado ${lista.join(", ")}. Vale já na próxima mensagem.`
         : `${id}: nenhuma ferramenta liberada.`,
     });
   } catch (e) {
@@ -5164,7 +5227,7 @@ $("btn-deleg-save").addEventListener("click", async () => {
     state.profiles = state.profiles.map((p) => (p.id === next.id ? next : p));
     state.fpProfiles = "";
     syncDelegModo();
-    appendEvent({ type: "sys", message: `${id}: delegação — ${modo}. Vale a partir do próximo motor.` });
+    appendEvent({ type: "sys", message: `${id}: delegação — ${modo}. Vale já na próxima mensagem.` });
   } catch (e) {
     err.textContent = e.message || "não deu pra salvar";
   }
@@ -5360,6 +5423,8 @@ window.addEventListener("resize", () => {
   state.fit?.fit();
   if (state.view === "canvas" || (state.paletteOpen && state.previewId === "canvas")) resizeSketch();
 });
+
+initCombobox();
 
 const bootAccent = new URLSearchParams(location.search).get("accent");
 applyAccent(HEX.test(bootAccent || "") ? bootAccent : localStorage.getItem("nexo.accent") || DEFAULT_ACCENT);

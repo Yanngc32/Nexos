@@ -46,9 +46,11 @@ export function ferramentaDePerguntar(threadId: string, home: string): Conjunto 
         "Pausa e pergunta algo a quem está acompanhando esta conversa (pessoa, ou quem revisa o " +
         "run, se for time/hook automático). Use quando uma decisão importante depende de uma " +
         "escolha que só quem pediu pode fazer — não para confirmar cada passo pequeno. Com " +
-        "`opcoes`, a resposta tende a ser uma delas, mas texto livre também é aceito. Sem " +
-        "resposta dentro do teto do turno (~15min), a chamada estoura como qualquer ferramenta " +
-        "travada — não fique perguntando o óbvio esperando alguém acordar.",
+        "`opcoes`, a resposta tende a ser uma delas, mas texto livre também é aceito; use " +
+        "`multiSelect: true` quando mais de uma opção puder fazer sentido ao mesmo tempo (ex.: " +
+        '"quais destes pontos se aplicam?") — a resposta chega como as escolhidas juntas, ' +
+        'separadas por "; ". Sem resposta dentro do teto do turno (~15min), a chamada estoura ' +
+        "como qualquer ferramenta travada — não fique perguntando o óbvio esperando alguém acordar.",
       inputSchema: {
         type: "object",
         properties: {
@@ -58,6 +60,10 @@ export function ferramentaDePerguntar(threadId: string, home: string): Conjunto 
             items: { type: "string" },
             maxItems: OPCOES_MAX,
             description: "opcional: até 6 opções pra UI desenhar como botão — dica de exibição, não validação",
+          },
+          multiSelect: {
+            type: "boolean",
+            description: "true se dá pra marcar mais de uma opção antes de confirmar (só faz sentido com `opcoes`)",
           },
         },
         required: ["pergunta"],
@@ -71,7 +77,8 @@ export function ferramentaDePerguntar(threadId: string, home: string): Conjunto 
           .map((o) => String(o).trim())
           .filter(Boolean)
           .slice(0, OPCOES_MAX);
-        return perguntar(threadId, home, pergunta, opcoes);
+        const multiSelect = Boolean(args.multiSelect) && opcoes.length > 0;
+        return perguntar(threadId, home, pergunta, opcoes, multiSelect);
       },
     },
   ];
@@ -87,6 +94,7 @@ export async function perguntar(
   home: string,
   pergunta: string,
   opcoes: string[] = [],
+  multiSelect = false,
 ): Promise<{ ok: boolean; texto: string }> {
   if (pendentes.has(threadId)) {
     return { ok: false, texto: "já existe uma pergunta pendente nesta conversa — espere a resposta antes de perguntar de novo" };
@@ -100,6 +108,7 @@ export async function perguntar(
     id,
     texto: pergunta,
     ...(opcoes.length ? { opcoes: opcoes.slice(0, OPCOES_MAX) } : {}),
+    ...(opcoes.length && multiSelect ? { multiSelect: true as const } : {}),
   };
   appendEvent(perguntaEv, home);
   sessionBus.emit(threadId, perguntaEv);

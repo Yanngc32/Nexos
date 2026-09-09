@@ -1,5 +1,5 @@
 import type { EngineEvent, StartOpts } from "@nexo/shared";
-import type { Engine, EngineHandler } from "./types.ts";
+import type { Engine, EngineHandler, EngineMcp } from "./types.ts";
 import { getProfile, readApiKey } from "../profiles.ts";
 
 type ApiEngineOpts = {
@@ -32,6 +32,10 @@ export class ApiEngine implements Engine {
 
   updatePack(pack: string): void {
     if (this.opts) this.opts = { ...this.opts, contextPack: pack };
+  }
+
+  updateMcp(_mcp: EngineMcp): void {
+    // Chamada de API direta ao provedor, sem cliente MCP — nunca teve ferramenta MCP a atualizar.
   }
 
   async send(text: string): Promise<void> {
