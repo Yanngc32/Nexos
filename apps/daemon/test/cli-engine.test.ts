@@ -161,7 +161,9 @@ describe("toolSummary", () => {
         message: { content: [{ type: "tool_use", name: "Grep", input: { pattern: "foo", path: winDir } }] },
       }),
     );
-    expect(evs).toEqual([{ type: "tool", name: "Grep", summary: "foo em …/apps/daemon/src" }]);
+    expect(evs).toEqual([
+      { type: "tool", name: "Grep", summary: "foo em …/apps/daemon/src", input: { pattern: "foo", path: winDir } },
+    ]);
   });
 
   it("libera a pasta de anexo do thread com --add-dir (só no claude)", async () => {
@@ -221,7 +223,7 @@ describe("parseCliLine", () => {
     );
     expect(text).toEqual([
       { type: "text", text: "olá" },
-      { type: "tool", name: "Read", summary: "a.ts" },
+      { type: "tool", name: "Read", summary: "a.ts", input: { path: "a.ts" } },
     ]);
     expect(parseCliLine(JSON.stringify({ type: "system", subtype: "init" }))).toEqual([
       { type: "session", contextWindow: 200_000 },
@@ -418,9 +420,10 @@ describe("parseCliLine", () => {
     expect(parseCliLine(JSON.stringify({ type: "system", subtype: "status", status: "requesting" }))).toEqual([]);
   });
 
-  it("tool_result não vira quota nem erro (regressão do dump vermelho)", () => {
-    // o app leu o próprio renderer.js, que fala de "quota" e "rate_limit":
-    // isso virava um evento quota de 56k que a UI pintava de vermelho
+  it("tool_result não vira quota nem erro (regressão do dump vermelho) — vira tool_result normal, capado", () => {
+    // o app leu o próprio renderer.js, que fala de "quota" e "rate_limit": isso virava um evento
+    // quota de 56k que a UI pintava de vermelho. O resultado tem que aparecer (é o que a bolha
+    // expansível mostra), só não pode mais ser classificado como aviso de limite/erro.
     const arquivoLido = [
       "1\tconst state = { pendingQuota: null };",
       '2\tfunction showQuota(ev) { /* A quota de ... acabou */ }',
@@ -434,7 +437,14 @@ describe("parseCliLine", () => {
         content: [{ tool_use_id: "toolu_1", type: "tool_result", content: arquivoLido }],
       },
     });
-    expect(parseCliLine(line)).toEqual([]);
+    const evs = parseCliLine(line);
+    expect(evs).toHaveLength(1);
+    expect(evs[0]?.type).toBe("tool_result");
+    const r = evs[0] && evs[0].type === "tool_result" ? evs[0] : undefined;
+    expect(r?.id).toBe("toolu_1");
+    expect(r?.result.length).toBeLessThanOrEqual(601);
+    expect(r?.result.endsWith("…")).toBe(true);
+    expect(evs.some((e) => e.type === "quota" || e.type === "error")).toBe(false);
   });
 
   it("erro com texto gigante entra cortado", () => {

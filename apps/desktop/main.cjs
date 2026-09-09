@@ -26,6 +26,16 @@ process.on("unhandledRejection", (err) => {
   console.error(err);
 });
 
+/*
+ * Sem isto, cada clique no atalho (ou cada `nexo` que sobe o Electron junto)
+ * abre um processo novo — janela nova, widget novo, e um ícone de bandeja a
+ * mais por cima do outro. `requestSingleInstanceLock` faz a segunda tentativa
+ * só acordar a primeira e sair; quem já está aberto que responde.
+ */
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+}
+
 const here = __dirname;
 const daemonRoot = join(here, "../daemon");
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "target", ".next", "coverage", ".turbo", ".nexo-test"]);
@@ -561,6 +571,13 @@ function handle(channel, fn) {
   });
 }
 
+app.on("second-instance", () => {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+});
+
 app.whenReady().then(() => {
   handle("daemon:info", () => daemonInfo());
   handle("daemon:start", () => {
@@ -631,6 +648,20 @@ app.whenReady().then(() => {
     // só https: nada de file:, javascript: ou cmd disfarçado de link
     if (!/^https:\/\//i.test(url)) throw new Error("URL inválida");
     await shell.openExternal(url);
+    return { ok: true };
+  });
+  /**
+   * Abre um arquivo LOCAL com o app padrão do sistema (`shell.openPath`, não `openExternal`) —
+   * é o que a tela Grafo usa pra abrir a árvore que `graphify tree` gerou. Restrito a `.html`:
+   * mesmo sendo um canal só pra UI própria (não conteúdo remoto), abrir "qualquer arquivo" seria
+   * um gadget genérico de execução; abrir só HTML no navegador é o equivalente a clicar duas
+   * vezes nele no explorador de arquivos.
+   */
+  handle("shell:open-file", async (_e, raw) => {
+    const path = String(raw ?? "");
+    if (!/\.html?$/i.test(path)) throw new Error("só abre .html");
+    const erro = await shell.openPath(path);
+    if (erro) throw new Error(erro);
     return { ok: true };
   });
   handle("folder:pick", async () => {

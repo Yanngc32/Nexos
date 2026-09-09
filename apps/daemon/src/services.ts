@@ -6,7 +6,7 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { ProbeResult, ServiceDef, ServiceStatus, ServicesReport } from "@nexo/shared";
 import { loadConfig, saveConfig } from "./config.ts";
-import { ensureHome } from "./home.ts";
+import { ensureHome, projectKey } from "./home.ts";
 import { assertSlug } from "./ids.ts";
 import { killByPort, killTree } from "./kill-tree.ts";
 
@@ -47,10 +47,6 @@ const PORT_NA_SAIDA_RE = /(?:localhost|127\.0\.0\.1):(\d{2,5})\b/;
 /** Chave de processo: o daemon é global, vários projetos podem estar abertos. */
 function key(projectPath: string, id: string): string {
   return `${projectKey(projectPath)}::${id}`;
-}
-
-function projectKey(projectPath: string): string {
-  return resolve(projectPath).replace(/[\u005c]/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
 /** Nome do canal do bus pra este projeto: é por ele que o SSE escuta. */

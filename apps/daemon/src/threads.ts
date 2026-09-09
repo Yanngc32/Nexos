@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ThreadEvent } from "@nexo/shared";
+import { loadConfig } from "./config.ts";
 import { ensureHome, threadPath } from "./home.ts";
 import { newThreadId } from "./ids.ts";
 import { getProfile } from "./profiles.ts";
@@ -196,6 +197,26 @@ export function projectsFromThreads(home: string): string[] {
   return [...vistos.values()]
     .sort((a, b) => (a.ts < b.ts ? 1 : -1))
     .map((v) => v.path);
+}
+
+/**
+ * Todo projeto que o Nexo já conhece: o que o app salvou (`config.repos`) mais o que as
+ * conversas gravadas revelam, sem o que o usuário escondeu (`hiddenRepos`). Mesma dedução de
+ * `GET /v1/projects` (http.ts) — reexportada aqui pra `sincronizarHooksGlobal` (hooks.ts) não
+ * duplicar a lógica de "quais projetos existem" com um critério que pode divergir do endpoint.
+ */
+export function projetosConhecidos(home: string): string[] {
+  const cfg = loadConfig(home);
+  const chave = (p: string) => p.split("\\").join("/").replace(/\/+$/, "").toLowerCase();
+  const escondidas = new Set(cfg.hiddenRepos.map(chave));
+  const merged = cfg.repos.filter((p) => !escondidas.has(chave(p)));
+  const vistos = new Set(merged.map(chave));
+  for (const p of projectsFromThreads(home)) {
+    if (vistos.has(chave(p)) || escondidas.has(chave(p))) continue;
+    vistos.add(chave(p));
+    merged.push(p);
+  }
+  return merged;
 }
 
 export function activeProfileId(events: ThreadEvent[]): string {

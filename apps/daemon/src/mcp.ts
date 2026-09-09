@@ -249,20 +249,59 @@ export function configDeMcp(porta: number, token: string, runId: string): string
 }
 
 /**
- * Config da conversa normal: as ferramentas de AUTORIA.
+ * Caminho de `/v1/mcp` pra ESTA conversa — o projeto vai como query porque
+ * `/v1/mcp` é uma boca só, compartilhada por toda conversa normal (ao
+ * contrário do supervisor, que tem uma por run). É assim que o handler sabe
+ * de qual projeto oferecer as ferramentas do grafo (`graphify.ts`): sem
+ * projeto no caminho, ele não saberia qual `graphify-out/` checar.
  *
- * Sem run no caminho porque não há run — o que estas ferramentas fazem é
- * escrever `agents.json` e `teams.json`. Nenhuma delas executa nada, e é isso
- * que torna aceitável estarem numa conversa comum: definição ruim se apaga num
- * segundo, enquanto um run gasta quota e escreve branch no repositório.
+ * `runId` soma quando a conversa É o passo de um run de PIPELINE (ver
+ * `executarPasso` em runs.ts, que cria a thread com `runId` no meta) — é
+ * assim que o handler sabe oferecer `nexo_veredito` (hooks.ts) só pra ESTE
+ * run, mesmo essa conversa passando pela boca de autoria normal e não pela do
+ * supervisor (`/v1/mcp/:id`, que só existe pra topologia `supervisor`).
  */
-export function configDeMcpAutoria(porta: number, token: string): string {
-  return configPara(porta, token, "/v1/mcp");
+function caminhoDaAutoria(projectPath?: string, runId?: string, threadId?: string): string {
+  const params = new URLSearchParams();
+  if (projectPath) params.set("projectPath", projectPath);
+  if (runId) params.set("runId", runId);
+  // `threadId` é o que dá ao handler de `/v1/mcp` como oferecer `nexo_perguntar` (perguntas.ts) e
+  // `nexo_delegar` (delegar.ts) presos a ESTA conversa — os dois escopam por thread, não por run,
+  // porque conversa normal (sem run nenhum) também precisa dos dois.
+  if (threadId) params.set("threadId", threadId);
+  const query = params.toString();
+  return query ? `/v1/mcp?${query}` : "/v1/mcp";
+}
+
+/**
+ * Config da conversa normal: as ferramentas de AUTORIA (e, se o projeto já
+ * tiver grafo construído, as de consulta ao graphify; e, se for passo de um
+ * run com `runId`, o `nexo_veredito` desse run).
+ *
+ * Sem run no caminho porque não há run — o que a autoria faz é escrever
+ * `agents.json` e `teams.json`; o que o graphify faz é só LER um grafo que já
+ * existe. Nenhuma das duas executa nada, e é isso que torna aceitável estarem
+ * numa conversa comum: definição ruim se apaga num segundo, e consulta a
+ * grafo não muda nada no disco.
+ */
+export function configDeMcpAutoria(
+  porta: number,
+  token: string,
+  projectPath?: string,
+  runId?: string,
+  threadId?: string,
+): string {
+  return configPara(porta, token, caminhoDaAutoria(projectPath, runId, threadId));
 }
 
 /** Endereço da boca MCP do daemon. O `codex` recebe isto, não arquivo. */
 export function urlDeMcp(porta: number, caminho = "/v1/mcp"): string {
   return `http://127.0.0.1:${porta}${caminho}`;
+}
+
+/** Mesma boca de `urlDeMcp`, com o projeto (e run, se houver) embutidos — ver `caminhoDaAutoria`. */
+export function urlDeMcpAutoria(porta: number, projectPath?: string, runId?: string, threadId?: string): string {
+  return urlDeMcp(porta, caminhoDaAutoria(projectPath, runId, threadId));
 }
 
 /**
@@ -298,4 +337,6 @@ export const MCP_TOOLS_AUTORIA = [
   "mcp__nexo__nexo_contexto",
   "mcp__nexo__nexo_agente_salvar",
   "mcp__nexo__nexo_time_salvar",
+  "mcp__nexo__nexo_hook_salvar",
+  "mcp__nexo__nexo_hook_listar",
 ];

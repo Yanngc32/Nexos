@@ -1,9 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createApp } from "../src/http.ts";
-import { addProfile, engineEnv, getProfile } from "../src/profiles.ts";
+import { addProfile, engineEnv, getProfile, updateProfile } from "../src/profiles.ts";
 import { createThread, readThread } from "../src/threads.ts";
+import { saveAgent } from "../src/agents.ts";
 import { postMessage } from "../src/session.ts";
 import { liveCred, tempHome } from "./helpers.ts";
 import { cancelAllLogins } from "../src/login-session.ts";
@@ -13,6 +14,112 @@ import { dirname } from "node:path";
 const fakeLogin = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-auth-login.mjs");
 
 const token = "test-token";
+
+/** Espera até a fila de microtasks/timers do run em voo (fire-and-forget) esvaziar. */
+async function tick(vezes = 10): Promise<void> {
+  for (let i = 0; i < vezes; i++) await new Promise((r) => setTimeout(r, 0));
+}
+
+describe("GET /v1/projeto/status", () => {
+  it("junta memória, grafo e contagem de hooks numa chamada só", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const hdr = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    addProfile({ id: "p1", engine: "stub" }, home);
+    await app.request("/v1/agents/defs", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ id: "a1", name: "A1", profileId: "p1" }),
+    });
+    await app.request("/v1/hooks/rules", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ escopo: { tipo: "global" }, evento: "git.post-commit", agentId: "a1" }),
+    });
+    const res = await app.request(`/v1/projeto/status?projectPath=${encodeURIComponent("C:/proj/status")}`, {
+      headers: hdr,
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      memoria: { existe: boolean };
+      grafo: { disponivel: boolean };
+      grafoAuto: boolean;
+      hooksCount: number;
+    };
+    expect(body.memoria.existe).toBe(false);
+    expect(body.grafo.disponivel).toBe(false);
+    expect(body.grafoAuto).toBe(false);
+    expect(body.hooksCount).toBe(1);
+  });
+
+  it("sem projectPath: 400", async () => {
+    const app = createApp(tempHome(), token);
+    const res = await app.request("/v1/projeto/status", { headers: { authorization: `Bearer ${token}` } });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("nexo.projeto-novo", () => {
+  it("dispara só na primeira vez que um projeto abre uma conversa, não nas seguintes", async () => {
+    const { resetHooksForTest } = await import("../src/hooks.ts");
+    const { resetRunsForTest } = await import("../src/runs.ts");
+    resetHooksForTest();
+    resetRunsForTest();
+    const home = tempHome();
+    const app = createApp(home, token);
+    const hdr = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    addProfile({ id: "p1", engine: "stub" }, home);
+    await app.request("/v1/agents/defs", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ id: "boas-vindas", name: "Boas-vindas", profileId: "p1" }),
+    });
+    await app.request("/v1/hooks/rules", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ escopo: { tipo: "global" }, evento: "nexo.projeto-novo", agentId: "boas-vindas" }),
+    });
+
+    const { getTeam } = await import("../src/teams.ts");
+    const projectPath = "C:/proj/nunca-visto";
+    const primeira = await app.request("/v1/threads", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ projectPath, profileId: "p1" }),
+    });
+    expect(primeira.status).toBe(201);
+    await tick();
+    expect(getTeam("hook-boas-vindas", home)).toBeTruthy();
+
+    // segunda conversa NO MESMO projeto: já é conhecido, não deve disparar de novo (não dá pra
+    // observar "não rodou" direto, mas confirmamos que a criação da conversa não quebra nem
+    // duplica erro nenhum, e que o teste de novidade usa `projetosConhecidos` corretamente).
+    const segunda = await app.request("/v1/threads", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ projectPath, profileId: "p1" }),
+    });
+    expect(segunda.status).toBe(201);
+  });
+
+  it("branch não se aplica a nexo.projeto-novo: 400 na criação da regra", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const hdr = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    addProfile({ id: "p1", engine: "stub" }, home);
+    await app.request("/v1/agents/defs", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ id: "a1", name: "A1", profileId: "p1" }),
+    });
+    const res = await app.request("/v1/hooks/rules", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ escopo: { tipo: "global" }, evento: "nexo.projeto-novo", branch: "main", agentId: "a1" }),
+    });
+    expect(res.status).toBe(400);
+  });
+});
 
 describe("http projects", () => {
   it("devolve pastas do config e das conversas", async () => {
@@ -669,5 +776,248 @@ describe("http teams e runs", () => {
   it("run inexistente é 404", async () => {
     const { app } = base();
     expect((await app.request("/v1/runs/r-nada", { headers: hdr })).status).toBe(404);
+  });
+});
+
+describe("http mcp", () => {
+  const hdr = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+  const listar = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+
+  async function nomesDasFerramentas(app: ReturnType<typeof createApp>, path: string) {
+    const res = await app.request(path, { method: "POST", headers: hdr, body: JSON.stringify(listar) });
+    const body = (await res.json()) as { result: { tools: Array<{ name: string }> } };
+    return body.result.tools.map((t) => t.name);
+  }
+
+  it("sem projectPath, só a autoria — nem tenta oferecer grafo nenhum", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    expect(await nomesDasFerramentas(app, "/v1/mcp")).toEqual([
+      "nexo_contexto",
+      "nexo_agente_salvar",
+      "nexo_time_salvar",
+      "nexo_hook_salvar",
+      "nexo_hook_listar",
+    ]);
+  });
+
+  it("com projectPath mas sem grafo construído, ainda só a autoria", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const projeto = tempHome();
+    expect(await nomesDasFerramentas(app, `/v1/mcp?projectPath=${encodeURIComponent(projeto)}`)).toEqual([
+      "nexo_contexto",
+      "nexo_agente_salvar",
+      "nexo_time_salvar",
+      "nexo_hook_salvar",
+      "nexo_hook_listar",
+    ]);
+  });
+
+  it("com grafo construído no projeto, soma as ferramentas do graphify", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const projeto = tempHome();
+    mkdirSync(join(projeto, "graphify-out"), { recursive: true });
+    writeFileSync(join(projeto, "graphify-out", "graph.json"), "{}", "utf8");
+    expect(await nomesDasFerramentas(app, `/v1/mcp?projectPath=${encodeURIComponent(projeto)}`)).toEqual([
+      "nexo_contexto",
+      "nexo_agente_salvar",
+      "nexo_time_salvar",
+      "nexo_hook_salvar",
+      "nexo_hook_listar",
+      "nexo_grafo_perguntar",
+      "nexo_grafo_explicar",
+    ]);
+  });
+
+  it("com runId, soma o nexo_veredito — preso a ESSE run só", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    expect(await nomesDasFerramentas(app, "/v1/mcp?runId=r-abc")).toEqual([
+      "nexo_contexto",
+      "nexo_agente_salvar",
+      "nexo_time_salvar",
+      "nexo_hook_salvar",
+      "nexo_hook_listar",
+      "nexo_veredito",
+    ]);
+  });
+
+  it("com threadId, soma o nexo_perguntar — em toda conversa, sem depender de run", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    const nomes = await nomesDasFerramentas(app, `/v1/mcp?threadId=${t.id}`);
+    expect(nomes).toContain("nexo_perguntar");
+    expect(nomes).not.toContain("nexo_delegar");
+  });
+
+  it("nexo_delegar só aparece com threadId+projectPath, sem runId, e delegacaoModo != negado", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+
+    // padrão (delegacaoModo ausente = negado): não aparece
+    expect(await nomesDasFerramentas(app, `/v1/mcp?threadId=${t.id}&projectPath=/proj`)).not.toContain("nexo_delegar");
+
+    updateProfile("p1", home, { delegacaoModo: "liberado" });
+    expect(await nomesDasFerramentas(app, `/v1/mcp?threadId=${t.id}&projectPath=/proj`)).toContain("nexo_delegar");
+
+    // com runId (passo de Run) mesmo liberado: nunca aparece — é a barreira de recursão
+    expect(
+      await nomesDasFerramentas(app, `/v1/mcp?threadId=${t.id}&projectPath=/proj&runId=r-1`),
+    ).not.toContain("nexo_delegar");
+  });
+});
+
+describe("POST /v1/perguntas/:threadId/responder", () => {
+  const hdr = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+
+  it("resolve a pergunta pendente da thread e falha sem pergunta nenhuma", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    addProfile({ id: "p1", engine: "stub" }, home);
+    saveAgent({ id: "a1", name: "A1", profileId: "p1" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+
+    const semNada = await app.request(`/v1/perguntas/${t.id}/responder`, {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ resposta: "oi" }),
+    });
+    expect(semNada.status).toBe(404);
+
+    const listar = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "nexo_perguntar", arguments: { pergunta: "qual conta?" } } };
+    const chamada = app.request(`/v1/mcp?threadId=${t.id}`, { method: "POST", headers: hdr, body: JSON.stringify(listar) });
+
+    await new Promise((r) => setTimeout(r, 20));
+    const res = await app.request(`/v1/perguntas/${t.id}/responder`, {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ resposta: "a conta p1" }),
+    });
+    expect(res.status).toBe(200);
+
+    const body = (await (await chamada).json()) as { result: { content: Array<{ text: string }> } };
+    expect(body.result.content[0].text).toBe("a conta p1");
+  });
+});
+
+describe("http hooks", () => {
+  const hdr = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+
+  it("sem token nenhum é recusado, igual toda /v1/*", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const res = await app.request("/v1/hooks/fire", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ event: "git.post-commit", projectPath: "/proj" }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("evento sem hook configurado responde disparado:false, não erro", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const res = await app.request("/v1/hooks/fire", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ event: "git.post-commit", projectPath: "/proj" }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ disparado: false });
+  });
+
+  it("evento fora do padrão é 400", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const res = await app.request("/v1/hooks/fire", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ event: "not valid", projectPath: "/proj" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("CRUD de regra: cria, lista, edita, apaga", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    addProfile({ id: "p1", engine: "stub" }, home);
+    await app.request("/v1/agents/defs", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ id: "memoria", name: "Memória", profileId: "p1" }),
+    });
+
+    const criado = await app.request("/v1/hooks/rules", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ escopo: { tipo: "global" }, evento: "git.post-commit", agentId: "memoria" }),
+    });
+    expect(criado.status).toBe(201);
+    const regra = (await criado.json()) as { id: string };
+
+    const lista = await app.request("/v1/hooks/rules", { headers: hdr });
+    expect(((await lista.json()) as unknown[]).length).toBe(1);
+
+    const unica = await app.request(`/v1/hooks/rules/${regra.id}`, { headers: hdr });
+    expect(unica.status).toBe(200);
+
+    const editado = await app.request(`/v1/hooks/rules/${regra.id}`, {
+      method: "PUT",
+      headers: hdr,
+      body: JSON.stringify({ evento: "git.post-push" }),
+    });
+    expect((await editado.json() as { evento: string }).evento).toBe("git.post-push");
+
+    const apagado = await app.request(`/v1/hooks/rules/${regra.id}`, { method: "DELETE", headers: hdr });
+    expect(apagado.status).toBe(200);
+    const listaVazia = await app.request("/v1/hooks/rules", { headers: hdr });
+    expect(((await listaVazia.json()) as unknown[]).length).toBe(0);
+  });
+
+  it("pre-push sem regra bloqueante libera o push", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const res = await app.request("/v1/hooks/fire", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ event: "git.pre-push", projectPath: "/proj", branch: "main" }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ aprovado: true, motivo: "sem regra bloqueante" });
+  });
+
+  it("pre-push com regra bloqueante que não declara veredito: barra por padrão", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    addProfile({ id: "p1", engine: "stub" }, home);
+    await app.request("/v1/agents/defs", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ id: "seguranca", name: "Segurança", profileId: "p1" }),
+    });
+    await app.request("/v1/hooks/rules", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({
+        escopo: { tipo: "global" },
+        evento: "git.pre-push",
+        agentId: "seguranca",
+        bloqueante: true,
+      }),
+    });
+    const res = await app.request("/v1/hooks/fire", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ event: "git.pre-push", projectPath: "/proj", branch: "main" }),
+    });
+    const body = (await res.json()) as { aprovado: boolean; motivo: string };
+    expect(body.aprovado).toBe(false);
+    expect(body.motivo).toMatch(/não declarou veredito/);
   });
 });

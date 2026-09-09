@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
@@ -20,6 +20,7 @@ import type { Profile, ThreadEvent } from "@nexo/shared";
 
 const ts0 = "2026-01-01T00:00:00.000Z";
 import { saveAgent } from "../src/agents.ts";
+import { memoriaPath } from "../src/memoria.ts";
 import { deadCred, liveCred, tempHome } from "./helpers.ts";
 import { saveConfig } from "../src/config.ts";
 
@@ -182,6 +183,18 @@ describe("session", () => {
     const live = getLive(t.id);
     expect(live?.engine).toBeInstanceOf(StubEngine);
     expect((live?.engine as StubEngine).lastStart?.contextPack).toContain("User: oi");
+  });
+
+  it("segunda mensagem na MESMA conta manda pack com a primeira e a resposta dela (regressão: motor não guarda conversa entre sends)", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    await postMessage(t.id, "primeira", home);
+    await postMessage(t.id, "segunda", home);
+    const pack = (getLive(t.id)?.engine as StubEngine).lastStart?.contextPack ?? "";
+    expect(pack).toContain("User: primeira");
+    expect(pack).toContain("Assistant: echo:primeira");
+    expect(pack).toContain("User: segunda");
   });
 
   it("switch sem confirmed throw", async () => {
@@ -380,7 +393,7 @@ describe("session", () => {
     const pending = postMessage(t.id, "SLOW", home);
     await new Promise((r) => setTimeout(r, 50));
     const engine = getLive(t.id)?.engine as StubEngine;
-    expect(engine.lastStart?.contextPack.startsWith("# Agente: Revisor\nsó português")).toBe(true);
+    expect(engine.lastStart?.contextPack).toContain("# Agente: Revisor\nsó português");
     expect(engine.lastStart?.agentId).toBe("rev");
     expect(agentSnapshots().find((a) => a.threadId === t.id)?.agentId).toBe("rev");
     await abortThread(t.id);
@@ -395,6 +408,109 @@ describe("session", () => {
     const engine = getLive(t.id)?.engine as StubEngine;
     expect(engine.lastStart?.contextPack).not.toContain("# Agente:");
     expect(engine.lastStart?.agentId).toBeUndefined();
+  });
+
+  it("módulo caveman ligado injeta a diretiva no nível configurado, antes do agente", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    saveConfig(home, {
+      modulos: { rtk: false, caveman: true, cavemanNivel: "ultra", grafoAuto: false, grafoAutoProfileId: "" },
+    });
+    saveAgent({ id: "rev", name: "Revisor", profileId: "p1", instructions: "só português" }, home);
+    const t = createThread({ projectPath: "/proj-caveman", profileId: "p1", agentId: "rev" }, home);
+    await postMessage(t.id, "oi", home);
+    const engine = getLive(t.id)?.engine as StubEngine;
+    const pack = engine.lastStart?.contextPack ?? "";
+    expect(pack).toContain("intensidade `ultra`");
+    expect(pack.indexOf("# Módulo: Caveman")).toBeLessThan(pack.indexOf("# Agente: Revisor"));
+  });
+
+  it("módulo caveman desligado (padrão) não injeta nada", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj-sem-caveman", profileId: "p1" }, home);
+    await postMessage(t.id, "oi", home);
+    const engine = getLive(t.id)?.engine as StubEngine;
+    expect(engine.lastStart?.contextPack).not.toContain("Caveman");
+  });
+
+  it("grafo construído: injeta o lembrete de usar nexo_grafo_perguntar antes de grepar", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const projeto = tempHome();
+    mkdirSync(join(projeto, "graphify-out"), { recursive: true });
+    writeFileSync(join(projeto, "graphify-out", "graph.json"), "{}", "utf8");
+    const t = createThread({ projectPath: projeto, profileId: "p1" }, home);
+    await postMessage(t.id, "oi", home);
+    const engine = getLive(t.id)?.engine as StubEngine;
+    expect(engine.lastStart?.contextPack).toContain("nexo_grafo_perguntar");
+  });
+
+  it("sem grafo construído: não injeta o lembrete", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: tempHome(), profileId: "p1" }, home);
+    await postMessage(t.id, "oi", home);
+    const engine = getLive(t.id)?.engine as StubEngine;
+    expect(engine.lastStart?.contextPack).not.toContain("nexo_grafo_perguntar");
+  });
+
+  it("evento tool grava id+input, e tool_result grava separado com o mesmo id", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    await postMessage(t.id, "TOOLRESULT", home);
+    const events = readThread(t.id, home);
+    const tool = events.find((e) => e.type === "tool");
+    const result = events.find((e) => e.type === "tool_result");
+    expect(tool && tool.type === "tool" ? tool.id : undefined).toBe("toolu_1");
+    expect(tool && tool.type === "tool" ? tool.input : undefined).toEqual({ file_path: "a.ts" });
+    expect(result && result.type === "tool_result" ? result.id : undefined).toBe("toolu_1");
+    expect(result && result.type === "tool_result" ? result.result : undefined).toBe("conteúdo do arquivo");
+  });
+
+  it("input de tool com string longa é truncado antes de gravar (não incha o histórico pra sempre)", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    await postMessage(t.id, "TOOLBIGINPUT", home);
+    const tool = readThread(t.id, home).find((e) => e.type === "tool");
+    const conteudo = tool && tool.type === "tool" ? (tool.input as { content?: string } | undefined)?.content : undefined;
+    expect(conteudo?.length).toBeLessThanOrEqual(2001);
+    expect(conteudo?.endsWith("…")).toBe(true);
+  });
+
+  it("MEMORIA.md do projeto abre o pack de QUALQUER conversa dele, mesmo sem agente", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    writeFileSync(memoriaPath("/proj-com-memoria", home), "usa RTK pra CLI", "utf8");
+    const t = createThread({ projectPath: "/proj-com-memoria", profileId: "p1" }, home);
+    await postMessage(t.id, "oi", home);
+    const engine = getLive(t.id)?.engine as StubEngine;
+    expect(engine.lastStart?.contextPack).toContain("# Memória do projeto\nusa RTK pra CLI");
+  });
+
+  it("agente E memória juntos: instrução do agente vem primeiro, memória depois", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    saveAgent({ id: "rev", name: "Revisor", profileId: "p1", instructions: "só português" }, home);
+    writeFileSync(memoriaPath("/proj-dos-dois", home), "usa RTK pra CLI", "utf8");
+    const t = createThread({ projectPath: "/proj-dos-dois", profileId: "p1", agentId: "rev" }, home);
+    await postMessage(t.id, "oi", home);
+    const engine = getLive(t.id)?.engine as StubEngine;
+    const pack = engine.lastStart?.contextPack ?? "";
+    expect(pack.indexOf("# Agente: Revisor")).toBeLessThan(pack.indexOf("# Memória do projeto"));
+  });
+
+  it("MEMORIA.md atualizado pelo hook entre commit e commit vale já na próxima mensagem, sem trocar de conta", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj-vivo", profileId: "p1" }, home);
+    await postMessage(t.id, "primeira", home);
+    writeFileSync(memoriaPath("/proj-vivo", home), "fato novo", "utf8");
+    await postMessage(t.id, "segunda", home);
+    const engine = getLive(t.id)?.engine as StubEngine;
+    expect(engine.lastStart?.contextPack).toContain("fato novo");
   });
 
   it("clearThread numa thread inexistente lança", async () => {

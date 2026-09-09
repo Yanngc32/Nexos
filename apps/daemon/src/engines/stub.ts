@@ -29,6 +29,10 @@ export class StubEngine implements Engine {
     this.handler = onEvent;
   }
 
+  updatePack(pack: string): void {
+    if (this.lastStart) this.lastStart = { ...this.lastStart, contextPack: pack };
+  }
+
   async send(text: string): Promise<void> {
     this.lastSend = text;
     if (this.aborted || !this.handler) return;
@@ -96,6 +100,27 @@ export class StubEngine implements Engine {
         cacheRead: 400_000,
         cacheCreate: 100_000,
         contextTokens: 500_030,
+      });
+      this.handler({ type: "done" });
+      return;
+    }
+    // Simula uma ferramenta com id (casável com o resultado) e um `tool_result` chegando depois —
+    // é o par que a bolha expansível do chat precisa pra anexar o resultado no lugar certo.
+    if (text === "TOOLRESULT") {
+      this.handler({ type: "tool", name: "Read", summary: "a.ts", id: "toolu_1", input: { file_path: "a.ts" } });
+      this.handler({ type: "tool_result", id: "toolu_1", result: "conteúdo do arquivo" });
+      this.handler({ type: "done" });
+      return;
+    }
+    // Input com string bem maior que o teto de gravação — testa que `session.ts` trunca antes
+    // de persistir (um `Write`/`Edit` de arquivo grande não pode inchar o `.jsonl` pra sempre).
+    if (text === "TOOLBIGINPUT") {
+      this.handler({
+        type: "tool",
+        name: "Write",
+        summary: "grande.txt",
+        id: "toolu_big",
+        input: { content: "x".repeat(5000) },
       });
       this.handler({ type: "done" });
       return;

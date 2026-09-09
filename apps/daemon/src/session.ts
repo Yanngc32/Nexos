@@ -1,13 +1,18 @@
-import { EventEmitter } from "node:events";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { EngineEvent, EngineKind, Profile, SwitchReason, ThreadEvent } from "@nexo/shared";
 import { TURNO_TETO_MS } from "@nexo/shared";
 import { agentOverrides, getAgent } from "./agents.ts";
+import { readMemoria } from "./memoria.ts";
 import { promptWithAttachments, removeThreadAttachments, saveImages, type IncomingImage } from "./attachments.ts";
 import { loadConfig } from "./config.ts";
-import { tokenPath } from "./home.ts";
-import { configDeMcpAutoria, MCP_TOOLS_AUTORIA, urlDeMcp } from "./mcp.ts";
+import { projectKey, tokenPath } from "./home.ts";
+import { configDeMcpAutoria, MCP_TOOLS_AUTORIA, urlDeMcpAutoria } from "./mcp.ts";
+import { graphifyDisponivel, MCP_TOOLS_GRAPHIFY } from "./graphify.ts";
+import { MCP_TOOLS_VEREDITO } from "./veredito.ts";
+import { MCP_TOOLS_PERGUNTAR } from "./perguntas.ts";
+import { MCP_TOOLS_DELEGAR, resetContadorDeDelegacao } from "./delegar.ts";
 import { ApiEngine } from "./engines/api.ts";
 import { claudeEngine, codexEngine } from "./engines/cli.ts";
 import { contextWindowOf } from "./engines/parse-claude.ts";
@@ -64,7 +69,16 @@ export type SessionEvent =
    * O `off` vem sempre, inclusive quando falha — animação que só sabe começar
    * gira pra sempre.
    */
-  | { type: "compacting"; threadId: string; on: boolean; tokens?: number; motivo?: string };
+  | { type: "compacting"; threadId: string; on: boolean; tokens?: number; motivo?: string }
+  /** `nexo_perguntar` pausou o turno — ver perguntas.ts. NÃO passa por `onEngineEvent`: quem emite é a própria ferramenta, fora do laço do motor. */
+  | { type: "pergunta"; threadId: string; id: string; texto: string; opcoes?: string[] }
+  | { type: "pergunta_resposta"; threadId: string; id: string; resposta: string }
+  /**
+   * `nexo_delegar` acabou de criar o run — ver delegar.ts. Não é histórico (por isso não vira
+   * `ThreadEvent`): serve só pra tela achar o `runId` e abrir o subchat ao vivo
+   * (`GET /v1/runs/:id/events`) na hora certa; o resultado final já chega pelo `tool_result` normal.
+   */
+  | { type: "delegacao_run"; threadId: string; runId: string };
 
 /** Turno em voo: sobrevive à troca de conta pra a conta nova continuar de onde a antiga parou. */
 type PendingTurn = { text: string; partial: boolean };
@@ -157,7 +171,8 @@ export function agentSnapshots(): AgentSnapshot[] {
   }));
 }
 
-export const sessionBus = new EventEmitter();
+export { sessionBus } from "./bus.ts";
+import { sessionBus } from "./bus.ts";
 
 function emit(threadId: string, ev: SessionEvent): void {
   sessionBus.emit(threadId, ev);
@@ -199,6 +214,23 @@ export function createEngine(profile: Profile, projectPath: string, home: string
   }
 }
 
+/** Teto por VALOR de string — um `Write` de arquivo grande não pode inchar o `.jsonl` pra sempre. */
+const TOOL_INPUT_VALUE_MAX = 2000;
+
+/**
+ * Versão segura de gravar dos argumentos de uma ferramenta — trunca só strings longas
+ * (o caso comum: conteúdo de arquivo num `Write`/`Edit`), preservando o resto da forma pra a
+ * bolha expandida na UI ainda fazer sentido.
+ */
+function capInputPraPersistir(input: unknown): unknown {
+  if (!input || typeof input !== "object") return input;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    out[k] = typeof v === "string" && v.length > TOOL_INPUT_VALUE_MAX ? `${v.slice(0, TOOL_INPUT_VALUE_MAX)}…` : v;
+  }
+  return out;
+}
+
 export function engineKindOf(profileId: string, home: string): EngineKind {
   const p = getProfile(profileId, home);
   if (!p) throw new Error(`perfil não existe: ${profileId}`);
@@ -206,16 +238,59 @@ export function engineKindOf(profileId: string, home: string): EngineKind {
 }
 
 /**
- * Instruções do agente no topo do pack. O pack é congelado quando o motor sobe,
- * então editar as instruções vale a partir do próximo motor (troca de conta,
- * /clear ou reinício) — não no meio de uma conversa já em pé.
+ * Instruções do agente e memória do projeto no topo do pack — nesta ordem
+ * (agente é mais específico que projeto). Recalculado em TODO turno junto do
+ * resto do pack (ver `ensureLive`), então editar agente ou o Nexo Hook
+ * atualizar o `MEMORIA.md` valem já na próxima mensagem, sem precisar trocar
+ * de conta nem `/clear`.
  */
-function withInstructions(agentId: string | undefined, packText: string, home: string): string {
+function withInstructions(agentId: string | undefined, projectPath: string, packText: string, home: string): string {
   const def = agentId ? getAgent(agentId, home) : undefined;
-  const head = def?.instructions?.trim();
-  if (!head) return packText;
-  const bloco = `# Agente: ${def?.name ?? agentId}\n${head}`;
-  return packText ? `${bloco}\n\n${packText}` : bloco;
+  const instrucoes = def?.instructions?.trim();
+  const memoria = readMemoria(projectPath, home).trim();
+  const modulos = loadConfig(home).modulos;
+  const blocos: string[] = [];
+  // Módulo, não agente: vale pra TODA conversa (agente ou conta pura), por isso entra antes —
+  // é a instrução mais geral do bloco, igual o usuário fraseia no próprio CLAUDE.md pessoal.
+  if (modulos.caveman) {
+    blocos.push(
+      `# Módulo: Caveman\nResponda em modo caveman (skill \`caveman\`, intensidade \`${modulos.cavemanNivel}\`) em ` +
+        'toda resposta, desde a primeira mensagem, sem precisar o usuário pedir. Só sai do modo se o usuário ' +
+        'disser "stop caveman" ou "modo normal".',
+    );
+  }
+  // Sem isso o modelo lista as opções como TEXTO comum ("A) ... B) ... C) ...") em vez de chamar a
+  // ferramenta — a descrição do `tools/list` sozinha perde pro hábito. Vale em toda conversa: a
+  // ferramenta está sempre disponível (perguntas.ts), e o custo de 2 linhas é bem menor que ter
+  // que descobrir de novo, por tentativa, por que a pergunta não virou bolha interativa.
+  blocos.push(
+    "# Perguntar com opções\nQuando quiser que a pessoa ESCOLHA entre opções (não só confirme algo " +
+      'em texto livre), chame a ferramenta `nexo_perguntar` com `opcoes` — não liste "A) ... B) ... ' +
+      'C) ..." como texto comum. Isso vira uma pergunta de verdade na tela, com botão por opção, e ' +
+      "pausa o turno até a resposta chegar.",
+  );
+  if (instrucoes) blocos.push(`# Agente: ${def?.name ?? agentId}\n${instrucoes}`);
+  if (memoria) blocos.push(`# Memória do projeto\n${memoria}`);
+  // A descrição da ferramenta sozinha perde pro hábito de grepar — um lembrete no topo do pack
+  // (mesmo peso que memória/instruções) empurra mais forte do que só o `tools/list` competindo
+  // com o resto das ferramentas.
+  if (graphifyDisponivel(projectPath)) {
+    blocos.push(
+      "# Grafo de conhecimento disponível\nEste projeto já tem um grafo semântico construído " +
+        "(classes, funções, comunidades).\n" +
+        "- **Já sabe o nome de um símbolo/arquivo?** Chame `nexo_grafo_explicar` com esse nome — é " +
+        "preciso, não depende de achar o nó certo por busca livre.\n" +
+        "- **Não sabe nenhum nome ainda?** `nexo_grafo_perguntar` faz uma busca livre a partir da " +
+        "pergunta, mas pode partir de um nó errado (uma pergunta genérica tipo \"onde fica X\" pode " +
+        "voltar nós sem relação nenhuma) — **confira se o resultado faz sentido antes de confiar " +
+        "nele**; se vier irrelevante, tente uma pergunta mais específica (nome de tela, arquivo, " +
+        "componente) ou aceite que precisa cair pra grep desta vez.\n" +
+        "Em qualquer um dos dois casos, tente ANTES de sair lendo/grepando arquivo à toa — quando " +
+        "acerta, é bem mais barato.",
+    );
+  }
+  if (!blocos.length) return packText;
+  return packText ? `${blocos.join("\n\n")}\n\n${packText}` : blocos.join("\n\n");
 }
 
 /**
@@ -280,9 +355,16 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
     (err as Error & { status: number }).status = 409;
     throw err;
   }
-  const existing = lives.get(threadId);
-  if (existing && existing.profileId === p.id) return existing;
-
+  /*
+   * Recalculado em TODA chamada, mesmo quando o engine já está de pé: nenhum
+   * motor guarda a conversa entre invocações (`--print`/`exec` sobem processo
+   * novo a cada `send`, e a API não tem sessão nenhuma) — quem dá memória à
+   * conversa é este pack, reconstruído do histórico gravado. Reaproveitar o
+   * engine sem atualizar o pack faria ele repetir pra sempre o retrato de
+   * quando subiu, cego às próprias respostas e ao que rodou de ferramenta desde
+   * então — foi exatamente esse o bug: conversa "esquecendo" a partir da 2ª
+   * mensagem.
+   */
   const packed = pack(events, loadConfig(home).pack, tetoDeToken(janelaDaConta(p, events, meta.agentId, home)));
   if (packed.trimmed) {
     appendEvent(
@@ -296,6 +378,13 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
       home,
     );
   }
+
+  const existing = lives.get(threadId);
+  if (existing && existing.profileId === p.id) {
+    existing.engine.updatePack(withInstructions(meta.agentId, meta.projectPath, packed.text, home));
+    return existing;
+  }
+
   const engine = createEngine(p, meta.projectPath, home);
   const live: Live = {
     engine,
@@ -315,11 +404,12 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
       threadId,
       projectPath: meta.projectPath,
       profileId: p.id,
-      // As instruções do agente abrem o pack: é o mais perto de "system prompt"
-      // que o motor de CLI aceita (o `api` usa o pack como system de verdade).
-      contextPack: withInstructions(meta.agentId, packed.text, home),
+      // As instruções do agente e a memória do projeto abrem o pack: é o mais
+      // perto de "system prompt" que o motor de CLI aceita (o `api` usa o
+      // pack como system de verdade).
+      contextPack: withInstructions(meta.agentId, meta.projectPath, packed.text, home),
       ...(meta.agentId ? { agentId: meta.agentId } : {}),
-      ...mcpDaConversa(meta, p, home),
+      ...mcpDaConversa(threadId, meta, p, home),
     },
     (ev) => onEngineEvent(threadId, home, ev),
   );
@@ -346,7 +436,8 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
  * executar nada — vale nos dois.
  */
 function mcpDaConversa(
-  meta: { mcpConfig?: string; mcpTools?: string[] },
+  threadId: string,
+  meta: { mcpConfig?: string; mcpTools?: string[]; projectPath: string; runId?: string },
   perfil: Profile,
   home: string,
 ): { mcpConfig?: string; mcpTools?: string[]; mcpHttp?: { url: string; token: string } } {
@@ -358,11 +449,26 @@ function mcpDaConversa(
   }
   if (perfil.engine === "codex") {
     const token = tokenDoHome(home);
-    return token ? { mcpHttp: { url: urlDeMcp(loadConfig(home).port), token } } : {};
+    return token
+      ? { mcpHttp: { url: urlDeMcpAutoria(loadConfig(home).port, meta.projectPath, meta.runId, threadId), token } }
+      : {};
   }
   if (perfil.engine !== "claude") return {};
-  const arquivo = arquivoDeAutoria(home);
-  return arquivo ? { mcpConfig: arquivo, mcpTools: [...MCP_TOOLS_AUTORIA] } : {};
+  const arquivo = arquivoDeAutoria(meta.projectPath, meta.runId, threadId, home);
+  if (!arquivo) return {};
+  const tools = [
+    ...MCP_TOOLS_AUTORIA,
+    ...(graphifyDisponivel(meta.projectPath) ? MCP_TOOLS_GRAPHIFY : []),
+    // `runId` só existe quando esta conversa é o passo de um run de PIPELINE (ver `executarPasso`
+    // em runs.ts) — é o que dá ao agente do hook de pre-push como declarar `{ aprovado, motivo }`.
+    ...(meta.runId ? MCP_TOOLS_VEREDITO : []),
+    // Em toda conversa (normal ou passo de Run) — `nexo_perguntar` não depende de run nenhum.
+    ...MCP_TOOLS_PERGUNTAR,
+    // Só em conversa NORMAL (sem runId) e com a conta liberada: é isso que barra a recursão — o
+    // que `nexo_delegar` dispara é sempre um passo de Run, que já nasce com runId.
+    ...(!meta.runId && perfil.delegacaoModo && perfil.delegacaoModo !== "negado" ? MCP_TOOLS_DELEGAR : []),
+  ];
+  return { mcpConfig: arquivo, mcpTools: tools };
 }
 
 /** O token do daemon, ou vazio se ele ainda não subiu nesta home. */
@@ -371,23 +477,38 @@ function tokenDoHome(home: string): string {
 }
 
 /**
- * O arquivo de config das ferramentas de autoria.
+ * O arquivo de config das ferramentas de autoria (e, se o projeto tiver
+ * grafo construído, das de consulta ao graphify).
  *
- * Um por home, não um por conversa: o conteúdo só depende da porta e do token,
- * e reescrever a cada turno seria I/O por nada. Ele é reescrito sempre porque a
- * porta pode ter mudado e o token pode ter sido rotacionado — arquivo velho
- * daria 401 no meio do turno, que o modelo leria como "a ferramenta sumiu".
+ * Um por PROJETO, não mais um por home: desde que a URL passou a levar o
+ * projeto embutido (`caminhoDaAutoria` em mcp.ts — é assim que o handler de
+ * `/v1/mcp` sabe de qual `graphify-out/` oferecer ferramenta), duas conversas
+ * de projetos diferentes rodando ao mesmo tempo não podem compartilhar um
+ * arquivo só: a última a escrever venceria, e o motor da outra leria a URL do
+ * projeto errado. Hash igual ao de `memoria.ts`/`services.ts` (sha1 de
+ * `projectKey`); só os 10 primeiros caracteres bastam aqui — é nome de
+ * arquivo transiente, não uma pasta permanente.
  *
- * `0600` e em arquivo, não em argv: ele carrega o token, e argv é legível por
- * qualquer processo do mesmo usuário.
+ * Reescrito a cada turno mesmo assim, porque a porta pode ter mudado e o
+ * token pode ter sido rotacionado — arquivo velho daria 401 no meio do turno,
+ * que o modelo leria como "a ferramenta sumiu". `0600` e em arquivo, não em
+ * argv: ele carrega o token, e argv é legível por qualquer processo do mesmo
+ * usuário.
  */
-function arquivoDeAutoria(home: string): string {
+function arquivoDeAutoria(projectPath: string, runId: string | undefined, threadId: string, home: string): string {
   const token = tokenDoHome(home);
   if (!token) return "";
   const dir = join(home, "run");
   mkdirSync(dir, { recursive: true });
-  const arquivo = join(dir, "mcp-autoria.json");
-  writeFileSync(arquivo, configDeMcpAutoria(loadConfig(home).port, token), {
+  // `threadId` entra no hash desde que `nexo_perguntar` (perguntas.ts) escopa por thread: a URL
+  // embutida agora é única por conversa, não só por projeto+run — arquivo compartilhado faria a
+  // pergunta de uma conversa entregar a ferramenta com o threadId de outra.
+  const hash = createHash("sha1")
+    .update(`${projectKey(projectPath)}::${runId ?? ""}::${threadId}`)
+    .digest("hex")
+    .slice(0, 10);
+  const arquivo = join(dir, `mcp-autoria-${hash}.json`);
+  writeFileSync(arquivo, configDeMcpAutoria(loadConfig(home).port, token, projectPath, runId, threadId), {
     encoding: "utf8",
     mode: 0o600,
   });
@@ -575,7 +696,21 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     return;
   }
   if (ev.type === "tool") {
-    appendEvent({ ts: nowIso(), type: "tool", threadId, name: ev.name, summary: ev.summary }, home);
+    const input = capInputPraPersistir(ev.input);
+    appendEvent(
+      { ts: nowIso(), type: "tool", threadId, name: ev.name, summary: ev.summary, ...(ev.id ? { id: ev.id } : {}), ...(input !== undefined ? { input } : {}) },
+      home,
+    );
+    emit(threadId, { ...ev, threadId });
+    return;
+  }
+  if (ev.type === "tool_result") {
+    // Sem `id` o resultado não casaria com bolha nenhuma na UI — mais vale sumir do que aparecer solto.
+    if (!ev.id) return;
+    appendEvent(
+      { ts: nowIso(), type: "tool_result", threadId, id: ev.id, result: ev.result, ...(ev.isError ? { isError: true } : {}) },
+      home,
+    );
     emit(threadId, { ...ev, threadId });
     return;
   }
@@ -665,6 +800,8 @@ export async function postMessage(
   images: IncomingImage[] = [],
 ): Promise<void> {
   await withLocked(threadId, async () => {
+    // Teto de `nexo_delegar` é POR TURNO: mensagem nova reabre a cota.
+    resetContadorDeDelegacao(threadId);
     // Grava antes do turno: se o motor falhar, a imagem não se perde do histórico.
     const attachments = images.length > 0 ? saveImages(threadId, images, home) : [];
     appendEvent(

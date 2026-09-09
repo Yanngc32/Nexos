@@ -170,13 +170,64 @@ function contentToEvents(message: { content?: unknown; usage?: unknown } | undef
   if (Array.isArray(content)) {
     for (const block of content) {
       if (!block || typeof block !== "object") continue;
-      const b = block as { type?: string; text?: string; name?: string; input?: unknown };
+      const b = block as { type?: string; text?: string; name?: string; input?: unknown; id?: string };
       if (b.type === "text" && b.text) out.push({ type: "text", text: b.text });
       // thinking do bloco completo é ignorado: já veio em delta pelo stream_event.
       if (b.type === "tool_use") {
-        out.push({ type: "tool", name: b.name ?? "tool", summary: toolSummary(b.name ?? "", b.input) });
+        out.push({
+          type: "tool",
+          name: b.name ?? "tool",
+          summary: toolSummary(b.name ?? "", b.input),
+          // `id` casa este `tool_use` com o `tool_result` que chega numa mensagem "user" depois —
+          // sem ele a UI não saberia em qual bolha anexar o resultado.
+          ...(b.id ? { id: b.id } : {}),
+          input: b.input,
+        });
       }
     }
+  }
+  return out;
+}
+
+type ToolResultBlock = { type?: string; tool_use_id?: string; content?: unknown; is_error?: boolean };
+
+/** `content` de um tool_result: string direto, ou array de blocos (texto/imagem) — só o texto interessa aqui. */
+function toolResultText(content: unknown): string {
+  if (typeof content === "string") return cap(content);
+  if (Array.isArray(content)) {
+    const texto = content
+      .map((b) =>
+        b && typeof b === "object" && (b as { type?: string }).type === "text"
+          ? String((b as { text?: string }).text ?? "")
+          : "",
+      )
+      .filter(Boolean)
+      .join("\n");
+    return cap(texto);
+  }
+  return "";
+}
+
+/**
+ * O `tool_result` chega como mensagem `type: "user"` no stream — o CLI reusa o formato de turno
+ * do usuário pra devolver resultado de ferramenta ao modelo. Antes disso era descartado
+ * (`if (type === "user") return [];`) achando que já tinha virado o evento `tool`; só que aquele
+ * evento é o PEDIDO (nome+argumentos), nunca a resposta — resultado nenhum chegava à UI.
+ */
+function toolResultEvents(message: { content?: unknown } | undefined): EngineEvent[] {
+  const content = message?.content;
+  if (!Array.isArray(content)) return [];
+  const out: EngineEvent[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const b = block as ToolResultBlock;
+    if (b.type !== "tool_result" || !b.tool_use_id) continue;
+    out.push({
+      type: "tool_result",
+      id: b.tool_use_id,
+      result: toolResultText(b.content),
+      ...(b.is_error ? { isError: true } : {}),
+    });
   }
   return out;
 }
@@ -327,8 +378,9 @@ export function parseClaudeJson(obj: Record<string, unknown>): EngineEvent[] {
   if (type === "stream_event") return streamEventToEvents(obj);
   if (type === "autocompact_state") return windowEvents(obj);
   if (type === "rate_limit_event") return rateLimitToEvents(obj);
-  // eco do tool_result: o resultado da ferramenta já foi mostrado como evento tool
-  if (type === "user") return [];
+  // Mensagem "user" aqui é o CLI devolvendo tool_result pro modelo, não a pessoa digitando —
+  // é daqui que sai o RESULTADO da ferramenta (o `tool` acima é só o pedido).
+  if (type === "user") return toolResultEvents(obj.message as { content?: unknown } | undefined);
   const flat = flattenClaude(obj);
   if (type !== "assistant" && isAuthText(flat)) return [authEvent(flat)];
   if (type !== "assistant" && isLimitText(flat)) return [quotaEvent(prettyQuota(flat))];

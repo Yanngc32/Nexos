@@ -1,10 +1,24 @@
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { assertSlug } from "./ids.ts";
 
 export function nexoHome(): string {
   return process.env.NEXO_HOME ?? join(homedir(), ".nexo");
+}
+
+/**
+ * Normaliza um caminho de projeto pra comparação/chave estável: resolvido,
+ * barra sempre `/` (Windows manda `\`), sem barra final, minúsculo (o mesmo
+ * projeto aberto com capitalização diferente de unidade no Windows não pode
+ * virar duas chaves). Base de `projectKey` em vários lugares — canal de SSE de
+ * serviço (`services.ts`), pasta de memória de projeto (`memoria.ts`).
+ */
+export function projectKey(projectPath: string): string {
+  return resolve(projectPath)
+    .replace(/[\u005c]/g, "/")
+    .replace(/\/+$/, "")
+    .toLowerCase();
 }
 
 export function ensureHome(root = nexoHome()): string {
@@ -67,6 +81,11 @@ export function enginePidPath(threadId: string, root = nexoHome()): string {
 
 export function tokenPath(root = nexoHome()): string {
   return join(root, "daemon.token");
+}
+
+/** Config dos Nexo Hooks: lista de regras (escopo global ou de projeto, evento, branch, agente). Ver hooks.ts. */
+export function hooksPath(root = nexoHome()): string {
+  return join(root, "hooks.json");
 }
 
 /**

@@ -30,6 +30,10 @@ export class ApiEngine implements Engine {
     this.handler = onEvent;
   }
 
+  updatePack(pack: string): void {
+    if (this.opts) this.opts = { ...this.opts, contextPack: pack };
+  }
+
   async send(text: string): Promise<void> {
     if (this.aborted || !this.handler) return;
     const profile = getProfile(this.profileId, this.home);

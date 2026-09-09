@@ -41,7 +41,26 @@ describe("o conjunto de autoria", () => {
      * a decisão volta a ser tomada de propósito.
      */
     const nomes = Object.keys(await schemas(casa()));
-    expect(nomes.sort()).toEqual(["nexo_agente_salvar", "nexo_contexto", "nexo_time_salvar"]);
+    expect(nomes.sort()).toEqual([
+      "nexo_agente_salvar",
+      "nexo_contexto",
+      "nexo_hook_listar",
+      "nexo_hook_salvar",
+      "nexo_time_salvar",
+    ]);
+  });
+
+  it("nexo_hook_salvar recusa bloqueante, mesmo que o modelo mande — só a pessoa liga isso na tela", async () => {
+    const home = casa();
+    saveAgent({ id: "a1", name: "A1", profileId: "conta-a" }, home);
+    const r = await chamar(home, "nexo_hook_salvar", {
+      escopo: { tipo: "global" },
+      evento: "git.pre-push",
+      agentId: "a1",
+      bloqueante: true,
+    });
+    expect(r.isError).toBe(true);
+    expect(texto(r)).toMatch(/só na tela Hooks/);
   });
 
   it("as descrições carregam as regras — é o que faz funcionar sem instalar nada", async () => {

@@ -1,13 +1,14 @@
 ---
 name: nexo-times
-description: Montar agentes, times e supervisores no Nexo. Use quando o pedido envolver criar/ajustar um agente, montar um time, escolher entre pipeline, fan-in e supervisor, ou quando um trabalho for grande o bastante pra valer dividir entre agentes em vez de fazer sozinho.
+description: Montar agentes, times e Nexo Hooks no Nexo. Use quando o pedido envolver criar/ajustar um agente, montar um time, escolher entre pipeline, fan-in e supervisor, disparar algo sozinho quando um evento acontecer (commit, push, projeto novo), ou quando um trabalho for grande o bastante pra valer dividir entre agentes em vez de fazer sozinho.
 ---
 
-# Montar agentes e times no Nexo
+# Montar agentes, times e hooks no Nexo
 
-As ferramentas `nexo_contexto`, `nexo_agente_salvar` e `nexo_time_salvar` (MCP,
-servidor `nexo`) já descrevem os campos e as regras. Esta skill é a parte que
-elas não cabem: **quando** vale montar um time, e o que faz um time ser bom.
+As ferramentas `nexo_contexto`, `nexo_agente_salvar`, `nexo_time_salvar`,
+`nexo_hook_salvar` e `nexo_hook_listar` (MCP, servidor `nexo`) já descrevem os
+campos e as regras. Esta skill é a parte que elas não cabem: **quando** vale
+montar um time ou uma regra, e o que faz cada um ser bom.
 
 Se as ferramentas não estiverem disponíveis, é porque o Nexo só liga MCP em
 conta `claude`. Diga isso e pare aí. Não tente editar `~/.nexo/agents.json` nem
@@ -66,3 +67,21 @@ O `instructions` é o agente. Sem ele você criou um apelido, não um papel.
 Criar **não executa**. Diga à pessoa, em uma linha, o que você montou e que o
 run é o clique dela — com `maxSteps` se for supervisor. Não prometa resultado
 de trabalho que ainda não rodou.
+
+## Nexo Hooks: disparar sozinho quando algo acontece
+
+`nexo_hook_salvar` cria uma regra que dispara um agente OU um time (`agentId`
+ou `teamId`, nunca os dois) sozinho quando `git.post-commit`, `git.post-push`,
+`git.pre-push` ou `nexo.projeto-novo` (primeira vez que o projeto abre no
+Nexo) acontecem — sem ninguém pedir de novo. `nexo_hook_listar` mostra as
+regras que já existem; confira antes de criar outra igual.
+
+Vale a pena quando o gatilho é o EVENTO, não a conversa: "sempre que eu der
+commit, atualize X" é hook; "faça X agora" é você trabalhando direto, sem
+regra nenhuma.
+
+**Você não consegue criar regra bloqueante.** `nexo_hook_salvar` recusa
+`bloqueante: true` de propósito — isso trava o `git push` de quem casar com a
+regra até alguém desligar na tela Hooks, e esse único botão fica só com a
+pessoa. Se o pedido for "barre o push se X", diga que criou a regra
+NÃO-bloqueante (só avisa) e que ligar o bloqueio é ela quem faz, na tela.

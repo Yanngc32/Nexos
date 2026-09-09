@@ -6,6 +6,10 @@ export const EFFORT_LEVELS: EffortLevel[] = ["low", "medium", "high", "xhigh", "
 /** Modos de permissão do CLI do Claude (`--permission-mode`). */
 export type PermissionMode = "auto" | "manual" | "acceptEdits" | "plan" | "bypassPermissions";
 export const PERMISSION_MODES: PermissionMode[] = ["auto", "manual", "acceptEdits", "plan", "bypassPermissions"];
+
+/** negado: nexo_delegar nem existe. questionar: pergunta antes via nexo_perguntar. liberado: roda direto. */
+export type DelegacaoModo = "negado" | "questionar" | "liberado";
+export const DELEGACAO_MODOS: DelegacaoModo[] = ["negado", "questionar", "liberado"];
 /** Aliases que o CLI aceita; nome cheio de modelo também vale. */
 export const MODEL_ALIASES = ["opus", "sonnet", "haiku", "fable"];
 /** Sem metacaractere: no Windows o motor é spawnado via cmd.exe. */
@@ -61,6 +65,8 @@ export type Profile = {
    * necessário sem desligar a permissão geral (bypassPermissions).
    */
   allowedTools?: string[];
+  /** Padrão "negado": nexo_delegar não entra no pack da conversa dessa conta. */
+  delegacaoModo?: DelegacaoModo;
   api?: { provider: ApiProvider; model: string };
   /**
    * Janela efetiva por modelo, aprendida do stream (`effective_window`).
@@ -218,7 +224,39 @@ export type NexoConfig = {
    * terceiro executaria comando arbitrário na máquina.
    */
   trustedProjects: string[];
+  /**
+   * Raiz de `~/.nexo/memoria/<hash-do-projeto>/MEMORIA.md`. Vazio = default
+   * (dentro do próprio `NEXO_HOME`). Existe pra apontar pra uma pasta já
+   * sincronizada entre máquinas (Drive etc.) — é assim que a memória de
+   * projeto atravessa PC diferente, sem o Nexo implementar sync nenhum.
+   */
+  memoriaDir: string;
+  /**
+   * Raiz de `~/.nexo/grafo/<hash-do-projeto>/graph.json` — o grafo do `graphify` (ver
+   * `graphify.ts`). Vazio = default (dentro do `NEXO_HOME`). Separado de `memoriaDir` de
+   * propósito: o usuário pode querer sincronizar o grafo (regenerável, maior) numa pasta
+   * diferente da memória (curada, pequena, mais sensível).
+   */
+  graphDir: string;
+  /**
+   * Módulos externos opcionais, cada um ligado/desligado à parte. `rtk` é um proxy de CLI (hook
+   * `PreToolUse`) que filtra saída de comando antes dela entrar no contexto; `caveman` é uma skill
+   * de comunicação comprimida — nenhum dos dois é instalado nem sincronizado se estiver desligado
+   * (ver `modules.ts`). `grafoAuto` liga um agente + duas regras de Nexo Hook (`nexo.projeto-novo`
+   * e `git.post-commit`) que constroem e mantêm o grafo do `graphify` sozinhos, sem botão manual
+   * (ver `grafo-auto.ts`) — precisa de `grafoAutoProfileId` (a conta que roda esse agente).
+   */
+  modulos: {
+    rtk: boolean;
+    caveman: boolean;
+    cavemanNivel: CavemanNivel;
+    grafoAuto: boolean;
+    grafoAutoProfileId: string;
+  };
 };
+
+export const CAVEMAN_NIVEIS = ["lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"] as const;
+export type CavemanNivel = (typeof CAVEMAN_NIVEIS)[number];
 
 export const DEFAULT_CONFIG: NexoConfig = {
   port: 7432,
@@ -232,6 +270,9 @@ export const DEFAULT_CONFIG: NexoConfig = {
   lastProject: "",
   lastThread: "",
   trustedProjects: [],
+  memoriaDir: "",
+  graphDir: "",
+  modulos: { rtk: false, caveman: false, cavemanNivel: "full", grafoAuto: false, grafoAutoProfileId: "" },
 };
 
 export type ThreadEvent =
@@ -260,7 +301,23 @@ export type ThreadEvent =
     }
   | { ts: string; type: "user"; threadId: string; text: string; attachments?: Attachment[] }
   | { ts: string; type: "assistant"; threadId: string; text: string }
-  | { ts: string; type: "tool"; threadId: string; name: string; summary: string }
+  | {
+      ts: string;
+      type: "tool";
+      threadId: string;
+      name: string;
+      summary: string;
+      /** Id do bloco `tool_use` — casa com o `tool_result` que chega depois, pro chat anexar no lugar certo. */
+      id?: string;
+      /** Argumentos completos da chamada — a `summary` é só o resumo pra UI fechada; isto é pra expandir. */
+      input?: unknown;
+    }
+  /** Resultado de UMA chamada — sempre depois do `tool` de mesmo `id`, nunca sozinho. */
+  | { ts: string; type: "tool_result"; threadId: string; id: string; result: string; isError?: boolean }
+  /** `nexo_perguntar` pausou o turno pra perguntar algo — ver perguntas.ts. */
+  | { ts: string; type: "pergunta"; threadId: string; id: string; texto: string; opcoes?: string[] }
+  /** Resposta que destravou a `pergunta` de mesmo `id` — sempre depois dela, nunca sozinha. */
+  | { ts: string; type: "pergunta_resposta"; threadId: string; id: string; resposta: string }
   | {
       ts: string;
       type: "switched";
@@ -364,7 +421,8 @@ export type EngineEvent =
   | { type: "text"; text: string }
   /** O CLI do Claude não expõe o texto do raciocínio: manda só progresso em tokens. */
   | { type: "thinking"; text?: string; tokens?: number }
-  | { type: "tool"; name: string; summary: string }
+  | { type: "tool"; name: string; summary: string; id?: string; input?: unknown }
+  | { type: "tool_result"; id: string; result: string; isError?: boolean }
   /** Contexto do ÚLTIMO request individual (não somado): o que ocupa a janela agora. */
   | { type: "context"; contextTokens: number }
   /**
@@ -474,11 +532,12 @@ export type TeamDef = {
   createdAt: string;
   updatedAt: string;
   /**
-   * Time de 1 membro criado automaticamente por uma `@menção` de agente avulso
-   * no composer (ver `upsertTimeDeMencao`). Não aparece na tela de Times —
-   * existe só pra `runs.ts` ter um `teamId` de verdade pra apontar.
+   * Time de 1 membro criado automaticamente — `"mencao"` por uma `@menção` de
+   * agente avulso no composer (`upsertTimeDeMencao`), `"hook"` por um Nexo Hook
+   * (`upsertTimeDeHook`, ver hooks.ts). Não aparece na tela de Times — existe só
+   * pra `runs.ts` ter um `teamId` de verdade pra apontar.
    */
-  origem?: "mencao";
+  origem?: "mencao" | "hook";
 };
 
 export const TEAM_ID_RE = AGENT_ID_RE;

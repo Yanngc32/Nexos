@@ -10,8 +10,10 @@ import { attachmentsDir, enginePidPath, globalSkillsDir } from "../home.ts";
 import { killTree } from "../kill-tree.ts";
 import { spawnCwd } from "../project-cwd.ts";
 import { agentOverrides } from "../agents.ts";
+import { loadConfig } from "../config.ts";
 import { engineEnv, engineSpawnEnv, getProfile } from "../profiles.ts";
 import { syncGlobalSkills } from "../skills.ts";
+import { syncRtkHook } from "../modules.ts";
 import { isNodeScript, spawnBin } from "../spawn-bin.ts";
 import { ENV_TOKEN_MCP, flagsDeMcpCodex, MCP_TOOLS } from "../mcp.ts";
 import { parseCliLine } from "./parse-claude.ts";
@@ -137,6 +139,10 @@ export class CliEngine implements Engine {
     this.finished = false;
   }
 
+  updatePack(pack: string): void {
+    this.pack = pack;
+  }
+
   /**
    * Relê perfil e agente a cada envio: mudar modelo/esforço na UI — na conta ou
    * no agente personalizado — vale já na próxima mensagem.
@@ -153,7 +159,12 @@ export class CliEngine implements Engine {
     // isolado deste perfil — sincroniza a cada turno pra qualquer conta enxergar a mesma skill.
     if (profile?.engine === "claude") {
       const dir = engineEnv(profile, this.home).CLAUDE_CONFIG_DIR;
-      if (dir) syncGlobalSkills(join(dir, "skills"), globalSkillsDir(this.home));
+      if (dir) {
+        syncGlobalSkills(join(dir, "skills"), globalSkillsDir(this.home));
+        // Fire-and-forget: `jaTemHookRtk` (modules.ts) já deixa isso quase grátis depois da
+        // primeira vez, mas não vale esperar nem a primeira tentativa — não pode atrasar o envio.
+        if (loadConfig(this.home).modulos.rtk) void syncRtkHook(dir);
+      }
     }
   }
 

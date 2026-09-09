@@ -449,7 +449,6 @@ export function createAgentStudio({
     }
     el("btn-ag-save").addEventListener("click", () => void salvar());
     el("btn-ag-del").addEventListener("click", () => void excluir());
-    el("btn-close-agent").addEventListener("click", () => void fechar());
     el("btn-ag-clear").addEventListener("click", limparBancada);
     el("btn-ag-stop").addEventListener("click", () => void parar());
     el("ag-tab-steps").addEventListener("click", () => trocarAba("steps"));

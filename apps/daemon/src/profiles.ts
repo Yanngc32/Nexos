@@ -11,8 +11,8 @@ import {
 import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AccountInfo, ApiProvider, EffortLevel, EngineKind, PermissionMode, Profile } from "@nexo/shared";
-import { EFFORT_LEVELS, MODEL_RE, PERMISSION_MODES, TOOL_PATTERN_RE, WINDOW_KEY_RE } from "@nexo/shared";
+import type { AccountInfo, ApiProvider, DelegacaoModo, EffortLevel, EngineKind, PermissionMode, Profile } from "@nexo/shared";
+import { DELEGACAO_MODOS, EFFORT_LEVELS, MODEL_RE, PERMISSION_MODES, TOOL_PATTERN_RE, WINDOW_KEY_RE } from "@nexo/shared";
 import { loadConfig, saveConfig } from "./config.ts";
 import { assertSlug } from "./ids.ts";
 import { ensureHome, profileDir } from "./home.ts";
@@ -104,6 +104,7 @@ export type ProfilePatch = {
   effort?: string | null;
   permissionMode?: string | null;
   allowedTools?: string[] | null;
+  delegacaoModo?: string | null;
 };
 
 /** Modelo, esforço e modo de permissão vão como argv do CLI: valida em vez de confiar. */
@@ -136,6 +137,12 @@ export function updateProfile(id: string, home: string, patch: ProfilePatch): Pr
     }
     if (!lista.length) delete next.allowedTools;
     else next.allowedTools = [...new Set(lista)].slice(0, 40);
+  }
+  if (patch.delegacaoModo !== undefined) {
+    const modo = (patch.delegacaoModo ?? "").trim();
+    if (!modo) delete next.delegacaoModo;
+    else if (!DELEGACAO_MODOS.includes(modo as DelegacaoModo)) throw new Error(`modo de delegação inválido: ${modo}`);
+    else next.delegacaoModo = modo as DelegacaoModo;
   }
   writeFileSync(profileJsonPath(id, home), JSON.stringify(next, null, 2), "utf8");
   return next;

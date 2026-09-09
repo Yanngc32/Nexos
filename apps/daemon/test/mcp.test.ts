@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   configDeMcp,
+  configDeMcpAutoria,
   definicoesDeFerramenta,
   erroDeParse,
   MCP_PROTOCOL,
@@ -9,6 +10,7 @@ import {
   tratarMcp,
   type Ferramentas,
   ferramentasDoSupervisor,
+  urlDeMcpAutoria,
 } from "../src/mcp.ts";
 import { TURNO_TETO_MS } from "@nexo/shared";
 
@@ -193,5 +195,31 @@ describe("configDeMcp", () => {
     const a = JSON.parse(configDeMcp(7432, "s", "r-1")).mcpServers.nexo.url;
     const b = JSON.parse(configDeMcp(7432, "s", "r-2")).mcpServers.nexo.url;
     expect(a).not.toBe(b);
+  });
+});
+
+describe("configDeMcpAutoria", () => {
+  it("sem projeto, a URL é só /v1/mcp — sem query", () => {
+    const cfg = JSON.parse(configDeMcpAutoria(7432, "s"));
+    expect(cfg.mcpServers.nexo.url).toBe("http://127.0.0.1:7432/v1/mcp");
+  });
+
+  it("com projeto, embute como query — é como o handler sabe de qual graphify-out/ oferecer ferramenta", () => {
+    const cfg = JSON.parse(configDeMcpAutoria(7432, "s", "/proj/a"));
+    expect(cfg.mcpServers.nexo.url).toBe("http://127.0.0.1:7432/v1/mcp?projectPath=%2Fproj%2Fa");
+  });
+
+  it("dois projetos diferentes dão URLs diferentes — é o que evita compartilhar o arquivo de config entre conversas", () => {
+    const a = JSON.parse(configDeMcpAutoria(7432, "s", "/proj/a")).mcpServers.nexo.url;
+    const b = JSON.parse(configDeMcpAutoria(7432, "s", "/proj/b")).mcpServers.nexo.url;
+    expect(a).not.toBe(b);
+  });
+});
+
+describe("urlDeMcpAutoria", () => {
+  it("mesma URL de configDeMcpAutoria, sem o envelope de config do claude — é o que o codex recebe", () => {
+    expect(urlDeMcpAutoria(7432, "/proj/a")).toBe(
+      JSON.parse(configDeMcpAutoria(7432, "s", "/proj/a")).mcpServers.nexo.url,
+    );
   });
 });

@@ -1435,6 +1435,80 @@ body[data-focus="1"] .chat-head {
   text-overflow: ellipsis;
 }
 
+/* Bolha de ferramenta expansível: clicar mostra argumentos completos + resultado, quando chegar. */
+.tool-line { cursor: pointer; }
+.tool-line:hover { color: var(--text); }
+.tool-toggle { margin-left: auto; opacity: .5; flex: 0 0 auto; transition: transform .15s; }
+li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
+.tool-result-badge { flex: 0 0 auto; }
+.tool-result-badge[data-err="1"] { color: #e06c75; }
+.tool-detail {
+  margin: 2px 0 6px 24px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tool-detail.hidden { display: none; }
+.tool-detail-sec h4 {
+  margin: 0 0 4px;
+  font-size: 10px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  opacity: .55;
+}
+.tool-detail-sec pre {
+  margin: 0;
+  font-family: Consolas, "Cascadia Mono", "Segoe UI Mono", monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow-y: auto;
+  color: var(--muted);
+}
+
+/* ---------- subchat ao vivo (nexo_delegar/nexo_chamar) ---------- */
+.subchat { margin: 2px 0 4px 24px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.subchat.hidden { display: none; }
+.subchat .ag-step[data-tipo="error"] { color: #e06c75; }
+.subchat .ag-step[data-tipo="running"] { color: var(--accent); }
+.subchat .ag-step[data-tipo="pending"], .subchat .ag-step[data-tipo="skipped"] { opacity: .45; }
+
+/* ---------- bolha de nexo_perguntar ---------- */
+.log li.pergunta {
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.pergunta-texto { margin: 2px 0 8px; white-space: pre-wrap; }
+.pergunta-opcoes { display: flex; flex-wrap: wrap; gap: 6px; }
+.pergunta-opcao {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 10px;
+  background: var(--elev);
+  color: var(--text);
+}
+.pergunta-opcao:hover:not(:disabled) { border-color: var(--accent); }
+.pergunta-form { display: flex; gap: 6px; }
+.pergunta-form input {
+  flex: 1;
+  font: inherit;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--elev);
+  color: var(--text);
+}
+.pergunta-resposta { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.log li.pergunta[data-respondida="1"] .pergunta-opcoes,
+.log li.pergunta[data-respondida="1"] .pergunta-form { opacity: .5; }
+
 /* medidor no canto superior direito do chat: fios das sessões + % da cota + bolinha do contexto */
 .meter {
   position: absolute;
@@ -3516,11 +3590,17 @@ body[data-side-mini="1"] .svc-strip {
 .ag-sec > h2 { margin: 0; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; opacity: .6; }
 .ag-hint { margin: 0; font-size: 12px; opacity: .6; line-height: 1.5; }
 .ag-row { display: flex; gap: 10px; flex-wrap: wrap; }
+/* `.primary` tem `margin-left: auto` pensado pra header (empurra o botão pra ponta direita) —
+   dentro de uma fileira de botões comuns isso abre um vão gigante antes dele. Zera aqui. */
+.ag-row > .primary { margin-left: 0; }
 .ag-f { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
 .ag-f > span { opacity: .7; }
 .ag-narrow { flex: 0 0 130px; min-width: 130px; }
 .ag-color { flex: 0 0 64px; min-width: 64px; }
 .ag-f input, .ag-f select { width: 100%; }
+/* Checkbox + texto lado a lado — `.ag-f` é coluna (título em cima, campo embaixo), não serve pra isto. */
+.ag-check { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.ag-check input[type="checkbox"] { width: auto; flex: 0 0 auto; }
 #ag-instructions { flex: 1; min-height: 180px; resize: vertical; font-family: var(--mono, monospace); font-size: 12px; line-height: 1.5; }
 .ag-count { margin: 0; font-size: 11px; opacity: .45; text-align: right; }
 .ag-gaps { margin: 0; font-size: 12px; color: #d8a657; }
@@ -3763,4 +3843,60 @@ body[data-compactando="1"] .ctx-dot::after {
     animation: none;
     opacity: 0.35;
   }
+
+  .graph-ato-novo {
+    background-color: transparent !important;
+  }
 }
+
+/* Tela Grafo: status + trilha de atividade (arquivo tocado agora, v1 sem física/canvas). */
+#graph-status[data-on="1"] { color: var(--accent); }
+#graph-status[data-on="0"] { opacity: .6; }
+.graph-atividade { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; }
+.graph-ato-item {
+  display: grid;
+  grid-template-columns: 20px minmax(80px, auto) minmax(0, 1fr);
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background-color: transparent;
+  transition: background-color 1.4s ease-out;
+}
+.graph-ato-novo { background-color: color-mix(in srgb, var(--accent) 25%, transparent); }
+.graph-ato-ico { opacity: .6; text-align: center; }
+.graph-ato-nome { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.graph-ato-resumo { opacity: .6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Tela única de Agentes/Times/Hooks (#pane-agentes) — topbar de abas + lista/editor lado a lado. */
+.ax-tabs { display: flex; gap: 4px; }
+.ax-tab {
+  padding: 8px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ax-tab[data-on="1"] { color: var(--text); border-bottom-color: var(--accent); }
+.ax-body { flex: 1; min-height: 0; display: flex; }
+.ax-body.hidden { display: none !important; }
+.ax-list {
+  flex: 0 0 240px;
+  min-width: 0;
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.ax-edit-area { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.ax-item-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  min-height: 42px;
+}
+.ax-item-head .mod-meta { flex: 1; }

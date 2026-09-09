@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { DEFAULT_CONFIG, SWITCH_MODES, type NexoConfig, type SwitchMode } from "@nexo/shared";
+import { CAVEMAN_NIVEIS, DEFAULT_CONFIG, SWITCH_MODES, type CavemanNivel, type NexoConfig, type SwitchMode } from "@nexo/shared";
 import { configPath, ensureHome } from "./home.ts";
 
 export function loadConfig(home: string): NexoConfig {
@@ -26,6 +26,24 @@ export function loadConfig(home: string): NexoConfig {
     lastProject: str(raw.lastProject),
     lastThread: str(raw.lastThread),
     trustedProjects: cleanRepos(raw.trustedProjects),
+    memoriaDir: str(raw.memoriaDir),
+    graphDir: str(raw.graphDir),
+    modulos: cleanModulos(raw.modulos),
+  };
+}
+
+function isCavemanNivel(value: unknown): value is CavemanNivel {
+  return typeof value === "string" && (CAVEMAN_NIVEIS as readonly string[]).includes(value);
+}
+
+function cleanModulos(value: unknown): NexoConfig["modulos"] {
+  const o = (value ?? {}) as Partial<NexoConfig["modulos"]>;
+  return {
+    rtk: Boolean(o.rtk),
+    caveman: Boolean(o.caveman),
+    cavemanNivel: isCavemanNivel(o.cavemanNivel) ? o.cavemanNivel : DEFAULT_CONFIG.modulos.cavemanNivel,
+    grafoAuto: Boolean(o.grafoAuto),
+    grafoAutoProfileId: str(o.grafoAutoProfileId),
   };
 }
 
@@ -88,6 +106,21 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
     lastThread: patch.lastThread === undefined ? current.lastThread : str(patch.lastThread),
     trustedProjects:
       patch.trustedProjects === undefined ? current.trustedProjects : cleanRepos(patch.trustedProjects),
+    memoriaDir: patch.memoriaDir === undefined ? current.memoriaDir : str(patch.memoriaDir),
+    graphDir: patch.graphDir === undefined ? current.graphDir : str(patch.graphDir),
+    // Merge campo a campo: `{ modulos: { rtk: true } }` liga só o rtk, sem apagar o resto.
+    modulos: {
+      rtk: patch.modulos?.rtk === undefined ? current.modulos.rtk : Boolean(patch.modulos.rtk),
+      caveman: patch.modulos?.caveman === undefined ? current.modulos.caveman : Boolean(patch.modulos.caveman),
+      cavemanNivel: isCavemanNivel(patch.modulos?.cavemanNivel)
+        ? patch.modulos.cavemanNivel
+        : current.modulos.cavemanNivel,
+      grafoAuto: patch.modulos?.grafoAuto === undefined ? current.modulos.grafoAuto : Boolean(patch.modulos.grafoAuto),
+      grafoAutoProfileId:
+        patch.modulos?.grafoAutoProfileId === undefined
+          ? current.modulos.grafoAutoProfileId
+          : str(patch.modulos.grafoAutoProfileId),
+    },
   };
   writeFileSync(configPath(home), JSON.stringify(next, null, 2), "utf8");
   return next;

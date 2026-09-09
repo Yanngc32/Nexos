@@ -5,7 +5,7 @@ import { cors } from "hono/cors";
 import type { SwitchReason } from "@nexo/shared";
 import { getAgent, listAgents, removeAgent, saveAgent, type AgentInput } from "./agents.ts";
 import { loadConfig, saveConfig } from "./config.ts";
-import { tokenPath } from "./home.ts";
+import { projectKey, tokenPath } from "./home.ts";
 import {
   accountInfo,
   addProfile,
@@ -22,7 +22,7 @@ import { readAttachment, type IncomingImage } from "./attachments.ts";
 import { listSkills } from "./skills.ts";
 import { cliAuthStatus } from "./auth-status.ts";
 import { cancelLogin, loginStatus, startLogin, submitCode } from "./login-session.ts";
-import { createThread, listThreads, projectsFromThreads, readThread, threadHead } from "./threads.ts";
+import { createThread, listThreads, projectsFromThreads, projetosConhecidos, readThread, threadHead } from "./threads.ts";
 import {
   abortThread,
   agentSnapshots,
@@ -37,6 +37,19 @@ import {
 import { threadReport } from "./usage-report.ts";
 import { getTeam, listTeams, removeTeam, saveTeam, upsertTimeDeMencao, type TeamInput } from "./teams.ts";
 import {
+  apagarRegra,
+  dispararPrePush,
+  fireHook,
+  getRegra,
+  listarRegras,
+  regrasDoEscopo,
+  saveRegra,
+  sincronizarHooksDoProjeto,
+} from "./hooks.ts";
+import { ferramentaDeVeredito } from "./veredito.ts";
+import { ferramentaDePerguntar, responderPergunta } from "./perguntas.ts";
+import { ferramentaDeDelegar, modoDeDelegacaoDaThread } from "./delegar.ts";
+import {
   abortarRun,
   criarRun,
   executarRun,
@@ -49,6 +62,15 @@ import {
 } from "./runs.ts";
 import { erroDeParse, ferramentasDoSupervisor, tratarMcp, type Conjunto, type JsonRpc } from "./mcp.ts";
 import { ferramentasDeAutoria } from "./autoria.ts";
+import {
+  atualizarGrafo,
+  ferramentasDeGraphify,
+  caminhoDaArvoreDoGrafo,
+  importarGrafoManual,
+  statusDoGrafo,
+} from "./graphify.ts";
+import { desligarGrafoAutomatico, sincronizarGrafoAutomatico } from "./grafo-auto.ts";
+import { statusDaMemoria } from "./memoria.ts";
 import { estadoAtual, melhorHost } from "./escuta.ts";
 import { abrirPareamento, fecharPareamento, pareamentoAberto, resgatar } from "./pair.ts";
 import { servirWeb } from "./web.ts";
@@ -294,6 +316,7 @@ export function createApp(home: string, token: string): Hono {
       effort?: string | null;
       permissionMode?: string | null;
       allowedTools?: string[] | null;
+      delegacaoModo?: string | null;
     };
     try {
       return c.json(updateProfile(c.req.param("id"), home, body));
@@ -430,10 +453,36 @@ export function createApp(home: string, token: string): Hono {
       if (body.agentId && !def) return c.json({ error: `agente não existe: ${body.agentId}` }, 400);
       const profileId = body.profileId || def?.profileId || "";
       if (!profileId) return c.json({ error: "profileId obrigatório" }, 400);
-      return c.json(
-        createThread({ projectPath, profileId, ...(def ? { agentId: def.id } : {}) }, home),
-        201,
-      );
+      // Antes de criar: depois disso a própria conversa já conta como "projeto conhecido" e o
+      // teste de novidade não veria mais diferença nenhuma.
+      const chave = projectKey(projectPath);
+      const jaConhecido = projetosConhecidos(home).some((p) => projectKey(p) === chave);
+      const created = createThread({ projectPath, profileId, ...(def ? { agentId: def.id } : {}) }, home);
+      // Best-effort: cobre regra global criada antes deste projeto existir pro Nexo. Não pode
+      // derrubar a criação da conversa por causa disto (ex.: pasta sem `.git` — sincronização já
+      // ignora, mas por garantia extra contra qualquer outro erro imprevisto).
+      try {
+        sincronizarHooksDoProjeto(projectPath, home);
+      } catch (e) {
+        console.error("sincronizar hooks ao abrir projeto:", (e as Error).message || e);
+      }
+      // "Ao abrir o projeto, busca na pasta compartilhada pelo gráfico" — mesma ideia da memória:
+      // puxa se a pasta compartilhada tiver algo mais novo, empurra se o local tiver.
+      try {
+        statusDoGrafo(projectPath, home);
+      } catch (e) {
+        console.error("sincronizar grafo ao abrir projeto:", (e as Error).message || e);
+      }
+      // `nexo.projeto-novo`: só na PRIMEIRA vez que este projeto aparece pro Nexo — fire-and-forget,
+      // igual post-commit/post-push (já aconteceu, não tem o que bloquear).
+      if (!jaConhecido) {
+        try {
+          fireHook("nexo.projeto-novo", projectPath, home);
+        } catch (e) {
+          console.error("nexo.projeto-novo:", (e as Error).message || e);
+        }
+      }
+      return c.json(created, 201);
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400);
     }
@@ -707,6 +756,131 @@ export function createApp(home: string, token: string): Hono {
     }
   });
 
+  /* ---------- Nexo Hooks: regras ---------- */
+
+  app.get("/v1/hooks/rules", (c) => c.json(listarRegras(home)));
+
+  app.get("/v1/hooks/rules/:id", (c) => {
+    const regra = getRegra(c.req.param("id"), home);
+    return regra ? c.json(regra) : c.json({ error: "regra não existe" }, 404);
+  });
+
+  app.post("/v1/hooks/rules", async (c) => {
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      return c.json(saveRegra(body, home), 201);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.put("/v1/hooks/rules/:id", async (c) => {
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      return c.json(saveRegra({ ...body, id: c.req.param("id") }, home));
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.delete("/v1/hooks/rules/:id", (c) => {
+    try {
+      apagarRegra(c.req.param("id"), home);
+      return c.json({ ok: true });
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 404) as 404);
+    }
+  });
+
+  /**
+   * Gatilho dos Nexo Hooks — chamado pelo script instalado em `.git/hooks/`
+   * (ver `sincronizarHooksDoProjeto`). `post-commit`/`post-push` respondem
+   * rápido de propósito: a ação roda em segundo plano, sem segurar a
+   * requisição — o script chama com `|| true`, então `git commit`/`git push`
+   * nunca esperam nem falham por causa disto.
+   *
+   * `pre-push` é o oposto: a resposta SÓ volta depois de toda regra
+   * bloqueante decidir (ou reprovar por padrão) — é essa espera que faz o
+   * script do git segurar o push até saber se libera.
+   */
+  app.post("/v1/hooks/fire", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      event?: string;
+      projectPath?: string;
+      branch?: string;
+    };
+    const event = body.event ?? "";
+    const projectPath = body.projectPath ?? "";
+    const branch = typeof body.branch === "string" ? body.branch : "";
+    try {
+      if (event === "git.pre-push") return c.json(await dispararPrePush(projectPath, branch, home));
+      return c.json(fireHook(event, projectPath, home, branch));
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  /* ---------- Grafo (graphify) ---------- */
+
+  app.get("/v1/graph/status", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    return c.json(statusDoGrafo(projectPath, home));
+  });
+
+  /**
+   * "O que o Nexo sabe deste projeto" — memória + grafo + quantos Nexo Hooks (global ou deste
+   * projeto) valem pra ele, numa chamada só. É a fonte da tela "Memória do Projeto" no desktop —
+   * antes disso, a mesma informação estava espalhada em três telas (Configurações, Grafo, Hooks)
+   * sem nenhum lugar que juntasse os três.
+   */
+  app.get("/v1/projeto/status", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    return c.json({
+      memoria: statusDaMemoria(projectPath, home),
+      grafo: statusDoGrafo(projectPath, home),
+      grafoAuto: loadConfig(home).modulos.grafoAuto,
+      hooksCount: regrasDoEscopo(listarRegras(home), projectPath).length,
+    });
+  });
+
+  /** Importa um grafo de fora (pasta escolhida no modal) — cobre "não achou em lugar nenhum". */
+  app.post("/v1/graph/importar", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { projectPath?: string; origem?: string };
+    const projectPath = body.projectPath ?? "";
+    const origem = body.origem ?? "";
+    if (!projectPath || !origem) return c.json({ error: "projectPath e origem obrigatórios" }, 400);
+    try {
+      importarGrafoManual(projectPath, origem, home);
+      return c.json(statusDoGrafo(projectPath, home));
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  /** `graphify update` — só AST, sem LLM, por isso seguro num botão (não gasta quota de conta). */
+  app.post("/v1/graph/atualizar", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { projectPath?: string };
+    const projectPath = body.projectPath ?? "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    const r = await atualizarGrafo(projectPath, home);
+    return c.json({ ...r, ...statusDoGrafo(projectPath, home) });
+  });
+
+  /** O `graph.html` do grafo semântico (já gerado pelo próprio `graphify`) — cliente abre no app padrão. */
+  app.post("/v1/graph/arvore", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { projectPath?: string };
+    const projectPath = body.projectPath ?? "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    return c.json(caminhoDaArvoreDoGrafo(projectPath));
+  });
+
   /* ---------- execuções de time ---------- */
 
   app.get("/v1/runs", (c) => c.json(listRuns(home, c.req.query("projectPath") || undefined)));
@@ -789,7 +963,40 @@ export function createApp(home: string, token: string): Hono {
    * escrevem `agents.json` e `teams.json`. Não precisa de run porque não há run
    * — e não executa nada, que é o que a torna aceitável numa conversa comum.
    */
-  app.post("/v1/mcp", (c) => responderMcp(c, ferramentasDeAutoria(home)));
+  /**
+   * `projectPath` vem na query, não no corpo: quem embutiu (`caminhoDaAutoria`
+   * em mcp.ts) fez isso na hora de montar a URL desta conversa, e o MCP em si
+   * não tem onde carregar um "projeto atual" — cada requisição já chega dizendo.
+   * Sem projeto (config velha, ou cliente que não manda) só a autoria responde;
+   * o graphify soma quando o projeto tem `graphify-out/graph.json` construído.
+   */
+  app.post("/v1/mcp", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    const runId = c.req.query("runId") || "";
+    const threadId = c.req.query("threadId") || "";
+    // `nexo_delegar` só em conversa NORMAL (sem runId) — é isso que impede recursão: o que ele
+    // dispara é sempre um passo de Run, que nasce COM runId e por isso nunca cai aqui de novo.
+    const modoDelegacao = threadId && projectPath && !runId ? modoDeDelegacaoDaThread(threadId, home) : "negado";
+    const conjunto: Conjunto = () => [
+      ...ferramentasDeAutoria(home)(),
+      ...(projectPath ? ferramentasDeGraphify(projectPath)() : []),
+      ...(runId ? ferramentaDeVeredito(runId)() : []),
+      ...(threadId ? ferramentaDePerguntar(threadId, home)() : []),
+      ...(modoDelegacao !== "negado" ? ferramentaDeDelegar(threadId, projectPath, modoDelegacao, home)() : []),
+    ];
+    return responderMcp(c, conjunto);
+  });
+
+  /** Resolve a pergunta pendente de `nexo_perguntar` nesta thread — ver perguntas.ts. */
+  app.post("/v1/perguntas/:threadId/responder", async (c) => {
+    const threadId = c.req.param("threadId");
+    const body = (await c.req.json().catch(() => ({}))) as { resposta?: string };
+    const resposta = typeof body.resposta === "string" ? body.resposta : "";
+    if (!resposta.trim()) return c.json({ error: 'faltou "resposta"' }, 400);
+    const ok = responderPergunta(threadId, resposta);
+    if (!ok) return c.json({ error: "nenhuma pergunta pendente nesta conversa" }, 404);
+    return c.json({ ok: true });
+  });
 
   app.post("/v1/mcp/:id", async (c) => {
     const fer = ferramentasDoRun(c.req.param("id"), home);
@@ -844,8 +1051,16 @@ export function createApp(home: string, token: string): Hono {
 
   app.get("/v1/config", (c) => c.json(loadConfig(home)));
   app.put("/v1/config", async (c) => {
+    const antes = loadConfig(home).modulos.grafoAuto;
     const body = await c.req.json();
-    return c.json(saveConfig(home, body));
+    const next = saveConfig(home, body);
+    // Efeito colateral do toggle: liga (ou reconfere, se só a conta trocou) o agente + as duas
+    // regras do módulo "Grafo automático" sem esperar reiniciar o daemon. Só DESLIGA na
+    // transição true→false — chamar em toda gravação de config (mesmo trocar a cor) apagaria uma
+    // regra que a pessoa tivesse criado à mão apontando pro mesmo agente `grafo`, por coincidência.
+    if (next.modulos.grafoAuto) sincronizarGrafoAutomatico(home);
+    else if (antes) desligarGrafoAutomatico(home);
+    return c.json(next);
   });
 
   return app;

@@ -514,7 +514,6 @@ export function createTeamStudio({
     el("btn-tm-add").addEventListener("click", adicionar);
     el("btn-tm-save").addEventListener("click", () => void salvar());
     el("btn-tm-del").addEventListener("click", () => void excluir());
-    el("btn-close-team").addEventListener("click", fechar);
     el("btn-tm-stop").addEventListener("click", () => void parar());
     el("btn-tm-resume").addEventListener("click", () => void retomar());
     el("tm-ask").addEventListener("submit", (e) => {

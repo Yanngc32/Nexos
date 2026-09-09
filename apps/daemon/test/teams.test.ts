@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { addProfile } from "../src/profiles.ts";
 import { saveAgent } from "../src/agents.ts";
-import { getTeam, listTeams, removeTeam, saveTeam, upsertTimeDeMencao } from "../src/teams.ts";
+import { getTeam, listTeams, removeTeam, saveTeam, upsertTimeDeHook, upsertTimeDeMencao } from "../src/teams.ts";
 import { tempHome } from "./helpers.ts";
 
 function base(): string {
@@ -158,5 +158,27 @@ describe("upsertTimeDeMencao", () => {
   it("recusa agente que não existe", () => {
     const home = base();
     expect(() => upsertTimeDeMencao("fantasma", home)).toThrow(/agente não existe/);
+  });
+});
+
+describe("upsertTimeDeHook", () => {
+  it("cria um time-pipeline-de-1 oculto com origem hook, distinto do de menção", () => {
+    const home = base();
+    const t = upsertTimeDeHook("revisor", home);
+    expect(t.members).toEqual([{ agentId: "revisor" }]);
+    expect(t.origem).toBe("hook");
+    expect(t.id).toBe("hook-revisor");
+    expect(getTeam(t.id, home)).toEqual(t);
+    expect(listTeams(home)).toEqual([]);
+  });
+
+  it("é idempotente e não colide com o time de menção do mesmo agente", () => {
+    const home = base();
+    const doHook = upsertTimeDeHook("revisor", home);
+    const doMencao = upsertTimeDeMencao("revisor", home);
+    expect(doHook.id).not.toBe(doMencao.id);
+    const doHookDeNovo = upsertTimeDeHook("revisor", home);
+    expect(doHookDeNovo.id).toBe(doHook.id);
+    expect(doHookDeNovo.createdAt).toBe(doHook.createdAt);
   });
 });

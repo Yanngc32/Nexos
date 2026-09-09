@@ -12,3 +12,7 @@ export function newThreadId(): string {
 export function newRunId(): string {
   return `r-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
+
+export function newHookRuleId(): string {
+  return `hr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}

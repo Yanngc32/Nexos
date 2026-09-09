@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { hostNaUrl, type EngineKind } from "@nexo/shared";
-import { configPath, ensureHome, nexoHome } from "./home.ts";
+import { configPath, ensureHome, nexoHome, tokenPath } from "./home.ts";
+import { loadConfig } from "./config.ts";
 import {
   accountInfo,
   addProfile,
@@ -11,6 +12,10 @@ import {
   removeProfile,
   updateProfile,
 } from "./profiles.ts";
+import { HOOK_EVENT_RE } from "./hooks.ts";
+import { ensureGraphifyInstalled } from "./graphify.ts";
+import { ensureCavemanInstalled, ensureRtkInstalled } from "./modules.ts";
+import { sincronizarGrafoAutomatico } from "./grafo-auto.ts";
 import { createThread, listThreads, readThread } from "./threads.ts";
 import { postMessage, sessionBus, switchThread } from "./session.ts";
 import { loginProfile } from "./login.ts";
@@ -43,6 +48,15 @@ async function cmdUp(): Promise<void> {
     console.log(`nexo already up  http://127.0.0.1:${started.port}`);
     return;
   }
+  // Fire-and-forget, em paralelo ao resto da subida — nunca lançam, então não atrasam nem
+  // condicionam o daemon a isso (ver ensureGraphifyInstalled/ensureRtkInstalled/ensureCavemanInstalled).
+  void ensureGraphifyInstalled();
+  const modulos = loadConfig(home).modulos;
+  if (modulos.rtk) void ensureRtkInstalled();
+  if (modulos.caveman) void ensureCavemanInstalled(home);
+  // Síncrono e barato (só lê agents.json/hooks.json) — sem network, não precisa de fire-and-forget.
+  const r = sincronizarGrafoAutomatico(home);
+  if (!r.ok) console.error(`grafo automático: ${r.motivo}`);
   for (const f of started.falhas) {
     // túnel fora do ar é normal e ele volta sozinho; dizer o motivo evita que
     // "o celular não conecta" vire caça ao tesouro
@@ -246,6 +260,54 @@ async function main(): Promise<void> {
       return;
     }
     throw new Error("uso: nexo svc ls|up|down|restart|logs|trust");
+  }
+
+  /**
+   * Chamado PELO script de hook do git (`.git/hooks/post-commit`/`post-push`/`pre-push`), nunca à
+   * mão — quem instala o script é `sincronizarHooksDoProjeto` (hooks.ts), disparada sozinha
+   * quando uma regra é criada/editada/apagada pela API/UI ou quando o projeto é aberto no Nexo. Não
+   * existe mais `nexo hook install` manual: a v2 não tem um passo que a pessoa precisa lembrar.
+   *
+   * `post-commit`/`post-push` são fire-and-forget com teto curto e nunca lançam: quem chama já tem
+   * `|| true` no shell, mas o motivo real de engolir erro aqui é não travar nem falhar
+   * `git commit`/`git push` por causa do daemon estar fechado ou de rede local com problema —
+   * FALHA ABERTA pra indisponibilidade de infraestrutura (bem diferente de "agente rodou e não
+   * decidiu", que é fechada — ver `dispararPrePush`).
+   *
+   * `pre-push` é o oposto: sem teto curto (espera o run bloqueante inteiro) e PROPAGA o veredito
+   * como exit code — é isso que faz o `git push` ser barrado de verdade.
+   */
+  if (cmd === "hook" && argv[1] === "fire") {
+    const event = argv[2] ?? "";
+    if (!HOOK_EVENT_RE.test(event)) return;
+    const branch = arg("--branch", argv) ?? "";
+    const project = process.cwd();
+    if (!existsSync(tokenPath(home))) return; // daemon nunca subiu nesta home — falha aberta
+    const token = readFileSync(tokenPath(home), "utf8").trim();
+    const port = loadConfig(home).port;
+    const bloqueante = event === "git.pre-push";
+    const ac = new AbortController();
+    const relogio = bloqueante ? undefined : setTimeout(() => ac.abort(), 4000);
+    try {
+      const resp = await fetch(`http://127.0.0.1:${port}/v1/hooks/fire`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ event, projectPath: project, ...(branch ? { branch } : {}) }),
+        signal: ac.signal,
+      });
+      if (bloqueante) {
+        const { aprovado, motivo } = (await resp.json()) as { aprovado?: boolean; motivo?: string };
+        if (!aprovado) {
+          console.error(motivo || "push barrado por um Nexo Hook");
+          process.exitCode = 1;
+        }
+      }
+    } catch {
+      // daemon fechado, porta trocada, rede local instável — falha ABERTA de propósito
+    } finally {
+      if (relogio) clearTimeout(relogio);
+    }
+    return;
   }
 
   /*
@@ -464,6 +526,8 @@ async function main(): Promise<void> {
                         [--mode auto|manual|acceptEdits|plan|bypassPermissions]
   nexo login <id>
   nexo svc ls | up <id>|--all | down <id>|--all | restart <id> | logs <id> | trust
+  nexo hook fire <evento> [--branch <nome>]   (chamado pelo script de .git/hooks/, não à mão —
+                                               regra e sincronização vivem na API/UI de Hooks)
   nexo thread new <perfil> | ls [pasta] | show <id>
   nexo branch ls | rm [pasta] [--run <id>]   (branches nexo/* dos times; rm só apaga
                                               o que já está no HEAD)

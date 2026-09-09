@@ -200,167 +200,302 @@
         <canvas id="sketch"></canvas>
         <textarea id="canvas-note" rows="3" placeholder="Notas deste projeto…"></textarea>
       </section>
-      <section class="pane hidden" id="pane-agent">
+      <section class="pane hidden" id="pane-graph">
         <header class="mod-head">
-          <h1>Agente</h1>
-          <span id="ag-head-name" class="mod-meta"></span>
-          <span id="ag-dirty" class="ag-dirty hidden" title="Há mudanças não salvas">•</span>
-          <button type="button" id="btn-ag-save" class="primary">Salvar</button>
-          <button type="button" id="btn-ag-del" class="ghost danger">Excluir</button>
-          <button type="button" id="btn-close-agent" class="ghost mod-close" title="Fechar">✕</button>
+          <h1>Memória do Projeto</h1>
+          <button type="button" id="btn-close-graph" class="ghost mod-close" title="Fechar (volta só pro chat)">✕</button>
         </header>
-        <div class="ag-split">
-          <div class="ag-edit" id="ag-edit">
-            <section class="ag-sec" id="ag-tpl-sec">
-              <h2>Modelo de criação</h2>
-              <p class="ag-hint">
-                Formatos inspirados no ADK do Google. O Nexo não orquestra sub-agentes — cada
-                modelo dá a forma de trabalho pela instrução. Cada um explica onde difere.
-              </p>
-              <div class="ag-tpls" id="ag-tpls"></div>
-              <p class="ag-tpl-nota" id="ag-tpl-nota"></p>
-            </section>
-
-            <section class="ag-sec">
-              <h2>Identidade</h2>
-              <div class="ag-row">
-                <label class="ag-f"><span>Nome</span>
-                  <input id="ag-name" type="text" maxlength="60" placeholder="Revisor de PR" /></label>
-                <label class="ag-f ag-narrow"><span>id</span>
-                  <input id="ag-id" type="text" maxlength="40" placeholder="revisor" /></label>
-                <label class="ag-f ag-color"><span>Cor</span>
-                  <input id="ag-color" type="color" value="#4d9cd6" /></label>
-              </div>
-              <label class="ag-f"><span>Descrição</span>
-                <input id="ag-desc" type="text" maxlength="200" placeholder="Para que serve este agente" /></label>
-            </section>
-
-            <section class="ag-sec">
-              <h2>Motor</h2>
-              <div class="ag-row">
-                <label class="ag-f"><span>Conta</span><select id="ag-profile"></select></label>
-                <label class="ag-f"><span>Modelo</span>
-                  <input id="ag-model" type="text" list="ag-models" placeholder="padrão da conta" />
-                  <datalist id="ag-models">
-                    <option value="opus"></option><option value="sonnet"></option>
-                    <option value="haiku"></option><option value="fable"></option>
-                  </datalist></label>
-              </div>
-              <div class="ag-row">
-                <label class="ag-f"><span>Esforço</span>
-                  <select id="ag-effort">
-                    <option value="">padrão</option><option value="low">low</option>
-                    <option value="medium">medium</option><option value="high">high</option>
-                    <option value="xhigh">xhigh</option><option value="max">max</option>
-                  </select></label>
-                <label class="ag-f"><span>Permissão</span>
-                  <select id="ag-mode">
-                    <option value="">padrão</option><option value="auto">auto</option>
-                    <option value="manual">manual</option><option value="acceptEdits">acceptEdits</option>
-                    <option value="plan">plan</option><option value="bypassPermissions">bypassPermissions</option>
-                  </select></label>
-              </div>
-            </section>
-
-            <section class="ag-sec ag-sec-grow">
-              <h2>Instruções</h2>
-              <p class="ag-hint">Vai no topo do contexto de toda conversa deste agente.</p>
-              <textarea id="ag-instructions" maxlength="8000"
-                placeholder="Como este agente deve trabalhar."></textarea>
-              <p class="ag-gaps hidden" id="ag-gaps"></p>
-              <p class="ag-count" id="ag-count"></p>
-            </section>
-            <p class="ag-err hidden" id="ag-err"></p>
-          </div>
-
-          <div class="ag-bench" id="ag-bench">
-            <header class="ag-bench-head">
-              <h2>Bancada</h2>
-              <div class="ag-tabs">
-                <button type="button" id="ag-tab-steps" class="ag-tab" data-on="1">Etapas</button>
-                <button type="button" id="ag-tab-chat" class="ag-tab" data-on="0">Resposta</button>
-              </div>
-              <button type="button" id="btn-ag-clear" class="ghost" title="Limpar a conversa de teste">Limpar</button>
-            </header>
-            <p class="ag-bench-note" id="ag-bench-note"></p>
-            <div class="ag-bench-body">
-              <ol class="ag-steps" id="ag-steps"></ol>
-              <div class="ag-chat md hidden" id="ag-chat"></div>
+        <div class="ag-edit">
+          <section class="ag-sec">
+            <h2>Memória <span id="mem-status" class="mod-meta" data-on="0">verificando…</span></h2>
+            <p class="ag-hint" id="mem-detalhe"></p>
+          </section>
+          <section class="ag-sec">
+            <h2>Grafo (graphify) <span id="graph-status" class="mod-meta" data-on="0">verificando…</span></h2>
+            <p class="ag-hint" id="graph-detalhe"></p>
+            <p class="ag-err hidden" id="graph-err"></p>
+            <div class="ag-row">
+              <button type="button" id="btn-graph-atualizar" class="ghost">Atualizar agora (sem LLM)</button>
+              <button type="button" id="btn-graph-arvore" class="primary">Ver grafo</button>
+              <button type="button" id="btn-graph-importar" class="ghost">Selecionar pasta manualmente…</button>
             </div>
-            <div class="ag-sum" id="ag-sum"></div>
-            <form class="ag-ask" id="ag-ask">
-              <textarea id="ag-prompt" rows="2" placeholder="Mensagem de teste para o agente…"></textarea>
-              <button type="submit" class="primary" id="btn-ag-run">Testar</button>
-              <button type="button" class="ghost hidden" id="btn-ag-stop">Parar</button>
-            </form>
-          </div>
+            <label class="ag-check" id="graph-auto-wrap">
+              <input id="graph-auto" type="checkbox" />
+              <span>Manter o grafo sozinho (constrói ao abrir projeto novo, atualiza a cada commit)</span>
+            </label>
+            <label class="ag-f hidden" id="graph-auto-profile-wrap"><span>Conta que roda isso</span>
+              <select id="graph-auto-profile"></select></label>
+            <p class="ag-err hidden" id="graph-auto-err"></p>
+          </section>
+          <section class="ag-sec">
+            <h2>Hooks ligados a este projeto</h2>
+            <p class="ag-hint" id="proj-hooks-count"></p>
+            <button type="button" class="ghost" id="btn-proj-hooks-abrir">Ver na tela Hooks</button>
+          </section>
+          <section class="ag-sec">
+            <h2>Atividade ao vivo</h2>
+            <p class="ag-hint">Arquivos que o agente está tocando na conversa atual.</p>
+            <ol id="graph-atividade" class="graph-atividade"></ol>
+            <p id="graph-atividade-vazio" class="ag-hint">Nada ainda nesta conversa.</p>
+          </section>
         </div>
       </section>
-      <section class="pane hidden" id="pane-team">
-        <header class="mod-head">
-          <h1>Time</h1>
-          <span id="tm-head-name" class="mod-meta"></span>
-          <span id="tm-dirty" class="ag-dirty hidden" title="Há mudanças não salvas">•</span>
-          <button type="button" id="btn-tm-save" class="primary">Salvar</button>
-          <button type="button" id="btn-tm-del" class="ghost danger">Excluir</button>
-          <button type="button" id="btn-close-team" class="ghost mod-close" title="Fechar">✕</button>
-        </header>
-        <div class="ag-split">
-          <div class="ag-edit" id="tm-edit">
-            <section class="ag-sec">
-              <h2>Identidade</h2>
-              <div class="ag-row">
-                <label class="ag-f"><span>Nome</span>
-                  <input id="tm-name" type="text" maxlength="60" placeholder="Time de feature" /></label>
-                <label class="ag-f ag-narrow"><span>id</span>
-                  <input id="tm-id" type="text" maxlength="40" placeholder="feature" /></label>
-              </div>
-              <label class="ag-f"><span>Descrição</span>
-                <input id="tm-desc" type="text" maxlength="200" placeholder="Para que serve este time" /></label>
-              <label class="ag-f"><span>Como trabalha</span>
-                <select id="tm-topology">
-                  <option value="pipeline">Em sequência — a saída de um vira a entrada do próximo</option>
-                  <option value="fanin">Em paralelo — todos ao mesmo tempo, o último junta</option>
-                  <option value="supervisor">Com supervisor — o primeiro decide quem trabalha, a cada rodada</option>
-                </select></label>
-              <label class="hidden" id="tm-canal-wrap"
-                >Como o supervisor manda
-                <select id="tm-canal">
-                  <option value="turno">Por turno — funciona em qualquer conta</option>
-                  <option value="mcp">Por ferramenta (MCP) — mais barato, só em conta Claude</option>
-                </select></label>
-              <p class="tm-aviso hidden" id="tm-aviso"></p>
-            </section>
-
-            <section class="ag-sec ag-sec-grow">
-              <h2>Membros, em ordem</h2>
-              <p class="ag-hint" id="tm-ordem"></p>
-              <p class="ag-hint">
-                O papel entra no pedido daquele membro, então o mesmo agente pode ocupar papéis
-                diferentes em times diferentes.
-              </p>
-              <ol id="tm-members" class="tm-members"></ol>
-              <button type="button" class="ghost" id="btn-tm-add">+ Membro</button>
-            </section>
-            <p class="ag-err hidden" id="tm-err"></p>
+      <section class="pane hidden" id="pane-agentes">
+        <header class="mod-head ax-head">
+          <div class="ax-tabs" role="tablist">
+            <button type="button" id="tab-ax-agentes" class="ax-tab" role="tab" data-on="1">Agentes</button>
+            <button type="button" id="tab-ax-times" class="ax-tab" role="tab" data-on="0">Times</button>
+            <button type="button" id="tab-ax-hooks" class="ax-tab" role="tab" data-on="0">Hooks</button>
           </div>
+          <button type="button" id="btn-close-agentes" class="ghost mod-close" title="Fechar">✕</button>
+        </header>
 
-          <div class="ag-bench" id="tm-run">
-            <header class="ag-bench-head">
-              <h2>Execução</h2>
-              <span id="tm-run-status" class="tm-run-status"></span>
-              <button type="button" id="btn-tm-stop" class="ghost hidden">Parar</button>
-              <button type="button" id="btn-tm-resume" class="ghost hidden">Retomar</button>
-            </header>
-            <p class="ag-bench-note" id="tm-run-note"></p>
-            <div class="ag-bench-body">
-              <ol class="ag-steps" id="tm-steps"></ol>
+        <div class="ax-body" id="ax-body-agentes">
+          <div class="ax-list">
+            <ul id="agent-defs" class="agents-list"></ul>
+            <p id="agent-defs-empty" class="agents-empty">
+              Nenhum agente criado. Um agente guarda conta, modelo e instruções próprias.
+            </p>
+            <div class="agents-foot">
+              <button type="button" class="primary" id="btn-agent-new">Novo agente</button>
             </div>
-            <div class="ag-sum" id="tm-sum"></div>
-            <form class="ag-ask" id="tm-ask">
-              <textarea id="tm-goal" rows="2" placeholder="Objetivo do time — o pedido que entra no primeiro membro…"></textarea>
-              <button type="submit" class="primary" id="btn-tm-run">Rodar</button>
-            </form>
+          </div>
+          <div class="ax-edit-area">
+            <div class="ax-item-head">
+              <span id="ag-head-name" class="mod-meta"></span>
+              <span id="ag-dirty" class="ag-dirty hidden" title="Há mudanças não salvas">•</span>
+              <button type="button" id="btn-ag-save" class="primary">Salvar</button>
+              <button type="button" id="btn-ag-del" class="ghost danger">Excluir</button>
+            </div>
+            <div class="ag-split">
+              <div class="ag-edit" id="ag-edit">
+                <section class="ag-sec" id="ag-tpl-sec">
+                  <h2>Modelo de criação</h2>
+                  <p class="ag-hint">
+                    Formatos inspirados no ADK do Google. O Nexo não orquestra sub-agentes — cada
+                    modelo dá a forma de trabalho pela instrução. Cada um explica onde difere.
+                  </p>
+                  <div class="ag-tpls" id="ag-tpls"></div>
+                  <p class="ag-tpl-nota" id="ag-tpl-nota"></p>
+                </section>
+
+                <section class="ag-sec">
+                  <h2>Identidade</h2>
+                  <div class="ag-row">
+                    <label class="ag-f"><span>Nome</span>
+                      <input id="ag-name" type="text" maxlength="60" placeholder="Revisor de PR" /></label>
+                    <label class="ag-f ag-narrow"><span>id</span>
+                      <input id="ag-id" type="text" maxlength="40" placeholder="revisor" /></label>
+                    <label class="ag-f ag-color"><span>Cor</span>
+                      <input id="ag-color" type="color" value="#4d9cd6" /></label>
+                  </div>
+                  <label class="ag-f"><span>Descrição</span>
+                    <input id="ag-desc" type="text" maxlength="200" placeholder="Para que serve este agente" /></label>
+                </section>
+
+                <section class="ag-sec">
+                  <h2>Motor</h2>
+                  <div class="ag-row">
+                    <label class="ag-f"><span>Conta</span><select id="ag-profile"></select></label>
+                    <label class="ag-f"><span>Modelo</span>
+                      <input id="ag-model" type="text" list="ag-models" placeholder="padrão da conta" />
+                      <datalist id="ag-models">
+                        <option value="opus"></option><option value="sonnet"></option>
+                        <option value="haiku"></option><option value="fable"></option>
+                      </datalist></label>
+                  </div>
+                  <div class="ag-row">
+                    <label class="ag-f"><span>Esforço</span>
+                      <select id="ag-effort">
+                        <option value="">padrão</option><option value="low">low</option>
+                        <option value="medium">medium</option><option value="high">high</option>
+                        <option value="xhigh">xhigh</option><option value="max">max</option>
+                      </select></label>
+                    <label class="ag-f"><span>Permissão</span>
+                      <select id="ag-mode">
+                        <option value="">padrão</option><option value="auto">auto</option>
+                        <option value="manual">manual</option><option value="acceptEdits">acceptEdits</option>
+                        <option value="plan">plan</option><option value="bypassPermissions">bypassPermissions</option>
+                      </select></label>
+                  </div>
+                </section>
+
+                <section class="ag-sec ag-sec-grow">
+                  <h2>Instruções</h2>
+                  <p class="ag-hint">Vai no topo do contexto de toda conversa deste agente.</p>
+                  <textarea id="ag-instructions" maxlength="8000"
+                    placeholder="Como este agente deve trabalhar."></textarea>
+                  <p class="ag-gaps hidden" id="ag-gaps"></p>
+                  <p class="ag-count" id="ag-count"></p>
+                </section>
+                <p class="ag-err hidden" id="ag-err"></p>
+              </div>
+
+              <div class="ag-bench" id="ag-bench">
+                <header class="ag-bench-head">
+                  <h2>Bancada</h2>
+                  <div class="ag-tabs">
+                    <button type="button" id="ag-tab-steps" class="ag-tab" data-on="1">Etapas</button>
+                    <button type="button" id="ag-tab-chat" class="ag-tab" data-on="0">Resposta</button>
+                  </div>
+                  <button type="button" id="btn-ag-clear" class="ghost" title="Limpar a conversa de teste">Limpar</button>
+                </header>
+                <p class="ag-bench-note" id="ag-bench-note"></p>
+                <div class="ag-bench-body">
+                  <ol class="ag-steps" id="ag-steps"></ol>
+                  <div class="ag-chat md hidden" id="ag-chat"></div>
+                </div>
+                <div class="ag-sum" id="ag-sum"></div>
+                <form class="ag-ask" id="ag-ask">
+                  <textarea id="ag-prompt" rows="2" placeholder="Mensagem de teste para o agente…"></textarea>
+                  <button type="submit" class="primary" id="btn-ag-run">Testar</button>
+                  <button type="button" class="ghost hidden" id="btn-ag-stop">Parar</button>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ax-body hidden" id="ax-body-times">
+          <div class="ax-list">
+            <ul id="team-list" class="agents-list"></ul>
+            <p id="team-empty" class="agents-empty">
+              Nenhum time criado. Um time roda seus agentes em sequência: a saída de um vira a entrada do próximo.
+            </p>
+            <div class="agents-foot">
+              <button type="button" class="primary" id="btn-team-new">Novo time</button>
+            </div>
+          </div>
+          <div class="ax-edit-area">
+            <div class="ax-item-head">
+              <span id="tm-head-name" class="mod-meta"></span>
+              <span id="tm-dirty" class="ag-dirty hidden" title="Há mudanças não salvas">•</span>
+              <button type="button" id="btn-tm-save" class="primary">Salvar</button>
+              <button type="button" id="btn-tm-del" class="ghost danger">Excluir</button>
+            </div>
+            <div class="ag-split">
+              <div class="ag-edit" id="tm-edit">
+                <section class="ag-sec">
+                  <h2>Identidade</h2>
+                  <div class="ag-row">
+                    <label class="ag-f"><span>Nome</span>
+                      <input id="tm-name" type="text" maxlength="60" placeholder="Time de feature" /></label>
+                    <label class="ag-f ag-narrow"><span>id</span>
+                      <input id="tm-id" type="text" maxlength="40" placeholder="feature" /></label>
+                  </div>
+                  <label class="ag-f"><span>Descrição</span>
+                    <input id="tm-desc" type="text" maxlength="200" placeholder="Para que serve este time" /></label>
+                  <label class="ag-f"><span>Como trabalha</span>
+                    <select id="tm-topology">
+                      <option value="pipeline">Em sequência — a saída de um vira a entrada do próximo</option>
+                      <option value="fanin">Em paralelo — todos ao mesmo tempo, o último junta</option>
+                      <option value="supervisor">Com supervisor — o primeiro decide quem trabalha, a cada rodada</option>
+                    </select></label>
+                  <label class="hidden" id="tm-canal-wrap"
+                    >Como o supervisor manda
+                    <select id="tm-canal">
+                      <option value="turno">Por turno — funciona em qualquer conta</option>
+                      <option value="mcp">Por ferramenta (MCP) — mais barato, só em conta Claude</option>
+                    </select></label>
+                  <p class="tm-aviso hidden" id="tm-aviso"></p>
+                </section>
+
+                <section class="ag-sec ag-sec-grow">
+                  <h2>Membros, em ordem</h2>
+                  <p class="ag-hint" id="tm-ordem"></p>
+                  <p class="ag-hint">
+                    O papel entra no pedido daquele membro, então o mesmo agente pode ocupar papéis
+                    diferentes em times diferentes.
+                  </p>
+                  <ol id="tm-members" class="tm-members"></ol>
+                  <button type="button" class="ghost" id="btn-tm-add">+ Membro</button>
+                </section>
+                <p class="ag-err hidden" id="tm-err"></p>
+              </div>
+
+              <div class="ag-bench" id="tm-run">
+                <header class="ag-bench-head">
+                  <h2>Execução</h2>
+                  <span id="tm-run-status" class="tm-run-status"></span>
+                  <button type="button" id="btn-tm-stop" class="ghost hidden">Parar</button>
+                  <button type="button" id="btn-tm-resume" class="ghost hidden">Retomar</button>
+                </header>
+                <p class="ag-bench-note" id="tm-run-note"></p>
+                <div class="ag-bench-body">
+                  <ol class="ag-steps" id="tm-steps"></ol>
+                </div>
+                <div class="ag-sum" id="tm-sum"></div>
+                <form class="ag-ask" id="tm-ask">
+                  <textarea id="tm-goal" rows="2" placeholder="Objetivo do time — o pedido que entra no primeiro membro…"></textarea>
+                  <button type="submit" class="primary" id="btn-tm-run">Rodar</button>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ax-body hidden" id="ax-body-hooks">
+          <div class="ax-list">
+            <ul id="hook-list" class="agents-list"></ul>
+            <p id="hook-empty" class="agents-empty">
+              Nenhuma regra criada. Um Nexo Hook dispara um agente sozinho quando um evento de git
+              acontece — post-commit, post-push ou pre-push (esse pode barrar o push).
+            </p>
+            <div class="agents-foot">
+              <button type="button" class="primary" id="btn-hook-new">Nova regra</button>
+            </div>
+          </div>
+          <div class="ax-edit-area">
+            <div class="ax-item-head">
+              <span id="hk-head-name" class="mod-meta"></span>
+              <span id="hk-dirty" class="ag-dirty hidden" title="Há mudanças não salvas">•</span>
+              <button type="button" id="btn-hk-save" class="primary">Salvar</button>
+              <button type="button" id="btn-hk-del" class="ghost danger">Excluir</button>
+            </div>
+            <div class="ag-edit" id="hk-edit">
+              <section class="ag-sec">
+                <h2>Identidade</h2>
+                <div class="ag-row">
+                  <label class="ag-f"><span>Nome</span>
+                    <input id="hk-nome" type="text" maxlength="60" placeholder="Memória depois do commit" /></label>
+                </div>
+                <label class="ag-f"><span>Descrição</span>
+                  <input id="hk-descricao" type="text" maxlength="200" placeholder="Para que serve esta regra" /></label>
+              </section>
+              <section class="ag-sec">
+                <h2>Quando</h2>
+                <div class="ag-row">
+                  <label class="ag-f"><span>Escopo</span>
+                    <select id="hk-escopo"></select></label>
+                  <label class="ag-f"><span>Evento</span>
+                    <select id="hk-evento">
+                      <option value="git.post-commit">git.post-commit — depois de cada commit</option>
+                      <option value="git.post-push">git.post-push — depois de cada push</option>
+                      <option value="git.pre-push">git.pre-push — antes do push (pode barrar)</option>
+                      <option value="nexo.projeto-novo">nexo.projeto-novo — 1ª vez que o projeto abre no Nexo</option>
+                    </select></label>
+                </div>
+                <label class="ag-f" id="hk-branch-wrap"><span>Branch (opcional — vazio casa qualquer uma)</span>
+                  <input id="hk-branch" type="text" maxlength="200" placeholder="main" /></label>
+                <label class="ag-check" id="hk-bloqueante-wrap">
+                  <input id="hk-bloqueante" type="checkbox" />
+                  <span>Bloqueante — reprova o push se o agente não aprovar (ou não decidir)</span>
+                </label>
+              </section>
+              <section class="ag-sec">
+                <h2>Quem roda</h2>
+                <label class="ag-f"><span>Tipo</span>
+                  <select id="hk-alvo-tipo">
+                    <option value="agente">Um agente (a solo)</option>
+                    <option value="time">Um time já montado</option>
+                  </select></label>
+                <label class="ag-f" id="hk-agent-wrap"><span>Agente</span>
+                  <select id="hk-agent"></select></label>
+                <label class="ag-f hidden" id="hk-team-wrap"><span>Time</span>
+                  <select id="hk-team"></select></label>
+              </section>
+              <p class="ag-err hidden" id="hk-err"></p>
+            </div>
           </div>
         </div>
       </section>
@@ -586,6 +721,12 @@
           <button type="button" class="set-nav-item" data-panel="fallback">
             <span class="set-nav-ico" aria-hidden="true">⇅</span>Fallback
           </button>
+          <button type="button" class="set-nav-item" data-panel="memoria">
+            <span class="set-nav-ico" aria-hidden="true">◈</span>Memória
+          </button>
+          <button type="button" class="set-nav-item" data-panel="modulos">
+            <span class="set-nav-ico" aria-hidden="true">▣</span>Módulos
+          </button>
         </nav>
         <div class="set-body">
           <div class="set-head">
@@ -685,6 +826,26 @@
                   <button type="button" id="btn-allow-save" class="primary">Salvar</button>
                 </div>
               </div>
+              <div class="set-row">
+                <div class="set-txt">
+                  <h4>Delegar pra agente/time</h4>
+                  <p>
+                    Em conversa normal, o modelo pode chamar um agente ou time já existente e esperar
+                    o resultado (<code>nexo_delegar</code>). <b>Negado</b> desliga (padrão).
+                    <b>Questionar</b> pergunta antes de cada chamada. <b>Liberado</b> roda direto.
+                  </p>
+                  <p id="deleg-err" class="set-err"></p>
+                </div>
+                <div class="set-ctl">
+                  <select id="deleg-profile" aria-label="Conta"></select>
+                  <select id="deleg-modo" aria-label="Modo de delegação">
+                    <option value="negado">Negado</option>
+                    <option value="questionar">Questionar</option>
+                    <option value="liberado">Liberado</option>
+                  </select>
+                  <button type="button" id="btn-deleg-save" class="primary">Salvar</button>
+                </div>
+              </div>
             </section>
             <section class="set-sec hidden" data-panel="celular">
               <h3>Celular</h3>
@@ -763,6 +924,87 @@
                 <ul id="fallback-list" class="order-list"></ul>
               </div>
             </section>
+            <section class="set-sec hidden" data-panel="memoria">
+              <h3>Memória e grafo</h3>
+              <div class="set-row col">
+                <div class="set-txt">
+                  <h4>Pasta compartilhada — memória</h4>
+                  <p>
+                    Onde fica <code>MEMORIA.md</code> de cada projeto (um agente escreve depois de
+                    cada commit/push — ver Hooks). Vazio = dentro do próprio Nexo, só nesta
+                    máquina. Aponte pra uma pasta já sincronizada (Drive, OneDrive, etc.) pra essa
+                    memória atravessar de um PC pro outro.
+                  </p>
+                  <p id="mem-dir-err" class="set-err"></p>
+                </div>
+                <div class="set-ctl">
+                  <input
+                    id="mem-dir"
+                    type="text"
+                    spellcheck="false"
+                    placeholder="G:\Meu Drive\nexo-memoria"
+                    aria-label="Pasta compartilhada de memória"
+                  />
+                  <button type="button" id="btn-mem-dir-pick" class="ghost">Escolher…</button>
+                </div>
+              </div>
+              <div class="set-row col">
+                <div class="set-txt">
+                  <h4>Pasta compartilhada — grafo (graphify)</h4>
+                  <p>
+                    Onde fica o <code>graphify-out/</code> de cada projeto. Separada da memória de
+                    propósito: o grafo é maior e regenerável, pode valer a pena sincronizar num
+                    lugar diferente (ou nem sincronizar). Vazio = só dentro do projeto, como hoje.
+                  </p>
+                  <p id="graph-dir-err" class="set-err"></p>
+                </div>
+                <div class="set-ctl">
+                  <input
+                    id="graph-dir"
+                    type="text"
+                    spellcheck="false"
+                    placeholder="G:\Meu Drive\nexo-grafo"
+                    aria-label="Pasta compartilhada de grafo"
+                  />
+                  <button type="button" id="btn-graph-dir-pick" class="ghost">Escolher…</button>
+                </div>
+              </div>
+            </section>
+            <section class="set-sec hidden" data-panel="modulos">
+              <h3>Módulos</h3>
+              <div class="set-row">
+                <div class="set-txt">
+                  <h4>RTK</h4>
+                  <p>
+                    Proxy de CLI que filtra saída de comando antes dela entrar no contexto — reduz
+                    token gasto com <code>git status</code>, <code>npm run</code>, etc. Liga o hook
+                    a partir do próximo motor (troca de conta, /clear ou reiniciar).
+                  </p>
+                  <p id="mod-rtk-err" class="set-err"></p>
+                </div>
+                <div class="set-ctl">
+                  <input id="mod-rtk" type="checkbox" aria-label="Ligar módulo RTK" />
+                </div>
+              </div>
+              <div class="set-row">
+                <div class="set-txt">
+                  <h4>Caveman</h4>
+                  <p>Skill de comunicação ultra-comprimida — respostas mais curtas, mesma precisão técnica.</p>
+                  <p id="mod-caveman-err" class="set-err"></p>
+                </div>
+                <div class="set-ctl">
+                  <input id="mod-caveman" type="checkbox" aria-label="Ligar módulo Caveman" />
+                  <select id="mod-caveman-nivel" aria-label="Nível do Caveman">
+                    <option value="lite">Lite</option>
+                    <option value="full">Full</option>
+                    <option value="ultra">Ultra</option>
+                    <option value="wenyan-lite">Wenyan · lite</option>
+                    <option value="wenyan-full">Wenyan · full</option>
+                    <option value="wenyan-ultra">Wenyan · ultra</option>
+                  </select>
+                </div>
+              </div>
+            </section>
           </div>
           <p id="set-empty" class="set-empty hidden">Nada encontrado.</p>
         </div>
@@ -773,32 +1015,12 @@
         <span class="agents-title" id="agents-title">Agentes</span>
         <button type="button" id="btn-agents-close" class="ghost" title="Fechar (Esc)" aria-label="Fechar">✕</button>
       </div>
-      <div class="agents-tabs" role="tablist">
-        <button type="button" id="tab-agents-run" class="agents-tab" role="tab" data-on="1">Rodando</button>
-        <button type="button" id="tab-agents-team" class="agents-tab" data-on="0">Times</button>
-          <button type="button" id="tab-agents-def" class="agents-tab" role="tab">Meus agentes</button>
-      </div>
       <div id="agents-pane-run" class="agents-pane">
         <ul id="agents-list" class="agents-list"></ul>
         <p id="agents-empty" class="agents-empty">Nenhum agente rodando agora.</p>
       </div>
-      <div id="agents-pane-team" class="agents-pane hidden">
-        <ul id="team-list" class="agents-list"></ul>
-        <p id="team-empty" class="agents-empty">
-          Nenhum time criado. Um time roda seus agentes em sequência: a saída de um vira a entrada do próximo.
-        </p>
-        <div class="agents-foot">
-          <button type="button" class="primary" id="btn-team-new">Novo time</button>
-        </div>
-      </div>
-      <div id="agents-pane-def" class="agents-pane hidden">
-        <ul id="agent-defs" class="agents-list"></ul>
-        <p id="agent-defs-empty" class="agents-empty">
-          Nenhum agente criado. Um agente guarda conta, modelo e instruções próprias.
-        </p>
-        <div class="agents-foot">
-          <button type="button" class="primary" id="btn-agent-new">Novo agente</button>
-        </div>
+      <div class="agents-foot">
+        <button type="button" class="ghost" id="btn-agents-full">Agentes, Times e Hooks →</button>
       </div>
     </div>
     <div id="toast" class="toast hidden" role="dialog">

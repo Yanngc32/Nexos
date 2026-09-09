@@ -4,7 +4,10 @@ import { createServicesPanel } from "./services.js";
 import { aplicarNoRetrato } from "./agent-events.js";
 import { createAgentStudio } from "./agent-studio.js";
 import { createTeamStudio } from "./team-studio.js";
+import { createHooksStudio } from "./hooks-studio.js";
 import { lerEventos } from "./sse.js";
+import { aplicarEventoDeRun, rotuloDoPasso, duracaoDoPasso, larguraDosPassos } from "./run-view.js";
+import { fmtDuracao } from "./agent-trace.js";
 import { agruparConversas } from "./thread-groups.js";
 import { escapeHtml, renderMd } from "./markdown.js";
 import {
@@ -37,11 +40,14 @@ const MODULES = [
   { id: "terminal", name: "Terminal", keys: "Ctrl+J", ico: ">_" },
   { id: "browser", name: "Browser", keys: "Ctrl+Shift+B", ico: "🌐" },
   { id: "canvas", name: "Canvas", keys: "", ico: "▦" },
+  { id: "graph", name: "Memória do Projeto", keys: "", ico: "◈" },
   { id: "side-chat", name: "Chat lateral", keys: "Ctrl+Shift+S", ico: "💬" },
 ];
 
 const state = {
   ok: false,
+  /** runId de `nexo_delegar` que chegou (evento `delegacao_run`) antes da bolha da ferramenta existir, por threadId. */
+  subchatsPendentes: new Map(),
   projectPath: localStorage.getItem("nexo.project") || "",
   threadId: localStorage.getItem("nexo.thread") || "",
   profileId: "",
@@ -123,15 +129,14 @@ const state = {
     paint: 0,
     refetch: null,
     fpBusy: "",
+    /** threadIds com `nexo_perguntar` pendente agora — alimenta o badge, mesmo fora da conversa. */
+    perguntasPendentes: new Set(),
     /** Motor antigo, sem /v1/agents: para de tentar em vez de martelar a rota. */
     unsupported: false,
     /** Agentes personalizados salvos (definições), não o que está rodando. */
     defs: [],
     defsLoaded: false,
     defsUnsupported: false,
-    /** Aba visível do painel: "run" (rodando) ou "def" (meus agentes). */
-    tab: localStorage.getItem("nexo.agentsTab") === "def" ? "def" : "run",
-    /** id em edição no formulário; "" = criando; null = formulário fechado. */
   },
   /** Agente personalizado da conversa aberta; "" = conta pura. */
   agentId: "",
@@ -142,6 +147,10 @@ const state = {
   inspector: { selecionados: [], caixaAberta: false },
   /** Times de agentes; a lista vive aqui porque o painel e a tela cheia leem. */
   teams: [],
+  /** Regras de Nexo Hook; mesma razão de `teams`. */
+  hookRules: [],
+  /** Aba ativa da tela unificada Agentes/Times/Hooks (`#pane-agentes`). */
+  axTab: "agentes",
 };
 
 const { api, aplicar: aplicarInfoDoMotor, headers, renovarCredenciais, req, reqBlob } = createApiClient({
@@ -1248,8 +1257,8 @@ function applyWorkLayout() {
   $("pane-terminal").classList.toggle("hidden", state.view !== "terminal");
   $("pane-browser").classList.toggle("hidden", state.view !== "browser");
   $("pane-canvas").classList.toggle("hidden", state.view !== "canvas");
-  $("pane-agent").classList.toggle("hidden", state.view !== "agent");
-  $("pane-team").classList.toggle("hidden", state.view !== "team");
+  $("pane-graph").classList.toggle("hidden", state.view !== "graph");
+  $("pane-agentes").classList.toggle("hidden", state.view !== "agentes");
   // Sem módulo aberto o chat vira o conteúdo principal — não depende de sideChat aqui.
   $("pane-chat").classList.toggle("hidden", !state.sideChat && !noModule);
 }
@@ -1274,6 +1283,7 @@ function setView(view) {
     requestAnimationFrame(() => state.fit?.fit());
   }
   if (view === "canvas") requestAnimationFrame(resizeSketch);
+  if (view === "graph") void loadGraphStatus();
 }
 
 function storeKey(kind) {
@@ -1926,6 +1936,7 @@ async function loadProfiles() {
   if (state.profileId) sel.value = state.profileId;
   syncLoginBtn();
   paintAllowList();
+  paintDelegList();
 }
 
 /**
@@ -2012,6 +2023,32 @@ function syncAllowInput() {
   campo.disabled = !p;
   $("btn-allow-save").disabled = !p;
   $("allow-err").textContent = "";
+}
+
+/** `nexo_delegar` vale pra claude e codex (os dois falam MCP); api/stub nunca ganham a ferramenta. */
+function paintDelegList() {
+  const sel = $("deleg-profile");
+  if (!sel) return;
+  const alvos = state.profiles.filter((p) => p.engine === "claude" || p.engine === "codex");
+  const antes = sel.value;
+  sel.replaceChildren();
+  for (const p of alvos) {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.id;
+    sel.append(opt);
+  }
+  sel.value = alvos.some((p) => p.id === antes) ? antes : (alvos[0]?.id ?? "");
+  syncDelegModo();
+}
+
+function syncDelegModo() {
+  const id = $("deleg-profile")?.value;
+  const p = state.profiles.find((x) => x.id === id);
+  $("deleg-modo").value = p?.delegacaoModo || "negado";
+  $("deleg-modo").disabled = !p;
+  $("btn-deleg-save").disabled = !p;
+  $("deleg-err").textContent = "";
 }
 
 async function loadThreads() {
@@ -2287,6 +2324,71 @@ function appendThinking(text) {
   log.scrollTop = log.scrollHeight;
 }
 
+/** Nome como o CLI reporta a ferramenta MCP — `mcp__nexo__nexo_delegar` no claude; sufixo cobre variação de motor. */
+function ehFerramentaDeDelegar(name) {
+  return typeof name === "string" && name.endsWith("nexo_delegar");
+}
+
+/**
+ * Abre o "subchat": passos do run ao vivo dentro da própria bolha de `nexo_delegar`, reaproveitando
+ * a lógica pura de `run-view.js` (mesma que a tela de Times usa) — só o desenho é local.
+ */
+async function iniciarSubchat(li, runId) {
+  const ol = li.querySelector(".subchat");
+  if (!ol) return;
+  li.dataset.runId = runId;
+  let run;
+  try {
+    run = await req(`/v1/runs/${runId}`);
+  } catch {
+    return; // run já pode ter sumido (home trocado, etc.) — a bolha segue funcionando sem subchat
+  }
+  ol.classList.remove("hidden");
+
+  function pintar() {
+    const doc = ol.ownerDocument;
+    ol.replaceChildren();
+    const t = Date.now();
+    const larg = larguraDosPassos(run.steps, t);
+    run.steps.forEach((s, i) => {
+      const item = doc.createElement("li");
+      item.className = "ag-step";
+      item.dataset.tipo = s.status;
+      const n = doc.createElement("span");
+      n.className = "ag-step-n";
+      n.textContent = s.supervisor ? "sup" : `#${i + 1}`;
+      const ico = doc.createElement("span");
+      ico.className = "ag-step-ico";
+      ico.textContent = { done: "✓", running: "▸", error: "✕", skipped: "–" }[s.status] ?? "·";
+      const nome = doc.createElement("span");
+      nome.className = "ag-step-name";
+      nome.textContent = s.agentId;
+      const det = doc.createElement("span");
+      det.className = "ag-step-det";
+      det.textContent = s.error || s.papel || rotuloDoPasso(s);
+      const barra = doc.createElement("span");
+      barra.className = "ag-step-bar";
+      const fill = doc.createElement("i");
+      fill.style.width = `${larg[i]}%`;
+      barra.append(fill);
+      const ms = doc.createElement("span");
+      ms.className = "ag-step-ms";
+      ms.textContent = s.startedAt ? fmtDuracao(duracaoDoPasso(s, t)) : "";
+      item.append(n, ico, nome, det, barra, ms);
+      ol.append(item);
+    });
+  }
+  pintar();
+
+  const ac = new AbortController();
+  fetch(api(`/v1/runs/${runId}/events`), { headers: headers(), signal: ac.signal })
+    .then((res) => lerEventos(res, (ev) => {
+      if (aplicarEventoDeRun(run, ev)) pintar();
+      if (ev.type === "run_end") ac.abort();
+    }))
+    .catch(() => {}); // stream cortado (run terminou, ou daemon reiniciou) — a bolha já tem o resultado final pelo tool_result
+}
+
 function appendEvent(ev, scroll = true) {
   const log = $("log");
   const li = document.createElement("li");
@@ -2302,7 +2404,65 @@ function appendEvent(ev, scroll = true) {
   } else if (ev.type === "tool") {
     const arg = ev.summary ? `<span class="tool-arg">${escapeHtml(ev.summary)}</span>` : "";
     li.className = "tool";
-    li.innerHTML = `<div class="tool-line"><span class="tool-ico">⚙</span><span class="tool-name">${escapeHtml(ev.name)}</span>${arg}</div>`;
+    if (ev.id) li.dataset.toolId = ev.id;
+    const temInput = ev.input !== undefined && ev.input !== null && Object.keys(ev.input).length > 0;
+    const subchat = ehFerramentaDeDelegar(ev.name) ? `<ol class="subchat hidden"></ol>` : "";
+    li.innerHTML =
+      `<div class="tool-line"><span class="tool-ico">⚙</span><span class="tool-name">${escapeHtml(ev.name)}</span>${arg}` +
+      `<span class="tool-result-badge"></span><span class="tool-toggle">▾</span></div>` +
+      subchat +
+      `<div class="tool-detail hidden">` +
+      (temInput
+        ? `<div class="tool-detail-sec"><h4>Argumentos</h4><pre>${escapeHtml(JSON.stringify(ev.input, null, 2))}</pre></div>`
+        : "") +
+      `<div class="tool-detail-sec tool-detail-result hidden"><h4>Resultado</h4><pre></pre></div>` +
+      `</div>`;
+    if (subchat) {
+      // O `delegacao_run` (session.ts) pode chegar antes ou depois desta bolha — se já chegou
+      // (fica em `state.subchatsPendentes`, por threadId), abre agora em vez de esperar de novo.
+      const threadId = ev.threadId ?? state.threadId;
+      const pendente = state.subchatsPendentes.get(threadId);
+      if (pendente) {
+        state.subchatsPendentes.delete(threadId);
+        iniciarSubchat(li, pendente);
+      }
+    }
+  } else if (ev.type === "tool_result") {
+    // Não é bolha nova: anexa no `tool` de mesmo id, que já está no log (chega sempre depois).
+    const alvo = log.querySelector(`li.tool[data-tool-id="${CSS.escape(ev.id ?? "")}"]`);
+    if (alvo) {
+      const sec = alvo.querySelector(".tool-detail-result");
+      sec.querySelector("pre").textContent = ev.result || "(sem saída)";
+      sec.classList.remove("hidden");
+      const badge = alvo.querySelector(".tool-result-badge");
+      if (ev.isError) {
+        badge.textContent = "✕";
+        badge.dataset.err = "1";
+      }
+    }
+    return;
+  } else if (ev.type === "pergunta") {
+    li.className = "pergunta";
+    li.dataset.perguntaId = ev.id;
+    li.dataset.threadId = ev.threadId ?? state.threadId;
+    const opcoes = ev.opcoes ?? [];
+    const corpo = opcoes.length
+      ? `<div class="pergunta-opcoes">${opcoes
+          .map((o) => `<button type="button" class="pergunta-opcao" data-valor="${escapeHtml(o)}">${escapeHtml(o)}</button>`)
+          .join("")}</div>`
+      : `<form class="pergunta-form"><input type="text" placeholder="responder..." autocomplete="off" /><button type="submit">Enviar</button></form>`;
+    li.innerHTML = `<div class="who">Pergunta</div><div class="pergunta-texto">${escapeHtml(ev.texto)}</div>${corpo}`;
+  } else if (ev.type === "pergunta_resposta") {
+    const alvo = log.querySelector(`li.pergunta[data-pergunta-id="${CSS.escape(ev.id ?? "")}"]`);
+    if (alvo && alvo.dataset.respondida !== "1") {
+      alvo.dataset.respondida = "1";
+      alvo.querySelectorAll("button, input").forEach((el) => (el.disabled = true));
+      const resp = document.createElement("div");
+      resp.className = "pergunta-resposta";
+      resp.textContent = `Resposta: ${ev.resposta}`;
+      alvo.append(resp);
+    }
+    return;
   } else if (ev.type === "switched") {
     li.innerHTML = `<span class="stamp">Trocou ${escapeHtml(ev.fromProfileId)} → ${escapeHtml(ev.toProfileId)}</span>`;
   } else if (ev.type === "error") {
@@ -2367,6 +2527,48 @@ function flushStreamRender() {
   streamRaf = 0;
   if (streamPending) renderMd(streamPending.el, streamPending.text);
   streamPending = null;
+}
+
+/** Delegado (não por bolha): pega tanto as ferramentas que chegam ao vivo quanto as de uma conversa reaberta. */
+$("log").addEventListener("click", (e) => {
+  const opcao = e.target.closest(".pergunta-opcao");
+  if (opcao) {
+    void responderPergunta(opcao.closest("li.pergunta"), opcao.dataset.valor);
+    return;
+  }
+  const linha = e.target.closest(".tool-line");
+  if (!linha) return;
+  const li = linha.closest("li.tool");
+  const detalhe = li?.querySelector(".tool-detail");
+  if (!detalhe) return;
+  const abrir = detalhe.classList.contains("hidden");
+  detalhe.classList.toggle("hidden", !abrir);
+  li.dataset.open = abrir ? "1" : "0";
+});
+
+$("log").addEventListener("submit", (e) => {
+  const form = e.target.closest(".pergunta-form");
+  if (!form) return;
+  e.preventDefault();
+  const input = form.querySelector("input");
+  const valor = input.value.trim();
+  if (!valor) return;
+  void responderPergunta(form.closest("li.pergunta"), valor);
+});
+
+/** Manda a resposta pro daemon; desabilita a bolha na hora — a confirmação de verdade chega pelo SSE (`pergunta_resposta`). */
+async function responderPergunta(li, resposta) {
+  if (!li || li.dataset.respondida === "1") return;
+  const threadId = li.dataset.threadId;
+  li.dataset.respondida = "1";
+  li.querySelectorAll("button, input").forEach((el) => (el.disabled = true));
+  try {
+    await req(`/v1/perguntas/${threadId}/responder`, { method: "POST", body: JSON.stringify({ resposta }) });
+  } catch (e) {
+    li.dataset.respondida = "0";
+    li.querySelectorAll("button, input").forEach((el) => (el.disabled = false));
+    appendEvent({ type: "error", message: e.message || "Não deu pra responder." });
+  }
 }
 
 
@@ -2520,7 +2722,28 @@ function onLive(ev) {
     return;
   }
   if (ev.type === "tool") {
-    appendEvent({ type: "tool", name: ev.name, text: "", summary: ev.summary });
+    appendEvent({ type: "tool", name: ev.name, summary: ev.summary, id: ev.id, input: ev.input });
+    registrarAtividadeGrafo(ev.name, ev.summary);
+    return;
+  }
+  if (ev.type === "tool_result") {
+    appendEvent({ type: "tool_result", id: ev.id, result: ev.result, isError: ev.isError });
+    return;
+  }
+  if (ev.type === "pergunta") {
+    appendEvent({ type: "pergunta", id: ev.id, texto: ev.texto, opcoes: ev.opcoes, threadId: ev.threadId });
+    return;
+  }
+  if (ev.type === "pergunta_resposta") {
+    appendEvent({ type: "pergunta_resposta", id: ev.id, resposta: ev.resposta });
+    return;
+  }
+  if (ev.type === "delegacao_run") {
+    // A bolha da ferramenta (evento "tool") normalmente já chegou — acha a mais recente sem
+    // subchat aberto ainda. Se ainda não chegou (corrida rara), guarda pra quando ela aparecer.
+    const bolha = [...$("log").querySelectorAll("li.tool")].reverse().find((li) => li.querySelector(".subchat") && !li.dataset.runId);
+    if (bolha) iniciarSubchat(bolha, ev.runId);
+    else state.subchatsPendentes.set(ev.threadId ?? state.threadId, ev.runId);
     return;
   }
   if (ev.type === "quota") {
@@ -2857,19 +3080,270 @@ function paintTeams() {
  */
 async function abrirTime(def) {
   toggleAgents(false);
-  state.view = "team";
+  state.view = "agentes";
   applyWorkLayout();
+  setAxTab("times");
   if (!state.agents.defs.length) await loadAgentDefs();
   teamStudio.abrir(def);
 }
 
-/** Painel lateral fecha e a tela cheia assume: criar agente virou tela, não formulário. */
+/** Painel lateral fecha e a tela unificada assume, na aba Agentes. */
 function abrirEstudio(def) {
   toggleAgents(false);
-  state.view = "agent";
+  state.view = "agentes";
   applyWorkLayout();
+  setAxTab("agentes");
   agentStudio.abrir(def);
 }
+
+/* ---------- Nexo Hooks ---------- */
+
+async function loadHookRules() {
+  if (!state.ok) return;
+  try {
+    state.hookRules = await req("/v1/hooks/rules");
+  } catch {
+    // motor antigo sem a rota: painel vazio, não erro na cara
+    state.hookRules = [];
+  }
+  paintHookRules();
+}
+
+function rotuloDoEscopo(regra) {
+  return regra.escopo.tipo === "global" ? "global" : regra.escopo.projectPath;
+}
+
+function paintHookRules() {
+  const ul = $("hook-list");
+  ul.replaceChildren();
+  $("hook-empty").classList.toggle("hidden", state.hookRules.length > 0);
+  for (const r of state.hookRules) {
+    const li = document.createElement("li");
+    li.className = "agent-card";
+    const nome = document.createElement("strong");
+    nome.textContent = r.nome || `${r.evento} · ${rotuloDoEscopo(r)}`;
+    const meta = document.createElement("span");
+    meta.className = "agent-card-meta";
+    const quem = r.teamId ? `time ${r.teamId}` : r.agentId;
+    const partes = r.nome ? [`${r.evento} · ${rotuloDoEscopo(r)}`, quem] : [quem];
+    if (r.branch) partes.push(`branch ${r.branch}`);
+    if (r.bloqueante) partes.push("bloqueante");
+    meta.textContent = partes.join(" · ");
+    const editar = document.createElement("button");
+    editar.type = "button";
+    editar.className = "ghost";
+    editar.textContent = "✎";
+    editar.title = "Abrir";
+    editar.addEventListener("click", () => abrirHook(r));
+    li.append(nome, meta, editar);
+    li.addEventListener("click", (e) => {
+      if (e.target === editar) return;
+      abrirHook(r);
+    });
+    ul.append(li);
+  }
+}
+
+/** Painel lateral fecha e a tela unificada assume, na aba Hooks. */
+async function abrirHook(def) {
+  toggleAgents(false);
+  state.view = "agentes";
+  applyWorkLayout();
+  setAxTab("hooks");
+  if (!state.agents.defs.length) await loadAgentDefs();
+  if (!state.teams.length) await loadTeams();
+  hooksStudio.abrir(def);
+}
+
+/* ---------- Grafo (graphify) ---------- */
+
+/** Data legível, ou vazio — mtime pode não vir (nunca escrito ainda). */
+function fmtQuando(iso) {
+  if (!iso) return "";
+  try {
+    return ` · atualizado ${new Date(iso).toLocaleString("pt-BR")}`;
+  } catch {
+    return "";
+  }
+}
+
+async function loadGraphStatus() {
+  if (!state.ok || !state.projectPath) return;
+  $("graph-err").classList.add("hidden");
+  let status;
+  try {
+    status = await req(`/v1/projeto/status?projectPath=${encodeURIComponent(state.projectPath)}`);
+  } catch (e) {
+    $("graph-status").textContent = "erro";
+    $("graph-status").dataset.on = "0";
+    $("graph-detalhe").textContent = e.message || "Não deu pra checar o status.";
+    return;
+  }
+
+  const mem = status.memoria;
+  $("mem-status").textContent = mem.existe ? "escrita" : "vazia";
+  $("mem-status").dataset.on = mem.existe ? "1" : "0";
+  $("mem-detalhe").textContent =
+    (mem.compartilhado ? `${mem.caminho} · pasta compartilhada` : mem.caminho) + fmtQuando(mem.atualizadoEm);
+
+  const gr = status.grafo;
+  $("graph-status").textContent = gr.disponivel ? "disponível" : "ausente";
+  $("graph-status").dataset.on = gr.disponivel ? "1" : "0";
+  $("graph-detalhe").textContent =
+    (gr.compartilhado ? `${gr.caminho} · pasta compartilhada` : gr.caminho) + fmtQuando(gr.atualizadoEm);
+
+  $("graph-auto").checked = Boolean(status.grafoAuto);
+  $("graph-auto-profile-wrap").classList.toggle("hidden", !status.grafoAuto);
+  pintarPerfisDoGrafoAuto();
+
+  const n = status.hooksCount;
+  $("proj-hooks-count").textContent = n ? `${n} regra${n > 1 ? "s" : ""} vale${n > 1 ? "m" : ""} pra este projeto.` : "Nenhuma regra vale pra este projeto ainda.";
+}
+
+function pintarPerfisDoGrafoAuto() {
+  const sel = $("graph-auto-profile");
+  const atual = sel.value;
+  sel.replaceChildren();
+  for (const p of state.profiles) {
+    const o = document.createElement("option");
+    o.value = p.id;
+    o.textContent = p.id;
+    sel.append(o);
+  }
+  if ([...sel.options].some((o) => o.value === atual)) sel.value = atual;
+}
+
+$("graph-auto").addEventListener("change", async (e) => {
+  const ligar = e.target.checked;
+  $("graph-auto-profile-wrap").classList.toggle("hidden", !ligar);
+  $("graph-auto-err").classList.add("hidden");
+  if (ligar && !$("graph-auto-profile").value) {
+    // sem conta ainda escolhida: não liga sozinho com perfil vazio, espera a pessoa escolher
+    pintarPerfisDoGrafoAuto();
+    if (!$("graph-auto-profile").value) return;
+  }
+  try {
+    await req("/v1/config", {
+      method: "PUT",
+      body: JSON.stringify({
+        modulos: { grafoAuto: ligar, ...(ligar ? { grafoAutoProfileId: $("graph-auto-profile").value } : {}) },
+      }),
+    });
+  } catch (err) {
+    $("graph-auto-err").textContent = err.message || "Não gravou.";
+    $("graph-auto-err").classList.remove("hidden");
+    e.target.checked = !ligar;
+    return;
+  }
+  await loadGraphStatus();
+});
+
+$("graph-auto-profile").addEventListener("change", async (e) => {
+  if (!$("graph-auto").checked) return;
+  $("graph-auto-err").classList.add("hidden");
+  try {
+    await req("/v1/config", { method: "PUT", body: JSON.stringify({ modulos: { grafoAutoProfileId: e.target.value } }) });
+  } catch (err) {
+    $("graph-auto-err").textContent = err.message || "Não gravou.";
+    $("graph-auto-err").classList.remove("hidden");
+  }
+});
+
+$("btn-proj-hooks-abrir").addEventListener("click", () => {
+  toggleAgents(true);
+  setAgentsTab("hooks");
+});
+
+$("btn-close-graph").addEventListener("click", closeModule);
+
+$("btn-graph-atualizar").addEventListener("click", async () => {
+  if (!state.projectPath) return;
+  $("graph-err").classList.add("hidden");
+  $("btn-graph-atualizar").disabled = true;
+  try {
+    const r = await req("/v1/graph/atualizar", { method: "POST", body: JSON.stringify({ projectPath: state.projectPath }) });
+    if (!r.ok) $("graph-err").textContent = r.texto || "Falhou ao atualizar.";
+    await loadGraphStatus();
+  } catch (e) {
+    $("graph-err").textContent = e.message || "Falhou ao atualizar.";
+    $("graph-err").classList.remove("hidden");
+  } finally {
+    $("btn-graph-atualizar").disabled = false;
+  }
+});
+
+$("btn-graph-arvore").addEventListener("click", async () => {
+  if (!state.projectPath) return;
+  $("graph-err").classList.add("hidden");
+  try {
+    const r = await req("/v1/graph/arvore", { method: "POST", body: JSON.stringify({ projectPath: state.projectPath }) });
+    if (!r.ok || !r.arquivo) {
+      $("graph-err").textContent = r.texto || "Falhou ao gerar a árvore.";
+      $("graph-err").classList.remove("hidden");
+      return;
+    }
+    await window.nexo.openLocalFile(r.arquivo);
+  } catch (e) {
+    $("graph-err").textContent = e.message || "Falhou ao gerar a árvore.";
+    $("graph-err").classList.remove("hidden");
+  }
+});
+
+$("btn-graph-importar").addEventListener("click", async () => {
+  if (!state.projectPath) return;
+  const origem = await window.nexo.pickFolder();
+  if (!origem) return;
+  $("graph-err").classList.add("hidden");
+  try {
+    await req("/v1/graph/importar", {
+      method: "POST",
+      body: JSON.stringify({ projectPath: state.projectPath, origem }),
+    });
+    await loadGraphStatus();
+  } catch (e) {
+    $("graph-err").textContent = e.message || "Falhou ao importar.";
+    $("graph-err").classList.remove("hidden");
+  }
+});
+
+/**
+ * Trilha de atividade — v1 simplificado do que o agent-code faz (mapa de arquivo com física em
+ * canvas): reusa o MESMO evento `tool` que já alimenta o chat, sem stream novo nem motor de
+ * desenho. Evolução futura, se topar: física de verdade em canvas.
+ */
+function registrarAtividadeGrafo(nome, resumo) {
+  const ol = $("graph-atividade");
+  if (!ol) return;
+  $("graph-atividade-vazio").classList.add("hidden");
+  const li = document.createElement("li");
+  li.className = "graph-ato-item graph-ato-novo";
+  const ico = document.createElement("span");
+  ico.className = "graph-ato-ico";
+  ico.textContent = "⚙";
+  const nomeEl = document.createElement("span");
+  nomeEl.className = "graph-ato-nome";
+  nomeEl.textContent = nome;
+  const resumoEl = document.createElement("span");
+  resumoEl.className = "graph-ato-resumo";
+  resumoEl.textContent = resumo || "";
+  li.append(ico, nomeEl, resumoEl);
+  ol.prepend(li);
+  requestAnimationFrame(() => requestAnimationFrame(() => li.classList.remove("graph-ato-novo")));
+  while (ol.children.length > 30) ol.lastElementChild?.remove();
+}
+
+const hooksStudio = createHooksStudio({
+  req,
+  el: $,
+  getProjects: () => state.repos,
+  getAgents: () => state.agents.defs,
+  getTeams: () => state.teams,
+  aoSalvar: () => loadHookRules(),
+  aoFechar: () => {
+    state.view = "none";
+    applyWorkLayout();
+  },
+});
 
 const teamStudio = createTeamStudio({
   req,
@@ -2939,6 +3413,18 @@ function agendarRetrato() {
 function applyAgentEvent(ev) {
   const id = ev.threadId;
   if (!id) return;
+  // Contagem GLOBAL de perguntas pendentes: vem do bus "*", então soma de QUALQUER conversa —
+  // é isso que deixa o badge avisar sem precisar estar olhando a conversa certa.
+  if (ev.type === "pergunta") {
+    state.agents.perguntasPendentes.add(id);
+    schedulePaintAgents();
+    return;
+  }
+  if (ev.type === "pergunta_resposta") {
+    state.agents.perguntasPendentes.delete(id);
+    schedulePaintAgents();
+    return;
+  }
   const a = state.agents.list.find((x) => x.threadId === id);
   if (!a) {
     agendarRetrato();
@@ -3002,19 +3488,24 @@ function toggleAgents(want) {
   paintAgents();
 }
 
-const ABAS_AGENTES = ["run", "team", "def"];
+/**
+ * Abas da tela unificada (`#pane-agentes`) — Agentes/Times/Hooks. Troca é só visibilidade: nada
+ * é montado/desmontado, então a seleção de cada aba (o que `agentStudio`/`teamStudio`/
+ * `hooksStudio` está editando) persiste sozinha ao ir e voltar.
+ */
+const ABAS_TELA_AGENTES = ["agentes", "times", "hooks"];
 
-function setAgentsTab(tab) {
-  state.agents.tab = ABAS_AGENTES.includes(tab) ? tab : "run";
-  localStorage.setItem("nexo.agentsTab", state.agents.tab);
-  for (const aba of ABAS_AGENTES) {
-    const ativa = aba === state.agents.tab;
-    $(`tab-agents-${aba}`).dataset.on = ativa ? "1" : "0";
-    $(`agents-pane-${aba}`).classList.toggle("hidden", !ativa);
+function setAxTab(tab) {
+  state.axTab = ABAS_TELA_AGENTES.includes(tab) ? tab : "agentes";
+  for (const aba of ABAS_TELA_AGENTES) {
+    const ativa = aba === state.axTab;
+    $(`tab-ax-${aba}`).dataset.on = ativa ? "1" : "0";
+    $(`ax-body-${aba}`).classList.toggle("hidden", !ativa);
   }
-  // times listam agentes junto: o seletor de membro precisa deles
-  if (state.agents.tab === "def" || state.agents.tab === "team") void loadAgentDefs();
-  if (state.agents.tab === "team") void loadTeams();
+  // times e hooks listam/escolhem agente (e hooks também time) junto: o seletor precisa deles
+  if (state.axTab === "agentes" || state.axTab === "times" || state.axTab === "hooks") void loadAgentDefs();
+  if (state.axTab === "times" || state.axTab === "hooks") void loadTeams();
+  if (state.axTab === "hooks") void loadHookRules();
 }
 
 /* ---------- agentes personalizados: definições ---------- */
@@ -3160,9 +3651,12 @@ function paintAgents() {
     renderRepoTree();
   }
   const badge = $("agents-badge");
-  badge.textContent = String(ativos.length);
-  badge.classList.toggle("hidden", ativos.length === 0);
-  $("btn-agents").dataset.busy = ativos.length ? "1" : "0";
+  const pendentes = state.agents.perguntasPendentes.size;
+  const total = ativos.length + pendentes;
+  badge.textContent = String(total);
+  badge.title = pendentes ? `${ativos.length} rodando · ${pendentes} pergunta(s) esperando resposta` : "";
+  badge.classList.toggle("hidden", total === 0);
+  $("btn-agents").dataset.busy = total ? "1" : "0";
   $("btn-agents").setAttribute("aria-expanded", state.agents.open ? "true" : "false");
   dock.classList.toggle("hidden", !state.agents.open);
   // O relógio só corre com o painel aberto e alguém trabalhando.
@@ -4406,6 +4900,80 @@ async function renderFallback() {
   ul.dataset.order = JSON.stringify(ids);
 }
 
+async function renderMemoria() {
+  if (!state.ok) return;
+  let cfg;
+  try {
+    cfg = await req("/v1/config");
+  } catch {
+    return;
+  }
+  $("mem-dir").value = cfg.memoriaDir || "";
+  $("graph-dir").value = cfg.graphDir || "";
+}
+
+async function salvarMemoriaDir(path) {
+  $("mem-dir").value = path;
+  $("mem-dir-err").textContent = "";
+  try {
+    await req("/v1/config", { method: "PUT", body: JSON.stringify({ memoriaDir: path.trim() }) });
+  } catch (err) {
+    $("mem-dir-err").textContent = err.message || "Não gravou.";
+  }
+}
+
+$("mem-dir").addEventListener("change", (e) => void salvarMemoriaDir(e.target.value.trim()));
+$("btn-mem-dir-pick").addEventListener("click", async () => {
+  const path = await window.nexo.pickFolder();
+  if (path) void salvarMemoriaDir(path);
+});
+
+async function salvarGraphDir(path) {
+  $("graph-dir").value = path;
+  $("graph-dir-err").textContent = "";
+  try {
+    await req("/v1/config", { method: "PUT", body: JSON.stringify({ graphDir: path.trim() }) });
+  } catch (err) {
+    $("graph-dir-err").textContent = err.message || "Não gravou.";
+  }
+}
+
+$("graph-dir").addEventListener("change", (e) => void salvarGraphDir(e.target.value.trim()));
+$("btn-graph-dir-pick").addEventListener("click", async () => {
+  const path = await window.nexo.pickFolder();
+  if (path) void salvarGraphDir(path);
+});
+
+async function renderModulos() {
+  if (!state.ok) return;
+  let cfg;
+  try {
+    cfg = await req("/v1/config");
+  } catch {
+    return;
+  }
+  $("mod-rtk").checked = Boolean(cfg.modulos?.rtk);
+  $("mod-caveman").checked = Boolean(cfg.modulos?.caveman);
+  $("mod-caveman-nivel").value = cfg.modulos?.cavemanNivel || "full";
+}
+
+/** Erro: volta os campos pro que já estava salvo (via `renderModulos`), em vez de mentir na tela. */
+async function salvarModulo(nome, valor, errId) {
+  $(errId).textContent = "";
+  try {
+    await req("/v1/config", { method: "PUT", body: JSON.stringify({ modulos: { [nome]: valor } }) });
+  } catch (err) {
+    $(errId).textContent = err.message || "Não gravou.";
+    await renderModulos();
+  }
+}
+
+$("mod-rtk").addEventListener("change", (e) => void salvarModulo("rtk", e.target.checked, "mod-rtk-err"));
+$("mod-caveman").addEventListener("change", (e) => void salvarModulo("caveman", e.target.checked, "mod-caveman-err"));
+$("mod-caveman-nivel").addEventListener("change", (e) =>
+  void salvarModulo("cavemanNivel", e.target.value, "mod-caveman-err"),
+);
+
 $("switch-mode").addEventListener("change", async (e) => {
   const mode = e.target.value;
   $("switch-mode-err").textContent = "";
@@ -4481,6 +5049,8 @@ $("btn-settings").addEventListener("click", () => {
   filterSettings();
   showSetPanel("aparencia");
   void renderFallback();
+  void renderMemoria();
+  void renderModulos();
 });
 $("btn-settings-close").addEventListener("click", () => $("settings").classList.add("hidden"));
 $("settings").addEventListener("click", (e) => {
@@ -4578,6 +5148,28 @@ $("btn-allow-save").addEventListener("click", async () => {
   }
 });
 
+$("deleg-profile").addEventListener("change", syncDelegModo);
+
+$("btn-deleg-save").addEventListener("click", async () => {
+  const id = $("deleg-profile").value;
+  const err = $("deleg-err");
+  err.textContent = "";
+  if (!id) return;
+  const modo = $("deleg-modo").value;
+  try {
+    const next = await req(`/v1/profiles/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ delegacaoModo: modo }),
+    });
+    state.profiles = state.profiles.map((p) => (p.id === next.id ? next : p));
+    state.fpProfiles = "";
+    syncDelegModo();
+    appendEvent({ type: "sys", message: `${id}: delegação — ${modo}. Vale a partir do próximo motor.` });
+  } catch (e) {
+    err.textContent = e.message || "não deu pra salvar";
+  }
+});
+
 $("accent-picker").addEventListener("input", (e) => persistAccent(e.target.value));
 $("accent-hex").addEventListener("change", (e) => persistAccent(e.target.value.trim()));
 $("accent-swatches").addEventListener("click", (e) => {
@@ -4587,14 +5179,26 @@ $("accent-swatches").addEventListener("click", (e) => {
 
 $("btn-agents").addEventListener("click", () => toggleAgents());
 $("btn-agents-close").addEventListener("click", () => toggleAgents(false));
-$("tab-agents-run").addEventListener("click", () => setAgentsTab("run"));
-$("tab-agents-def").addEventListener("click", () => setAgentsTab("def"));
-$("tab-agents-team").addEventListener("click", () => setAgentsTab("team"));
+$("btn-agents-full").addEventListener("click", () => {
+  toggleAgents(false);
+  state.view = "agentes";
+  applyWorkLayout();
+  setAxTab(state.axTab);
+});
+$("tab-ax-agentes").addEventListener("click", () => setAxTab("agentes"));
+$("tab-ax-times").addEventListener("click", () => setAxTab("times"));
+$("tab-ax-hooks").addEventListener("click", () => setAxTab("hooks"));
+$("btn-close-agentes").addEventListener("click", () => {
+  agentStudio.fechar();
+  teamStudio.fechar();
+  hooksStudio.fechar();
+});
 $("btn-team-new").addEventListener("click", () => void abrirTime(null));
+$("btn-hook-new").addEventListener("click", () => abrirHook(null));
 teamStudio.ligar();
 $("btn-agent-new").addEventListener("click", () => abrirEstudio(null));
 agentStudio.ligar();
-setAgentsTab(state.agents.tab);
+hooksStudio.ligar();
 
 $("btn-palette").addEventListener("click", () => handleMod("palette"));
 $("btn-palette-close").addEventListener("click", () => closePalette());

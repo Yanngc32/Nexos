@@ -7,12 +7,13 @@ import {
   TEAM_TOPOLOGIES,
 } from "@nexo/shared";
 import { listAgents, saveAgent, type AgentInput } from "./agents.ts";
+import { HOOK_EVENTS, listarRegras, saveRegra, type RegraInput } from "./hooks.ts";
 import { listProfiles } from "./profiles.ts";
 import { listTeams, saveTeam, type TeamInput } from "./teams.ts";
 import type { Conjunto, Ferramenta, Saida } from "./mcp.ts";
 
 /**
- * Ferramentas de AUTORIA: o modelo cria e edita agentes e times.
+ * Ferramentas de AUTORIA: o modelo cria e edita agentes, times e regras de Nexo Hook.
  *
  * O que ele NÃO pode fazer aqui é executar. Nem rodar time, nem apagar
  * definição. A assimetria é o critério: uma definição errada você conserta ou
@@ -20,6 +21,11 @@ import type { Conjunto, Ferramenta, Saida } from "./mcp.ts";
  * no seu repositório — isso continua sendo um clique seu. Apagar ficou de fora
  * pela mesma razão pelo outro lado: é a única ação de autoria que perde
  * trabalho, e criar time não precisa dela.
+ *
+ * Hook tem uma segunda assimetria, mais séria: `git.pre-push` bloqueante trava o `git push` de
+ * QUEM CASAR com a regra até alguém desligar — bem diferente de "definição ruim, apago". Por
+ * isso `nexo_hook_salvar` recusa `bloqueante` mesmo que o modelo mande: essa única opção fica só
+ * na tela Hooks, pra pessoa.
  *
  * **As regras moram nas descrições, não num arquivo à parte.** É isso que faz
  * funcionar sem instalar nada: o modelo lê o `tools/list` e já sabe que id é
@@ -84,6 +90,20 @@ export function ferramentasDeAutoria(home: string): Conjunto {
                     )
                     .join("\n")
                 : "- nenhum";
+            })(),
+            "",
+            "## Nexo Hooks",
+            (() => {
+              const regras = listarRegras(home);
+              return regras.length
+                ? regras
+                    .map((r) => {
+                      const escopo = r.escopo.tipo === "global" ? "global" : r.escopo.projectPath;
+                      const quem = r.teamId ? `time ${r.teamId}` : `agente ${r.agentId}`;
+                      return `- ${r.id} — ${r.evento} @ ${escopo} → ${quem}${r.bloqueante ? " [bloqueante]" : ""}`;
+                    })
+                    .join("\n")
+                : "- nenhuma";
             })(),
           ].join("\n"),
         }),
@@ -180,6 +200,80 @@ export function ferramentasDeAutoria(home: string): Conjunto {
             const quem = t.members.map((m) => m.agentId).join(" → ");
             return `time ${t.id} salvo — ${t.topology}: ${quem}. Pra rodar, a pessoa dispara na tela.`;
           }),
+      },
+      {
+        name: "nexo_hook_salvar",
+        description:
+          "Cria ou atualiza uma regra de Nexo Hook: dispara um agente ou time SOZINHO quando um " +
+          "evento acontece (commit, push, ou a primeira vez que um projeto abre no Nexo) — sem " +
+          "precisar ninguém pedir de novo. Mesmo id = atualiza, e campo que você não mandar fica " +
+          "como estava. Escopo `global` vale em TODO projeto; `projeto` só num `projectPath`. " +
+          "Exatamente um de `agentId`/`teamId`. NÃO cria regra bloqueante: `git.pre-push` bloqueante " +
+          "trava o `git push` de quem casar com a regra até alguém desligar — por segurança, só a " +
+          "pessoa liga isso na tela Hooks.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "só pra ATUALIZAR uma regra já existente" },
+            nome: { type: "string", description: "rótulo curto pra achar a regra na lista" },
+            descricao: { type: "string" },
+            escopo: {
+              type: "object",
+              properties: {
+                tipo: { type: "string", enum: ["global", "projeto"] },
+                projectPath: { type: "string", description: "obrigatório quando tipo=projeto" },
+              },
+              required: ["tipo"],
+              additionalProperties: false,
+            },
+            evento: { type: "string", enum: [...HOOK_EVENTS] },
+            branch: {
+              type: "string",
+              description: "só em git.post-push/git.pre-push. Vazio/ausente casa qualquer branch.",
+            },
+            agentId: {
+              type: "string",
+              description: "um agente avulso",
+              ...(idsDeAgente.length ? { enum: idsDeAgente } : {}),
+            },
+            teamId: { type: "string", description: "um time já montado (Team Studio)" },
+          },
+          required: ["escopo", "evento"],
+          additionalProperties: false,
+        },
+        executar: (args) =>
+          tentar(() => {
+            const a = args as Record<string, unknown>;
+            if (a.bloqueante !== undefined) {
+              throw Object.assign(
+                new Error(
+                  "regra bloqueante só na tela Hooks, não por aqui — trava git push de quem casar até a pessoa desligar",
+                ),
+                { status: 400 },
+              );
+            }
+            const r = saveRegra(a as RegraInput, home);
+            const quem = r.teamId ? `time ${r.teamId}` : `agente ${r.agentId}`;
+            return `regra ${r.id} salva — ${r.evento} (${r.escopo.tipo}) → ${quem}`;
+          }),
+      },
+      {
+        name: "nexo_hook_listar",
+        description: "Lista as regras de Nexo Hook que já existem — escopo, evento, branch, quem roda, se é bloqueante.",
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        executar: () => {
+          const regras = listarRegras(home);
+          if (!regras.length) return { ok: true, texto: "nenhuma regra ainda" };
+          const linhas = regras.map((r) => {
+            const escopo = r.escopo.tipo === "global" ? "global" : r.escopo.projectPath;
+            const quem = r.teamId ? `time ${r.teamId}` : `agente ${r.agentId}`;
+            const extra = [r.branch ? `branch ${r.branch}` : "", r.bloqueante ? "bloqueante" : ""]
+              .filter(Boolean)
+              .join(", ");
+            return `- ${r.id}${r.nome ? ` (${r.nome})` : ""} — ${r.evento} @ ${escopo} → ${quem}${extra ? ` [${extra}]` : ""}`;
+          });
+          return { ok: true, texto: linhas.join("\n") };
+        },
       },
     ];
     return ferramentas;
