@@ -3,6 +3,12 @@
 Data: 2026-09-09
 Status: aprovado pelo usuário, aguardando plano de implementação
 
+**Revisão**: a seção "Nexo Hooks" original (instalação manual via `nexo hook install`,
+config por projeto) foi substituída pelo desenho abaixo ("Hooks v2") depois do usuário pedir
+que hooks fossem uma feature configurável dentro do app, com escopo global e capacidade de
+BARRAR um push (gate de segurança), não só notificar. Memória de projeto, `graphify.ts` e a
+injeção de `MEMORIA.md` no pack não mudaram.
+
 ## Problema
 
 Todo agente/time que abre um projeto começa do zero: sem saber onde ficam os models, as
@@ -32,8 +38,12 @@ manualmente no dia a dia.
   `memoriaDir` pra uma pasta já sincronizada (Drive, etc.); o Nexo não implementa
   transporte de sync próprio.
 - **Hooks pra eventos além de git** (`run.done`, `thread.created`, ...) — o despacho é
-  genérico (não hardcoded só pra git), mas nenhum consumidor além de
-  `git.post-commit`/`git.post-push` é implementado agora.
+  genérico (não hardcoded só pra git), mas os únicos eventos implementados agora são
+  `git.post-commit`, `git.post-push` e `git.pre-push`.
+- **Condição além de branch** — sem filtro por autor, por arquivo alterado, etc. Só
+  "qual branch está sendo empurrada" (relevante pros dois eventos de push).
+- **Múltiplos vereditos combinados** (ex.: exigir maioria de vários agentes) — uma regra
+  `pre-push` reprovando já barra; não há "2 de 3 aprovam".
 - **Reconstrução do grafo estrutural do graphify** — reaproveita `graphify hook install`
   (mecanismo próprio do graphify, AST puro, sem LLM) em vez de reimplementar.
 
@@ -68,71 +78,145 @@ Raiz configurável: `config.json` ganha `memoriaDir?: string` (default
 `join(home, "memoria")`). Apontar pra uma pasta dentro de uma sincronizada (Drive, etc.) é
 o mecanismo de "memória entre PCs" — nenhum código de sync no Nexo.
 
-## Nexo Hooks
+## Hooks v2: regra configurável, escopo global ou por projeto
 
-Despacho genérico de evento → ação, não hardcoded só pra memória de projeto (mesmo que o
-único consumidor de hoje seja esse).
+### Modelo de dados
 
-**Config** (`~/.nexo/hooks.json`):
+`~/.nexo/hooks.json` vira uma LISTA de regras (não mais indexado por projeto):
 
 ```json
 {
-  "<projectPath>": {
-    "git.post-commit": [{ "action": "run-agent", "agentId": "memoria" }],
-    "git.post-push": [{ "action": "run-agent", "agentId": "memoria" }]
-  }
+  "rules": [
+    {
+      "id": "r-8f2a",
+      "escopo": { "tipo": "projeto", "projectPath": "C:/Users/.../Dilegno" },
+      "evento": "git.post-commit",
+      "agentId": "memoria"
+    },
+    {
+      "id": "r-c910",
+      "escopo": { "tipo": "global" },
+      "evento": "git.pre-push",
+      "branch": "main",
+      "agentId": "seguranca"
+    }
+  ]
 }
 ```
 
-**Despacho** (`apps/daemon/src/hooks.ts`): um `EventEmitter` próprio (irmão do `sessionBus`
-que já existe em `session.ts`), com uma função `fireHook(event, projectPath, home)` que lê
-`hooks.json`, acha as ações configuradas pra aquele projeto+evento, e executa cada uma. A
-única ação implementada agora é `run-agent`: dispara um run de 1 passo do agente indicado,
-igual o que `criarRun`/`executarRun` (`runs.ts`) já fazem — sem motor novo.
+- `evento`: `"git.post-commit" | "git.post-push" | "git.pre-push"`.
+- `branch`: opcional, nome exato (não glob) — só faz sentido nos dois eventos de push;
+  vazio/ausente = qualquer branch. Em `post-commit` o campo é ignorado mesmo que venha
+  preenchido (commit não tem branch remota, é sempre local) — a UI nem mostra o campo pra
+  esse evento, mas o backend não confia só nisso.
+- Quem BLOQUEIA é o evento, não um campo à parte: `pre-push` roda ANTES do push existir no
+  remoto (dá pra abortar); `post-commit`/`post-push` já aconteceram — só notificam.
+- CRUD via funções em `hooks.ts` (`listarRegras`, `criarRegra`, `atualizarRegra`,
+  `apagarRegra`, todas em `home`) e endpoints `GET/POST/PUT/DELETE /v1/hooks/rules[/:id]`,
+  autenticados como toda `/v1/*`. A UI (ver seção própria) consome esses endpoints.
 
-**Endpoint**: `POST /v1/hooks/fire` — body `{ event: string, projectPath: string }`,
-autenticado com o bearer token do daemon (mesmo de toda `/v1/*`). Só aceita
-`event` que bata com `/^[a-z]+\.[a-z-]+$/` (evita injeção de nome de ação arbitrária vinda
-de um script comprometido).
+### Despacho
 
-**Gatilho git**: `nexo hook install <path>` (novo subcomando CLI) escreve/anexa em
-`<path>/.git/hooks/post-commit` e `post-push` uma linha que chama
-`curl -s -m 5 -X POST http://127.0.0.1:<porta>/v1/hooks/fire -H "Authorization: Bearer
-<token>" -d '{"event":"git.post-commit","projectPath":"<path>"}' || true` — o `|| true`
-(e o timeout de 5s) garante que `git commit`/`git push` nunca falha ou trava por causa do
-Nexo estar fechado ou lento. Porta e token lidos de `~/.nexo/config.json` e
-`~/.nexo/daemon.token` no momento da instalação (mesmo padrão que `graphify hook install`
-já usa pra AST, só que chamando o Nexo em vez do graphify direto). Se já existir um
-post-commit/post-push, anexa (não substitui) — mesma regra do graphify.
+`fireHook(event, projectPath, branch, home)` em `apps/daemon/src/hooks.ts`: acha as regras
+que casam (escopo global OU escopo do projeto certo) E (evento igual) E (branch vazio na
+regra OU branch bate) — pode haver mais de uma regra casando (ex.: uma global de segurança +
+uma do projeto). Pra `post-commit`/`post-push` roda todas em paralelo, fire-and-forget
+(coalescido por projeto+evento — ver abaixo). Pra `pre-push` roda em SÉRIE, síncrono, parando
+na primeira reprovação (ver "Fluxo bloqueante").
 
-## Agente "memória"
+**Endpoint de disparo**: `POST /v1/hooks/fire` — body `{ event, projectPath, branch? }`.
+Só aceita `event` batendo com `/^[a-z]+\.[a-z-]+$/`. Pra `pre-push` a resposta HTTP só
+volta depois do agente terminar (ou do teto de turno estourar) — é essa espera que faz o
+script do git segurar o push.
 
-Entrada nova em `agents.json` (criada automaticamente na primeira vez que
-`nexo hook install` roda num projeto, se ainda não existir): conta barata (ex. `haiku`),
-instructions:
+### Sincronização automática dos scripts de git (sem comando manual)
 
-> Leia o `git diff` desde a última vez que você atualizou a memória deste projeto (o hash
-> do commit fica no fim do `MEMORIA.md` atual, se existir) e o `graphify-out/GRAPH_REPORT.md`
-> se existir. Escreva/atualize `MEMORIA.md` só com fatos NOVOS ou DIFERENTES do que já está
-> lá — arquitetura, convenção, decisão não-óbvia, causa-raiz de bug corrigido. Não resuma o
-> diff linha a linha. Termine o arquivo com uma linha `<!-- commit: <hash> -->` marcando até
-> onde você leu.
+Nada de `nexo hook install` como passo que a pessoa lembra de rodar. Uma função
+`sincronizarHooksDoProjeto(projectPath, home)`:
 
-A ação `run-agent` do hook reaproveita o MESMO mecanismo de time oculto pipeline-de-1 que a
+1. Calcula quais eventos (`post-commit`/`post-push`/`pre-push`) este projeto precisa, olhando
+   as regras cujo escopo é `global` OU é este projeto.
+2. Pra cada evento necessário, garante a linha em `.git/hooks/<arquivo>` (reaproveita
+   `installGitHookScript`, já escrito). Pra evento que NINGUÉM mais pede (regra apagada), tira
+   a linha (`uninstallGitHookScript`, novo — contraparte simétrica).
+
+Disparada em dois momentos:
+
+- **Regra criada/editada/apagada**: se o escopo é `projeto`, resincroniza só ele; se é
+  `global`, resincroniza TODOS os projetos que o Nexo conhece — mesma lista que
+  `GET /v1/projects` já calcula (`config.repos` ∪ projetos das conversas gravadas,
+  `projectsFromThreads`), reexportada de onde já existe hoje.
+- **Projeto novo aberto/adicionado**: resincroniza só ele (cobre as regras globais e as que
+  já existiam de escopo `projeto` pra caminhos que a pessoa reabriu depois).
+
+Regra `global` vale em TODO projeto sem exceção — não existe toggle de "ignorar hook global"
+por projeto (decisão deliberada: um gate de segurança que dá pra desligar por projeto já
+nasce fraco).
+
+### Fluxo bloqueante (`git.pre-push`) e o veredito
+
+1. Script `pre-push` instalado pelo Nexo lê o stdin que o `git` manda nesse hook (uma linha
+   por ref sendo empurrada: `<local ref> <local sha> <remote ref> <remote sha>`), extrai o(s)
+   nome(s) de branch do `remote ref`, e chama `nexo hook fire git.pre-push --branch <nome>`
+   (novo modo do subcomando `nexo hook fire` já existente — aguarda a resposta em vez de
+   disparar e sair).
+2. O CLI faz `POST /v1/hooks/fire` e esse endpoint, pra `pre-push`, RODA o run de verdade
+   (não fire-and-forget): `upsertTimeDeHook` + `criarRun` + `executarRun`, esperado.
+3. Esse run ganha uma ferramenta MCP presa a ELE (mesmo mecanismo por-run que o supervisor já
+   usa — `configDeMcp(porta, token, runId)`): `nexo_veredito({ aprovado: boolean, motivo:
+   string })`. O agente é instruído a SEMPRE chamá-la no fim.
+4. Se o run terminar sem o agente ter chamado `nexo_veredito`, o veredito default é
+   **reprovado** com motivo `"agente não declarou veredito"` — falha FECHADA, não aberta.
+   Múltiplas regras casando: roda uma de cada vez, na ordem; qualquer reprovação para a
+   série ali (as seguintes nem rodam) e já barra o push; só libera se TODAS aprovarem.
+5. O CLI recebe `{ aprovado, motivo }` do endpoint e sai com código `0` (libera o push) ou
+   `1` (barra), imprimindo `motivo` em stderr — é isso que a pessoa vê no terminal do `git
+   push` quando é barrada.
+
+### Agente de exemplo: "memória" (post-commit, escopo projeto)
+
+Continua exatamente como no desenho original: instructions de ler `git diff` +
+`GRAPH_REPORT.md` e atualizar `MEMORIA.md` (ver seção "Uso no turno" abaixo). A diferença é
+só COMO a regra nasce agora — pela tela de Hooks (escopo "este projeto", evento
+`git.post-commit`, agente `memoria`), não mais por `nexo hook install`. Se o agente
+`memoria` ainda não existe quando a regra é criada, a UI pede a conta (perfil) que ele vai
+usar e cria o `AgentDef` na hora, com as instructions padrão.
+
+`agentId` de qualquer regra reaproveita o MESMO mecanismo de time oculto pipeline-de-1 que a
 `@menção` de agente avulso já criou (`teams.ts`, `origem: "mencao"` — ver spec
 [2026-09-08-mencao-agentes-times-design.md](2026-09-08-mencao-agentes-times-design.md)):
 upsert de um time `hook-<agentId>` de 1 membro, disparado via o mesmo `criarRun`/
-`executarRun` que o Team Studio e a `@menção` já usam. Nenhum primitivo de execução novo —
-só mais uma origem que upserta um time oculto e chama o run.
+`executarRun` que o Team Studio e a `@menção` já usam. Nenhum primitivo de execução novo.
 
 Implica dois ajustes pequenos em `teams.ts`: `TeamDef.origem` (hoje só `"mencao"`) vira
 `"mencao" | "hook"`, e o filtro de `listTeams` (`t.origem !== "mencao"`) vira `!t.origem` —
 esconde da tela de Times QUALQUER time de origem automática, não só o de menção.
 
-**Coalescência**: `hooks.ts` mantém um `Set<string>` de projetos com o agente memória em
-voo. Fire que chega enquanto já tem um rodando pra aquele projeto não dispara outro — marca
-um flag `pendente`; ao terminar, se `pendente` estava marcado, dispara de novo uma vez (git
-diff mais recente ainda é lido do zero, então cobre os commits que chegaram no meio).
+**Coalescência** (só `post-commit`/`post-push`, que são fire-and-forget): `hooks.ts` mantém
+um `Set<string>` de `projeto::evento` com execução em voo. Fire que chega enquanto já tem um
+rodando pra aquele par não dispara outro — marca um flag `pendente`; ao terminar, se
+`pendente` estava marcado, dispara de novo uma vez (o diff mais recente ainda é lido do zero
+na próxima rodada, então cobre tudo que chegou no meio). `pre-push` não coalesce — é
+síncrono, cada `git push` espera o seu.
+
+### graphify: checagem/instalação automática
+
+`ensureGraphifyInstalled()` em `graphify.ts`: roda `graphify --version`; se não achar,
+tenta `uv tool install graphifyy` e, sem `uv`, `pip install graphifyy`; loga o resultado (uma
+linha, sucesso ou falha) sem lançar erro — nunca impede o daemon de subir nem a regra de ser
+salva. Chamada em dois pontos: (1) no boot do daemon (`cmdUp`, uma vez, em paralelo ao resto
+da subida, sem esperar por ela); (2) quando uma regra com evento `post-commit`/`post-push` e
+agente que produz memória de projeto é criada pela UI (best-effort, mesmo padrão).
+
+### UI: tela "Hooks"
+
+Tela nova no desktop, mesmo nível de Team Studio/Agent Studio: tabela de regras (escopo,
+evento, branch, agente), botão "+ Nova regra" abrindo formulário (escopo: Global ou
+dropdown com os projetos conhecidos; evento: post-commit/post-push/pre-push; branch: campo
+texto, só habilitado pros eventos de push; agente: dropdown dos agentes existentes, com
+opção de criar um novo ali). Editar/apagar reusam os mesmos endpoints CRUD. Nenhuma tela
+nova pro "veredito" — ele só aparece no terminal de quem deu `git push` (motivo do
+`nexo_veredito`), não dentro do Nexo.
 
 ## Uso no turno
 
@@ -148,9 +232,18 @@ diff mais recente ainda é lido do zero, então cobre os commits que chegaram no
 
 ## Testes
 
-- `apps/daemon/test/hooks.test.ts` (novo): `fireHook` acha e roda a ação configurada;
-  evento sem config nenhuma não faz nada (não é erro); nome de evento fora do padrão é
-  recusado; coalescência (dois fires em sequência rápida = um run só, com re-run agendado).
+- `apps/daemon/test/hooks.test.ts`: CRUD de regra; `fireHook` casa escopo (global E projeto)
+  × evento × branch corretamente; evento sem regra nenhuma não faz nada; nome de evento fora
+  do padrão é recusado; coalescência de `post-commit`/`post-push` (dois fires em sequência
+  rápida = um run só, com re-run agendado); `pre-push` roda em série e para na primeira
+  reprovação; agente que não chama `nexo_veredito` reprova por padrão; erro dentro da
+  execução não vira unhandled rejection (loga e libera o estado "em voo").
+- `apps/daemon/test`: `sincronizarHooksDoProjeto` — regra de projeto só mexe naquele
+  projeto; regra global mexe em TODOS os conhecidos; remover a última regra de um evento tira
+  a linha do script (`uninstallGitHookScript`); projeto novo aberto puxa as regras globais já
+  existentes sozinho.
+- `apps/daemon/test`: `nexo_veredito` (ferramenta MCP por-run) grava o veredito só pro run
+  dela, não vaza pra outro run concorrente.
 - `apps/daemon/test`: `memoriaDir` resolve pro default ou pro que `config.json` declarar;
   hash do projeto é estável (mesmo path sempre dá o mesmo hash) e diferente projetos não
   colidem.
@@ -160,3 +253,6 @@ diff mais recente ainda é lido do zero, então cobre os commits que chegaram no
   quando não existe.
 - `apps/daemon/test`: ferramentas MCP de `graphify query`/`explain` — presentes só quando
   `graphify-out/graph.json` existe; ausentes (sem erro) quando não existe.
+- `apps/daemon/test`: `ensureGraphifyInstalled` nunca lança, mesmo sem `uv`/`pip` no PATH.
+- `apps/desktop/test`: tela Hooks — lista, cria regra (global e de projeto), edita, apaga;
+  campo branch desabilitado pra `post-commit`.
