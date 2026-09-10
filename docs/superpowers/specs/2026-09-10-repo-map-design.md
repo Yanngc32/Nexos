@@ -1,7 +1,16 @@
-# Nexo — repo map em 2 camadas, substitui o graphify (design)
+# Nexo — memória de projeto (repo map) e controle do painel Browser (design)
 
 Data: 2026-09-10
 Status: aprovado pelo usuário, aguardando plano de implementação
+
+Duas melhorias de capacidade do LLM no Nexo, independentes uma da outra (não compartilham
+código nem sequência de implementação — podem ser plano e execução separados), agrupadas neste
+documento a pedido do usuário: **Parte 1** troca a memória estrutural de projeto (graphify → repo
+map); **Parte 2** dá ao LLM acesso de verdade ao painel Browser do desktop.
+
+---
+
+# Parte 1 — Repo map em 2 camadas, substitui o graphify
 
 ## Problema
 
@@ -175,3 +184,106 @@ não o corpo deles.
   do commit, não o projeto inteiro.
 - **Migração**: nenhuma referência viva a `graphify.ts`/binário `graphify` sobra no código
   depois da remoção (grep de garantia no CI/teste, não só remoção manual).
+
+---
+
+# Parte 2 — Controle do painel Browser pelo LLM
+
+## Problema
+
+O painel "Browser" do desktop (`#pane-browser`, `apps/desktop/index.html`) só serve pra a PESSOA
+olhar um preview e, no máximo, clicar num elemento pra mencioná-lo no chat (modo "inspecionar
+elemento" — `browser-inspector-preload.cjs` + `inspector-*`). O LLM não tem acesso nenhum: não
+navega, não lê a página, não clica, não digita. Confirmado por busca no `apps/daemon` inteiro —
+nenhuma ferramenta MCP hoje toca browser/webview, e o único IPC relacionado
+(`browser:clear-cache`) só limpa cache.
+
+O usuário quer que o agente use esse browser "como se fosse um usuário mesmo" — ver a página,
+decidir o que fazer, agir de verdade — não só descrever o que teria feito.
+
+## Objetivo
+
+Ferramentas MCP (`nexo_navegador_*`) que dão ao LLM, dentro de uma conversa normal, a mesma
+capacidade que a pessoa já tem no painel Browser: abrir uma URL, ler a página como dado
+estruturado, tirar print, clicar e digitar em elementos específicos.
+
+## Fora de escopo
+
+- **Passo de Run (hook/time automático)** — não existe `&lt;webview&gt;` fora da janela do desktop
+  aberta por uma pessoa; a ferramenta só existe em conversa normal, nunca num run headless.
+- **Input real do sistema operacional** (mouse/teclado do Windows) — descartado a favor de
+  eventos DOM sintéticos (ver Mecanismo); mais simples, não depende de foco de janela, não
+  interfere se a pessoa estiver usando o PC ao mesmo tempo.
+- **Múltiplas abas/janelas de browser** — o painel tem UM `&lt;webview&gt;`; não há gerenciamento de
+  abas nesta v1.
+- **Persistir a árvore lida entre chamadas** — cada `nexo_navegador_ler` é um snapshot novo; refs
+  de uma leitura anterior não são garantidos válidos depois de navegar ou reler (mesma semântica
+  de qualquer ferramenta baseada em ref — usar um ref velho é erro do modelo, não do sistema).
+
+## Arquitetura — mesma ponte de `nexo_perguntar`
+
+O daemon (onde o LLM fala via MCP) não tem acesso ao `&lt;webview&gt;` — só o processo RENDERER da
+janela Electron tem. A ponte é a mesma que `nexo_perguntar` (`apps/daemon/src/perguntas.ts`) já
+resolveu pra um problema idêntico (daemon precisa de algo que só o renderer consegue fazer):
+
+1. A ferramenta MCP grava um comando pendente (`Map&lt;threadId, resolver&gt;`, mesmo padrão de
+   `perguntas.ts`) e emite via `sessionBus` um evento novo `browser_comando` (`{id, threadId,
+   acao, args}`), escopado por `threadId` como `nexo_perguntar` já é.
+2. O renderer (`renderer.js`, já escutando o SSE por thread pra `pergunta`/`tool`/etc.) recebe o
+   evento, executa a ação de verdade no `#browser-frame` (`webview.loadURL`,
+   `webview.executeJavaScript`, `webview.capturePage`, conforme a ação).
+3. O renderer devolve o resultado via `POST /v1/navegador/:threadId/responder` — novo endpoint,
+   mesmo formato do `/v1/perguntas/:threadId/responder` — que resolve a Promise pendente no
+   daemon; a ferramenta retorna o resultado ao modelo.
+
+**Limitação herdada, não nova**: um comando só é atendido enquanto AQUELA conversa está aberta na
+janela (a SSE por thread só está ativa pra conversa em foco) — mesma limitação que
+`nexo_perguntar` já tem hoje. Comando pra thread não-aberta expira como qualquer ferramenta
+travada (teto de turno).
+
+## Ferramentas
+
+- **`nexo_navegador_abrir({ url })`** — navega. Funciona mesmo com o painel vazio/em branco.
+- **`nexo_navegador_ler()`** — árvore simplificada da página: cada elemento interativo (link,
+  botão, campo, cabeçalho, texto relevante) ganha uma referência curta (`ref_1`, `ref_2`...),
+  papel e texto — mesmo espírito de uma accessibility tree, não o DOM inteiro. Construção NOVA:
+  um script de varredura injetado via `browser-inspector-preload.cjs` (que já roda dentro da
+  página do preview), guardando o mapa `ref → elemento` num `WeakMap`/registro no `window` da
+  PRÓPRIA página — não no daemon nem no renderer, que não têm acesso direto ao DOM da página.
+- **`nexo_navegador_screenshot()`** — `webview.capturePage()`, nativo do Electron; não precisa de
+  código de extração novo, só encaminhar o resultado (PNG) de volta pro daemon/modelo.
+- **`nexo_navegador_clicar({ ref })`** / **`nexo_navegador_digitar({ ref, texto })`** — eventos
+  DOM sintéticos de verdade (`MouseEvent`/`InputEvent`/`KeyboardEvent`, não só setar `.value`) via
+  `executeJavaScript`, disparados no elemento que o `ref` aponta (resolvido pelo registro que
+  `nexo_navegador_ler` populou). Ref inválido/expirado é erro de ferramenta pedindo reler a
+  página, não trava nem derruba o processo.
+
+## Permissão — `Profile.navegadorModo`
+
+Novo campo, mesmo formato de `Profile.delegacaoModo` (`packages/shared/src/index.ts`):
+`"negado" | "questionar" | "liberado"`, padrão `"negado"`. Mesmo lugar na tela de Configurações
+→ Contas que `delegacaoModo` já ocupa.
+
+- **Negado**: nenhuma das ferramentas `nexo_navegador_*` entra no conjunto MCP da conversa.
+- **Questionar**: `nexo_navegador_ler`/`screenshot` (só leitura) rodam direto; `abrir`/`clicar`/
+  `digitar` (mudam estado) chamam `nexo_perguntar` internamente antes ("Clicar em `<texto do
+  ref>`? (sim/não)") — mesmo mecanismo que `nexo_delegar` já usa no modo "questionar"
+  (`apps/daemon/src/delegar.ts`). Resposta diferente de "sim" cancela sem executar a ação.
+- **Liberado**: todas rodam direto, sem perguntar.
+
+## Testes
+
+- **`nexo_navegador_ler`**: árvore reflete os elementos interativos reais de uma página de teste
+  conhecida (fixture HTML fixa); refs são estáveis dentro da MESMA leitura, mas uma releitura
+  gera um conjunto novo (não reaproveita refs antigos).
+- **`nexo_navegador_clicar`/`digitar`**: ref válido dispara o evento certo no elemento certo (
+  fixture com listener que grava o clique/input recebido); ref inválido/de uma leitura anterior
+  (depois de navegar) é erro de ferramenta claro, não trava.
+- **`navegadorModo`**: `negado` não soma nenhuma ferramenta ao conjunto; `questionar` chama
+  `nexo_perguntar` antes de `abrir`/`clicar`/`digitar` e respeita a resposta; `questionar` NÃO
+  pergunta antes de `ler`/`screenshot`; `liberado` roda tudo direto.
+- **Ponte SSE/HTTP**: comando emitido, `POST /v1/navegador/:threadId/responder` resolve a Promise
+  pendente, resultado chega como texto/imagem da ferramenta — mesmo par de testes que
+  `nexo_perguntar` já tem, adaptado.
+- **Escopo**: ferramenta não aparece no conjunto MCP de um passo de Run (`meta.runId` presente) —
+  mesma checagem que já existe pra `nexo_delegar`.
