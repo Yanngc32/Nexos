@@ -6,6 +6,7 @@ import {
   emVoo,
   faixaDoRun,
   passoAtual,
+  porOutrosProjetos,
   resumoMini,
 } from "../widget-view.js";
 
@@ -128,6 +129,31 @@ describe("emVoo", () => {
   });
 });
 
+describe("porOutrosProjetos", () => {
+  const ag = (projectPath, over = {}) => ({ threadId: `t-${Math.random()}`, profileId: "p1", busy: true, projectPath, ...over });
+
+  it("agrupa por pasta e ignora o projeto aberto — esse já aparece em bl-run/bl-voo", () => {
+    const agentes = [ag("/a"), ag("/a"), ag("/b"), ag("/aberto")];
+    const grupos = porOutrosProjetos(agentes, "/aberto");
+    expect(grupos.map((g) => g.projectPath)).toEqual(["/a", "/b"]);
+    expect(grupos[0].agentes).toHaveLength(2);
+  });
+
+  it("sem projeto aberto (nenhuma janela com pasta), nada é excluído", () => {
+    expect(porOutrosProjetos([ag("/a"), ag("/b")], "")).toHaveLength(2);
+  });
+
+  it("ignora quem não está trabalhando agora e quem não tem projeto", () => {
+    const agentes = [ag("/a", { busy: false }), ag("", {}), ag("/b")];
+    expect(porOutrosProjetos(agentes, "").map((g) => g.projectPath)).toEqual(["/b"]);
+  });
+
+  it("mais movimentado primeiro", () => {
+    const agentes = [ag("/pouco"), ag("/muito"), ag("/muito"), ag("/muito")];
+    expect(porOutrosProjetos(agentes, "").map((g) => g.projectPath)).toEqual(["/muito", "/pouco"]);
+  });
+});
+
 describe("relógio do run fechado", () => {
   it("para no fim do run em vez de crescer pra sempre", () => {
     const r = run({
@@ -191,6 +217,20 @@ describe("resumoMini", () => {
     expect(r.tituloStatus).toContain("1 conversa");
   });
 
+  it("conversa em voo sem run também preenche os dois slots de texto — não só acende o ponto mudo", () => {
+    const r = resumoMini(null, [{ profileId: "claude-outlook" }], []);
+    expect(r.passos).toBe("1 conversa");
+    expect(r.quemTrabalha).toBe("claude-outlook");
+    expect(r.ms).toBe(0);
+  });
+
+  it("com run, quemTrabalha fica vazio — quem preenche o slot é o tempo (ms)", () => {
+    const faixa = faixaDoRun(run({ steps: [{ index: 0, agentId: "a1", status: "running", startedAt: iso(0) }] }), T0 + 500);
+    const r = resumoMini(faixa, [{ profileId: "outra" }], []);
+    expect(r.quemTrabalha).toBe("");
+    expect(r.ms).toBe(500);
+  });
+
   it("mostra o pior anel e diz de quem é", () => {
     const r = resumoMini(null, [], [anel(), anel({ id: "folgada", uso: 0.1 })]);
     expect(r.quota).toMatchObject({ id: "claude-outlook", pct: 87, bloqueada: false });
@@ -211,6 +251,26 @@ describe("resumoMini", () => {
     const r = resumoMini(faixa, [], []);
     expect(r).toMatchObject({ ligado: false, erro: true });
     expect(r.tituloStatus).toContain("US$ 0.5000 de US$ 2");
+  });
+
+  it("nada NESTE projeto, mas outro projeto rodando: acende o ponto e usa o espaço dos passos", () => {
+    const outros = [{ projectPath: "/casa/outro-projeto", agentes: [{ profileId: "p1" }, { profileId: "p2" }] }];
+    const r = resumoMini(null, [], [], outros);
+    expect(r).toMatchObject({ ligado: true, quieto: false, passos: "1 projeto" });
+    expect(r.tituloStatus).toContain("2 conversas em outro projeto (outro-projeto)");
+  });
+
+  it("nada em lugar nenhum (nem outro projeto): aí sim é quieto", () => {
+    const r = resumoMini(null, [], [], []);
+    expect(r).toMatchObject({ ligado: false, quieto: true, passos: "" });
+  });
+
+  it("run rodando NESTE projeto já enche o slot de passos: outro projeto só entra no título", () => {
+    const faixa = faixaDoRun(run({ steps: [{ index: 0, agentId: "a1", status: "running", startedAt: iso(0) }] }), T0);
+    const outros = [{ projectPath: "/x", agentes: [{ profileId: "p1" }] }];
+    const r = resumoMini(faixa, [], [], outros);
+    expect(r.passos).toBe("0/1");
+    expect(r.tituloStatus).toContain("1 conversa em outro projeto");
   });
 });
 

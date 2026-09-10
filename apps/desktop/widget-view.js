@@ -109,6 +109,25 @@ export function emVoo(agentes, runId = "") {
 }
 
 /**
+ * Atividade de OUTROS projetos, agrupada por pasta — "o que está rodando, em qual projeto"
+ * pra quem tem mais de uma pasta aberta ao mesmo tempo. O projeto ABERTO nesta janela já
+ * aparece em `bl-run`/`bl-voo`; repeti-lo aqui seria a mesma informação duas vezes.
+ */
+export function porOutrosProjetos(agentes, projetoAtual) {
+  const ocupados = (Array.isArray(agentes) ? agentes : []).filter(
+    (a) => a?.busy && a.projectPath && !samePath(a.projectPath, projetoAtual),
+  );
+  const porPasta = new Map();
+  for (const a of ocupados) {
+    const grupo = porPasta.get(a.projectPath) ?? { projectPath: a.projectPath, agentes: [] };
+    grupo.agentes.push(a);
+    porPasta.set(a.projectPath, grupo);
+  }
+  // mais movimentado primeiro: é o que mais provavelmente merece um clique
+  return [...porPasta.values()].sort((a, b) => b.agentes.length - a.agentes.length);
+}
+
+/**
  * Retrato do modo mini: só o que responde "está andando?" e "quanto de quota
  * sobrou?", mais o texto do que ficou escondido.
  *
@@ -118,8 +137,9 @@ export function emVoo(agentes, runId = "") {
  * títulos são montados aqui e não na pintura: é a parte que dá pra esquecer um
  * campo, e teste pega.
  */
-export function resumoMini(faixa, emVooAgora = [], aneis = []) {
+export function resumoMini(faixa, emVooAgora = [], aneis = [], outrosProjetos = []) {
   const voo = Array.isArray(emVooAgora) ? emVooAgora : [];
+  const outros = Array.isArray(outrosProjetos) ? outrosProjetos : [];
   /** O pior anel já vem primeiro: `aneisDeConta` ordena da conta mais apertada. */
   const pior = (Array.isArray(aneis) ? aneis : [])[0] ?? null;
   const partes = [];
@@ -135,17 +155,40 @@ export function resumoMini(faixa, emVooAgora = [], aneis = []) {
     const nomes = voo.map((a) => a.agentName || a.profileId).join(", ");
     partes.push(`${voo.length} ${voo.length === 1 ? "conversa" : "conversas"}: ${nomes}`);
   }
+  if (outros.length) {
+    const totalConversas = outros.reduce((n, g) => n + g.agentes.length, 0);
+    const nomes = outros.map((g) => g.projectPath.replace(/^.*[\\/]/, "")).join(", ");
+    partes.push(
+      `${totalConversas} ${totalConversas === 1 ? "conversa" : "conversas"} em outro projeto (${nomes})`,
+    );
+  }
   const pct = pior ? Math.round(pior.uso * 100) : 0;
   const quem = pior ? `${pior.id}${pior.engine ? ` · ${pior.engine}` : ""}` : "";
   const quanto = pior?.bloqueada ? "conta bloqueada" : `${pct}% da janela mais apertada`;
+  // Nada NESTE projeto, mas tem gente trabalhando em outro: a pílula usa o espaço do "N/M
+  // passos" pra dizer isso — melhor que ficar quieta enquanto algo roda de verdade.
+  const semNadaAqui = !faixa && voo.length === 0;
+  // Conversa em voo SEM run: antes a pílula só acendia o ponto e ficava com os dois textos em
+  // branco — "ligado" sem dizer o quê. Usa os mesmos dois espaços que o run usaria.
+  const passos = faixa?.total
+    ? `${faixa.feitos}/${faixa.total}`
+    : voo.length
+      ? `${voo.length} ${voo.length === 1 ? "conversa" : "conversas"}`
+      : semNadaAqui && outros.length
+        ? `${outros.length} ${outros.length === 1 ? "projeto" : "projetos"}`
+        : "";
   return {
-    ligado: Boolean(faixa?.rodando) || voo.length > 0,
+    ligado: Boolean(faixa?.rodando) || voo.length > 0 || outros.length > 0,
     erro: faixa?.status === "error",
-    /** Vazio quando o run ainda não tem passos: "0/0" pareceria travado. */
-    passos: faixa?.total ? `${faixa.feitos}/${faixa.total}` : "",
+    passos,
     ms: faixa?.ms ?? 0,
-    /** Nada de run nem conversa: a pílula assume o estado quieto, não fica vazia. */
-    quieto: !faixa && voo.length === 0,
+    /**
+     * Nome de quem está trabalhando, pro slot de "ms" ter o que mostrar quando não há run
+     * (`ms` fica 0 nesse caso — sem os dois, a pílula acendia o ponto e ficava muda).
+     */
+    quemTrabalha: !faixa && voo.length ? voo.map((a) => a.agentName || a.profileId).join(", ") : "",
+    /** Nada de run, conversa NEM projeto alheio: só aí a pílula assume o estado quieto. */
+    quieto: semNadaAqui && outros.length === 0,
     quota: pior ? { id: pior.id, pct, uso: pior.uso, bloqueada: pior.bloqueada } : null,
     tituloStatus: partes.length ? partes.join(" · ") : "nada rodando",
     tituloQuota: pior ? `${quem} — ${quanto}` : "",

@@ -22,6 +22,7 @@ import {
   applyLoginResult,
   credentialVerdict,
   getProfile,
+  listProfiles,
   markAuthFailed,
   rememberContextWindow,
 } from "./profiles.ts";
@@ -124,7 +125,7 @@ export function limitsOf(profileId: string): (EngineEvent & { type: "limits" }) 
   return limitsByProfile.get(profileId);
 }
 
-/** Só as contas que já rodaram um turno desde o boot: quem não rodou não tem dado nenhum. */
+/** Só as contas que já tiveram uma resposta real desde o boot — turno de verdade ou `pingUsoDeTodasAsContas`. */
 export function allLimits(): Record<string, EngineEvent & { type: "limits" }> {
   return Object.fromEntries(limitsByProfile);
 }
@@ -266,9 +267,12 @@ function withInstructions(agentId: string | undefined, projectPath: string, pack
   blocos.push(
     "# Perguntar com opções\nQuando quiser que a pessoa ESCOLHA entre opções (não só confirme algo " +
       'em texto livre), chame a ferramenta `nexo_perguntar` com `opcoes` — não liste "A) ... B) ... ' +
-      'C) ..." como texto comum. Isso vira uma pergunta de verdade na tela, com botão por opção, e ' +
-      "pausa o turno até a resposta chegar. Se mais de uma opção puder valer ao mesmo tempo (ex.: " +
-      '"quais destes pontos se aplicam?"), some `multiSelect: true`.',
+      'C) ..." como texto comum, nem numere "1. ... 2. ... 3. ..." perguntas diferentes num texto só. ' +
+      "Isso vira uma pergunta de verdade na tela, com botão por opção, e pausa o turno até a " +
+      "resposta chegar. Se mais de uma opção puder valer ao mesmo tempo (ex.: \"quais destes " +
+      'pontos se aplicam?"), some `multiSelect: true`. **Tem VÁRIAS perguntas pendentes?** Chame ' +
+      "`nexo_perguntar` uma de cada vez (a próxima só depois da resposta da anterior) — nunca junte " +
+      "todas numa lista de texto só esperando uma resposta que cubra tudo.",
   );
   if (instrucoes) blocos.push(`# Agente: ${def?.name ?? agentId}\n${instrucoes}`);
   if (memoria) blocos.push(`# Memória do projeto\n${memoria}`);
@@ -623,6 +627,53 @@ function turnoDeResumo(p: Profile, projectPath: string, home: string, pedido: st
       .then(() => engine.send(pedido))
       .catch((e: Error) => fim(e.message));
   });
+}
+
+/**
+ * Limite de uso NÃO tem consulta de graça — o CLI só entrega `5h`/`7d` junto da resposta de uma
+ * mensagem de verdade (`auth status --json`, que não gasta nada, não traz isso). Pra o painel
+ * "Uso de todas as contas" não ficar com "sem dado ainda" pra quem não está numa conversa
+ * agora, manda uma mensagem mínima por conta claude/codex logada, num motor descartável (mesmo
+ * padrão de `turnoDeResumo`) — sem thread, sem gravar nada em disco, só pra capturar o evento
+ * `limits` e alimentar `limitsByProfile`. Chamado no boot do daemon e depois a cada 10 minutos
+ * (`cli.ts`).
+ */
+async function pingUso(p: Profile, home: string): Promise<void> {
+  return new Promise((resolve) => {
+    const engine = createEngine(p, home, home);
+    let fechou = false;
+    const fim = () => {
+      if (fechou) return;
+      fechou = true;
+      clearTimeout(relogio);
+      void engine.abort().catch(() => {});
+      resolve();
+    };
+    // 60s cobre até uma resposta lenta pra "oi" — não precisa do teto de 15min de um turno de verdade
+    const relogio = setTimeout(fim, 60_000);
+    void engine
+      .start({ threadId: `ping-uso-${p.id}-${Date.now()}`, projectPath: home, profileId: p.id, contextPack: "" }, (ev) => {
+        if (ev.type === "limits") limitsByProfile.set(p.id, ev);
+        else if (ev.type === "done" || ev.type === "error" || ev.type === "quota" || ev.type === "auth") fim();
+      })
+      .then(() => engine.send("oi"))
+      .catch(fim);
+  });
+}
+
+/**
+ * Pinga TODAS as contas claude/codex logadas em paralelo — uma falha (conta sem quota, etc.) não
+ * derruba as outras. `status` persistido só é reconferido (`applyLoginResult`) quando ainda NÃO
+ * está `ready` — mesmo padrão de `GET /v1/profiles/:id` (http.ts) — porque uma conta recém-logada
+ * fora de uma conversa pode ter o carimbo desatualizado, e é justo essa (nunca usada ainda) que
+ * mais precisa do ping.
+ */
+export async function pingUsoDeTodasAsContas(home: string): Promise<void> {
+  const candidatos = listProfiles(home).filter((p) => p.engine === "claude" || p.engine === "codex");
+  const alvos = candidatos
+    .map((p) => (p.status === "ready" ? p : applyLoginResult(p.id, home)))
+    .filter((p) => p.status === "ready");
+  await Promise.allSettled(alvos.map((p) => pingUso(p, home)));
 }
 
 function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {

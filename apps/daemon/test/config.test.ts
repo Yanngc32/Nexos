@@ -1,6 +1,26 @@
+import { writeFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { loadConfig, saveConfig } from "../src/config.ts";
+import { configPath } from "../src/home.ts";
 import { tempHome } from "./helpers.ts";
+
+describe("config corrompido", () => {
+  it("config.json truncado (0 bytes) não derruba o daemon — volta pro padrão", () => {
+    const home = tempHome();
+    loadConfig(home); // cria o arquivo
+    writeFileSync(configPath(home), "", "utf8"); // simula crash no meio de uma escrita
+    expect(() => loadConfig(home)).not.toThrow();
+    expect(loadConfig(home)).toMatchObject({ port: 7432, accent: "#4d9cd6" });
+  });
+
+  it("config.json com lixo (JSON inválido) também recupera pro padrão", () => {
+    const home = tempHome();
+    loadConfig(home);
+    writeFileSync(configPath(home), "{not json", "utf8");
+    expect(() => loadConfig(home)).not.toThrow();
+    expect(loadConfig(home).port).toBe(7432);
+  });
+});
 
 describe("config accent", () => {
   it("grava hex válido e ignora lixo", () => {

@@ -1307,15 +1307,63 @@ body[data-focus="1"] .chat-head {
 .effort {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex: 0 1 auto;
   min-width: 0;
 }
 
+/* trilha preenchida até a bolinha via gradiente (--fill vem do JS a cada mudança) — o
+   ::-webkit-slider-runnable-track fica transparente pra deixar o gradiente do próprio
+   elemento aparecer por baixo. */
 .effort input[type="range"] {
-  width: 72px;
+  appearance: none;
+  width: 84px;
+  height: 4px;
   flex: 0 0 auto;
-  accent-color: var(--accent);
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--accent) var(--fill, 0%),
+    #3a3a3a var(--fill, 0%),
+    #3a3a3a 100%
+  );
+  cursor: pointer;
+}
+
+.effort input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.effort input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .4);
+  cursor: pointer;
+  transition: transform .12s ease;
+}
+
+.effort input[type="range"]:hover:not(:disabled)::-webkit-slider-thumb {
+  transform: scale(1.2);
+}
+
+.effort input[type="range"]:disabled {
+  opacity: .4;
+  cursor: default;
+}
+
+.effort input[type="range"]:focus-visible {
+  outline: none;
+}
+
+.effort input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .effort-label {
@@ -1324,14 +1372,17 @@ body[data-focus="1"] .chat-head {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* nunca mais corta "Esforço: muito alto" — quem cede espaço primeiro são os selects ao lado. */
+  flex: 0 0 auto;
+  min-width: 15ch;
 }
 
-/* pane estreito: o slider fica, o rótulo sai (o title do controle explica) */
-@container (max-width: 430px) {
-  .effort-label {
-    display: none;
-  }
-}
+/*
+ * Essa regra existia pra sumir o rótulo do esforço quando a barra ficava estreita — mas agora
+ * `initBarOverflow` (renderer.js) já move o controle inteiro pro painel "⋯" bem antes disso
+ * (520px), e lá dentro sempre tem espaço de sobra pro rótulo. Contido morto: apagado, não só
+ * desligado, pra não confundir o próximo que mexer aqui.
+ */
 
 /* ---------- markdown do chat ---------- */
 .log .md > *:first-child {
@@ -1544,13 +1595,22 @@ li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
 .pergunta-who { color: var(--accent); }
 .pergunta-texto { margin: 4px 0 10px; font-weight: 600; white-space: pre-wrap; }
 
-.pergunta-opcoes { display: flex; flex-wrap: wrap; gap: 8px; }
+/*
+ * Coluna, não pílulas lado a lado: as opções do `nexo_perguntar` costumam ser frases inteiras,
+ * não palavras soltas — pílula com `border-radius: 999px` e `flex-wrap` deixava cada uma com uma
+ * largura diferente (do tamanho do próprio texto) e as linhas ficavam desalinhadas. Bloco cheio
+ * da largura da bolha resolve os dois problemas de uma vez: toda opção tem a MESMA largura,
+ * sempre, não importa o tamanho do texto dela.
+ */
+.pergunta-opcoes { display: flex; flex-direction: column; gap: 8px; }
 .pergunta-opcao {
+  width: 100%;
   font: inherit;
+  text-align: left;
   cursor: pointer;
   border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 6px 14px;
+  border-radius: 10px;
+  padding: 8px 14px;
   background: var(--bg);
   color: var(--text);
   transition: border-color .15s, background .15s, transform .1s;
@@ -1626,7 +1686,7 @@ li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
 /* medidor no canto superior direito do chat: fios das sessões + % da cota + bolinha do contexto */
 .meter {
   position: absolute;
-  top: 6px;
+  top: 3px;
   right: 12px;
   z-index: 4;
   line-height: 0;
@@ -1638,7 +1698,9 @@ li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
   gap: 8px;
   padding: 3px 6px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  /* opaco de propósito: fundo translúcido deixava a linha de texto do chat, rolando por
+     baixo, aparecer através do medidor (o anel de contexto é o que mais chamava atenção). */
+  background: var(--bg);
   cursor: pointer;
 }
 
@@ -1834,24 +1896,50 @@ li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
   overflow-wrap: anywhere;
 }
 
-/* mesma caixa do #composer, pra ficar alinhada com o campo de texto */
+/*
+ * Vive dentro da faixa reservada pro maguinho (`.composer-wrap`'s `padding-top: 70px`), à
+ * esquerda dele — não mais uma barra full-width empurrando o composer pra baixo. Cartão
+ * compacto, com teto de largura próprio: `white-space: nowrap` + `text-overflow: ellipsis`
+ * garantem que ele NUNCA força rolagem horizontal, não importa o tamanho do verbo ou da conta.
+ */
 .think-bar {
+  position: absolute;
+  left: 0;
+  /* altura de conteúdo, não a faixa toda do maguinho — centralizado nela, não esticado */
+  top: 50%;
+  transform: translateY(-50%);
+  /* 10px (offset do maguinho) + 55px (largura dele) + 10px de respiro */
+  max-width: calc(100% - 75px);
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: calc(100% - 48px);
-  max-width: 760px;
-  margin: 6px auto 0;
-  padding: 0 14px 2px;
-  font-size: 12px;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--elev);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  font-size: 11px;
   color: var(--muted);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.think-word,
+.think-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.think-meta {
+  /* o verbo (think-word) nunca corta; se faltar espaço, quem cede é o "· 68s · N tokens · esc…" */
+  min-width: 0;
 }
 
 .think-glyph {
   display: inline-block;
   width: 12px;
   text-align: center;
-  color: var(--danger);
+  /* acento, não vermelho — pensando não é erro, é o mesmo "em andamento" do resto do app */
+  color: var(--accent);
   animation: think-spin 2.4s linear infinite, think-pulse 1.1s ease-in-out infinite;
 }
 
@@ -1940,7 +2028,10 @@ li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
 
 .log {
   flex: 1;
-  overflow: auto;
+  /* nunca rola de lado: texto sem espaço (URL, path, token longo) tem que quebrar, não empurrar
+     a página — cada bolha já trata `overflow-wrap`, isto é só o cinto de segurança do container. */
+  overflow-x: hidden;
+  overflow-y: auto;
   margin: 0 auto;
   padding: 28px 24px 12px;
   max-width: 760px;
@@ -2032,7 +2123,7 @@ textarea:focus {
   flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 8px 46px 8px 10px;
   min-width: 0;
   border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
 }
@@ -2064,14 +2155,33 @@ textarea:focus {
   flex: 0 0 auto;
 }
 
-.bar #btn-abort,
-.bar #btn-send {
-  margin-left: auto;
+/*
+ * Enviar/Parar saem da linha de controles e flutuam no canto do cartão — mesma ideia do
+ * composer do Claude: a ação principal não compete por espaço com conta/modelo/modo, e sobra
+ * mais largura pra eles antes de precisar cortar (ver as camadas de @container abaixo).
+ */
+.send-fab {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-/* com Parar visível, só ele empurra — senão abriria um vão no meio */
-.bar #btn-abort:not(.hidden) ~ #btn-send {
-  margin-left: 0;
+.send-fab .ico {
+  width: 15px;
+  height: 15px;
+  color: inherit;
+}
+
+.send-fab.primary:disabled {
+  background: var(--elev);
+  color: var(--muted);
 }
 
 .bar .ghost.ico-only {
@@ -2080,15 +2190,44 @@ textarea:focus {
   padding: 5px 8px;
 }
 
-/* pane estreito: corta o que é opcional antes de espremer o Enviar */
-@container (max-width: 520px) {
-  .bar select {
-    max-width: 120px;
-  }
+/*
+ * Pane estreito: modelo, modo e esforço se mudam de casa juntos — do meio da barra pra dentro do
+ * "⋯" (ver initBarOverflow, renderer.js) — em vez de sumirem sem aviso. Um select truncado em
+ * "cla…"/"S…"/"Ig…" não informa nada, mas fazer o controle desaparecer de vez também não: quem
+ * abrir o "⋯" encontra tudo continuando ali, só arrumado num menu em vez de espremido numa linha.
+ * Conta e Enviar nunca saem da barra — sem saber quem responde a conversa não faz sentido.
+ */
+.bar-more {
+  font-size: 15px;
+  line-height: 1;
+}
 
-  .effort {
-    display: none;
-  }
+.bar-more-panel {
+  position: absolute;
+  right: 10px;
+  bottom: 46px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  min-width: 260px;
+  background: #222;
+  border: 1px solid #3a3a3a;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+}
+
+.bar-more-panel select {
+  width: 100%;
+  max-width: none;
+  background-color: var(--bg);
+  border-color: #3a3a3a;
+}
+
+.bar-more-panel .effort {
+  border-left: none;
+  padding-left: 0;
 }
 
 /* ---- selects: chevron desenhado no lugar do controle nativo, mesmo comportamento no app todo ---- */
@@ -2609,6 +2748,64 @@ button:disabled {
   align-items: stretch;
   max-width: none;
   width: 100%;
+}
+
+.accounts-manage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.accounts-manage-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.accounts-manage-id {
+  flex: 0 0 auto;
+  font-weight: 600;
+  font-size: 13px;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accounts-manage-engine {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--elev);
+}
+
+.accounts-manage-nick {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.accounts-manage-row .ghost {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+.accounts-manage-row .danger {
+  color: var(--danger);
+}
+
+.accounts-manage-row .danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
 }
 
 .set-row.col .set-ctl {

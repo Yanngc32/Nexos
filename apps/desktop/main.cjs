@@ -338,6 +338,7 @@ function createWindow() {
     minHeight: SHOT ? 0 : 560,
     backgroundColor: "#181818",
     title: "Nexo",
+    icon: join(here, "icons", "app.png"),
     webPreferences: {
       preload: join(here, "preload.cjs"),
       sandbox: false,
@@ -533,9 +534,10 @@ function toggleWidget() {
 }
 
 function createTray() {
-  const img = nativeImage.createFromDataURL(
-    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAMUlEQVRYR+3QQREAIAwDsf+hdQoYgQxs7k0qZWb2z+wHAQIECBAgQIAAAQIECBAg8G/gAGbDAQGPYNqTAAAAAElFTkSuQmCC",
-  );
+  // Era um PNG minúsculo embutido (praticamente em branco) — invisível na bandeja escura do
+  // Windows. Agora é o maguinho (claro, contrasta com fundo escuro), recortado de
+  // pets/nexo/mago/idle.png pelo bake.py e já salvo nos tamanhos certos em icons/.
+  const img = nativeImage.createFromPath(join(here, "icons", "tray-32.png"));
   tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img);
   tray.setToolTip("Nexo");
   tray.setContextMenu(

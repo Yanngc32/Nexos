@@ -568,12 +568,12 @@
             <div id="meter-all" class="meter-all hidden"></div>
           </div>
         </div>
-        <div id="think-bar" class="think-bar hidden" aria-live="polite">
-          <span class="think-glyph" id="think-glyph">✳</span>
-          <span class="think-word" id="think-word">Pensando</span>
-          <span class="think-meta" id="think-meta"></span>
-        </div>
         <div class="composer-wrap">
+          <div id="think-bar" class="think-bar hidden" aria-live="polite">
+            <span class="think-glyph" id="think-glyph">✳</span>
+            <span class="think-word" id="think-word">Pensando</span>
+            <span class="think-meta" id="think-meta"></span>
+          </div>
           <div id="pet-stage" class="pet-stage" title="Motor desligado" data-state="off">
             <canvas
               id="pet-sprite"
@@ -624,7 +624,9 @@
               title="Anexar imagem (ou Ctrl+V)"
               aria-label="Anexar imagem"
             >
-              📎
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+              </svg>
             </button>
             <input
               type="file"
@@ -633,9 +635,29 @@
               multiple
               hidden
             />
-            <button type="button" id="btn-abort" class="ghost hidden">Parar</button>
-            <button type="submit" class="primary" id="btn-send" disabled>Enviar</button>
+            <button
+              type="button"
+              id="btn-bar-more"
+              class="ghost ico-only bar-more hidden"
+              title="Modelo, modo e esforço"
+              aria-label="Mais opções"
+              aria-expanded="false"
+            >
+              ⋯
+            </button>
           </div>
+          <div id="bar-more-panel" class="bar-more-panel hidden"></div>
+          <button type="button" id="btn-abort" class="send-fab ghost hidden" title="Parar" aria-label="Parar">
+            <svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+          </button>
+          <button type="submit" class="send-fab primary" id="btn-send" disabled title="Enviar" aria-label="Enviar">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M12 19V5" />
+              <path d="M6 11l6-6 6 6" />
+            </svg>
+          </button>
         </form>
         </div>
       </section>
@@ -763,6 +785,16 @@
             </section>
             <section class="set-sec hidden" data-panel="contas">
               <h3>Contas</h3>
+              <div class="set-row col">
+                <div class="set-txt">
+                  <h4>Gerenciar contas</h4>
+                  <p>Apelido é só de exibição — o id continua identificando a conta por baixo.</p>
+                  <p id="accounts-manage-err" class="set-err"></p>
+                </div>
+                <div class="set-ctl col">
+                  <div id="accounts-manage-list" class="accounts-manage-list"></div>
+                </div>
+              </div>
               <div class="set-row">
                 <div class="set-txt">
                   <h4>Nova conta</h4>

@@ -105,7 +105,10 @@ export type ProfilePatch = {
   permissionMode?: string | null;
   allowedTools?: string[] | null;
   delegacaoModo?: string | null;
+  nickname?: string | null;
 };
+
+const NICKNAME_MAX = 40;
 
 /** Modelo, esforço e modo de permissão vão como argv do CLI: valida em vez de confiar. */
 export function updateProfile(id: string, home: string, patch: ProfilePatch): Profile {
@@ -143,6 +146,12 @@ export function updateProfile(id: string, home: string, patch: ProfilePatch): Pr
     if (!modo) delete next.delegacaoModo;
     else if (!DELEGACAO_MODOS.includes(modo as DelegacaoModo)) throw new Error(`modo de delegação inválido: ${modo}`);
     else next.delegacaoModo = modo as DelegacaoModo;
+  }
+  if (patch.nickname !== undefined) {
+    const nickname = (patch.nickname ?? "").trim();
+    if (!nickname) delete next.nickname;
+    else if (nickname.length > NICKNAME_MAX) throw new Error(`apelido passa de ${NICKNAME_MAX} caracteres`);
+    else next.nickname = nickname;
   }
   writeFileSync(profileJsonPath(id, home), JSON.stringify(next, null, 2), "utf8");
   return next;

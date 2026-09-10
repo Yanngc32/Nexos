@@ -1092,6 +1092,13 @@ function needsLogin(p = selectedProfile()) {
 const EFFORT_STEPS = ["", "low", "medium", "high", "xhigh", "max"];
 const EFFORT_NAMES = ["padrão", "baixo", "médio", "alto", "muito alto", "máximo"];
 
+/** Pinta o trecho preenchido da trilha (0–100%) — CSS lê isso em `--fill` (ver styles.css). */
+function pintarEffortFill(range) {
+  const max = Number(range.max) || 1;
+  const pct = (Number(range.value) / max) * 100;
+  range.style.setProperty("--fill", `${pct}%`);
+}
+
 function setVia() {
   const sel = $("profile-select");
   if (sel && state.profileId) sel.value = state.profileId;
@@ -1114,6 +1121,7 @@ function syncEngineControls() {
   if (!isClaude) {
     model.value = "";
     range.value = "0";
+    pintarEffortFill(range);
     mode.value = "";
     label.textContent = p?.engine === "api" ? `Modelo: ${p.model || "da conta"}` : "Esforço: n/a";
     model.title = "Só o motor claude aceita escolha de modelo aqui.";
@@ -1126,6 +1134,7 @@ function syncEngineControls() {
   mode.value = MODE_VALUES.includes(p.permissionMode || "") ? p.permissionMode || "" : "";
   const idx = Math.max(0, EFFORT_STEPS.indexOf(p.effort || ""));
   range.value = String(idx);
+  pintarEffortFill(range);
   label.textContent = `Esforço: ${EFFORT_NAMES[idx]}`;
 }
 
@@ -1931,13 +1940,15 @@ async function loadProfiles() {
   for (const p of list) {
     const opt = document.createElement("option");
     opt.value = p.id;
-    opt.textContent = p.status === "ready" ? `${p.id} · ${p.engine}` : `${p.id} · ${p.engine} · login`;
+    const nome = p.nickname || p.id;
+    opt.textContent = p.status === "ready" ? `${nome} · ${p.engine}` : `${nome} · ${p.engine} · login`;
     sel.append(opt);
   }
   if (state.profileId) sel.value = state.profileId;
   syncLoginBtn();
   paintAllowList();
   paintDelegList();
+  renderAccountsManage();
 }
 
 /**
@@ -2050,6 +2061,88 @@ function syncDelegModo() {
   $("deleg-modo").disabled = !p;
   $("btn-deleg-save").disabled = !p;
   $("deleg-err").textContent = "";
+}
+
+/** Apelido/relogar/apagar — uma linha por conta, montada do zero a cada `loadProfiles`. */
+function renderAccountsManage() {
+  const box = $("accounts-manage-list");
+  if (!box) return;
+  box.replaceChildren();
+  for (const p of state.profiles) {
+    const row = document.createElement("div");
+    row.className = "accounts-manage-row";
+
+    const id = document.createElement("span");
+    id.className = "accounts-manage-id";
+    id.textContent = p.id;
+    id.title = p.id;
+
+    const engine = document.createElement("span");
+    engine.className = "accounts-manage-engine";
+    engine.textContent = p.engine;
+
+    const nick = document.createElement("input");
+    nick.type = "text";
+    nick.className = "accounts-manage-nick";
+    nick.placeholder = "apelido (opcional)";
+    nick.maxLength = 40;
+    nick.value = p.nickname || "";
+    nick.addEventListener("change", () => void salvarNickname(p.id, nick.value.trim(), nick));
+
+    row.append(id, engine, nick);
+
+    if (p.engine === "claude" || p.engine === "codex") {
+      const relogar = document.createElement("button");
+      relogar.type = "button";
+      relogar.className = "ghost";
+      relogar.textContent = "Relogar";
+      relogar.addEventListener("click", () => void startLogin(p.id));
+      row.append(relogar);
+    }
+
+    const apagar = document.createElement("button");
+    apagar.type = "button";
+    apagar.className = "ghost danger";
+    apagar.textContent = "Apagar";
+    apagar.addEventListener("click", () => void apagarConta(p.id));
+    row.append(apagar);
+
+    box.append(row);
+  }
+}
+
+async function salvarNickname(id, nickname, input) {
+  const err = $("accounts-manage-err");
+  err.textContent = "";
+  try {
+    const next = await req(`/v1/profiles/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ nickname }),
+    });
+    state.profiles = state.profiles.map((p) => (p.id === next.id ? next : p));
+    state.fpProfiles = "";
+  } catch (e) {
+    err.textContent = e.message || "Não deu pra salvar o apelido.";
+    input.value = state.profiles.find((p) => p.id === id)?.nickname || "";
+  }
+}
+
+async function apagarConta(id) {
+  const ok = window.confirm(`Apagar a conta "${id}"? Isso remove o login salvo — não dá pra desfazer.`);
+  if (!ok) return;
+  const err = $("accounts-manage-err");
+  err.textContent = "";
+  try {
+    await req(`/v1/profiles/${encodeURIComponent(id)}`, { method: "DELETE" });
+    state.profiles = state.profiles.filter((p) => p.id !== id);
+    state.fpProfiles = "";
+    if (state.profileId === id) state.profileId = state.profiles[0]?.id || "";
+    renderAccountsManage();
+    await loadProfiles();
+    setVia();
+  } catch (e) {
+    err.textContent = e.message || "Não deu pra apagar.";
+  }
 }
 
 async function loadThreads() {
@@ -2171,7 +2264,8 @@ function renderRepoTree() {
       li.title = t.preview || "Conversa nova";
       const meta = document.createElement("span");
       meta.className = "stub-meta";
-      meta.textContent = busy ? "trabalhando…" : ago(t.updatedAt);
+      // Ocupado já tem o ponto pulsando do lado — "trabalhando…" escrito de novo é redundante.
+      meta.textContent = busy ? "" : ago(t.updatedAt);
       const del = document.createElement("button");
       del.type = "button";
       del.className = "ghost thread-del";
@@ -3927,6 +4021,7 @@ $("mode-select").addEventListener("change", (e) => {
 $("effort-range").addEventListener("input", (e) => {
   const idx = Number(e.target.value) || 0;
   $("effort-label").textContent = `Esforço: ${EFFORT_NAMES[idx]}`;
+  pintarEffortFill(e.target);
 });
 
 $("effort-range").addEventListener("change", (e) => {
@@ -5424,7 +5519,60 @@ window.addEventListener("resize", () => {
   if (state.view === "canvas" || (state.paletteOpen && state.previewId === "canvas")) resizeSketch();
 });
 
+/**
+ * Modelo, modo e esforço se mudam de casa quando a barra do composer fica estreita — pro "⋯"
+ * ("bar-more"), em vez de sumir sem aviso (era `display:none` puro em CSS antes). Move os
+ * elementos DE VERDADE (não clona): o `<select>` continua sendo o mesmo nó, com os mesmos
+ * listeners — só troca de container.
+ */
+function initBarOverflow() {
+  const composer = $("composer");
+  const bar = document.querySelector(".bar");
+  const btnMore = $("btn-bar-more");
+  const panel = $("bar-more-panel");
+  const anchor = $("btn-attach");
+  const itens = [$("model-select"), $("mode-select"), document.querySelector(".effort")].filter(Boolean);
+  if (!composer || !bar || !btnMore || !panel || !anchor || !itens.length) return;
+  const LIMIAR = 520;
+  let empilhado = false;
+
+  function fecharPainel() {
+    panel.classList.add("hidden");
+    btnMore.setAttribute("aria-expanded", "false");
+  }
+
+  function aplicar(empilhar) {
+    if (empilhar === empilhado) return;
+    empilhado = empilhar;
+    if (empilhar) {
+      for (const el of itens) panel.append(el);
+    } else {
+      for (const el of itens) bar.insertBefore(el, anchor);
+      fecharPainel();
+    }
+    btnMore.classList.toggle("hidden", !empilhar);
+  }
+
+  new ResizeObserver((entries) => {
+    const largura = entries[0]?.contentRect.width ?? composer.clientWidth;
+    aplicar(largura < LIMIAR);
+  }).observe(composer);
+
+  btnMore.addEventListener("click", () => {
+    const abrir = panel.classList.contains("hidden");
+    panel.classList.toggle("hidden", !abrir);
+    btnMore.setAttribute("aria-expanded", String(abrir));
+  });
+
+  document.addEventListener("click", (e) => {
+    if (panel.classList.contains("hidden")) return;
+    if (panel.contains(e.target) || e.target === btnMore) return;
+    fecharPainel();
+  });
+}
+
 initCombobox();
+initBarOverflow();
 
 const bootAccent = new URLSearchParams(location.search).get("accent");
 applyAccent(HEX.test(bootAccent || "") ? bootAccent : localStorage.getItem("nexo.accent") || DEFAULT_ACCENT);

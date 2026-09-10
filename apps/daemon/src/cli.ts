@@ -17,7 +17,7 @@ import { ensureGraphifyInstalled } from "./graphify.ts";
 import { ensureCavemanInstalled, ensureRtkInstalled } from "./modules.ts";
 import { sincronizarGrafoAutomatico } from "./grafo-auto.ts";
 import { createThread, listThreads, readThread } from "./threads.ts";
-import { postMessage, sessionBus, switchThread } from "./session.ts";
+import { pingUsoDeTodasAsContas, postMessage, sessionBus, switchThread } from "./session.ts";
 import { loginProfile } from "./login.ts";
 import { pidPath, startDaemon, waitClosed } from "./server.ts";
 import { fecharTudo, pararDeManter } from "./escuta.ts";
@@ -57,6 +57,17 @@ async function cmdUp(): Promise<void> {
   // Síncrono e barato (só lê agents.json/hooks.json) — sem network, não precisa de fire-and-forget.
   const r = sincronizarGrafoAutomatico(home);
   if (!r.ok) console.error(`grafo automático: ${r.motivo}`);
+  /*
+   * Limite de uso (5h/7d) só vem junto da resposta de uma mensagem de verdade — não tem consulta
+   * de graça. Pinga toda conta claude/codex logada a cada 10min (e uma vez já na subida) pra o
+   * painel "Uso de todas as contas" não ficar preso em "sem dado ainda" pra quem não está
+   * conversando agora. Gasto real, pequeno, por conta — decisão explícita do usuário.
+   */
+  const PING_USO_MS = 10 * 60_000;
+  void pingUsoDeTodasAsContas(home).catch((e) => console.error("ping de uso:", (e as Error).message));
+  const pingUso = setInterval(() => {
+    void pingUsoDeTodasAsContas(home).catch((e) => console.error("ping de uso:", (e as Error).message));
+  }, PING_USO_MS);
   for (const f of started.falhas) {
     // túnel fora do ar é normal e ele volta sozinho; dizer o motivo evita que
     // "o celular não conecta" vire caça ao tesouro
@@ -68,6 +79,7 @@ async function cmdUp(): Promise<void> {
   }
   // serviço é filho nosso: não sobrevive ao daemon
   const shutdown = () => {
+    clearInterval(pingUso);
     stopAllServices();
     // os sockets extras seguram o event loop vivo: fechar só o principal
     // deixaria o processo pendurado pra sempre

@@ -15,6 +15,7 @@ import {
   IMPORT_WARNING,
   listProfiles,
   markReady,
+  removeProfile,
   updateProfile,
   type AddProfileInput,
 } from "./profiles.ts";
@@ -317,9 +318,20 @@ export function createApp(home: string, token: string): Hono {
       permissionMode?: string | null;
       allowedTools?: string[] | null;
       delegacaoModo?: string | null;
+      nickname?: string | null;
     };
     try {
       return c.json(updateProfile(c.req.param("id"), home, body));
+    } catch (e) {
+      const msg = (e as Error).message;
+      return c.json({ error: msg }, msg.includes("não existe") ? 404 : 400);
+    }
+  });
+
+  app.delete("/v1/profiles/:id", (c) => {
+    try {
+      removeProfile(c.req.param("id"), home);
+      return c.json({ ok: true });
     } catch (e) {
       const msg = (e as Error).message;
       return c.json({ error: msg }, msg.includes("não existe") ? 404 : 400);

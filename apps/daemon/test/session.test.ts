@@ -10,6 +10,7 @@ import {
   clearThread,
   getLive,
   limitsOf,
+  pingUsoDeTodasAsContas,
   postMessage,
   sessionBus,
   switchThread,
@@ -665,4 +666,37 @@ describe("janelaDaConta: de onde vem o número", () => {
     const p = addProfile({ id: "jc-4", engine: "claude" }, home, { skipBinCheck: true });
     expect(janelaDaConta(p, eventos(), undefined, home)).toBe(0);
   });
+});
+
+describe("pingUsoDeTodasAsContas", () => {
+  it("ignora contas api/stub e conta claude sem login — não trava, não tenta pingar", async () => {
+    const home = tempHome();
+    addProfile({ id: "s1", engine: "stub" }, home);
+    addProfile(
+      { id: "a1", engine: "api", api: { provider: "anthropic", model: "x" } },
+      home,
+      { apiKey: "sk-x" },
+    );
+    addProfile({ id: "c-sem-login", engine: "claude" }, home, { skipBinCheck: true });
+    await expect(pingUsoDeTodasAsContas(home)).resolves.toBeUndefined();
+    expect(limitsOf("s1")).toBeUndefined();
+    expect(limitsOf("a1")).toBeUndefined();
+    expect(limitsOf("c-sem-login")).toBeUndefined();
+  });
+
+  it("conta claude com credencial válida é pingada num motor descartável (sem gravar thread)", async () => {
+    const home = tempHome();
+    addProfile({ id: "c-ping", engine: "claude" }, home, { skipBinCheck: true });
+    const dir = engineEnv(getProfile("c-ping", home)!, home).CLAUDE_CONFIG_DIR!;
+    writeFileSync(join(dir, ".credentials.json"), liveCred(), "utf8");
+    process.env.NEXO_CLAUDE_BIN = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-claude.mjs");
+    try {
+      await pingUsoDeTodasAsContas(home);
+      // a fixture não emite `limits`, então o ponto aqui é: terminou sozinho (não travou até o
+      // timeout de 60s) e a conta virou "ready" pelo mesmo caminho de uma conversa de verdade.
+      expect(getProfile("c-ping", home)?.status).toBe("ready");
+    } finally {
+      delete process.env.NEXO_CLAUDE_BIN;
+    }
+  }, 10_000);
 });

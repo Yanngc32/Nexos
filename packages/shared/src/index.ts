@@ -50,6 +50,8 @@ export type Profile = {
   engine: EngineKind;
   createdAt: string;
   status: ProfileStatus;
+  /** Nome de exibição opcional — o `id` continua sendo a chave de verdade (pasta, seleção, etc.). */
+  nickname?: string;
   /** Quando o motor recebeu recusa de credencial. Só sai com credencial mais nova que isso. */
   authFailedAt?: string;
   /** Alias ou nome cheio do modelo; vazio = padrão do CLI. */

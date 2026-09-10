@@ -76,17 +76,25 @@ body {
 /* Botão dentro de área arrastável só clica se sair dela. */
 .x {
   -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
   border: 0;
+  border-radius: 5px;
   background: none;
   color: var(--muted);
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1;
-  padding: 0 2px;
+  padding: 0;
   cursor: pointer;
+  transition: background-color .12s ease, color .12s ease;
 }
 
 .x:hover {
   color: var(--text);
+  background: var(--line);
 }
 
 .bloco + .bloco {
@@ -240,6 +248,63 @@ body {
 .vazio {
   margin: 2px 0 0;
   color: var(--muted);
+}
+
+.rotulo {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.projetos,
+.voo {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.voo-linha {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.voo-nome {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voo-tempo {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.projeto-linha {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.projeto-nome {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projeto-count {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .hidden {

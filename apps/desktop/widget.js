@@ -1,7 +1,7 @@
 import { createApiClient } from "./api.js";
 import { fmtDuracao } from "./agent-trace.js";
 import { folderName } from "./format.js";
-import { aneisDeConta, doProjeto, emVoo, faixaDoRun, resumoMini } from "./widget-view.js";
+import { aneisDeConta, doProjeto, emVoo, faixaDoRun, porOutrosProjetos, resumoMini } from "./widget-view.js";
 
 /**
  * Painel flutuante: o caminhar das coisas, por cima de tudo.
@@ -30,6 +30,13 @@ const LARGURA_CHEIA = 264;
 const FOLGA = 2 * (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--folga")) || 10);
 
 const el = (id) => document.getElementById(id);
+
+const HEX = /^#[0-9a-fA-F]{6}$/;
+/** Mesmo acento escolhido na janela principal (Configurações → Aparência) — sem isso o painel
+ * flutuante ficava preso no azul padrão mesmo com a conta usando outra cor. */
+function aplicarAccent(hex) {
+  if (HEX.test(hex)) document.documentElement.style.setProperty("--accent", hex);
+}
 
 const api = createApiClient({ daemonInfo: () => window.nexo.daemonInfo() });
 
@@ -76,6 +83,28 @@ function pintarContas(contas) {
   mostrar("bl-contas", contas.length > 0);
 }
 
+function pintarProjetos(grupos) {
+  const box = el("projetos");
+  box.replaceChildren();
+  for (const g of grupos) {
+    const linha = document.createElement("div");
+    linha.className = "projeto-linha";
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    dot.dataset.on = "1";
+    const nome = document.createElement("span");
+    nome.className = "projeto-nome";
+    nome.textContent = folderName(g.projectPath);
+    const count = document.createElement("span");
+    count.className = "projeto-count";
+    count.textContent = `${g.agentes.length} ${g.agentes.length === 1 ? "conversa" : "conversas"}`;
+    linha.append(dot, nome, count);
+    linha.title = `${g.projectPath} — ${g.agentes.map((a) => a.agentName || a.profileId).join(", ")}`;
+    box.append(linha);
+  }
+  mostrar("bl-outros", grupos.length > 0);
+}
+
 function pintarRun(faixa) {
   mostrar("bl-run", Boolean(faixa));
   if (!faixa) return;
@@ -94,13 +123,33 @@ function pintarRun(faixa) {
   mostrar("run-custo", Boolean(custo));
 }
 
+/**
+ * Uma linha por conversa em voo — antes era um texto só ("N conversas: a, b, c") que ficava
+ * idêntico ao nome já mostrado no anel de conta logo abaixo (`bl-contas`), parecendo repetição.
+ * Aqui cada linha soma o que só ELA sabe: há quanto tempo está no ar.
+ */
 function pintarVoo(agentes) {
-  const n = agentes.length;
-  mostrar("bl-voo", n > 0);
-  if (!n) return;
-  const nomes = agentes.map((a) => a.agentName || a.profileId).join(", ");
-  el("voo-txt").textContent = `${n} ${n === 1 ? "conversa trabalhando" : "conversas trabalhando"}: ${nomes}`;
-  el("voo-txt").title = nomes;
+  const box = el("voo");
+  box.replaceChildren();
+  const agora = Date.now();
+  for (const a of agentes) {
+    const linha = document.createElement("div");
+    linha.className = "voo-linha";
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    dot.dataset.on = "1";
+    const nome = document.createElement("span");
+    nome.className = "voo-nome";
+    nome.textContent = a.agentName || a.profileId;
+    const tempo = document.createElement("span");
+    tempo.className = "voo-tempo";
+    tempo.textContent = a.startedAt ? fmtDuracao(Math.max(0, agora - a.startedAt)) : "";
+    linha.append(dot, nome, tempo);
+    // o rabo da saída não cabe na linha, mas continua legível ao pousar o mouse
+    if (a.tail) linha.title = a.tail.trim().slice(-160);
+    box.append(linha);
+  }
+  mostrar("bl-voo", agentes.length > 0);
 }
 
 function pintarMini(r) {
@@ -109,7 +158,7 @@ function pintarMini(r) {
   // sem passos ainda, o tempo já diz que algo anda; quieto ganha o traço, que
   // ocupa a mesma linha e evita uma pílula de altura estranha
   el("mini-passos").textContent = r.passos || (r.quieto ? "—" : "");
-  el("mini-ms").textContent = r.ms ? fmtDuracao(r.ms) : "";
+  el("mini-ms").textContent = r.ms ? fmtDuracao(r.ms) : r.quemTrabalha || "";
   // o que a pílula não mostra continua legível ao pousar o mouse
   el("bl-mini").title = r.tituloStatus;
   mostrar("mini-quota", Boolean(r.quota));
@@ -182,11 +231,13 @@ async function atualizar() {
      * é aqui; a QUOTA não filtra, porque é da conta e não do projeto.
      */
     const projeto = await window.nexo.cwd().catch(() => "");
-    const [run, contas, agentes] = await Promise.all([
+    const [run, contas, agentes, cfg] = await Promise.all([
       api.req(`/v1/runs/atual${projeto ? `?projectPath=${encodeURIComponent(projeto)}` : ""}`),
       api.req("/v1/accounts/limits"),
       api.req("/v1/agents"),
+      api.req("/v1/config").catch(() => null),
     ]);
+    if (cfg?.accent) aplicarAccent(cfg.accent);
     ultimo = { run, contas, agentes, projeto };
     // o cabeçalho diz DE QUAL projeto é o que está abaixo: "Nexo" ali não
     // informava nada, e com dois projetos abertos a faixa ficava ambígua
@@ -206,13 +257,15 @@ function repintar() {
   const agentes = doProjeto(ultimo.agentes, ultimo.projeto);
   const emVooAgora = emVoo(agentes, faixa?.rodando ? faixa.id : "");
   const aneis = aneisDeConta(ultimo.contas);
+  const outrosProjetos = porOutrosProjetos(ultimo.agentes, ultimo.projeto);
   pintarRun(faixa);
   pintarVoo(emVooAgora);
   pintarContas(aneis);
+  pintarProjetos(outrosProjetos);
   // as duas versões são pintadas sempre: o CSS escolhe qual aparece, e assim
   // voltar do mini não espera o próximo poll pra ter conteúdo
-  pintarMini(resumoMini(faixa, emVooAgora, aneis));
-  mostrar("vazio", !faixa && !emVooAgora.length && !aneis.length);
+  pintarMini(resumoMini(faixa, emVooAgora, aneis, outrosProjetos));
+  mostrar("vazio", !faixa && !emVooAgora.length && !aneis.length && !outrosProjetos.length);
   ajustarJanela();
 }
 

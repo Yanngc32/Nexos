@@ -346,6 +346,44 @@ describe("http accounts", () => {
     expect(badMode.status).toBe(400);
   });
 
+  it("PATCH salva apelido, barra passar do limite, e string vazia apaga", async () => {
+    const home = tempHome();
+    const app = createApp(home, "t");
+    addProfile({ id: "c-nick", engine: "claude" }, home, { skipBinCheck: true });
+    const ok = await app.request("/v1/profiles/c-nick", {
+      method: "PATCH",
+      headers: { authorization: "Bearer t", "content-type": "application/json" },
+      body: JSON.stringify({ nickname: "Conta do trabalho" }),
+    });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toMatchObject({ nickname: "Conta do trabalho" });
+    const longo = await app.request("/v1/profiles/c-nick", {
+      method: "PATCH",
+      headers: { authorization: "Bearer t", "content-type": "application/json" },
+      body: JSON.stringify({ nickname: "x".repeat(41) }),
+    });
+    expect(longo.status).toBe(400);
+    const limpo = await app.request("/v1/profiles/c-nick", {
+      method: "PATCH",
+      headers: { authorization: "Bearer t", "content-type": "application/json" },
+      body: JSON.stringify({ nickname: "" }),
+    });
+    expect(limpo.status).toBe(200);
+    expect(await limpo.json()).not.toHaveProperty("nickname");
+  });
+
+  it("DELETE apaga a conta; conta inexistente é 404", async () => {
+    const home = tempHome();
+    const app = createApp(home, "t");
+    addProfile({ id: "c-del", engine: "claude" }, home, { skipBinCheck: true });
+    const ok = await app.request("/v1/profiles/c-del", { method: "DELETE", headers: { authorization: "Bearer t" } });
+    expect(ok.status).toBe(200);
+    const sumiu = await app.request("/v1/profiles/c-del", { headers: { authorization: "Bearer t" } });
+    expect(sumiu.status).toBe(404);
+    const denovo = await app.request("/v1/profiles/c-del", { method: "DELETE", headers: { authorization: "Bearer t" } });
+    expect(denovo.status).toBe(404);
+  });
+
   it("login in-app: start devolve URL e code loga", async () => {
     const home = tempHome();
     const app = createApp(home, "t");

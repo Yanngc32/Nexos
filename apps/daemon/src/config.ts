@@ -1,15 +1,43 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { CAVEMAN_NIVEIS, DEFAULT_CONFIG, SWITCH_MODES, type CavemanNivel, type NexoConfig, type SwitchMode } from "@nexo/shared";
 import { configPath, ensureHome } from "./home.ts";
+
+/**
+ * `writeFileSync` direto no arquivo final deixa uma janela: processo morto (crash, kill, o
+ * usuário fechando o daemon pela bandeja) bem no meio da escrita trunca `config.json` — e como
+ * TODA rota chama `loadConfig`, um config truncado derrubava o daemon de novo a cada tentativa
+ * de subir, sem forma de se recuperar sozinho. Escrever num arquivo temporário e mover por cima
+ * (`rename`) é atômico no mesmo volume: ou o config velho continua inteiro, ou o novo já está
+ * inteiro — nunca um meio-termo corrompido.
+ */
+function writeJsonAtomico(path: string, data: unknown): void {
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(data, null, 2), "utf8");
+  renameSync(tmp, path);
+}
 
 export function loadConfig(home: string): NexoConfig {
   ensureHome(home);
   const path = configPath(home);
   if (!existsSync(path)) {
-    writeFileSync(path, JSON.stringify(DEFAULT_CONFIG, null, 2), "utf8");
+    writeJsonAtomico(path, DEFAULT_CONFIG);
     return { ...DEFAULT_CONFIG, pack: { ...DEFAULT_CONFIG.pack }, accent: DEFAULT_CONFIG.accent };
   }
-  const raw = JSON.parse(readFileSync(path, "utf8")) as Partial<NexoConfig>;
+  let raw: Partial<NexoConfig>;
+  try {
+    raw = JSON.parse(readFileSync(path, "utf8")) as Partial<NexoConfig>;
+  } catch (e) {
+    /*
+     * `config.json` truncado/corrompido (ex.: processo morto no meio de um `writeFileSync`) não
+     * pode derrubar o daemon inteiro — sem isso, TODA rota chama `loadConfig` e o motor nunca
+     * mais volta a subir sozinho, porque cai nesta mesma exceção a cada tentativa. Cai pro
+     * padrão e regrava o arquivo, igual ao caminho de "arquivo não existe" acima — perde a
+     * config antiga (já estava ilegível mesmo), mas o daemon volta a responder.
+     */
+    console.error(`config.json corrompido (${(e as Error).message}) — voltando ao padrão`);
+    writeJsonAtomico(path, DEFAULT_CONFIG);
+    raw = {};
+  }
   return {
     port: raw.port ?? DEFAULT_CONFIG.port,
     host: isHost(raw.host) ? raw.host : DEFAULT_CONFIG.host,
@@ -122,6 +150,6 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
           : str(patch.modulos.grafoAutoProfileId),
     },
   };
-  writeFileSync(configPath(home), JSON.stringify(next, null, 2), "utf8");
+  writeJsonAtomico(configPath(home), next);
   return next;
 }
