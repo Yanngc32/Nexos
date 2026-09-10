@@ -1,4 +1,5 @@
 import type { EngineEvent } from "@nexo/shared";
+import { AUTH_STATUS_RE, isAuthText, prettyAuth } from "./parse-claude.ts";
 
 /**
  * O stream do `codex exec --json`.
@@ -138,7 +139,11 @@ export function parseCodexLine(linha: string): EngineEvent[] {
   // o canal fatal de verdade
   if (tipo === "turn.failed") {
     const err = (obj.error ?? {}) as Record<string, unknown>;
-    return [{ type: "error", message: texto(err.message) || texto(obj.message) || "o codex encerrou o turno com falha" }];
+    const msg = texto(err.message) || texto(obj.message) || "o codex encerrou o turno com falha";
+    // sessão OAuth vencida/revogada: sem isso o daemon repete "motor morreu" pra sempre,
+    // porque nunca marca o perfil como precisando de login de novo (ver markAuthFailed).
+    if (isAuthText(msg) || AUTH_STATUS_RE.test(msg)) return [{ type: "auth", detail: prettyAuth(msg) }];
+    return [{ type: "error", message: msg }];
   }
 
   /*

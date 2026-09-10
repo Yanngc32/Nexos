@@ -53,6 +53,8 @@ const state = {
   threadId: localStorage.getItem("nexo.thread") || "",
   profileId: "",
   profiles: [],
+  /** Catálogo real de modelos do codex por perfil (ver /v1/profiles/:id/codex-models). `undefined` = ainda não pediu. */
+  codexModels: {},
   pendingQuota: null,
   abortSse: null,
   fpThreads: "",
@@ -76,6 +78,7 @@ const state = {
     model: "",
     effort: "",
     permissionMode: "",
+    sandboxMode: "",
     sessionModel: "",
     sessionId: "",
   },
@@ -421,9 +424,69 @@ function persistAccent(hex) {
 }
 
 const MODEL_OPTION_VALUES = ["", "opus", "sonnet", "haiku", "fable"];
+const CLAUDE_MODEL_ENTRIES = [
+  { value: "", label: "Modelo: padrão" },
+  { value: "opus", label: "Opus" },
+  { value: "sonnet", label: "Sonnet" },
+  { value: "haiku", label: "Haiku" },
+  { value: "fable", label: "Fable" },
+];
 /** Mesma ordem do <select id="mode-select">: valor do CLI -> rótulo. */
 const MODE_VALUES = ["", "auto", "manual", "acceptEdits", "plan", "bypassPermissions"];
 const MODE_NAMES = ["padrão", "automático", "manual", "aceitar edições", "planejar", "ignorar permissões"];
+const CLAUDE_MODE_ENTRIES = [
+  { value: "", label: "Modo: padrão" },
+  { value: "auto", label: "Automático", title: "Claude gerencia decisões de permissão" },
+  { value: "manual", label: "Manual", title: "Sempre perguntar antes de fazer alterações" },
+  { value: "acceptEdits", label: "Aceitar edições", title: "Aceitar automaticamente todas as edições" },
+  { value: "plan", label: "Planejar", title: "Criar um plano antes de fazer alterações" },
+  { value: "bypassPermissions", label: "Ignorar permissões", title: "Aceita todas as permissões" },
+];
+
+/**
+ * Modelo do codex é string livre (o catálogo real tem slug tipo `gpt-5.6-terra`,
+ * não 4 aliases fixos) — por isso o valor especial abaixo abre o campo de texto
+ * `#model-custom` em vez de forçar tudo num <select>.
+ */
+const CODEX_CUSTOM_MODEL = "__custom__";
+/** Sandbox é a política real do `codex exec -s`; ver `codexFlags` em cli.ts do daemon. */
+const CODEX_SANDBOX_ENTRIES = [
+  { value: "", label: "Modo: padrão" },
+  { value: "read-only", label: "Somente leitura", title: "Comando roda sem poder escrever nada" },
+  { value: "workspace-write", label: "Leitura e escrita", title: "Comando pode escrever na pasta do projeto" },
+  {
+    value: "danger-full-access",
+    label: "Acesso total (perigoso)",
+    title: "Sem sandbox — comando pode tocar a máquina inteira",
+  },
+];
+const CODEX_SANDBOX_LABELS = Object.fromEntries(CODEX_SANDBOX_ENTRIES.filter((e) => e.value).map((e) => [e.value, e.label]));
+/** Esforço genérico quando o modelo escolhido é custom ou o catálogo ainda não chegou. */
+const CODEX_EFFORT_FALLBACK = ["low", "medium", "high"];
+/** Rótulo de esforço por valor — cobre os dois motores, sem depender da ordem de um array fixo. */
+const EFFORT_LABELS = { low: "baixo", medium: "médio", high: "alto", xhigh: "muito alto", max: "máximo", ultra: "ultra" };
+function effortLabel(effort) {
+  return effort ? EFFORT_LABELS[effort] || effort : "padrão";
+}
+
+/**
+ * Busca o catálogo real de modelos do codex por perfil (ver /v1/profiles/:id/codex-models no
+ * daemon). Só o resultado NÃO-VAZIO fica em cache pra sempre: `models_cache.json` só existe
+ * depois do primeiro login/turno, então um perfil recém-criado busca vazio primeiro — sem
+ * refazer a busca depois, o catálogo nunca apareceria até reiniciar o app inteiro.
+ */
+async function loadCodexModels(profileId) {
+  const atual = state.codexModels[profileId];
+  if (!profileId || atual === null || (Array.isArray(atual) && atual.length)) return;
+  state.codexModels[profileId] = null; // marca "pedido em voo" pra não disparar fetch duplicado
+  try {
+    const { models } = await req(`/v1/profiles/${encodeURIComponent(profileId)}/codex-models`);
+    state.codexModels[profileId] = Array.isArray(models) ? models : [];
+  } catch {
+    state.codexModels[profileId] = [];
+  }
+  if (selectedProfile()?.id === profileId) syncEngineControls();
+}
 
 const SIDE_MIN = 56;
 const SIDE_MINI_AT = 150;
@@ -620,11 +683,13 @@ function paintLimits() {
 function paintFacts() {
   const m = state.meter;
   const t = m.totals;
-  const idx = Math.max(0, EFFORT_STEPS.indexOf(m.effort || ""));
+  const engineAtivo = selectedProfile()?.engine;
   $("fact-model").textContent = m.model || m.sessionModel || "padrão do CLI";
-  $("fact-effort").textContent = `${EFFORT_NAMES[idx]}${m.effort ? ` (${m.effort})` : ""}`;
+  $("fact-effort").textContent = `${effortLabel(m.effort)}${m.effort ? ` (${m.effort})` : ""}`;
+  const modeVal = engineAtivo === "codex" ? m.sandboxMode : m.permissionMode;
   const mi = Math.max(0, MODE_VALUES.indexOf(m.permissionMode || ""));
-  $("fact-mode").textContent = `${MODE_NAMES[mi]}${m.permissionMode ? ` (${m.permissionMode})` : ""}`;
+  const modeNome = engineAtivo === "codex" ? modeVal && (CODEX_SANDBOX_LABELS[modeVal] || modeVal) : MODE_NAMES[mi];
+  $("fact-mode").textContent = `${modeNome || "padrão"}${modeVal ? ` (${modeVal})` : ""}`;
   $("fact-tokens").textContent = t
     ? `${fmtTokens(t.input + t.output + t.cacheRead + t.cacheCreate)} em ${t.turns} turno(s) · saída ${fmtTokens(t.output)}`
     : "—";
@@ -1106,32 +1171,95 @@ function setVia() {
   syncEngineControls();
 }
 
-/** Modelo, esforço e modo são do perfil e só o motor claude aceita esses flags. */
+/** Substitui as `<option>` de um select por `entries` ({value,label,title?}) e restaura o valor atual. */
+function setSelectEntries(select, entries, currentValue) {
+  select.replaceChildren();
+  for (const e of entries) {
+    const opt = document.createElement("option");
+    opt.value = e.value;
+    opt.textContent = e.label;
+    if (e.title) opt.title = e.title;
+    select.append(opt);
+  }
+  select.value = entries.some((e) => e.value === currentValue) ? currentValue : "";
+}
+
+/** Passos de esforço do modelo escolhido — do catálogo real quando o modelo é conhecido, senão um genérico. */
+function codexEffortSteps(p) {
+  const models = state.codexModels[p.id];
+  const escolhido = (models || []).find((m) => m.slug === (p.model || ""));
+  const efforts = escolhido?.efforts?.length ? escolhido.efforts : CODEX_EFFORT_FALLBACK;
+  return ["", ...efforts];
+}
+
+function syncCodexControls(p, model, modelCustom, range, label, mode) {
+  model.disabled = false;
+  range.disabled = false;
+  mode.disabled = false;
+  model.title = "Modelo do motor (catálogo real da conta)";
+  mode.title = "Sandbox do codex — o que o comando pode tocar";
+
+  void loadCodexModels(p.id);
+  const models = state.codexModels[p.id] || [];
+  const entries = [
+    { value: "", label: "Modelo: padrão" },
+    ...models.map((m) => ({ value: m.slug, label: m.displayName, ...(m.description ? { title: m.description } : {}) })),
+    { value: CODEX_CUSTOM_MODEL, label: "Outro…" },
+  ];
+  const conhecido = models.some((m) => m.slug === (p.model || ""));
+  const usaCustom = Boolean(p.model) && !conhecido;
+  setSelectEntries(model, entries, usaCustom ? CODEX_CUSTOM_MODEL : p.model || "");
+  modelCustom.classList.toggle("hidden", !usaCustom);
+  modelCustom.value = usaCustom ? p.model || "" : "";
+
+  setSelectEntries(mode, CODEX_SANDBOX_ENTRIES, p.sandboxMode || "");
+
+  const steps = codexEffortSteps(p);
+  range.max = String(steps.length - 1);
+  const idx = Math.max(0, steps.indexOf(p.effort || ""));
+  range.value = String(idx);
+  pintarEffortFill(range);
+  label.textContent = `Esforço: ${effortLabel(steps[idx])}`;
+  // o listener do range precisa saber os passos DESTE render pra traduzir índice -> valor no change/input
+  range.dataset.steps = JSON.stringify(steps);
+}
+
+/** Modelo, esforço e modo/sandbox são do perfil — claude e codex têm flags e vocabulário próprios. */
 function syncEngineControls() {
   const model = $("model-select");
+  const modelCustom = $("model-custom");
   const range = $("effort-range");
   const label = $("effort-label");
   const mode = $("mode-select");
-  if (!model || !range || !label || !mode) return;
+  if (!model || !modelCustom || !range || !label || !mode) return;
   const p = selectedProfile();
+
+  if (p?.engine === "codex") {
+    syncCodexControls(p, model, modelCustom, range, label, mode);
+    return;
+  }
+  modelCustom.classList.add("hidden");
+  delete range.dataset.steps;
   const isClaude = p?.engine === "claude";
   model.disabled = !isClaude;
   range.disabled = !isClaude;
   mode.disabled = !isClaude;
   if (!isClaude) {
-    model.value = "";
+    setSelectEntries(model, CLAUDE_MODEL_ENTRIES, "");
+    setSelectEntries(mode, CLAUDE_MODE_ENTRIES, "");
+    range.max = "5";
     range.value = "0";
     pintarEffortFill(range);
-    mode.value = "";
     label.textContent = p?.engine === "api" ? `Modelo: ${p.model || "da conta"}` : "Esforço: n/a";
-    model.title = "Só o motor claude aceita escolha de modelo aqui.";
-    mode.title = "Só o motor claude aceita modo de permissão aqui.";
+    model.title = "Só claude e codex aceitam escolha de modelo aqui.";
+    mode.title = "Só claude e codex aceitam esse controle aqui.";
     return;
   }
   model.title = "Modelo do motor";
-  model.value = MODEL_OPTION_VALUES.includes(p.model || "") ? p.model || "" : "";
+  setSelectEntries(model, CLAUDE_MODEL_ENTRIES, MODEL_OPTION_VALUES.includes(p.model || "") ? p.model || "" : "");
   mode.title = "Modo de permissão do motor";
-  mode.value = MODE_VALUES.includes(p.permissionMode || "") ? p.permissionMode || "" : "";
+  setSelectEntries(mode, CLAUDE_MODE_ENTRIES, MODE_VALUES.includes(p.permissionMode || "") ? p.permissionMode || "" : "");
+  range.max = "5";
   const idx = Math.max(0, EFFORT_STEPS.indexOf(p.effort || ""));
   range.value = String(idx);
   pintarEffortFill(range);
@@ -1142,6 +1270,7 @@ async function patchProfile(patch) {
   state.meter.effort = patch.effort ?? state.meter.effort;
   state.meter.model = patch.model ?? state.meter.model;
   state.meter.permissionMode = patch.permissionMode ?? state.meter.permissionMode;
+  state.meter.sandboxMode = patch.sandboxMode ?? state.meter.sandboxMode;
   paintFacts();
   const p = selectedProfile();
   if (!p) return;
@@ -4011,22 +4140,59 @@ $("btn-motor").addEventListener("click", async () => {
 });
 
 $("model-select").addEventListener("change", (e) => {
+  // "Outro…" do codex: abre o texto livre em vez de gravar o valor sentinela.
+  if (selectedProfile()?.engine === "codex" && e.target.value === CODEX_CUSTOM_MODEL) {
+    $("model-custom").classList.remove("hidden");
+    $("model-custom").value = "";
+    $("model-custom").focus();
+    return;
+  }
+  $("model-custom").classList.add("hidden");
   void patchProfile({ model: e.target.value });
 });
 
+function commitModelCustom() {
+  const valor = $("model-custom").value.trim();
+  const p = selectedProfile();
+  if (valor && valor !== (p?.model || "")) void patchProfile({ model: valor });
+}
+$("model-custom").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  commitModelCustom();
+  e.target.blur();
+});
+$("model-custom").addEventListener("blur", () => commitModelCustom());
+
 $("mode-select").addEventListener("change", (e) => {
-  void patchProfile({ permissionMode: e.target.value });
+  // codex usa sandbox (`-s`), claude usa modo de permissão (`--permission-mode`) — campos diferentes no Profile.
+  if (selectedProfile()?.engine === "codex") void patchProfile({ sandboxMode: e.target.value });
+  else void patchProfile({ permissionMode: e.target.value });
 });
 
+/** Passos de esforço do render atual do slider — do modelo escolhido (codex) ou fixos (claude). Ver `syncCodexControls`. */
+function effortStepsAtivos() {
+  const raw = $("effort-range").dataset.steps;
+  if (!raw) return EFFORT_STEPS;
+  try {
+    const steps = JSON.parse(raw);
+    return Array.isArray(steps) && steps.length ? steps : EFFORT_STEPS;
+  } catch {
+    return EFFORT_STEPS;
+  }
+}
+
 $("effort-range").addEventListener("input", (e) => {
+  const steps = effortStepsAtivos();
   const idx = Number(e.target.value) || 0;
-  $("effort-label").textContent = `Esforço: ${EFFORT_NAMES[idx]}`;
+  $("effort-label").textContent = `Esforço: ${effortLabel(steps[idx])}`;
   pintarEffortFill(e.target);
 });
 
 $("effort-range").addEventListener("change", (e) => {
+  const steps = effortStepsAtivos();
   const idx = Number(e.target.value) || 0;
-  void patchProfile({ effort: EFFORT_STEPS[idx] });
+  void patchProfile({ effort: steps[idx] });
 });
 
 $("profile-select").addEventListener("change", () => {
@@ -5224,18 +5390,48 @@ function syncApiFields() {
 
 $("profile-engine").addEventListener("change", syncApiFields);
 
-$("btn-profile-add").addEventListener("click", async () => {
+/** "claude não tá no PATH" / "codex não tá no PATH" — ver `which()` em profiles.ts. */
+const BIN_NAO_ACHADO_RE = /^(claude|codex) não tá no PATH$/;
+
+/** Tenta criar o perfil; se faltar o binário, mostra "Instalar agora" em vez de só erro cru. */
+async function tentarCriarPerfil(body) {
   const err = $("profile-add-err");
+  const instalar = $("btn-profile-install");
   err.textContent = "";
-  if (!state.ok) {
-    err.textContent = "Liga o motor primeiro.";
-    return;
+  instalar.classList.add("hidden");
+  try {
+    await req("/v1/profiles", { method: "POST", body: JSON.stringify(body) });
+  } catch (e) {
+    const msg = e.message || "Não criou.";
+    err.textContent = msg;
+    const m = BIN_NAO_ACHADO_RE.exec(msg);
+    if (m) {
+      instalar.textContent = `Instalar ${m[1]} agora`;
+      instalar.dataset.engine = m[1];
+      instalar.classList.remove("hidden");
+    }
+    return false;
   }
+  $("profile-id").value = "";
+  state.fpProfiles = "";
+  state.profileId = body.id;
+  await loadProfiles();
+  setVia();
+  void renderFallback();
+  if (body.engine === "claude" || body.engine === "codex") {
+    $("settings").classList.add("hidden");
+    void startLogin(body.id);
+  }
+  return true;
+}
+
+function corpoNovoPerfil() {
+  const err = $("profile-add-err");
   const id = $("profile-id").value.trim().toLowerCase();
   const engine = $("profile-engine").value;
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) {
     err.textContent = "id: só a-z, 0-9 e hífen.";
-    return;
+    return null;
   }
   const body = { id, engine };
   if (engine === "api") {
@@ -5246,25 +5442,50 @@ $("btn-profile-add").addEventListener("click", async () => {
     body.apiKey = $("profile-key").value.trim();
     if (!body.api.model || !body.apiKey) {
       err.textContent = "API precisa modelo e key.";
-      return;
+      return null;
     }
   }
-  try {
-    await req("/v1/profiles", { method: "POST", body: JSON.stringify(body) });
-  } catch (e) {
-    err.textContent = e.message || "Não criou.";
+  return body;
+}
+
+$("btn-profile-add").addEventListener("click", async () => {
+  const err = $("profile-add-err");
+  err.textContent = "";
+  $("btn-profile-install").classList.add("hidden");
+  if (!state.ok) {
+    err.textContent = "Liga o motor primeiro.";
     return;
   }
-  $("profile-id").value = "";
-  state.fpProfiles = "";
-  state.profileId = id;
-  await loadProfiles();
-  setVia();
-  void renderFallback();
-  if (engine === "claude" || engine === "codex") {
-    $("settings").classList.add("hidden");
-    void startLogin(id);
+  const body = corpoNovoPerfil();
+  if (!body) return;
+  await tentarCriarPerfil(body);
+});
+
+$("btn-profile-install").addEventListener("click", async () => {
+  const btn = $("btn-profile-install");
+  const err = $("profile-add-err");
+  const engine = btn.dataset.engine;
+  if (!engine) return;
+  btn.disabled = true;
+  err.textContent = `Instalando ${engine}… pode levar um minuto.`;
+  let res;
+  try {
+    res = await req(`/v1/engines/${encodeURIComponent(engine)}/install`, { method: "POST" });
+  } catch (e) {
+    btn.disabled = false;
+    err.textContent = e.message || `Não deu pra instalar ${engine}.`;
+    return;
   }
+  btn.disabled = false;
+  if (!res.ok) {
+    // últimas linhas do log do npm costumam ser o erro de verdade; o resto é ruído de progresso
+    const cauda = String(res.log || "").trim().split(/\r?\n/).filter(Boolean).slice(-6).join(" ");
+    err.textContent = `Falha ao instalar ${engine}.${cauda ? ` ${cauda}` : ""}`;
+    return;
+  }
+  btn.classList.add("hidden");
+  const body = corpoNovoPerfil();
+  if (body) await tentarCriarPerfil(body);
 });
 
 $("allow-profile").addEventListener("change", syncAllowInput);

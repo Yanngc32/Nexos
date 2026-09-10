@@ -11,8 +11,27 @@ import {
 import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AccountInfo, ApiProvider, DelegacaoModo, EffortLevel, EngineKind, PermissionMode, Profile } from "@nexo/shared";
-import { DELEGACAO_MODOS, EFFORT_LEVELS, MODEL_RE, PERMISSION_MODES, TOOL_PATTERN_RE, WINDOW_KEY_RE } from "@nexo/shared";
+import type {
+  AccountInfo,
+  ApiProvider,
+  CodexModelInfo,
+  CodexSandboxMode,
+  DelegacaoModo,
+  EffortLevel,
+  EngineKind,
+  PermissionMode,
+  Profile,
+} from "@nexo/shared";
+import {
+  CLAUDE_EFFORT_LEVELS,
+  CODEX_SANDBOX_MODES,
+  DELEGACAO_MODOS,
+  EFFORT_LEVELS,
+  MODEL_RE,
+  PERMISSION_MODES,
+  TOOL_PATTERN_RE,
+  WINDOW_KEY_RE,
+} from "@nexo/shared";
 import { loadConfig, saveConfig } from "./config.ts";
 import { assertSlug } from "./ids.ts";
 import { ensureHome, profileDir } from "./home.ts";
@@ -103,6 +122,7 @@ export type ProfilePatch = {
   model?: string | null;
   effort?: string | null;
   permissionMode?: string | null;
+  sandboxMode?: string | null;
   allowedTools?: string[] | null;
   delegacaoModo?: string | null;
   nickname?: string | null;
@@ -123,8 +143,10 @@ export function updateProfile(id: string, home: string, patch: ProfilePatch): Pr
   }
   if (patch.effort !== undefined) {
     const effort = (patch.effort ?? "").trim();
+    // `ultra` só existe em modelo do Codex (ver CodexModelInfo); no claude é esforço inválido.
+    const permitidos = p.engine === "claude" ? CLAUDE_EFFORT_LEVELS : EFFORT_LEVELS;
     if (!effort) delete next.effort;
-    else if (!EFFORT_LEVELS.includes(effort as EffortLevel)) throw new Error(`esforço inválido: ${effort}`);
+    else if (!permitidos.includes(effort as EffortLevel)) throw new Error(`esforço inválido: ${effort}`);
     else next.effort = effort as EffortLevel;
   }
   if (patch.permissionMode !== undefined) {
@@ -132,6 +154,12 @@ export function updateProfile(id: string, home: string, patch: ProfilePatch): Pr
     if (!mode) delete next.permissionMode;
     else if (!PERMISSION_MODES.includes(mode as PermissionMode)) throw new Error(`modo inválido: ${mode}`);
     else next.permissionMode = mode as PermissionMode;
+  }
+  if (patch.sandboxMode !== undefined) {
+    const sandbox = (patch.sandboxMode ?? "").trim();
+    if (!sandbox) delete next.sandboxMode;
+    else if (!CODEX_SANDBOX_MODES.includes(sandbox as CodexSandboxMode)) throw new Error(`sandbox inválido: ${sandbox}`);
+    else next.sandboxMode = sandbox as CodexSandboxMode;
   }
   if (patch.allowedTools !== undefined) {
     const lista = (patch.allowedTools ?? []).map((t) => String(t).trim()).filter(Boolean);
@@ -487,6 +515,51 @@ export function accountInfo(profile: Profile, home: string): AccountInfo {
     }
   }
   return info;
+}
+
+const EFFORT_SET = new Set<string>(EFFORT_LEVELS);
+
+function effortOf(v: unknown): EffortLevel | undefined {
+  const s = str(v);
+  return EFFORT_SET.has(s) ? (s as EffortLevel) : undefined;
+}
+
+/**
+ * Catálogo real de modelos do Codex, lido de `models_cache.json` — o próprio
+ * `codex` grava esse arquivo depois do login, com os modelos que a conta pode
+ * usar e o esforço que CADA UM aceita (varia por modelo; não é fixo). Nunca é
+ * uma lista inventada aqui: sem o arquivo (perfil que ainda não rodou nenhum
+ * turno), devolve lista vazia — quem chama decide o que mostrar nesse caso.
+ *
+ * `visibility: "hide"` existe no arquivo real (modelo interno/experimental) e
+ * fica de fora: mostrar esses confundiria mais do que ajudaria.
+ */
+export function codexModels(profile: Profile, home: string): CodexModelInfo[] {
+  if (profile.engine !== "codex") return [];
+  const dir = credDir(profile, home);
+  const raw = dir ? readJson(join(dir, "models_cache.json")) : undefined;
+  const models = raw?.models;
+  if (!Array.isArray(models)) return [];
+  const out: CodexModelInfo[] = [];
+  for (const m of models) {
+    if (!m || typeof m !== "object") continue;
+    const model = m as Record<string, unknown>;
+    if (str(model.visibility) === "hide") continue;
+    const slug = str(model.slug);
+    if (!slug) continue;
+    const levels = Array.isArray(model.supported_reasoning_levels) ? model.supported_reasoning_levels : [];
+    const efforts = levels
+      .map((l) => effortOf((l as Record<string, unknown> | undefined)?.effort))
+      .filter((e): e is EffortLevel => Boolean(e));
+    out.push({
+      slug,
+      displayName: str(model.display_name) || slug,
+      ...(str(model.description) ? { description: str(model.description) } : {}),
+      efforts,
+      ...(effortOf(model.default_reasoning_level) ? { defaultEffort: effortOf(model.default_reasoning_level) } : {}),
+    });
+  }
+  return out;
 }
 
 export const IMPORT_WARNING =

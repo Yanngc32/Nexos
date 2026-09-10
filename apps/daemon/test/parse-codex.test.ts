@@ -61,6 +61,22 @@ describe("parseCodexLine", () => {
     expect((evs[0] as { message: string }).message.length).toBeGreaterThan(10);
   });
 
+  /*
+   * Sem isto, sessão OAuth vencida vira "error" genérico pra sempre: o daemon
+   * nunca marca o perfil como precisando de login (markAuthFailed em session.ts
+   * só dispara em `type: "auth"`), e toda mensagem repete o mesmo ciclo até
+   * "motor morreu" — sem nunca sugerir refazer login.
+   */
+  it("turn.failed de token vencido vira auth, não error genérico", () => {
+    const evs = parseCodexLine('{"type":"turn.failed","error":{"message":"OAuth token expired, please run codex login again"}}');
+    expect(evs).toEqual([{ type: "auth", detail: "OAuth token expired, please run codex login again" }]);
+  });
+
+  it("turn.failed com 401 puro também vira auth", () => {
+    const evs = parseCodexLine('{"type":"turn.failed","error":{"message":"request failed: 401"}}');
+    expect(evs).toEqual([{ type: "auth", detail: "request failed: 401" }]);
+  });
+
   it("thread.started e turn.started não geram evento", () => {
     expect(parseCodexLine('{"type":"thread.started","thread_id":"01a080ab-5677-7af0-8e63-60b7b4f88859"}')).toEqual([]);
     expect(parseCodexLine('{"type":"turn.started"}')).toEqual([]);

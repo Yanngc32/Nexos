@@ -1,11 +1,42 @@
 export type EngineKind = "claude" | "codex" | "api" | "stub";
 export type ProfileStatus = "unauthenticated" | "ready";
 export type SwitchReason = "user" | "quota";
-export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
-export const EFFORT_LEVELS: EffortLevel[] = ["low", "medium", "high", "xhigh", "max"];
+/**
+ * União dos níveis de esforço dos dois motores de CLI. `low`…`max` são do
+ * Claude; `ultra` só existe em alguns modelos do Codex (visto em
+ * `models_cache.json` real, modelo `gpt-5.6-terra`) — cada motor valida contra
+ * o próprio subconjunto, não contra `EFFORT_LEVELS` inteiro.
+ */
+export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
+export const EFFORT_LEVELS: EffortLevel[] = ["low", "medium", "high", "xhigh", "max", "ultra"];
+/** Subconjunto que o `claude --effort` aceita. */
+export const CLAUDE_EFFORT_LEVELS: EffortLevel[] = ["low", "medium", "high", "xhigh", "max"];
 /** Modos de permissão do CLI do Claude (`--permission-mode`). */
 export type PermissionMode = "auto" | "manual" | "acceptEdits" | "plan" | "bypassPermissions";
 export const PERMISSION_MODES: PermissionMode[] = ["auto", "manual", "acceptEdits", "plan", "bypassPermissions"];
+
+/**
+ * Política de sandbox do `codex exec` (`-s/--sandbox`). Não é o mesmo conceito
+ * do `PermissionMode` do Claude — lá é fluxo de aprovação, aqui é o que o
+ * processo filho tem permissão de tocar — por isso campo próprio no `Profile`
+ * em vez de reaproveitar `permissionMode`.
+ */
+export type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+export const CODEX_SANDBOX_MODES: CodexSandboxMode[] = ["read-only", "workspace-write", "danger-full-access"];
+
+/**
+ * Um modelo do catálogo real do Codex (lido de `models_cache.json`, que o
+ * próprio CLI grava depois do login — nunca uma lista chutada aqui). `efforts`
+ * é o que ESSE modelo aceita — varia por modelo, por isso vem por modelo e não
+ * de uma lista fixa global.
+ */
+export type CodexModelInfo = {
+  slug: string;
+  displayName: string;
+  description?: string;
+  efforts: EffortLevel[];
+  defaultEffort?: EffortLevel;
+};
 
 /** negado: nexo_delegar nem existe. questionar: pergunta antes via nexo_perguntar. liberado: roda direto. */
 export type DelegacaoModo = "negado" | "questionar" | "liberado";
@@ -58,8 +89,10 @@ export type Profile = {
   model?: string;
   /** Esforço de raciocínio do CLI; vazio = padrão do CLI. */
   effort?: EffortLevel;
-  /** Modo de permissão do CLI; vazio = padrão do CLI. */
+  /** Modo de permissão do CLI do Claude; vazio = padrão do CLI. */
   permissionMode?: PermissionMode;
+  /** Política de sandbox do `codex exec`; vazio = padrão do CLI. Só vale pra engine codex. */
+  sandboxMode?: CodexSandboxMode;
   /**
    * Ferramentas liberadas sem perguntar, no formato do CLI (`Bash(git *)`, `Edit`).
    * Existe porque o motor roda em --print: não há como responder pedido de
@@ -107,6 +140,7 @@ export type AgentDef = {
   model?: string;
   effort?: EffortLevel;
   permissionMode?: PermissionMode;
+  sandboxMode?: CodexSandboxMode;
   /** Vai no topo do context pack — é o "system prompt" do agente. */
   instructions?: string;
   /** Cor do cartão na UI. */
@@ -128,6 +162,7 @@ export type EngineOverrides = {
   model?: string;
   effort?: EffortLevel;
   permissionMode?: PermissionMode;
+  sandboxMode?: CodexSandboxMode;
 };
 
 /** Serviço local declarado no `nexo.json` do projeto. */
@@ -391,6 +426,7 @@ export type AccountInfo = {
   model?: string;
   effort?: EffortLevel;
   permissionMode?: PermissionMode;
+  sandboxMode?: CodexSandboxMode;
   /** O que o próprio CLI responde em `auth status --json` (só quando pedido). */
   cli?: {
     loggedIn: boolean;

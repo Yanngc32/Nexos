@@ -2145,6 +2145,27 @@ textarea:focus {
   border-color: #3a3a3a;
 }
 
+/* modelo custom do codex ("outro…"): mesmo tratamento discreto do select ao lado */
+#model-custom {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 150px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background-color: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+
+#model-custom:hover:not(:disabled),
+#model-custom:focus-visible {
+  background-color: var(--bg);
+  border-color: #3a3a3a;
+  outline: none;
+}
+
 /* separa o cluster de contexto (conta/modelo/modo) do de ação (esforço + enviar) */
 .effort {
   padding-left: 8px;
@@ -2658,6 +2679,15 @@ button:disabled {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /*
+   * Item de grid dentro de `.set-card` (que tem `overflow: hidden` e altura
+   * fixa): sem `min-height: 0` o tamanho automático do item de grid é o
+   * min-content do conteúdo, que pode passar da altura do card. O excedente
+   * então é cortado pelo `overflow: hidden` do pai em vez de rolar dentro do
+   * `.set-scroll` interno — daí o conteúdo cortado sem barra de rolagem.
+   */
+  min-height: 0;
+  height: 100%;
 }
 
 .set-head {

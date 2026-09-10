@@ -623,6 +623,37 @@ describe("motor codex", () => {
     expect(events.filter((e) => e.type === "text").map((e) => (e as { text: string }).text)).toEqual(["echo:oi"]);
   });
 
+  /*
+   * `-m/--model`, `-c model_reasoning_effort=…` e `-s/--sandbox` são as flags
+   * reais do `codex exec` (ver `codexFlags` em cli.ts) — bem diferentes das do
+   * claude (`--model`/`--effort`/`--permission-mode`), por isso teste próprio.
+   */
+  it("modelo, esforço e sandbox viram -m, -c model_reasoning_effort= e -s", async () => {
+    const home = tempHome();
+    addProfile({ id: "x1", engine: "codex" }, home, { skipBinCheck: true });
+    markReady("x1", home);
+    updateProfile("x1", home, { model: "gpt-5.6-terra", effort: "ultra", sandboxMode: "workspace-write" });
+    process.env.NEXO_CODEX_BIN = fakeCodex;
+    const engine = codexEngine(home, "x1");
+    const events: EngineEvent[] = [];
+    await engine.start({ threadId: "t-2", projectPath: spawnCwd("."), profileId: "x1", contextPack: "pack" }, (ev) =>
+      events.push(ev),
+    );
+    await engine.send("oi");
+    await waitDone(events);
+    expect(engine.lastArgs).toEqual([
+      "exec",
+      "--json",
+      "--skip-git-repo-check",
+      "-m",
+      "gpt-5.6-terra",
+      "-c",
+      'model_reasoning_effort="ultra"',
+      "-s",
+      "workspace-write",
+    ]);
+  });
+
   it("o turno fecha com uso e done, e o contexto é a soma do que ocupou a janela", async () => {
     const { events } = await turno(tempHome());
     const uso = events.find((e) => e.type === "usage") as Record<string, unknown> | undefined;

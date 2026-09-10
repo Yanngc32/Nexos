@@ -1,8 +1,6 @@
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { spawn } from "node:child_process";
-import type { SpawnOptions } from "node:child_process";
+import type { ChildProcessWithoutNullStreams, SpawnOptions } from "node:child_process";
 import type { EngineEvent, EngineOverrides, Profile, StartOpts } from "@nexo/shared";
-import { EFFORT_LEVELS, MODEL_RE, PERMISSION_MODES, TOOL_PATTERN_RE } from "@nexo/shared";
+import { CODEX_SANDBOX_MODES, EFFORT_LEVELS, MODEL_RE, PERMISSION_MODES, TOOL_PATTERN_RE } from "@nexo/shared";
 import type { Engine, EngineHandler, EngineMcp } from "./types.ts";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -21,25 +19,47 @@ import { parseCodexLine } from "./parse-codex.ts";
 
 export { parseCliLine };
 
+/*
+ * Era embrulho manual em `cmd.exe /d /s /c` pra bin que não é script — quebrava com
+ * QUALQUER argv que tivesse `&` (a URL do MCP do codex sempre tem), porque o shim
+ * `.cmd` do npm re-parseia a linha inteira e não tem escape que sobreviva aos dois
+ * parses de cmd.exe ao mesmo tempo. `spawnBin` resolve o `.js` real do shim e chama
+ * `node` nele direto — ver o comentário em spawn-bin.ts pro porquê medido.
+ */
 function spawnEngine(bin: string, args: string[], opts: SpawnOptions): ChildProcessWithoutNullStreams {
-  if (isNodeScript(bin)) {
-    return spawnBin(bin, args, opts) as ChildProcessWithoutNullStreams;
-  }
-  if (process.platform === "win32") {
-    return spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", bin, ...args], {
-      ...opts,
-      shell: false,
-      windowsHide: true,
-    }) as ChildProcessWithoutNullStreams;
-  }
-  return spawn(bin, args, { ...opts, shell: false }) as ChildProcessWithoutNullStreams;
+  return spawnBin(bin, args, opts) as ChildProcessWithoutNullStreams;
 }
 
 /**
- * Só claude tem --model/--effort/--permission-mode confirmados; codex fica no padrão dele.
- * `over` são os ajustes do agente personalizado: vencem os da conta quando existem.
+ * Flags do `codex exec` pra modelo/esforço/sandbox — medidas contra `codex exec --help`
+ * (codex-cli 0.154.0) e um `models_cache.json` real, não chutadas:
+ *
+ * - Modelo é `-m/--model <MODEL>`, string livre (o catálogo real tem slug tipo
+ *   `gpt-5.6-terra`) — daí `MODEL_RE` só validar formato, não pertencimento a lista.
+ * - Esforço não tem flag própria: é config key (`-c model_reasoning_effort=…`), e
+ *   o valor de string precisa ir entre aspas — sem aspas o parser de TOML do
+ *   `codex` rejeita.
+ * - Não existe `--permission-mode`: o equivalente é `-s/--sandbox` (política do
+ *   que o processo pode tocar), semântica bem diferente do fluxo de aprovação do
+ *   Claude — por isso campo próprio (`sandboxMode`) em vez de reaproveitar
+ *   `permissionMode`.
+ * - `--allowed-tools` também não existe: no `codex exec` a permissão é toda do
+ *   sandbox, não por ferramenta.
  */
+function codexFlags(profile: Profile, over: EngineOverrides = {}): string[] {
+  const model = over.model ?? profile.model;
+  const effort = over.effort ?? profile.effort;
+  const sandbox = over.sandboxMode ?? profile.sandboxMode;
+  const out: string[] = [];
+  if (model && MODEL_RE.test(model)) out.push("-m", model);
+  if (effort && EFFORT_LEVELS.includes(effort)) out.push("-c", `model_reasoning_effort="${effort}"`);
+  if (sandbox && CODEX_SANDBOX_MODES.includes(sandbox)) out.push("-s", sandbox);
+  return out;
+}
+
+/** `over` são os ajustes do agente personalizado: vencem os da conta quando existem. */
 function profileFlags(profile: Profile, over: EngineOverrides = {}, extraTools: string[] = []): string[] {
+  if (profile.engine === "codex") return codexFlags(profile, over);
   if (profile.engine !== "claude") return [];
   const model = over.model ?? profile.model;
   const effort = over.effort ?? profile.effort;

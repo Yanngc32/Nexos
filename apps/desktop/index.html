@@ -602,6 +602,14 @@
               <option value="haiku">Haiku</option>
               <option value="fable">Fable</option>
             </select>
+            <input
+              type="text"
+              id="model-custom"
+              class="hidden"
+              placeholder="modelo (ex: gpt-5.1)"
+              aria-label="Modelo (texto livre)"
+              maxlength="64"
+            />
             <select id="mode-select" aria-label="Modo de permissão" title="Modo de permissão do motor">
               <option value="">Modo: padrão</option>
               <option value="auto" title="Claude gerencia decisões de permissão">Automático</option>
@@ -828,6 +836,7 @@
                   <p id="profile-add-err" class="set-err"></p>
                 </div>
                 <div class="set-ctl">
+                  <button type="button" id="btn-profile-install" class="ghost hidden">Instalar agora</button>
                   <button type="button" id="btn-profile-add" class="primary profile-add">Criar e logar</button>
                 </div>
               </div>

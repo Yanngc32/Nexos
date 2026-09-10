@@ -27,7 +27,7 @@ export function isAuthText(s: string): boolean {
   return s.length <= CLASSIFY_MAX && AUTH_RE.test(s);
 }
 
-const AUTH_STATUS_RE = /\b401\b/;
+export const AUTH_STATUS_RE = /\b401\b/;
 
 function asText(v: unknown, depth = 0): string {
   if (v == null || depth > 4) return "";

@@ -10,6 +10,7 @@ import {
   accountInfo,
   addProfile,
   applyLoginResult,
+  codexModels,
   getProfile,
   importGlobalCredentials,
   IMPORT_WARNING,
@@ -20,6 +21,7 @@ import {
   type AddProfileInput,
 } from "./profiles.ts";
 import { readAttachment, type IncomingImage } from "./attachments.ts";
+import { installEngine } from "./install-engine.ts";
 import { listSkills } from "./skills.ts";
 import { cliAuthStatus } from "./auth-status.ts";
 import { cancelLogin, loginStatus, startLogin, submitCode } from "./login-session.ts";
@@ -301,6 +303,23 @@ export function createApp(home: string, token: string): Hono {
     return c.json({ ok: true });
   });
 
+  app.get("/v1/profiles/:id/codex-models", (c) => {
+    const p = getProfile(c.req.param("id"), home);
+    if (!p) return c.json({ error: "perfil não existe" }, 404);
+    return c.json({ models: codexModels(p, home) });
+  });
+
+  // 200 sempre: falha de instalação é resultado esperado, não erro de rota — o corpo
+  // ({ok,log}) é quem diz o que aconteceu, senão o `req()` do desktop jogaria fora o
+  // `log` (só guarda `data.error` no catch) e a tela mostraria "Bad Request" sem info.
+  app.post("/v1/engines/:engine/install", async (c) => {
+    const engine = c.req.param("engine");
+    if (engine !== "claude" && engine !== "codex") {
+      return c.json({ ok: false, log: `sem instalação automática pro motor ${engine}` });
+    }
+    return c.json(await installEngine(engine));
+  });
+
   app.post("/v1/profiles", async (c) => {
     const body = (await c.req.json()) as AddProfileInput & { apiKey?: string };
     try {
@@ -316,6 +335,7 @@ export function createApp(home: string, token: string): Hono {
       model?: string | null;
       effort?: string | null;
       permissionMode?: string | null;
+      sandboxMode?: string | null;
       allowedTools?: string[] | null;
       delegacaoModo?: string | null;
       nickname?: string | null;

@@ -289,6 +289,20 @@ describe("http agent defs", () => {
   });
 });
 
+describe("POST /v1/engines/:engine/install", () => {
+  it("motor sem instalação automática (stub/api) devolve ok:false sem rodar npm", async () => {
+    const home = tempHome();
+    const app = createApp(home, "t");
+    const res = await app.request("/v1/engines/stub/install", {
+      method: "POST",
+      headers: { authorization: "Bearer t" },
+    });
+    // sempre 200: falha de instalação é resultado esperado, o corpo {ok,log} é quem informa
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: false, log: "sem instalação automática pro motor stub" });
+  });
+});
+
 describe("http accounts", () => {
   it("expõe metadado da conta sem vazar token", async () => {
     const home = tempHome();
@@ -344,6 +358,65 @@ describe("http accounts", () => {
       body: JSON.stringify({ permissionMode: "yolo" }),
     });
     expect(badMode.status).toBe(400);
+  });
+
+  it("PATCH salva sandboxMode do codex, e barra valor inválido", async () => {
+    const home = tempHome();
+    const app = createApp(home, "t");
+    addProfile({ id: "gpt1", engine: "codex" }, home, { skipBinCheck: true });
+    const ok = await app.request("/v1/profiles/gpt1", {
+      method: "PATCH",
+      headers: { authorization: "Bearer t", "content-type": "application/json" },
+      body: JSON.stringify({ sandboxMode: "workspace-write" }),
+    });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toMatchObject({ sandboxMode: "workspace-write" });
+    const bad = await app.request("/v1/profiles/gpt1", {
+      method: "PATCH",
+      headers: { authorization: "Bearer t", "content-type": "application/json" },
+      body: JSON.stringify({ sandboxMode: "sudo-tudo" }),
+    });
+    expect(bad.status).toBe(400);
+  });
+
+  /*
+   * `models_cache.json` é gravado pelo próprio `codex` real depois do login — o
+   * teste escreve um recorte fiel do formato de verdade (medido num arquivo real,
+   * ver `codexModels` em profiles.ts) em vez de inventar um schema.
+   */
+  it("GET codex-models lê o catálogo real e esconde modelo 'hide'", async () => {
+    const home = tempHome();
+    const app = createApp(home, "t");
+    const p = addProfile({ id: "gpt2", engine: "codex" }, home, { skipBinCheck: true });
+    const dir = engineEnv(p, home).CODEX_HOME!;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "models_cache.json"),
+      JSON.stringify({
+        models: [
+          {
+            slug: "gpt-5.6-terra",
+            display_name: "GPT-5.6-Terra",
+            visibility: "list",
+            default_reasoning_level: "medium",
+            supported_reasoning_levels: [{ effort: "low" }, { effort: "medium" }, { effort: "ultra" }],
+          },
+          { slug: "gpt-reserve", display_name: "GPT-Reserve", visibility: "hide", supported_reasoning_levels: [] },
+        ],
+      }),
+      "utf8",
+    );
+    const res = await app.request("/v1/profiles/gpt2/codex-models", { headers: { authorization: "Bearer t" } });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.models).toEqual([
+      {
+        slug: "gpt-5.6-terra",
+        displayName: "GPT-5.6-Terra",
+        efforts: ["low", "medium", "ultra"],
+        defaultEffort: "medium",
+      },
+    ]);
   });
 
   it("PATCH salva apelido, barra passar do limite, e string vazia apaga", async () => {
