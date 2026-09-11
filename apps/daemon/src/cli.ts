@@ -57,11 +57,12 @@ async function cmdUp(): Promise<void> {
   if (!r.ok) console.error(`resumos do repo map: ${r.motivo}`);
   /*
    * Limite de uso (5h/7d) só vem junto da resposta de uma mensagem de verdade — não tem consulta
-   * de graça. Pinga toda conta claude/codex logada a cada 10min (e uma vez já na subida) pra o
-   * painel "Uso de todas as contas" não ficar preso em "sem dado ainda" pra quem não está
-   * conversando agora. Gasto real, pequeno, por conta — decisão explícita do usuário.
+   * de graça. Pinga toda conta claude/codex logada QUE NÃO ESTÁ EM USO agora (ver `perfilEmUso`
+   * em `pingUsoDeTodasAsContas`) a cada 30min (e uma vez já na subida) pra o painel "Uso de
+   * todas as contas" não ficar preso em "sem dado ainda" pra quem não está conversando agora.
+   * Gasto real, pequeno, por conta — decisão explícita do usuário.
    */
-  const PING_USO_MS = 10 * 60_000;
+  const PING_USO_MS = 30 * 60_000;
   void pingUsoDeTodasAsContas(home).catch((e) => console.error("ping de uso:", (e as Error).message));
   const pingUso = setInterval(() => {
     void pingUsoDeTodasAsContas(home).catch((e) => console.error("ping de uso:", (e as Error).message));

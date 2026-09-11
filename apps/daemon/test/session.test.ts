@@ -10,6 +10,7 @@ import {
   clearThread,
   getLive,
   limitsOf,
+  perfilEmUso,
   pingUsoDeTodasAsContas,
   postMessage,
   sessionBus,
@@ -699,4 +700,18 @@ describe("pingUsoDeTodasAsContas", () => {
       delete process.env.NEXO_CLAUDE_BIN;
     }
   }, 10_000);
+});
+
+describe("perfilEmUso", () => {
+  it("false antes de qualquer conversa abrir; true depois que uma conversa abriu (mesmo turno já ocioso)", async () => {
+    const home = tempHome();
+    // id exclusivo desta suíte: `lives` é estado de módulo, compartilhado entre os testes deste
+    // arquivo — reusar "p1" pegaria carona na conversa aberta por outro teste.
+    addProfile({ id: "peu-1", engine: "stub" }, home);
+    expect(perfilEmUso("peu-1")).toBe(false);
+    const t = createThread({ projectPath: "/proj", profileId: "peu-1" }, home);
+    await postMessage(t.id, "oi", home);
+    expect(perfilEmUso("peu-1")).toBe(true);
+    expect(perfilEmUso("outro-perfil-qualquer")).toBe(false);
+  });
 });

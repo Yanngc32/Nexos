@@ -5,7 +5,7 @@
   --text: #e8e8e8;
   --muted: #8d8d8d;
   --line: #2a2a2a;
-  --accent: #4d9cd6;
+  --accent: #7c5cbf;
   --accent-ink: #111111;
   --ok: #7ab87a;
   --danger: #d47870;
@@ -338,14 +338,13 @@ body[data-side-mini="1"] .side .ico-only {
   padding: 2px 10px 0;
 }
 
-/* ação do cabeçalho só acende no hover: em repouso o "+" competia com os nomes */
+/* Sempre visível como o .repo-forget/.repo-add: some no hover ninguém acha o botão. */
 .repo-head-act {
-  opacity: 0;
+  opacity: 0.45;
   padding: 2px 4px;
 }
 
-.repo-head:hover .repo-head-act,
-.repo-head:focus-within .repo-head-act {
+.repo-head-act:hover {
   opacity: 1;
 }
 
@@ -436,6 +435,33 @@ body[data-side-mini="1"] .side .ico-only {
 
 .repo-forget:hover {
   color: var(--text);
+  background: #2a2a2a;
+}
+
+.repo-forget svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* Sempre visível como o .repo-forget: some no hover ninguém acha o botão. */
+.repo-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.45;
+  flex: 0 0 auto;
+  min-width: 22px;
+  padding: 2px 5px;
+  line-height: 1;
+}
+
+.repo-add svg {
+  width: 11px;
+  height: 11px;
+}
+
+.repo-add:hover {
+  color: var(--accent);
   background: #2a2a2a;
 }
 
@@ -637,6 +663,9 @@ body[data-side-mini="1"] .side .ico-only {
 }
 
 .thread-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   position: absolute;
   top: 50%;
   right: 4px;
@@ -645,6 +674,11 @@ body[data-side-mini="1"] .side .ico-only {
   padding: 0 5px;
   line-height: 1.4;
   opacity: 0;
+}
+
+.thread-del svg {
+  width: 12px;
+  height: 12px;
 }
 
 .side li:hover .thread-del,
@@ -2095,6 +2129,30 @@ li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
 .empty.inline {
   padding: 0;
   margin-right: auto;
+}
+
+.chat-empty-ico {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 14px;
+  color: var(--accent);
+  display: block;
+}
+
+.chat-empty-title {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: 16px;
+}
+
+.chat-empty-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.chat-empty-cta {
+  margin: 18px 0 0;
 }
 
 #composer {
@@ -4447,3 +4505,512 @@ body[data-compactando="1"] .ctx-dot::after {
   min-height: 42px;
 }
 .ax-item-head .mod-meta { flex: 1; }
+
+/* ---------- Tarefas (quadro Kanban) ---------- */
+
+.tk-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+#tk-filtro-marco {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: #222;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.tk-nova-coluna {
+  display: flex;
+  gap: 6px;
+}
+
+.tk-nova-coluna input {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: #222;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  width: 140px;
+}
+
+.tk-marcos-painel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #161616;
+}
+
+.tk-marcos-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tk-marco-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.tk-marco-item span {
+  flex: 1;
+}
+
+.tk-marco-vazio {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tk-marco-novo {
+  display: flex;
+  gap: 6px;
+}
+
+.tk-marco-novo input {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: #222;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.tk-marco-novo input[type="text"] {
+  flex: 1;
+}
+
+.kanban-board {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+  overflow-x: auto;
+  align-items: flex-start;
+}
+
+.kanban-col {
+  flex: 0 0 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #161616;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  max-height: 100%;
+}
+
+.kanban-col-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 0;
+}
+
+.kanban-col-nome {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+.kanban-col-nome:hover,
+.kanban-col-nome:focus {
+  border-color: var(--line);
+  outline: none;
+  background: #222;
+}
+
+.kanban-col-count {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.kanban-col-del {
+  padding: 2px 6px;
+  color: var(--muted);
+}
+
+.kanban-col-del:hover {
+  color: var(--danger);
+}
+
+.kanban-col-cards {
+  flex: 1;
+  min-height: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 8px;
+  overflow-y: auto;
+}
+
+.kanban-col-cards.tk-dragover {
+  background: #1e1e1e;
+}
+
+.kanban-col-add {
+  margin: 0 8px 8px;
+  text-align: left;
+  color: var(--muted);
+}
+
+.kanban-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #1e1e1e;
+  cursor: grab;
+}
+
+.kanban-card:hover {
+  border-color: var(--accent);
+}
+
+.kanban-card-title {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.kanban-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+#tarefa-modal input[type="text"],
+#tarefa-modal input[type="date"],
+#tarefa-modal select,
+#tarefa-modal textarea {
+  font: inherit;
+  color: var(--text);
+  background: #222;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+#tarefa-modal textarea {
+  resize: vertical;
+}
+
+.tk-f-row {
+  display: flex;
+  gap: 10px;
+}
+
+.tk-f-row .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.tk-f-etiquetas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tk-etiqueta-opcao {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.tk-etiqueta-opcao input {
+  margin: 0;
+}
+
+.tk-etiqueta-opcao[data-on="1"] {
+  color: var(--text);
+  border-color: transparent;
+}
+
+.tk-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.tk-checklist,
+.tk-comentarios {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.tk-checklist-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.tk-checklist-item span {
+  flex: 1;
+}
+
+.tk-checklist-item[data-feito="1"] span {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.tk-checklist-item button {
+  padding: 1px 6px;
+  color: var(--muted);
+}
+
+.tk-checklist-novo,
+.tk-comentario-novo {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.tk-checklist-novo input {
+  flex: 1;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: #222;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.tk-comentario-novo {
+  flex-direction: column;
+}
+
+.tk-comentario-novo textarea {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: #222;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  resize: vertical;
+}
+
+.tk-comentario-novo button {
+  align-self: flex-end;
+}
+
+.tk-comentario-item {
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 6px 8px;
+  background: #1e1e1e;
+  border-radius: 8px;
+}
+
+.tk-comentario-item .tk-comentario-meta {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.kanban-card-etiquetas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.kanban-card-etiqueta {
+  width: 100%;
+  max-width: 32px;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.kanban-card-checklist,
+.kanban-card-prioridade,
+.kanban-card-responsavel,
+.kanban-card-comentarios {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.kanban-card-prioridade[data-p="urgente"] {
+  color: var(--danger);
+}
+
+.kanban-card-prioridade[data-p="alta"] {
+  color: #e0a13c;
+}
+
+/* ---------- diálogo (confirmar/avisar no visual do app) ---------- */
+
+.dlg-card {
+  width: min(360px, calc(100% - 32px));
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dlg-msg {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-line;
+}
+
+.dlg-actions {
+  justify-content: flex-end;
+}
+
+/* ---------- log: setinha de "ir pro fim" ---------- */
+
+.log-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.scroll-bottom-btn {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: #222;
+  color: var(--text);
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 14px #0006;
+}
+
+.scroll-bottom-btn:hover {
+  background: #2a2a2a;
+  border-color: var(--accent);
+}
+
+.scroll-bottom-btn.hidden {
+  display: none;
+}
+
+/* ---------- log: listra de histórico de mensagens enviadas (traços minimalistas) ---------- */
+
+.chat-history-rail {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  transform: translateY(-50%);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  max-width: 220px;
+}
+
+.chat-history-rail.hidden {
+  display: none;
+}
+
+.chat-history-item {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  width: 14px;
+  height: 3px;
+  border-radius: 1.5px;
+  background: var(--muted);
+  opacity: 0.55;
+  color: transparent;
+  font-size: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  transition: width 0.15s ease, height 0.15s ease, padding 0.15s ease, background 0.15s ease, color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.chat-history-item:hover {
+  width: auto;
+  max-width: 200px;
+  height: auto;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #222;
+  opacity: 1;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.chat-history-item-atual {
+  background: var(--accent);
+  opacity: 0.8;
+}
+
+.chat-history-item-atual:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.log li.chat-history-piscar {
+  animation: chat-history-flash 1.1s ease;
+  border-radius: 8px;
+}
+
+@keyframes chat-history-flash {
+  0%,
+  100% {
+    background: transparent;
+  }
+  30% {
+    background: color-mix(in srgb, var(--accent) 25%, transparent);
+  }
+}

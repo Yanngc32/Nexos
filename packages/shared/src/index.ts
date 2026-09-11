@@ -285,6 +285,13 @@ export type NexoConfig = {
    */
   graphDir: string;
   /**
+   * Raiz de `~/.nexo/tarefas/<hash-do-projeto>/` — quadro (colunas/marcos/etiquetas) e cada
+   * tarefa em um `.md` próprio (ver `tarefas.ts`). Vazio = default (dentro do `NEXO_HOME`).
+   * Mesma ideia de `memoriaDir`: apontar pra uma pasta já sincronizada (Drive, OneDrive etc.)
+   * é como o quadro de tarefas atravessa de um PC pro outro — não tem sync embutido.
+   */
+  tarefasDir: string;
+  /**
    * Teto de tokens do índice (Camada 1 do repo map) injetado no prompt — ver
    * `repo-map-indice.ts`. Ausente = usa a constante padrão (1200).
    */
@@ -324,6 +331,7 @@ export const DEFAULT_CONFIG: NexoConfig = {
   trustedProjects: [],
   memoriaDir: "",
   graphDir: "",
+  tarefasDir: "",
   modulos: { rtk: false, caveman: false, cavemanNivel: "full", repoMapResumos: false, repoMapProfileId: "" },
 };
 

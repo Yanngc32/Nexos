@@ -924,6 +924,8 @@ describe("http mcp", () => {
       "nexo_hook_salvar",
       "nexo_hook_listar",
       "nexo_repomap_resumo_salvar",
+      "nexo_tarefa_listar",
+      "nexo_tarefa_salvar",
     ]);
   });
 
@@ -940,6 +942,8 @@ describe("http mcp", () => {
       "nexo_hook_listar",
       "nexo_mapa_simbolos",
       "nexo_repomap_resumo_salvar",
+      "nexo_tarefa_listar",
+      "nexo_tarefa_salvar",
     ]);
   });
 
@@ -1091,6 +1095,265 @@ describe("POST /v1/navegador/:threadId/responder", () => {
       body: JSON.stringify({ texto: "x" }),
     });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("http tarefas", () => {
+  const hdr = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+  const PROJ = "/projetos/um";
+
+  it("/v1/tarefas/quadro sem projectPath é 400", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const res = await app.request("/v1/tarefas/quadro", { headers: hdr });
+    expect(res.status).toBe(400);
+  });
+
+  it("/v1/tarefas/quadro nasce com 3 colunas padrão", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const res = await app.request(`/v1/tarefas/quadro?projectPath=${encodeURIComponent(PROJ)}`, { headers: hdr });
+    expect(res.status).toBe(200);
+    const quadro = (await res.json()) as { colunas: Array<{ nome: string }> };
+    expect(quadro.colunas.map((c) => c.nome)).toEqual(["A fazer", "Fazendo", "Feito"]);
+  });
+
+  it("CRUD de coluna: cria (201), edita, apaga (200)", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const qs = `projectPath=${encodeURIComponent(PROJ)}`;
+
+    const criada = await app.request(`/v1/tarefas/colunas?${qs}`, {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ nome: "Backlog" }),
+    });
+    expect(criada.status).toBe(201);
+    const coluna = (await criada.json()) as { id: string };
+
+    const editada = await app.request(`/v1/tarefas/colunas/${coluna.id}?${qs}`, {
+      method: "PUT",
+      headers: hdr,
+      body: JSON.stringify({ nome: "Backlog 2" }),
+    });
+    expect((await editada.json() as { nome: string }).nome).toBe("Backlog 2");
+
+    const apagada = await app.request(`/v1/tarefas/colunas/${coluna.id}?${qs}`, { method: "DELETE", headers: hdr });
+    expect(apagada.status).toBe(200);
+  });
+
+  it("apagar coluna em uso é 400 e devolve a contagem na mensagem", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const qs = `projectPath=${encodeURIComponent(PROJ)}`;
+    const quadro = (await (await app.request(`/v1/tarefas/quadro?${qs}`, { headers: hdr })).json()) as {
+      colunas: Array<{ id: string }>;
+    };
+    const colunaId = quadro.colunas[0]!.id;
+    await app.request(`/v1/tarefas?${qs}`, {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ projectPath: PROJ, titulo: "x", colunaId }),
+    });
+    const res = await app.request(`/v1/tarefas/colunas/${colunaId}?${qs}`, { method: "DELETE", headers: hdr });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toMatch(/1 tarefa/);
+  });
+
+  it("coluna que não existe: PUT/DELETE são 404", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const qs = `projectPath=${encodeURIComponent(PROJ)}`;
+    const put = await app.request(`/v1/tarefas/colunas/fantasma?${qs}`, {
+      method: "PUT",
+      headers: hdr,
+      body: JSON.stringify({ nome: "x" }),
+    });
+    expect(put.status).toBe(404);
+    const del = await app.request(`/v1/tarefas/colunas/fantasma?${qs}`, { method: "DELETE", headers: hdr });
+    expect(del.status).toBe(404);
+  });
+
+  it("CRUD de marco: cria (201), edita, apaga (200)", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const qs = `projectPath=${encodeURIComponent(PROJ)}`;
+
+    const criado = await app.request(`/v1/tarefas/marcos?${qs}`, {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ nome: "v1.0", prazo: "2026-12-01" }),
+    });
+    expect(criado.status).toBe(201);
+    const marco = (await criado.json()) as { id: string };
+
+    const editado = await app.request(`/v1/tarefas/marcos/${marco.id}?${qs}`, {
+      method: "PUT",
+      headers: hdr,
+      body: JSON.stringify({ prazo: null }),
+    });
+    expect((await editado.json() as { prazo?: string }).prazo).toBeUndefined();
+
+    const apagado = await app.request(`/v1/tarefas/marcos/${marco.id}?${qs}`, { method: "DELETE", headers: hdr });
+    expect(apagado.status).toBe(200);
+  });
+
+  it("CRUD de tarefa: cria (201), lista, edita, apaga (200), depois 404", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const qs = `projectPath=${encodeURIComponent(PROJ)}`;
+    const quadro = (await (await app.request(`/v1/tarefas/quadro?${qs}`, { headers: hdr })).json()) as {
+      colunas: Array<{ id: string }>;
+    };
+    const colunaId = quadro.colunas[0]!.id;
+
+    const criada = await app.request("/v1/tarefas", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ projectPath: PROJ, titulo: "fazer algo", colunaId }),
+    });
+    expect(criada.status).toBe(201);
+    const tarefa = (await criada.json()) as { id: string };
+
+    const lista = await app.request(`/v1/tarefas?${qs}`, { headers: hdr });
+    expect(((await lista.json()) as unknown[]).length).toBe(1);
+
+    const unica = await app.request(`/v1/tarefas/${tarefa.id}?${qs}`, { headers: hdr });
+    expect(unica.status).toBe(200);
+
+    const editada = await app.request(`/v1/tarefas/${tarefa.id}?${qs}`, {
+      method: "PUT",
+      headers: hdr,
+      body: JSON.stringify({ titulo: "editado" }),
+    });
+    expect((await editada.json() as { titulo: string }).titulo).toBe("editado");
+
+    const apagada = await app.request(`/v1/tarefas/${tarefa.id}?${qs}`, { method: "DELETE", headers: hdr });
+    expect(apagada.status).toBe(200);
+
+    const depois = await app.request(`/v1/tarefas/${tarefa.id}?${qs}`, { headers: hdr });
+    expect(depois.status).toBe(404);
+  });
+
+  it("criar tarefa com colunaId que não existe é 400", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const res = await app.request("/v1/tarefas", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ projectPath: PROJ, titulo: "x", colunaId: "fantasma" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("GET/PUT/DELETE de UMA tarefa sem projectPath é 400", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    expect((await app.request("/v1/tarefas/tk-1", { headers: hdr })).status).toBe(400);
+    expect(
+      (await app.request("/v1/tarefas/tk-1", { method: "PUT", headers: hdr, body: "{}" })).status,
+    ).toBe(400);
+    expect((await app.request("/v1/tarefas/tk-1", { method: "DELETE", headers: hdr })).status).toBe(400);
+  });
+
+  it("CRUD de etiqueta: cria (201), edita, apaga (200)", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const qs = `projectPath=${encodeURIComponent(PROJ)}`;
+
+    const criada = await app.request(`/v1/tarefas/etiquetas?${qs}`, {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ nome: "Urgente", cor: "#ff0000" }),
+    });
+    expect(criada.status).toBe(201);
+    const etiqueta = (await criada.json()) as { id: string };
+
+    const editada = await app.request(`/v1/tarefas/etiquetas/${etiqueta.id}?${qs}`, {
+      method: "PUT",
+      headers: hdr,
+      body: JSON.stringify({ nome: "Bloqueante" }),
+    });
+    expect((await editada.json() as { nome: string }).nome).toBe("Bloqueante");
+
+    const apagada = await app.request(`/v1/tarefas/etiquetas/${etiqueta.id}?${qs}`, { method: "DELETE", headers: hdr });
+    expect(apagada.status).toBe(200);
+  });
+
+  it("etiqueta com cor inválida é 400", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const res = await app.request(`/v1/tarefas/etiquetas?projectPath=${encodeURIComponent(PROJ)}`, {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ nome: "x", cor: "vermelho" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("checklist: adiciona (201), alterna feito, apaga (200)", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const qs = `projectPath=${encodeURIComponent(PROJ)}`;
+    const quadro = (await (await app.request(`/v1/tarefas/quadro?${qs}`, { headers: hdr })).json()) as {
+      colunas: Array<{ id: string }>;
+    };
+    const tarefa = (await (
+      await app.request("/v1/tarefas", {
+        method: "POST",
+        headers: hdr,
+        body: JSON.stringify({ projectPath: PROJ, titulo: "x", colunaId: quadro.colunas[0]!.id }),
+      })
+    ).json()) as { id: string };
+
+    const criado = await app.request(`/v1/tarefas/${tarefa.id}/checklist?${qs}`, {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ texto: "escrever teste" }),
+    });
+    expect(criado.status).toBe(201);
+    const item = (await criado.json()) as { id: string };
+
+    const alternado = await app.request(`/v1/tarefas/${tarefa.id}/checklist/${item.id}?${qs}`, {
+      method: "PUT",
+      headers: hdr,
+      body: JSON.stringify({ feito: true }),
+    });
+    expect(alternado.status).toBe(200);
+
+    const apagado = await app.request(`/v1/tarefas/${tarefa.id}/checklist/${item.id}?${qs}`, {
+      method: "DELETE",
+      headers: hdr,
+    });
+    expect(apagado.status).toBe(200);
+  });
+
+  it("comentário: adiciona (201), aparece na tarefa", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const qs = `projectPath=${encodeURIComponent(PROJ)}`;
+    const quadro = (await (await app.request(`/v1/tarefas/quadro?${qs}`, { headers: hdr })).json()) as {
+      colunas: Array<{ id: string }>;
+    };
+    const tarefa = (await (
+      await app.request("/v1/tarefas", {
+        method: "POST",
+        headers: hdr,
+        body: JSON.stringify({ projectPath: PROJ, titulo: "x", colunaId: quadro.colunas[0]!.id }),
+      })
+    ).json()) as { id: string };
+
+    const res = await app.request(`/v1/tarefas/${tarefa.id}/comentarios?${qs}`, {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ texto: "olha isso", autor: "Yann" }),
+    });
+    expect(res.status).toBe(201);
+
+    const depois = (await (await app.request(`/v1/tarefas/${tarefa.id}?${qs}`, { headers: hdr })).json()) as {
+      comentarios: Array<{ texto: string; autor?: string }>;
+    };
+    expect(depois.comentarios).toEqual([{ id: expect.any(String), texto: "olha isso", autor: "Yann", criadoEm: expect.any(String) }]);
   });
 });
 

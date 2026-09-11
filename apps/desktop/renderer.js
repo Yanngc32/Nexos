@@ -5,6 +5,8 @@ import { aplicarNoRetrato } from "./agent-events.js";
 import { createAgentStudio } from "./agent-studio.js";
 import { createTeamStudio } from "./team-studio.js";
 import { createHooksStudio } from "./hooks-studio.js";
+import { createTarefasBoard } from "./tarefas-board.js";
+import { createDialogo } from "./dialogo.js";
 import { lerEventos } from "./sse.js";
 import { initCombobox } from "./combobox.js";
 import { aplicarEventoDeRun, rotuloDoPasso, duracaoDoPasso, larguraDosPassos } from "./run-view.js";
@@ -35,7 +37,7 @@ import { criarNavegadorHost } from "./navegador-host.js";
 const $ = (id) => document.getElementById(id);
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
-const DEFAULT_ACCENT = "#4d9cd6";
+const DEFAULT_ACCENT = "#7c5cbf";
 
 const MODULES = [
   { id: "file", name: "Arquivo", keys: "Ctrl+G", ico: "📄" },
@@ -44,6 +46,7 @@ const MODULES = [
   { id: "canvas", name: "Canvas", keys: "", ico: "▦" },
   { id: "graph", name: "Memória do Projeto", keys: "", ico: "◈" },
   { id: "agentes", name: "Agentes, Times e Hooks", keys: "", ico: "🤖" },
+  { id: "tarefas", name: "Tarefas", keys: "", ico: "🗂" },
   { id: "side-chat", name: "Chat lateral", keys: "Ctrl+Shift+S", ico: "💬" },
 ];
 
@@ -51,6 +54,8 @@ const state = {
   ok: false,
   /** runId de `nexo_delegar` que chegou (evento `delegacao_run`) antes da bolha da ferramenta existir, por threadId. */
   subchatsPendentes: new Map(),
+  /** nome da ferramenta MCP por `id` da chamada — só pro tempo entre o evento `tool` e o `tool_result` */
+  toolNamePorId: new Map(),
   projectPath: localStorage.getItem("nexo.project") || "",
   threadId: localStorage.getItem("nexo.thread") || "",
   profileId: "",
@@ -371,7 +376,6 @@ function mergeReposFromConfig(cfg) {
   state.repos = juntos;
   if (!state.projectPath && cfg?.lastProject) state.projectPath = cfg.lastProject;
   if (!state.threadId && cfg?.lastThread) state.threadId = cfg.lastThread;
-  if (!state.reposOpen.size && state.projectPath) state.reposOpen.add(normPath(state.projectPath));
   return mudou;
 }
 
@@ -1389,6 +1393,24 @@ function setComposer(on) {
   $("chat-empty").classList.toggle("hidden", on);
 }
 
+/**
+ * Conteúdo da tela vazia do chat muda conforme dá pra fazer algo direto dali:
+ * sem repositório nenhum (1ª vez no app) o CTA principal é abrir uma pasta;
+ * com repositório mas sem conversa aberta, só falta escolher uma à esquerda.
+ */
+function updateChatEmptyState() {
+  const title = $("chat-empty-title");
+  const sub = $("chat-empty-sub");
+  const cta = $("chat-empty-cta");
+  if (!title || !sub || !cta) return;
+  const semRepos = state.repos.length === 0;
+  title.textContent = semRepos ? "Bem-vindo ao Nexo" : "Escolhe uma conversa";
+  sub.textContent = semRepos
+    ? "Abra uma pasta pra começar a conversar com o agente."
+    : "Escolhe uma conversa à esquerda ou cria outra.";
+  cta.classList.toggle("hidden", !semRepos);
+}
+
 function applyWorkLayout() {
   const work = $("work");
   const noModule = state.view === "none";
@@ -1400,6 +1422,7 @@ function applyWorkLayout() {
   $("pane-canvas").classList.toggle("hidden", state.view !== "canvas");
   $("pane-graph").classList.toggle("hidden", state.view !== "graph");
   $("pane-agentes").classList.toggle("hidden", state.view !== "agentes");
+  $("pane-tarefas").classList.toggle("hidden", state.view !== "tarefas");
   // Sem módulo aberto o chat vira o conteúdo principal — não depende de sideChat aqui.
   $("pane-chat").classList.toggle("hidden", !state.sideChat && !noModule);
 }
@@ -1431,6 +1454,7 @@ function setView(view) {
     toggleAgents(false);
     setAxTab(state.axTab);
   }
+  if (view === "tarefas") void tarefasBoard.abrir();
 }
 
 function storeKey(kind) {
@@ -2347,7 +2371,7 @@ async function salvarNickname(id, nickname, input) {
 }
 
 async function apagarConta(id) {
-  const ok = window.confirm(`Apagar a conta "${id}"? Isso remove o login salvo — não dá pra desfazer.`);
+  const ok = await dialogo.confirmar(`Apagar a conta "${id}"? Isso remove o login salvo — não dá pra desfazer.`);
   if (!ok) return;
   const err = $("accounts-manage-err");
   err.textContent = "";
@@ -2409,6 +2433,9 @@ function isBusy(t) {
  * Pasta fechada + pasta aberta no mesmo span: o CSS mostra uma das duas conforme
  * `.repo[open]`, então abrir/fechar não precisa repintar a árvore.
  */
+const ICO_X_HTML =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" /></svg>';
+
 const REPO_ICO_HTML =
   '<svg class="ico-shut" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
   '<path d="M4 20a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1Z" /></svg>' +
@@ -2420,6 +2447,7 @@ function renderRepoTree() {
   if (!tree) return;
   tree.replaceChildren();
   $("threads-empty").classList.toggle("hidden", state.repos.length > 0);
+  updateChatEmptyState();
   for (const path of state.repos) {
     const det = document.createElement("details");
     det.className = "repo";
@@ -2433,17 +2461,30 @@ function renderRepoTree() {
     name.className = "repo-name";
     name.textContent = folderName(path);
     name.title = path;
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "ghost repo-add";
+    add.title = "Nova conversa neste repositório";
+    add.setAttribute("aria-label", "Nova conversa neste repositório");
+    add.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14" /></svg>';
+    add.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void criarConversaEmRepo(path);
+    });
     const forget = document.createElement("button");
     forget.type = "button";
     forget.className = "ghost repo-forget";
     forget.title = "Tirar da lista (não apaga conversas)";
-    forget.textContent = "×";
+    forget.innerHTML = ICO_X_HTML;
     forget.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
       void removeRepo(path);
     });
     sum.append(ico, name, forget);
+    sum.insertBefore(add, forget);
     det.addEventListener("toggle", () => {
       if (det.open) state.reposOpen.add(normPath(path));
       else state.reposOpen.delete(normPath(path));
@@ -2455,7 +2496,7 @@ function renderRepoTree() {
     count.className = "repo-count";
     count.textContent = String(list.length);
     count.title = list.length === 1 ? "1 conversa neste projeto" : `${list.length} conversas neste projeto`;
-    sum.insertBefore(count, forget);
+    sum.insertBefore(count, add);
     if (!list.length) {
       const empty = document.createElement("li");
       empty.className = "repo-empty";
@@ -2489,7 +2530,7 @@ function renderRepoTree() {
       del.type = "button";
       del.className = "ghost thread-del";
       del.title = "Apagar conversa";
-      del.textContent = "×";
+      del.innerHTML = ICO_X_HTML;
       del.addEventListener("click", (e) => {
         e.stopPropagation();
         void deleteThread(t.id);
@@ -2569,6 +2610,25 @@ async function openThreadInRepo(path, id) {
   await openThread(id);
 }
 
+/** Cria conversa direto num repositório da árvore, sem precisar trocar o projeto ativo antes. */
+async function criarConversaEmRepo(path) {
+  if (!state.ok) return;
+  const profileId = state.profileId || state.profiles.find((p) => p.status === "ready")?.id;
+  if (!profileId) {
+    appendEvent({ type: "error", message: "Nenhuma conta pronta. Configurações → Nova conta." });
+    state.sideChat = true;
+    applyWorkLayout();
+    setComposer(true);
+    return;
+  }
+  if (!samePath(state.projectPath, path)) await bindProject(path);
+  const t = await req("/v1/threads", {
+    method: "POST",
+    body: JSON.stringify({ projectPath: path, profileId }),
+  });
+  await openThread(t.id);
+}
+
 async function removeRepo(path) {
   forgetRepo(path);
   // Pinta primeiro: se o rebind abaixo falhar (setProject, árvore de arquivos),
@@ -2593,7 +2653,7 @@ async function removeRepo(path) {
 }
 
 async function deleteThread(id) {
-  if (!window.confirm("Apagar esta conversa? Não volta.")) return;
+  if (!(await dialogo.confirmar("Apagar esta conversa? Não volta."))) return;
   try {
     await req(`/v1/threads/${id}`, { method: "DELETE" });
   } catch (e) {
@@ -2622,6 +2682,42 @@ function renderEvents(events) {
   log.replaceChildren();
   for (const ev of events) appendEvent(ev, false);
   log.scrollTop = log.scrollHeight;
+  atualizarHistoricoChat();
+  atualizarBotaoDescer();
+}
+
+/** Últimas mensagens que a PESSOA mandou nesta conversa — clicar rola até a bolha original. */
+function atualizarHistoricoChat() {
+  const rail = $("chat-history-rail");
+  if (!rail) return;
+  const todas = [...$("log").querySelectorAll("li.you")];
+  const ultimas = todas.slice(-6);
+  rail.replaceChildren();
+  rail.classList.toggle("hidden", ultimas.length === 0);
+  ultimas.forEach((li, i) => {
+    const texto = li.querySelector(".you-text")?.textContent || "";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chat-history-item";
+    if (i === ultimas.length - 1) btn.classList.add("chat-history-item-atual");
+    btn.textContent = texto;
+    btn.title = texto;
+    btn.addEventListener("click", () => {
+      li.scrollIntoView({ behavior: "smooth", block: "center" });
+      li.classList.add("chat-history-piscar");
+      setTimeout(() => li.classList.remove("chat-history-piscar"), 1100);
+    });
+    rail.append(btn);
+  });
+}
+
+/** Mostra a setinha de "ir pro fim" só quando a pessoa rolou pra cima e saiu do fim da conversa. */
+function atualizarBotaoDescer() {
+  const log = $("log");
+  const btn = $("btn-scroll-bottom");
+  if (!log || !btn) return;
+  const faltam = log.scrollHeight - log.scrollTop - log.clientHeight;
+  btn.classList.toggle("hidden", faltam < 80);
 }
 
 /** Só chega texto de raciocínio de motor que expõe isso (o CLI do Claude não expõe). */
@@ -2645,6 +2741,11 @@ function ehFerramentaDeDelegar(name) {
 
 function ehFerramentaDePerguntar(name) {
   return typeof name === "string" && name.endsWith("nexo_perguntar");
+}
+
+/** `nexo_tarefa_salvar` — o agente criou/moveu/editou uma tarefa do quadro. */
+function ehFerramentaDeTarefa(name) {
+  return typeof name === "string" && name.endsWith("nexo_tarefa_salvar");
 }
 
 /**
@@ -2724,7 +2825,7 @@ function appendEvent(ev, scroll = true) {
   const li = document.createElement("li");
   if (ev.type === "user") {
     li.className = "you";
-    li.innerHTML = `<div class="who">Você</div><div>${escapeHtml(ev.text)}</div>`;
+    li.innerHTML = `<div class="who">Você</div><div class="you-text">${escapeHtml(ev.text)}</div>`;
     const shots = ev.previews ?? ev.attachments ?? [];
     if (shots.length) li.append(shotsRow(shots, ev.threadId ?? state.threadId));
   } else if (ev.type === "assistant") {
@@ -2836,6 +2937,8 @@ function appendEvent(ev, scroll = true) {
   if (scroll) state.events = [...state.events, ev];
   log.append(li);
   if (scroll) log.scrollTop = log.scrollHeight;
+  if (ev.type === "user") atualizarHistoricoChat();
+  atualizarBotaoDescer();
 }
 
 
@@ -2858,6 +2961,11 @@ function flushStreamRender() {
   if (streamPending) renderMd(streamPending.el, streamPending.text);
   streamPending = null;
 }
+
+$("log").addEventListener("scroll", atualizarBotaoDescer);
+$("btn-scroll-bottom").addEventListener("click", () => {
+  $("log").scrollTo({ top: $("log").scrollHeight, behavior: "smooth" });
+});
 
 /** Delegado (não por bolha): pega tanto as ferramentas que chegam ao vivo quanto as de uma conversa reaberta. */
 $("log").addEventListener("click", (e) => {
@@ -3057,6 +3165,7 @@ function onLive(ev) {
     if (live?.type === "assistant") live.text += ev.text;
     scheduleStreamRender(last.querySelector(".stream"), live?.text ?? ev.text);
     log.scrollTop = log.scrollHeight;
+    atualizarBotaoDescer();
     return;
   }
   if (ev.type === "thinking") {
@@ -3100,10 +3209,16 @@ function onLive(ev) {
   if (ev.type === "tool") {
     appendEvent({ type: "tool", name: ev.name, summary: ev.summary, id: ev.id, input: ev.input });
     registrarAtividadeGrafo(ev.name, ev.summary);
+    if (ev.id) state.toolNamePorId.set(ev.id, ev.name);
     return;
   }
   if (ev.type === "tool_result") {
     appendEvent({ type: "tool_result", id: ev.id, result: ev.result, isError: ev.isError });
+    const nome = state.toolNamePorId.get(ev.id);
+    state.toolNamePorId.delete(ev.id);
+    // O modelo mexeu no quadro por `nexo_tarefa_salvar` — se a tela de Tarefas estiver aberta,
+    // recarrega sozinha (sem isso, só via fechar/abrir o módulo o cartão novo apareceria).
+    if (ehFerramentaDeTarefa(nome) && !ev.isError && state.view === "tarefas") void tarefasBoard.abrir();
     return;
   }
   if (ev.type === "pergunta") {
@@ -3709,6 +3824,17 @@ const hooksStudio = createHooksStudio({
     state.view = "none";
     applyWorkLayout();
   },
+});
+
+const dialogo = createDialogo({ el: $ });
+
+const tarefasBoard = createTarefasBoard({
+  req,
+  el: $,
+  getProjectPath: () => state.projectPath,
+  aoAbrirConversa: (threadId) => openThread(threadId),
+  confirmar: (msg) => dialogo.confirmar(msg),
+  avisar: (msg) => dialogo.avisar(msg),
 });
 
 const teamStudio = createTeamStudio({
@@ -4533,6 +4659,12 @@ $("btn-folder").addEventListener("click", async () => {
   await bindProject(path);
 });
 
+$("chat-empty-cta").addEventListener("click", async () => {
+  const path = await window.nexo.pickFolder();
+  if (!path) return;
+  await bindProject(path);
+});
+
 $("crumb-repo").addEventListener("click", () => {
   const found = state.threadId ? threadStub(state.threadId) : null;
   revealRepo(found?.path || state.projectPath);
@@ -5351,8 +5483,10 @@ async function renderMemoria() {
   }
   $("mem-dir").value = cfg.memoriaDir || "";
   $("graph-dir").value = cfg.graphDir || "";
+  $("tarefas-dir").value = cfg.tarefasDir || "";
   pintarBadgePasta("mem-dir-badge", cfg.memoriaDir);
   pintarBadgePasta("graph-dir-badge", cfg.graphDir);
+  pintarBadgePasta("tarefas-dir-badge", cfg.tarefasDir);
 }
 
 /**
@@ -5407,6 +5541,22 @@ $("btn-graph-dir-pick").addEventListener("click", async () => {
   if (path) {
     void salvarPastaCompartilhada(
       { campo: "graphDir", inputId: "graph-dir", msgId: "graph-dir-msg", badgeId: "graph-dir-badge" },
+      path,
+    );
+  }
+});
+
+$("tarefas-dir").addEventListener("change", (e) =>
+  void salvarPastaCompartilhada(
+    { campo: "tarefasDir", inputId: "tarefas-dir", msgId: "tarefas-dir-msg", badgeId: "tarefas-dir-badge" },
+    e.target.value,
+  ),
+);
+$("btn-tarefas-dir-pick").addEventListener("click", async () => {
+  const path = await window.nexo.pickFolder();
+  if (path) {
+    void salvarPastaCompartilhada(
+      { campo: "tarefasDir", inputId: "tarefas-dir", msgId: "tarefas-dir-msg", badgeId: "tarefas-dir-badge" },
       path,
     );
   }
@@ -5744,6 +5894,9 @@ teamStudio.ligar();
 $("btn-agent-new").addEventListener("click", () => abrirEstudio(null));
 agentStudio.ligar();
 hooksStudio.ligar();
+$("btn-close-tarefas").addEventListener("click", closeModule);
+tarefasBoard.ligar();
+dialogo.ligar();
 
 $("btn-palette").addEventListener("click", () => handleMod("palette"));
 $("btn-palette-close").addEventListener("click", () => closePalette());

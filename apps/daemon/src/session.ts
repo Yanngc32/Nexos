@@ -139,6 +139,11 @@ export function busyThreads(): string[] {
   return [...lives.entries()].filter(([, l]) => l.pendingTurn !== null).map(([id]) => id);
 }
 
+/** Essa conta tem motor de pé AGORA (conversa aberta com ela), turno em voo ou não. Usado pra o ping de uso pular quem já está sendo usado. */
+export function perfilEmUso(profileId: string): boolean {
+  return [...lives.values()].some((l) => l.profileId === profileId);
+}
+
 /** Rabo do que o agente está escrevendo agora: o painel mostra o fim, não o começo. */
 const TAIL_CHARS = 400;
 
@@ -638,7 +643,7 @@ function turnoDeResumo(p: Profile, projectPath: string, home: string, pedido: st
  * "Uso de todas as contas" não ficar com "sem dado ainda" pra quem não está numa conversa
  * agora, manda uma mensagem mínima por conta claude/codex logada, num motor descartável (mesmo
  * padrão de `turnoDeResumo`) — sem thread, sem gravar nada em disco, só pra capturar o evento
- * `limits` e alimentar `limitsByProfile`. Chamado no boot do daemon e depois a cada 10 minutos
+ * `limits` e alimentar `limitsByProfile`. Chamado no boot do daemon e depois a cada 30 minutos
  * (`cli.ts`).
  */
 async function pingUso(p: Profile, home: string): Promise<void> {
@@ -665,17 +670,19 @@ async function pingUso(p: Profile, home: string): Promise<void> {
 }
 
 /**
- * Pinga TODAS as contas claude/codex logadas em paralelo — uma falha (conta sem quota, etc.) não
+ * Pinga as contas claude/codex logadas em paralelo — uma falha (conta sem quota, etc.) não
  * derruba as outras. `status` persistido só é reconferido (`applyLoginResult`) quando ainda NÃO
  * está `ready` — mesmo padrão de `GET /v1/profiles/:id` (http.ts) — porque uma conta recém-logada
  * fora de uma conversa pode ter o carimbo desatualizado, e é justo essa (nunca usada ainda) que
- * mais precisa do ping.
+ * mais precisa do ping. Pula quem já está `perfilEmUso` — conta com conversa aberta agora já
+ * recebe `limits` de verdade no próprio turno (ver `onEngineEvent`), então o ping descartável
+ * aqui seria gasto duplicado sem ganhar nada.
  */
 export async function pingUsoDeTodasAsContas(home: string): Promise<void> {
   const candidatos = listProfiles(home).filter((p) => p.engine === "claude" || p.engine === "codex");
   const alvos = candidatos
     .map((p) => (p.status === "ready" ? p : applyLoginResult(p.id, home)))
-    .filter((p) => p.status === "ready");
+    .filter((p) => p.status === "ready" && !perfilEmUso(p.id));
   await Promise.allSettled(alvos.map((p) => pingUso(p, home)));
 }
 

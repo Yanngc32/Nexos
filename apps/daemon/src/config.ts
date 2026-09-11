@@ -56,6 +56,7 @@ export function loadConfig(home: string): NexoConfig {
     trustedProjects: cleanRepos(raw.trustedProjects),
     memoriaDir: str(raw.memoriaDir),
     graphDir: str(raw.graphDir),
+    tarefasDir: str(raw.tarefasDir),
     ...(isTetoTokens(raw.repoMapTetoTokens) ? { repoMapTetoTokens: raw.repoMapTetoTokens } : {}),
     modulos: cleanModulos(raw.modulos),
   };
@@ -141,6 +142,7 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
       patch.trustedProjects === undefined ? current.trustedProjects : cleanRepos(patch.trustedProjects),
     memoriaDir: patch.memoriaDir === undefined ? current.memoriaDir : str(patch.memoriaDir),
     graphDir: patch.graphDir === undefined ? current.graphDir : str(patch.graphDir),
+    tarefasDir: patch.tarefasDir === undefined ? current.tarefasDir : str(patch.tarefasDir),
     ...(patch.repoMapTetoTokens === undefined
       ? current.repoMapTetoTokens !== undefined
         ? { repoMapTetoTokens: current.repoMapTetoTokens }

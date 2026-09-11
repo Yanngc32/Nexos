@@ -88,6 +88,11 @@ export function hooksPath(root = nexoHome()): string {
   return join(root, "hooks.json");
 }
 
+/** Quadros Kanban por projeto + tarefas. Ver tarefas.ts. */
+export function tarefasPath(root = nexoHome()): string {
+  return join(root, "tarefas.json");
+}
+
 /**
  * Skills globais do Nexo: um SKILL.md aqui vale pra qualquer perfil/conta,
  * porque `engineSpawnEnv` isola `CLAUDE_CONFIG_DIR` por perfil e o motor só

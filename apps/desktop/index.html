@@ -519,6 +519,38 @@
           </div>
         </div>
       </section>
+      <section class="pane hidden" id="pane-tarefas">
+        <header class="mod-head">
+          <h1>Tarefas</h1>
+          <div class="tk-toolbar">
+            <select id="tk-filtro-marco" aria-label="Filtrar por marco"></select>
+            <button type="button" id="btn-tk-marcos" class="ghost">Marcos</button>
+            <button type="button" id="btn-tk-etiquetas" class="ghost">Etiquetas</button>
+            <div class="tk-nova-coluna">
+              <input type="text" id="tk-nova-coluna-nome" placeholder="Nova coluna…" />
+              <button type="button" id="btn-tk-nova-coluna-add" class="ghost">+ Coluna</button>
+            </div>
+          </div>
+          <button type="button" id="btn-close-tarefas" class="ghost mod-close" title="Fechar (volta só pro chat)">✕</button>
+        </header>
+        <div id="tk-marcos-painel" class="tk-marcos-painel hidden">
+          <ul id="tk-marcos-lista" class="tk-marcos-lista"></ul>
+          <div class="tk-marco-novo">
+            <input type="text" id="tk-marco-nome" placeholder="Nome do marco" />
+            <input type="date" id="tk-marco-prazo" />
+            <button type="button" id="btn-tk-marco-add" class="ghost">Adicionar marco</button>
+          </div>
+        </div>
+        <div id="tk-etiquetas-painel" class="tk-marcos-painel hidden">
+          <ul id="tk-etiquetas-lista" class="tk-marcos-lista"></ul>
+          <div class="tk-marco-novo">
+            <input type="text" id="tk-etiqueta-nome" placeholder="Nome da etiqueta" />
+            <input type="color" id="tk-etiqueta-cor" value="#7c5cbf" aria-label="Cor da etiqueta" />
+            <button type="button" id="btn-tk-etiqueta-add" class="ghost">Adicionar etiqueta</button>
+          </div>
+        </div>
+        <div id="tk-board" class="kanban-board"></div>
+      </section>
       <section class="pane hidden" id="pane-chat">
         <div id="split-chat" class="splitter" role="separator" aria-orientation="vertical" title="Arraste pra redimensionar"></div>
         <button type="button" id="btn-focus-exit" class="focus-exit hidden" title="Sair do foco (Esc)">⤡</button>
@@ -531,8 +563,26 @@
           <span class="crumb-thread" id="crumb-thread">Nenhuma conversa</span>
         </header>
         <div id="banner" class="banner hidden">Motor desligado. Liga pra conversar.</div>
-        <ol id="log" class="log"></ol>
-        <p id="chat-empty" class="empty sheet">Escolhe uma conversa à esquerda ou cria outra.</p>
+        <div id="log-wrap" class="log-wrap">
+          <ol id="log" class="log"></ol>
+          <div id="chat-history-rail" class="chat-history-rail hidden" aria-label="Histórico de mensagens enviadas"></div>
+          <button
+            type="button"
+            id="btn-scroll-bottom"
+            class="scroll-bottom-btn hidden"
+            title="Ir para o fim da conversa"
+            aria-label="Ir para o fim da conversa"
+          >⌄</button>
+        </div>
+        <div id="chat-empty" class="empty sheet">
+          <svg class="chat-empty-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" />
+            <path d="M12 9v5M9.5 11.5h5" />
+          </svg>
+          <h2 id="chat-empty-title" class="chat-empty-title">Escolhe uma conversa</h2>
+          <p id="chat-empty-sub" class="chat-empty-sub">Escolhe uma conversa à esquerda ou cria outra.</p>
+          <button type="button" id="chat-empty-cta" class="primary chat-empty-cta hidden">+ Adicionar pasta</button>
+        </div>
         <div id="meter" class="meter hidden">
           <button
             type="button"
@@ -751,6 +801,92 @@
         </div>
       </div>
     </div>
+    <div id="tarefa-modal" class="settings hidden" role="dialog" aria-labelledby="tk-modal-title">
+      <div class="settings-card">
+        <div class="settings-head">
+          <h2 id="tk-modal-title">Nova tarefa</h2>
+          <button type="button" id="btn-tk-modal-close" class="ghost">Fechar</button>
+        </div>
+        <label class="field">
+          <span>Título</span>
+          <input id="tk-f-titulo" type="text" maxlength="140" />
+        </label>
+        <label class="field">
+          <span>Descrição</span>
+          <textarea id="tk-f-descricao" rows="3" maxlength="2000"></textarea>
+        </label>
+        <label class="field">
+          <span>Coluna</span>
+          <select id="tk-f-coluna"></select>
+        </label>
+        <label class="field">
+          <span>Marco</span>
+          <select id="tk-f-marco"></select>
+        </label>
+        <div class="tk-f-row">
+          <label class="field">
+            <span>Prioridade</span>
+            <select id="tk-f-prioridade">
+              <option value="">Nenhuma</option>
+              <option value="baixa">Baixa</option>
+              <option value="media">Média</option>
+              <option value="alta">Alta</option>
+              <option value="urgente">Urgente</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Prazo</span>
+            <input id="tk-f-prazo" type="date" />
+          </label>
+        </div>
+        <div class="tk-f-row">
+          <label class="field">
+            <span>Responsável (pessoa)</span>
+            <input id="tk-f-responsavel" type="text" maxlength="80" placeholder="nome de uma pessoa" />
+          </label>
+          <label class="field">
+            <span>Ou agente</span>
+            <input id="tk-f-agente" type="text" maxlength="80" placeholder="id do agente" />
+          </label>
+        </div>
+        <label class="field">
+          <span>Etiquetas</span>
+          <div id="tk-f-etiquetas" class="tk-f-etiquetas"></div>
+        </label>
+        <div class="field" id="tk-checklist-wrap">
+          <span>Checklist</span>
+          <ul id="tk-f-checklist" class="tk-checklist"></ul>
+          <div class="tk-checklist-novo">
+            <input type="text" id="tk-checklist-novo-texto" placeholder="Novo item…" maxlength="200" />
+            <button type="button" id="btn-tk-checklist-add" class="ghost">+</button>
+          </div>
+        </div>
+        <div class="field" id="tk-comentarios-wrap">
+          <span>Comentários</span>
+          <ul id="tk-f-comentarios" class="tk-comentarios"></ul>
+          <div class="tk-comentario-novo">
+            <textarea id="tk-comentario-novo-texto" rows="2" placeholder="Escrever um comentário…" maxlength="2000"></textarea>
+            <button type="button" id="btn-tk-comentario-add" class="ghost">Comentar</button>
+          </div>
+        </div>
+        <p id="tk-checklist-hint" class="tk-hint hidden">Salve a tarefa antes de adicionar checklist ou comentário.</p>
+        <p id="tk-f-err" class="login-msg hidden"></p>
+        <div class="accent-row">
+          <button type="button" id="btn-tk-abrir-conversa" class="ghost hidden">Abrir conversa</button>
+          <button type="button" id="btn-tk-salvar" class="primary">Salvar</button>
+          <button type="button" id="btn-tk-apagar" class="ghost danger hidden">Apagar</button>
+        </div>
+      </div>
+    </div>
+    <div id="dlg-modal" class="settings hidden" role="alertdialog" aria-labelledby="dlg-msg">
+      <div class="settings-card dlg-card">
+        <p id="dlg-msg" class="dlg-msg"></p>
+        <div class="accent-row dlg-actions">
+          <button type="button" id="btn-dlg-cancel" class="ghost">Cancelar</button>
+          <button type="button" id="btn-dlg-ok" class="primary">OK</button>
+        </div>
+      </div>
+    </div>
     <div id="settings" class="settings hidden" role="dialog" aria-labelledby="settings-title">
       <div class="set-card">
         <nav class="set-nav" aria-label="Seções">
@@ -792,8 +928,8 @@
                   <p>Cor de botões, foco e cursor do terminal. Vale no app inteiro.</p>
                 </div>
                 <div class="set-ctl">
-                  <input type="color" id="accent-picker" value="#4d9cd6" aria-label="Cor de destaque" />
-                  <input type="text" id="accent-hex" value="#4d9cd6" spellcheck="false" maxlength="7" aria-label="Cor em hexadecimal" />
+                  <input type="color" id="accent-picker" value="#7c5cbf" aria-label="Cor de destaque" />
+                  <input type="text" id="accent-hex" value="#7c5cbf" spellcheck="false" maxlength="7" aria-label="Cor em hexadecimal" />
                 </div>
               </div>
               <div class="set-row">
@@ -1053,6 +1189,28 @@
                   <button type="button" id="btn-graph-dir-pick" class="ghost">Escolher…</button>
                 </div>
                 <p id="graph-dir-msg" class="shared-msg"></p>
+              </div>
+              <div class="shared-card">
+                <div class="shared-card-head">
+                  <h4>Tarefas <span id="tarefas-dir-badge" class="shared-badge" data-on="0">só nesta máquina</span></h4>
+                  <p>
+                    Onde fica o quadro de tarefas (colunas, marcos, etiquetas e cada tarefa) de cada
+                    projeto. Vazio = dentro do <code>~/.nexo</code>, só nesta máquina. Aponte pra uma
+                    pasta já sincronizada (Drive, OneDrive etc.) pra o quadro atravessar de um PC pro
+                    outro — mesma ideia da Memória.
+                  </p>
+                </div>
+                <div class="shared-card-ctl">
+                  <input
+                    id="tarefas-dir"
+                    type="text"
+                    spellcheck="false"
+                    placeholder="G:\Meu Drive\nexo-tarefas"
+                    aria-label="Pasta compartilhada de tarefas"
+                  />
+                  <button type="button" id="btn-tarefas-dir-pick" class="ghost">Escolher…</button>
+                </div>
+                <p id="tarefas-dir-msg" class="shared-msg"></p>
               </div>
             </section>
             <section class="set-sec hidden" data-panel="modulos">

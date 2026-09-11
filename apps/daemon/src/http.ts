@@ -69,6 +69,28 @@ import { ferramentasDeAutoria } from "./autoria.ts";
 import { construirIndice, indiceDisponivel, statusDoIndice } from "./repo-map-indice.ts";
 import { ferramentasDeRepoMap } from "./repo-map-simbolos.ts";
 import { ferramentaDeResumo, leitorDeResumos } from "./repo-map-enriquecimento.ts";
+import {
+  adicionarChecklistItem,
+  adicionarComentario,
+  apagarChecklistItem,
+  apagarColuna,
+  apagarEtiqueta,
+  apagarMarco,
+  apagarTarefa,
+  alternarChecklistItem,
+  ferramentasDeTarefas,
+  getQuadro,
+  getTarefa,
+  listarTarefas,
+  salvarColuna,
+  salvarEtiqueta,
+  salvarMarco,
+  salvarTarefa,
+  type ColunaInput,
+  type EtiquetaInput,
+  type MarcoInput,
+  type TarefaInput,
+} from "./tarefas.ts";
 import { desligarRepoMapResumos, gerarResumosSobDemanda, sincronizarRepoMapResumos } from "./repo-map-auto.ts";
 import { statusDaMemoria } from "./memoria.ts";
 import { estadoAtual, melhorHost } from "./escuta.ts";
@@ -826,6 +848,218 @@ export function createApp(home: string, token: string): Hono {
     }
   });
 
+  /* ---------- Tarefas (quadro Kanban por projeto) ---------- */
+
+  app.get("/v1/tarefas/quadro", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    return c.json(getQuadro(projectPath, home));
+  });
+
+  app.post("/v1/tarefas/colunas", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as ColunaInput;
+      return c.json(salvarColuna(projectPath, body, home), 201);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.put("/v1/tarefas/colunas/:id", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as ColunaInput;
+      return c.json(salvarColuna(projectPath, { ...body, id: c.req.param("id") }, home));
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.delete("/v1/tarefas/colunas/:id", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      apagarColuna(projectPath, c.req.param("id"), home);
+      return c.json({ ok: true });
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 404) as 404);
+    }
+  });
+
+  app.post("/v1/tarefas/marcos", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as MarcoInput;
+      return c.json(salvarMarco(projectPath, body, home), 201);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.put("/v1/tarefas/marcos/:id", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as MarcoInput;
+      return c.json(salvarMarco(projectPath, { ...body, id: c.req.param("id") }, home));
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.delete("/v1/tarefas/marcos/:id", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      apagarMarco(projectPath, c.req.param("id"), home);
+      return c.json({ ok: true });
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 404) as 404);
+    }
+  });
+
+  app.get("/v1/tarefas", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    return c.json(listarTarefas(projectPath, home));
+  });
+
+  app.post("/v1/tarefas", async (c) => {
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as TarefaInput;
+      return c.json(salvarTarefa(body, home), 201);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.get("/v1/tarefas/:id", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    const t = getTarefa(projectPath, home, c.req.param("id"));
+    return t ? c.json(t) : c.json({ error: "tarefa não existe" }, 404);
+  });
+
+  app.put("/v1/tarefas/:id", async (c) => {
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as TarefaInput;
+      const projectPath = c.req.query("projectPath") || body.projectPath;
+      if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+      return c.json(salvarTarefa({ ...body, projectPath, id: c.req.param("id") }, home));
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.delete("/v1/tarefas/:id", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      apagarTarefa(projectPath, home, c.req.param("id"));
+      return c.json({ ok: true });
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 404) as 404);
+    }
+  });
+
+  app.post("/v1/tarefas/etiquetas", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as EtiquetaInput;
+      return c.json(salvarEtiqueta(projectPath, body, home), 201);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.put("/v1/tarefas/etiquetas/:id", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as EtiquetaInput;
+      return c.json(salvarEtiqueta(projectPath, { ...body, id: c.req.param("id") }, home));
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.delete("/v1/tarefas/etiquetas/:id", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      apagarEtiqueta(projectPath, c.req.param("id"), home);
+      return c.json({ ok: true });
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 404) as 404);
+    }
+  });
+
+  app.post("/v1/tarefas/:id/checklist", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { texto?: string };
+      return c.json(adicionarChecklistItem(projectPath, home, c.req.param("id"), body.texto ?? ""), 201);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.put("/v1/tarefas/:id/checklist/:itemId", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { feito?: boolean };
+      alternarChecklistItem(projectPath, home, c.req.param("id"), c.req.param("itemId"), Boolean(body.feito));
+      return c.json({ ok: true });
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.delete("/v1/tarefas/:id/checklist/:itemId", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      apagarChecklistItem(projectPath, home, c.req.param("id"), c.req.param("itemId"));
+      return c.json({ ok: true });
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 404) as 404);
+    }
+  });
+
+  app.post("/v1/tarefas/:id/comentarios", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { texto?: string; autor?: string };
+      return c.json(adicionarComentario(projectPath, home, c.req.param("id"), body.texto ?? "", body.autor), 201);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
   /**
    * Gatilho dos Nexo Hooks — chamado pelo script instalado em `.git/hooks/`
    * (ver `sincronizarHooksDoProjeto`). `post-commit`/`post-push` respondem
@@ -1004,6 +1238,7 @@ export function createApp(home: string, token: string): Hono {
       ...ferramentasDeAutoria(home)(),
       ...(projectPath ? ferramentasDeRepoMap(projectPath, home)() : []),
       ...(projectPath ? ferramentaDeResumo(projectPath, home)() : []),
+      ...(projectPath ? ferramentasDeTarefas(projectPath, home)() : []),
       ...(runId ? ferramentaDeVeredito(runId)() : []),
       ...(threadId ? ferramentaDePerguntar(threadId, home)() : []),
       ...(modoDelegacao !== "negado" ? ferramentaDeDelegar(threadId, projectPath, modoDelegacao, home)() : []),
