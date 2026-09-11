@@ -3,9 +3,8 @@ import { join } from "node:path";
 
 /**
  * Mecânica de instalação do lado do git — só isto: escrever/remover o bloco em
- * `.git/hooks/` e garantir `graphify-out/` no `.gitignore`. O despacho de
- * verdade (o que `nexo hook fire` chamado pelo script realmente faz) mora em
- * `hooks.ts`; este arquivo não sabe nada disso.
+ * `.git/hooks/`. O despacho de verdade (o que `nexo hook fire` chamado pelo
+ * script realmente faz) mora em `hooks.ts`; este arquivo não sabe nada disso.
  */
 
 /** Nome do arquivo de hook do git pra cada evento que o Nexo dispara. */
@@ -101,27 +100,5 @@ export function uninstallGitHookScript(projectPath: string, event: string): bool
     return true;
   }
   writeFileSync(path, restante, "utf8");
-  return true;
-}
-
-/**
- * Garante `entry` no `.gitignore` da raiz do projeto — nunca deixa
- * `graphify-out/` entrar num commit por acidente.
- *
- * @returns `true` se mudou o arquivo, `false` se a entrada já estava lá.
- */
-export function ensureGitignoreEntry(projectPath: string, entry: string): boolean {
-  const path = join(projectPath, ".gitignore");
-  if (!existsSync(path)) {
-    writeFileSync(path, `${entry}\n`, "utf8");
-    return true;
-  }
-  const atual = readFileSync(path, "utf8");
-  const jaTem = atual
-    .split(/\r?\n/)
-    .some((linha) => linha.trim().replace(/\/+$/, "") === entry.replace(/\/+$/, ""));
-  if (jaTem) return false;
-  const precisaQuebra = atual.length > 0 && !atual.endsWith("\n");
-  appendFileSync(path, `${precisaQuebra ? "\n" : ""}${entry}\n`, "utf8");
   return true;
 }

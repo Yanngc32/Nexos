@@ -3,13 +3,7 @@ import { join } from "node:path";
 import { newHookRuleId } from "./ids.ts";
 import { ensureHome, hooksPath, projectKey } from "./home.ts";
 import { getAgent } from "./agents.ts";
-import { ensureGraphifyInstalled } from "./graphify.ts";
-import {
-  ensureGitignoreEntry,
-  GIT_HOOK_FILES,
-  installGitHookScript,
-  uninstallGitHookScript,
-} from "./git-hooks.ts";
+import { GIT_HOOK_FILES, installGitHookScript, uninstallGitHookScript } from "./git-hooks.ts";
 import { memoriaPath } from "./memoria.ts";
 import { criarRun, executarRun } from "./runs.ts";
 import { projetosConhecidos } from "./threads.ts";
@@ -235,11 +229,6 @@ export function saveRegra(input: RegraInput & { id?: string }, home: string): Re
   };
   writeAll(atual ? list.map((r) => (r.id === def.id ? def : r)) : [...list, def], home);
   sincronizarAposMudanca(escopo, atual?.escopo, home);
-  // Regra NOVA (não edição) de post-commit/post-push: provavelmente alguém quer o agente
-  // rodando `graphify` depois do commit — best-effort, fire-and-forget, nunca lança.
-  if (!atual && (evento === "git.post-commit" || evento === "git.post-push")) {
-    void ensureGraphifyInstalled();
-  }
   return def;
 }
 
@@ -272,15 +261,20 @@ function regrasCasando(regras: RegraHook[], projectPath: string, event: string, 
  * uma regra muda (ver `sincronizarAposMudanca`) e quando um projeto é aberto/adicionado (ver
  * `POST /v1/threads`, http.ts) — cobre o caso de regra global criada antes deste projeto existir
  * pro Nexo. Silenciosa fora de um repositório git: nada a instalar.
+ *
+ * `git.post-commit` entra SEMPRE, mesmo sem regra nenhuma pedindo — é o gatilho que mantém a
+ * Camada 1 do repo map fresca (ver `POST /v1/hooks/fire`, http.ts), e essa atualização não passa
+ * por regra/agente (não tem custo de LLM, ver repo-map-auto.ts). Sem isso o script nunca seria
+ * instalado em projeto sem nenhuma regra configurada, e o índice nunca atualizaria sozinho.
  */
 export function sincronizarHooksDoProjeto(projectPath: string, home: string): void {
   if (!existsSync(join(projectPath, ".git"))) return;
   const necessarios = new Set(regrasDoEscopo(readAll(home), projectPath).map((r) => r.evento));
+  necessarios.add("git.post-commit");
   for (const event of Object.keys(GIT_HOOK_FILES)) {
     if (necessarios.has(event)) installGitHookScript(projectPath, event);
     else uninstallGitHookScript(projectPath, event);
   }
-  ensureGitignoreEntry(projectPath, "graphify-out/");
 }
 
 /**
@@ -355,8 +349,7 @@ barrado. Sem essa chamada, o push é reprovado por padrão.`;
  * memorizar" que orienta a própria memória do Claude Code.
  */
 export const MEMORIA_AGENT_INSTRUCTIONS = `Leia o \`git diff\` desde o último commit que você já registrou (o hash fica
-numa linha \`<!-- commit: <hash> -->\` no fim do MEMORIA.md atual, se existir) e,
-se existir, \`graphify-out/GRAPH_REPORT.md\`.
+numa linha \`<!-- commit: <hash> -->\` no fim do MEMORIA.md atual, se existir).
 
 Escreva ou atualize o MEMORIA.md só com fatos NOVOS ou DIFERENTES do que já
 está lá: arquitetura, convenção do projeto, decisão não-óbvia, causa-raiz de

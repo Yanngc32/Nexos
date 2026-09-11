@@ -6,6 +6,7 @@ import { addProfile, engineEnv, getProfile, updateProfile } from "../src/profile
 import { createThread, readThread } from "../src/threads.ts";
 import { saveAgent } from "../src/agents.ts";
 import { postMessage } from "../src/session.ts";
+import { construirIndice } from "../src/repo-map-indice.ts";
 import { liveCred, tempHome } from "./helpers.ts";
 import { cancelAllLogins } from "../src/login-session.ts";
 import { fileURLToPath } from "node:url";
@@ -21,7 +22,7 @@ async function tick(vezes = 10): Promise<void> {
 }
 
 describe("GET /v1/projeto/status", () => {
-  it("junta memória, grafo e contagem de hooks numa chamada só", async () => {
+  it("junta memória, repo map e contagem de hooks numa chamada só", async () => {
     const home = tempHome();
     const app = createApp(home, token);
     const hdr = { authorization: `Bearer ${token}`, "content-type": "application/json" };
@@ -42,13 +43,13 @@ describe("GET /v1/projeto/status", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       memoria: { existe: boolean };
-      grafo: { disponivel: boolean };
-      grafoAuto: boolean;
+      repoMap: { existe: boolean };
+      repoMapResumos: boolean;
       hooksCount: number;
     };
     expect(body.memoria.existe).toBe(false);
-    expect(body.grafo.disponivel).toBe(false);
-    expect(body.grafoAuto).toBe(false);
+    expect(body.repoMap.existe).toBe(false);
+    expect(body.repoMapResumos).toBe(false);
     expect(body.hooksCount).toBe(1);
   });
 
@@ -912,7 +913,7 @@ describe("http mcp", () => {
     ]);
   });
 
-  it("com projectPath mas sem grafo construído, ainda só a autoria", async () => {
+  it("com projectPath mas sem índice de repo map construído: autoria + resumo (escrita de cache, sempre disponível)", async () => {
     const home = tempHome();
     const app = createApp(home, token);
     const projeto = tempHome();
@@ -922,23 +923,23 @@ describe("http mcp", () => {
       "nexo_time_salvar",
       "nexo_hook_salvar",
       "nexo_hook_listar",
+      "nexo_repomap_resumo_salvar",
     ]);
   });
 
-  it("com grafo construído no projeto, soma as ferramentas do graphify", async () => {
+  it("com índice de repo map construído, soma nexo_mapa_simbolos (Camada 2)", async () => {
     const home = tempHome();
     const app = createApp(home, token);
     const projeto = tempHome();
-    mkdirSync(join(projeto, "graphify-out"), { recursive: true });
-    writeFileSync(join(projeto, "graphify-out", "graph.json"), "{}", "utf8");
+    construirIndice(projeto, home);
     expect(await nomesDasFerramentas(app, `/v1/mcp?projectPath=${encodeURIComponent(projeto)}`)).toEqual([
       "nexo_contexto",
       "nexo_agente_salvar",
       "nexo_time_salvar",
       "nexo_hook_salvar",
       "nexo_hook_listar",
-      "nexo_grafo_perguntar",
-      "nexo_grafo_explicar",
+      "nexo_mapa_simbolos",
+      "nexo_repomap_resumo_salvar",
     ]);
   });
 
@@ -982,6 +983,31 @@ describe("http mcp", () => {
       await nomesDasFerramentas(app, `/v1/mcp?threadId=${t.id}&projectPath=/proj&runId=r-1`),
     ).not.toContain("nexo_delegar");
   });
+
+  it("nexo_navegador_* só aparece com threadId, sem runId, e navegadorModo != negado", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+
+    // padrão (navegadorModo ausente = negado): nenhuma das 5 aparece
+    expect(await nomesDasFerramentas(app, `/v1/mcp?threadId=${t.id}`)).not.toContain("nexo_navegador_ler");
+
+    updateProfile("p1", home, { navegadorModo: "liberado" });
+    const nomes = await nomesDasFerramentas(app, `/v1/mcp?threadId=${t.id}`);
+    expect(nomes).toEqual(
+      expect.arrayContaining([
+        "nexo_navegador_abrir",
+        "nexo_navegador_ler",
+        "nexo_navegador_screenshot",
+        "nexo_navegador_clicar",
+        "nexo_navegador_digitar",
+      ]),
+    );
+
+    // com runId (passo de Run) mesmo liberado: nunca aparece — não existe <webview> num run headless
+    expect(await nomesDasFerramentas(app, `/v1/mcp?threadId=${t.id}&runId=r-1`)).not.toContain("nexo_navegador_ler");
+  });
 });
 
 describe("POST /v1/perguntas/:threadId/responder", () => {
@@ -1014,6 +1040,57 @@ describe("POST /v1/perguntas/:threadId/responder", () => {
 
     const body = (await (await chamada).json()) as { result: { content: Array<{ text: string }> } };
     expect(body.result.content[0].text).toBe("a conta p1");
+  });
+});
+
+describe("POST /v1/navegador/:threadId/responder", () => {
+  const hdr = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+
+  it("resolve o comando de navegador pendente da thread e falha sem comando nenhum", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    addProfile({ id: "p1", engine: "stub" }, home);
+    updateProfile("p1", home, { navegadorModo: "liberado" });
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+
+    const semNada = await app.request(`/v1/navegador/${t.id}/responder`, {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ ok: true, texto: "x" }),
+    });
+    expect(semNada.status).toBe(404);
+
+    const listar = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "nexo_navegador_ler", arguments: {} },
+    };
+    const chamada = app.request(`/v1/mcp?threadId=${t.id}`, { method: "POST", headers: hdr, body: JSON.stringify(listar) });
+
+    await new Promise((r) => setTimeout(r, 20));
+    const res = await app.request(`/v1/navegador/${t.id}/responder`, {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ ok: true, texto: "ref_1: botão Entrar" }),
+    });
+    expect(res.status).toBe(200);
+
+    const body = (await (await chamada).json()) as { result: { content: Array<{ text: string }> } };
+    expect(body.result.content[0].text).toBe("ref_1: botão Entrar");
+  });
+
+  it("faltando 'ok' no corpo é erro de validação, não 404", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    const res = await app.request(`/v1/navegador/${t.id}/responder`, {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ texto: "x" }),
+    });
+    expect(res.status).toBe(400);
   });
 });
 

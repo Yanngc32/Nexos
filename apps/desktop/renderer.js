@@ -30,6 +30,7 @@ import { extrairMencoes } from "./mention.js";
 import { montarMensagem } from "./inspector-mensagem.js";
 import { criarInspectorHost } from "./inspector-host.js";
 import { FASE } from "./inspector-estado.js";
+import { criarNavegadorHost } from "./navegador-host.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -42,6 +43,7 @@ const MODULES = [
   { id: "browser", name: "Browser", keys: "Ctrl+Shift+B", ico: "🌐" },
   { id: "canvas", name: "Canvas", keys: "", ico: "▦" },
   { id: "graph", name: "Memória do Projeto", keys: "", ico: "◈" },
+  { id: "agentes", name: "Agentes, Times e Hooks", keys: "", ico: "🤖" },
   { id: "side-chat", name: "Chat lateral", keys: "Ctrl+Shift+S", ico: "💬" },
 ];
 
@@ -1423,6 +1425,12 @@ function setView(view) {
   }
   if (view === "canvas") requestAnimationFrame(resizeSketch);
   if (view === "graph") void loadGraphStatus();
+  if (view === "agentes") {
+    // Mesmo caminho de abrirTime/abrirEstudio/abrirHook/"Agentes, Times e Hooks →": a tela
+    // cheia assume, o dock (que mostraria a mesma lista menor) fecha.
+    toggleAgents(false);
+    setAxTab(state.axTab);
+  }
 }
 
 function storeKey(kind) {
@@ -1664,12 +1672,67 @@ function toggleInspector() {
   else inspectorHost.desligar();
 }
 
+const navegadorHost = criarNavegadorHost({ getWebview: () => $("browser-frame") });
+
+/**
+ * Pausa local do painel — independente do `navegadorModo` da conta (Configurações). Existe pra
+ * interromper NA HORA sem precisar mudar config: enquanto pausado, todo `browser_comando` que
+ * chegar é recusado direto, sem tocar no `<webview>` nem no preload. Estado só de sessão (não
+ * persiste — reabrir o app volta destravado), igual a outros toggles efêmeros da tela.
+ */
+let navegadorPausado = false;
+
+function pintarBotaoNavPause() {
+  const btn = $("btn-nav-pause");
+  btn.setAttribute("aria-pressed", String(navegadorPausado));
+  btn.title = navegadorPausado ? "Retomar o agente no painel Browser" : "Pausar o agente no painel Browser";
+  btn.setAttribute("aria-label", btn.title);
+}
+
+$("btn-nav-pause").addEventListener("click", () => {
+  navegadorPausado = !navegadorPausado;
+  pintarBotaoNavPause();
+});
+
 /** Mensagens do preload dentro do preview — ver browser-inspector-preload.cjs. */
 $("browser-frame").addEventListener("ipc-message", (e) => {
   if (e.channel === "nexo-inspector:selecionado") inspectorHost.receberSelecionado(e.args[0]);
   else if (e.channel === "nexo-inspector:pronto") inspectorHost.receberPronto();
   else if (e.channel === "nexo-inspector:esc") inspectorHost.receberEsc();
+  else if (e.channel === "nexo-navegador:lido") navegadorHost.receberLido(e.args[0]);
+  else if (e.channel === "nexo-navegador:acao-resultado") navegadorHost.receberAcaoResultado(e.args[0]);
 });
+
+/**
+ * Executa o comando de `nexo_navegador_*` pedido pelo daemon (chegou via SSE, `browser_comando`)
+ * e devolve o resultado — mesmo par pergunta/resposta de `nexo_perguntar`, mas sem UI nenhuma:
+ * a ação acontece de verdade no painel Browser, sem a pessoa precisar clicar em nada.
+ */
+async function tratarComandoNavegador(ev) {
+  let resultado;
+  if (navegadorPausado) {
+    resultado = { ok: false, texto: "controle do painel Browser está pausado agora — a pessoa pausou manualmente" };
+  } else {
+    try {
+      if (ev.acao === "abrir") resultado = await navegadorHost.abrir(ev.url);
+      else if (ev.acao === "ler") resultado = await navegadorHost.ler();
+      else if (ev.acao === "screenshot") resultado = await navegadorHost.screenshot();
+      else if (ev.acao === "clicar") resultado = await navegadorHost.clicar(ev.ref);
+      else if (ev.acao === "digitar") resultado = await navegadorHost.digitar(ev.ref, ev.texto);
+      else resultado = { ok: false, texto: `ação de navegador desconhecida: ${ev.acao}` };
+    } catch (e) {
+      resultado = { ok: false, texto: e?.message || "falha ao executar no painel Browser" };
+    }
+  }
+  try {
+    await req(`/v1/navegador/${encodeURIComponent(ev.threadId)}/responder`, {
+      method: "POST",
+      body: JSON.stringify(resultado),
+    });
+  } catch {
+    /* daemon pode já ter desistido (timeout) — nada a fazer, o comando já expirou do lado dele */
+  }
+}
 
 /**
  * O preload morre e nasce de novo a cada navegação do `<webview>` — sem isto, um reload
@@ -2077,6 +2140,7 @@ async function loadProfiles() {
   syncLoginBtn();
   paintAllowList();
   paintDelegList();
+  paintNavList();
   renderAccountsManage();
 }
 
@@ -2190,6 +2254,32 @@ function syncDelegModo() {
   $("deleg-modo").disabled = !p;
   $("btn-deleg-save").disabled = !p;
   $("deleg-err").textContent = "";
+}
+
+/** `nexo_navegador_*` vale pra claude e codex (os dois falam MCP); mesmo filtro de paintDelegList. */
+function paintNavList() {
+  const sel = $("nav-profile");
+  if (!sel) return;
+  const alvos = state.profiles.filter((p) => p.engine === "claude" || p.engine === "codex");
+  const antes = sel.value;
+  sel.replaceChildren();
+  for (const p of alvos) {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.id;
+    sel.append(opt);
+  }
+  sel.value = alvos.some((p) => p.id === antes) ? antes : (alvos[0]?.id ?? "");
+  syncNavModo();
+}
+
+function syncNavModo() {
+  const id = $("nav-profile")?.value;
+  const p = state.profiles.find((x) => x.id === id);
+  $("nav-modo").value = p?.navegadorModo || "negado";
+  $("nav-modo").disabled = !p;
+  $("btn-nav-save").disabled = !p;
+  $("nav-err").textContent = "";
 }
 
 /** Apelido/relogar/apagar — uma linha por conta, montada do zero a cada `loadProfiles`. */
@@ -3024,6 +3114,12 @@ function onLive(ev) {
     appendEvent({ type: "pergunta_resposta", id: ev.id, resposta: ev.resposta });
     return;
   }
+  // `browser_comando` (nexo_navegador_*, ver navegador.ts) não é conteúdo de conversa — sinalização
+  // técnica interna, sem appendEvent — ver o comentário no topo de navegador.ts sobre essa escolha.
+  if (ev.type === "browser_comando") {
+    void tratarComandoNavegador(ev);
+    return;
+  }
   if (ev.type === "delegacao_run") {
     // A bolha da ferramenta (evento "tool") normalmente já chegou — acha a mais recente sem
     // subchat aberto ainda. Se ainda não chegou (corrida rara), guarda pra quando ela aparecer.
@@ -3441,7 +3537,7 @@ async function abrirHook(def) {
   hooksStudio.abrir(def);
 }
 
-/* ---------- Grafo (graphify) ---------- */
+/* ---------- Repo map ---------- */
 
 /** Data legível, ou vazio — mtime pode não vir (nunca escrito ainda). */
 function fmtQuando(iso) {
@@ -3455,14 +3551,14 @@ function fmtQuando(iso) {
 
 async function loadGraphStatus() {
   if (!state.ok || !state.projectPath) return;
-  $("graph-err").classList.add("hidden");
+  $("repomap-err").classList.add("hidden");
   let status;
   try {
     status = await req(`/v1/projeto/status?projectPath=${encodeURIComponent(state.projectPath)}`);
   } catch (e) {
-    $("graph-status").textContent = "erro";
-    $("graph-status").dataset.on = "0";
-    $("graph-detalhe").textContent = e.message || "Não deu pra checar o status.";
+    $("repomap-status").textContent = "erro";
+    $("repomap-status").dataset.on = "0";
+    $("repomap-detalhe").textContent = e.message || "Não deu pra checar o status.";
     return;
   }
 
@@ -3472,22 +3568,23 @@ async function loadGraphStatus() {
   $("mem-detalhe").textContent =
     (mem.compartilhado ? `${mem.caminho} · pasta compartilhada` : mem.caminho) + fmtQuando(mem.atualizadoEm);
 
-  const gr = status.grafo;
-  $("graph-status").textContent = gr.disponivel ? "disponível" : "ausente";
-  $("graph-status").dataset.on = gr.disponivel ? "1" : "0";
-  $("graph-detalhe").textContent =
-    (gr.compartilhado ? `${gr.caminho} · pasta compartilhada` : gr.caminho) + fmtQuando(gr.atualizadoEm);
+  const rm = status.repoMap;
+  $("repomap-status").textContent = rm.existe ? (rm.truncado ? "disponível (truncado)" : "disponível") : "ausente";
+  $("repomap-status").dataset.on = rm.existe ? "1" : "0";
+  $("repomap-detalhe").textContent = rm.existe
+    ? `${rm.arquivos ?? 0} arquivo(s) indexado(s)${fmtQuando(rm.atualizadoEm)}`
+    : "ainda não construído — abra uma conversa neste projeto ou clique em Atualizar.";
 
-  $("graph-auto").checked = Boolean(status.grafoAuto);
-  $("graph-auto-profile-wrap").classList.toggle("hidden", !status.grafoAuto);
-  pintarPerfisDoGrafoAuto();
+  $("repomap-resumos").checked = Boolean(status.repoMapResumos);
+  $("repomap-resumos-profile-wrap").classList.toggle("hidden", !status.repoMapResumos);
+  pintarPerfisDoRepoMap();
 
   const n = status.hooksCount;
   $("proj-hooks-count").textContent = n ? `${n} regra${n > 1 ? "s" : ""} vale${n > 1 ? "m" : ""} pra este projeto.` : "Nenhuma regra vale pra este projeto ainda.";
 }
 
-function pintarPerfisDoGrafoAuto() {
-  const sel = $("graph-auto-profile");
+function pintarPerfisDoRepoMap() {
+  const sel = $("repomap-resumos-profile");
   const atual = sel.value;
   sel.replaceChildren();
   for (const p of state.profiles) {
@@ -3499,39 +3596,39 @@ function pintarPerfisDoGrafoAuto() {
   if ([...sel.options].some((o) => o.value === atual)) sel.value = atual;
 }
 
-$("graph-auto").addEventListener("change", async (e) => {
+$("repomap-resumos").addEventListener("change", async (e) => {
   const ligar = e.target.checked;
-  $("graph-auto-profile-wrap").classList.toggle("hidden", !ligar);
-  $("graph-auto-err").classList.add("hidden");
-  if (ligar && !$("graph-auto-profile").value) {
+  $("repomap-resumos-profile-wrap").classList.toggle("hidden", !ligar);
+  $("repomap-resumos-err").classList.add("hidden");
+  if (ligar && !$("repomap-resumos-profile").value) {
     // sem conta ainda escolhida: não liga sozinho com perfil vazio, espera a pessoa escolher
-    pintarPerfisDoGrafoAuto();
-    if (!$("graph-auto-profile").value) return;
+    pintarPerfisDoRepoMap();
+    if (!$("repomap-resumos-profile").value) return;
   }
   try {
     await req("/v1/config", {
       method: "PUT",
       body: JSON.stringify({
-        modulos: { grafoAuto: ligar, ...(ligar ? { grafoAutoProfileId: $("graph-auto-profile").value } : {}) },
+        modulos: { repoMapResumos: ligar, ...(ligar ? { repoMapProfileId: $("repomap-resumos-profile").value } : {}) },
       }),
     });
   } catch (err) {
-    $("graph-auto-err").textContent = err.message || "Não gravou.";
-    $("graph-auto-err").classList.remove("hidden");
+    $("repomap-resumos-err").textContent = err.message || "Não gravou.";
+    $("repomap-resumos-err").classList.remove("hidden");
     e.target.checked = !ligar;
     return;
   }
   await loadGraphStatus();
 });
 
-$("graph-auto-profile").addEventListener("change", async (e) => {
-  if (!$("graph-auto").checked) return;
-  $("graph-auto-err").classList.add("hidden");
+$("repomap-resumos-profile").addEventListener("change", async (e) => {
+  if (!$("repomap-resumos").checked) return;
+  $("repomap-resumos-err").classList.add("hidden");
   try {
-    await req("/v1/config", { method: "PUT", body: JSON.stringify({ modulos: { grafoAutoProfileId: e.target.value } }) });
+    await req("/v1/config", { method: "PUT", body: JSON.stringify({ modulos: { repoMapProfileId: e.target.value } }) });
   } catch (err) {
-    $("graph-auto-err").textContent = err.message || "Não gravou.";
-    $("graph-auto-err").classList.remove("hidden");
+    $("repomap-resumos-err").textContent = err.message || "Não gravou.";
+    $("repomap-resumos-err").classList.remove("hidden");
   }
 });
 
@@ -3542,53 +3639,36 @@ $("btn-proj-hooks-abrir").addEventListener("click", () => {
 
 $("btn-close-graph").addEventListener("click", closeModule);
 
-$("btn-graph-atualizar").addEventListener("click", async () => {
+$("btn-repomap-atualizar").addEventListener("click", async () => {
   if (!state.projectPath) return;
-  $("graph-err").classList.add("hidden");
-  $("btn-graph-atualizar").disabled = true;
+  $("repomap-err").classList.add("hidden");
+  $("btn-repomap-atualizar").disabled = true;
   try {
-    const r = await req("/v1/graph/atualizar", { method: "POST", body: JSON.stringify({ projectPath: state.projectPath }) });
-    if (!r.ok) $("graph-err").textContent = r.texto || "Falhou ao atualizar.";
+    await req("/v1/repo-map/atualizar", { method: "POST", body: JSON.stringify({ projectPath: state.projectPath }) });
     await loadGraphStatus();
   } catch (e) {
-    $("graph-err").textContent = e.message || "Falhou ao atualizar.";
-    $("graph-err").classList.remove("hidden");
+    $("repomap-err").textContent = e.message || "Falhou ao atualizar.";
+    $("repomap-err").classList.remove("hidden");
   } finally {
-    $("btn-graph-atualizar").disabled = false;
+    $("btn-repomap-atualizar").disabled = false;
   }
 });
 
-$("btn-graph-arvore").addEventListener("click", async () => {
+$("btn-repomap-gerar-resumos").addEventListener("click", async () => {
   if (!state.projectPath) return;
-  $("graph-err").classList.add("hidden");
+  $("repomap-resumos-err").classList.add("hidden");
+  $("btn-repomap-gerar-resumos").disabled = true;
   try {
-    const r = await req("/v1/graph/arvore", { method: "POST", body: JSON.stringify({ projectPath: state.projectPath }) });
-    if (!r.ok || !r.arquivo) {
-      $("graph-err").textContent = r.texto || "Falhou ao gerar a árvore.";
-      $("graph-err").classList.remove("hidden");
-      return;
+    const r = await req("/v1/repo-map/resumos/gerar", { method: "POST", body: JSON.stringify({ projectPath: state.projectPath }) });
+    if (!r.ok) {
+      $("repomap-resumos-err").textContent = r.texto || "Falhou ao gerar resumos.";
+      $("repomap-resumos-err").classList.remove("hidden");
     }
-    await window.nexo.openLocalFile(r.arquivo);
   } catch (e) {
-    $("graph-err").textContent = e.message || "Falhou ao gerar a árvore.";
-    $("graph-err").classList.remove("hidden");
-  }
-});
-
-$("btn-graph-importar").addEventListener("click", async () => {
-  if (!state.projectPath) return;
-  const origem = await window.nexo.pickFolder();
-  if (!origem) return;
-  $("graph-err").classList.add("hidden");
-  try {
-    await req("/v1/graph/importar", {
-      method: "POST",
-      body: JSON.stringify({ projectPath: state.projectPath, origem }),
-    });
-    await loadGraphStatus();
-  } catch (e) {
-    $("graph-err").textContent = e.message || "Falhou ao importar.";
-    $("graph-err").classList.remove("hidden");
+    $("repomap-resumos-err").textContent = e.message || "Falhou ao gerar resumos.";
+    $("repomap-resumos-err").classList.remove("hidden");
+  } finally {
+    $("btn-repomap-gerar-resumos").disabled = false;
   }
 });
 
@@ -3792,6 +3872,8 @@ function setAxTab(tab) {
   if (state.axTab === "agentes" || state.axTab === "times" || state.axTab === "hooks") void loadAgentDefs();
   if (state.axTab === "times" || state.axTab === "hooks") void loadTeams();
   if (state.axTab === "hooks") void loadHookRules();
+  // Entrar na aba "Agentes" não espera o próximo tick do SSE pra mostrar quem já está rodando.
+  if (state.axTab === "agentes") paintAgents();
 }
 
 /* ---------- agentes personalizados: definições ---------- */
@@ -3921,6 +4003,29 @@ async function novaConversaComAgente(d) {
   await openThread(t.id);
 }
 
+/** A tela cheia "Agentes, Times e Hooks" fecha o dock (`toggleAgents(false)`) — sem isto, quem
+ * entra lá pra editar um agente/time/hook perde de vista o que está rodando até voltar. */
+function naAbaAgentesAtivos() {
+  return state.view === "agentes" && state.axTab === "agentes";
+}
+
+/** Pinta uma lista de agentes (dock OU a aba "Agentes" da tela cheia) nos mesmos elementos —
+ * `ulId`/`emptyId` mudam, o card e a ordenação são os mesmos. */
+function pintarListaDeAgentes(ulId, emptyId, ordem) {
+  const empty = $(emptyId);
+  empty.textContent = state.agents.unsupported
+    ? "Motor antigo, sem suporte ao painel. Desliga e liga o motor pra recarregar."
+    : "Nenhum agente rodando agora. O motor só sobe quando a conversa recebe um turno.";
+  empty.classList.toggle("hidden", ordem.length > 0);
+  const ul = $(ulId);
+  ul.replaceChildren();
+  for (const a of ordem) {
+    ul.append(agentCard(a));
+  }
+  // O interessante é o fim da saída, e o corte por altura mostraria o começo.
+  for (const tail of ul.querySelectorAll(".agent-tail")) tail.scrollTop = tail.scrollHeight;
+}
+
 function paintAgents() {
   const dock = $("agents-dock");
   if (!dock) return;
@@ -3945,14 +4050,15 @@ function paintAgents() {
   $("btn-agents").dataset.busy = total ? "1" : "0";
   $("btn-agents").setAttribute("aria-expanded", state.agents.open ? "true" : "false");
   dock.classList.toggle("hidden", !state.agents.open);
-  // O relógio só corre com o painel aberto e alguém trabalhando.
-  if (state.agents.open && ativos.length) {
+  const naTelaCheia = naAbaAgentesAtivos();
+  // O relógio só corre com alguma das duas telas de pé e alguém trabalhando.
+  if ((state.agents.open || naTelaCheia) && ativos.length) {
     if (!state.agents.tick) state.agents.tick = setInterval(paintAgents, 1000);
   } else if (state.agents.tick) {
     clearInterval(state.agents.tick);
     state.agents.tick = null;
   }
-  if (!state.agents.open) return;
+  if (!state.agents.open && !naTelaCheia) return;
 
   // Trabalhando primeiro; o resto é motor de pé mas parado, útil pra retomar.
   const ordem = [...state.agents.list].sort((a, b) => {
@@ -3960,18 +4066,13 @@ function paintAgents() {
     const pb = b.busy ? 0 : b.pendingQuota ? 1 : 2;
     return pa - pb || (a.startedAt < b.startedAt ? 1 : -1);
   });
-  $("agents-title").textContent = ativos.length ? `Agentes · ${ativos.length} rodando` : "Agentes";
-  $("agents-empty").textContent = state.agents.unsupported
-    ? "Motor antigo, sem suporte ao painel. Desliga e liga o motor pra recarregar."
-    : "Nenhum agente rodando agora. O motor só sobe quando a conversa recebe um turno.";
-  $("agents-empty").classList.toggle("hidden", ordem.length > 0);
-  const ul = $("agents-list");
-  ul.replaceChildren();
-  for (const a of ordem) {
-    ul.append(agentCard(a));
+  if (state.agents.open) {
+    $("agents-title").textContent = ativos.length ? `Agentes · ${ativos.length} rodando` : "Agentes";
+    pintarListaDeAgentes("agents-list", "agents-empty", ordem);
   }
-  // O interessante é o fim da saída, e o corte por altura mostraria o começo.
-  for (const tail of ul.querySelectorAll(".agent-tail")) tail.scrollTop = tail.scrollHeight;
+  if (naTelaCheia) {
+    pintarListaDeAgentes("ax-agentes-ativos", "ax-agentes-ativos-empty", ordem);
+  }
 }
 
 function agentCard(a) {
@@ -5224,6 +5325,22 @@ async function renderFallback() {
   ul.dataset.order = JSON.stringify(ids);
 }
 
+/** "pasta compartilhada" (badge acesa) sempre que o campo tem valor — mesmo antes de qualquer save nesta sessão. */
+function pintarBadgePasta(badgeId, valor) {
+  const badge = $(badgeId);
+  if (!badge) return;
+  const compartilhada = Boolean(valor);
+  badge.textContent = compartilhada ? "pasta compartilhada" : "só nesta máquina";
+  badge.dataset.on = compartilhada ? "1" : "0";
+}
+
+function mostrarMsgPasta(msgId, texto, tipo) {
+  const el = $(msgId);
+  if (!el) return;
+  el.textContent = texto;
+  el.dataset.tipo = tipo;
+}
+
 async function renderMemoria() {
   if (!state.ok) return;
   let cfg;
@@ -5234,38 +5351,65 @@ async function renderMemoria() {
   }
   $("mem-dir").value = cfg.memoriaDir || "";
   $("graph-dir").value = cfg.graphDir || "";
+  pintarBadgePasta("mem-dir-badge", cfg.memoriaDir);
+  pintarBadgePasta("graph-dir-badge", cfg.graphDir);
 }
 
-async function salvarMemoriaDir(path) {
-  $("mem-dir").value = path;
-  $("mem-dir-err").textContent = "";
+/**
+ * Salva uma pasta compartilhada (memória ou repo map) e CONFIRMA que o daemon gravou de verdade —
+ * sem isso, um daemon velho que ainda não conhece o campo (ou qualquer outro motivo de silêncio)
+ * fazia a tela parecer que salvou quando na real nada foi pro disco. Mesmo critério de
+ * "O daemon não gravou" já usado em `patchProfile`.
+ */
+async function salvarPastaCompartilhada({ campo, inputId, msgId, badgeId }, path) {
+  const alvo = path.trim();
+  $(inputId).value = alvo;
+  mostrarMsgPasta(msgId, "", "");
+  let next;
   try {
-    await req("/v1/config", { method: "PUT", body: JSON.stringify({ memoriaDir: path.trim() }) });
+    next = await req("/v1/config", { method: "PUT", body: JSON.stringify({ [campo]: alvo }) });
   } catch (err) {
-    $("mem-dir-err").textContent = err.message || "Não gravou.";
+    mostrarMsgPasta(msgId, err.message || "Não gravou.", "erro");
+    return;
   }
+  if ((next[campo] ?? "") !== alvo) {
+    mostrarMsgPasta(msgId, "O daemon não gravou. Desliga e liga o motor pra carregar a versão nova.", "erro");
+    return;
+  }
+  pintarBadgePasta(badgeId, next[campo]);
+  mostrarMsgPasta(msgId, "Salvo.", "ok");
 }
 
-$("mem-dir").addEventListener("change", (e) => void salvarMemoriaDir(e.target.value.trim()));
+$("mem-dir").addEventListener("change", (e) =>
+  void salvarPastaCompartilhada(
+    { campo: "memoriaDir", inputId: "mem-dir", msgId: "mem-dir-msg", badgeId: "mem-dir-badge" },
+    e.target.value,
+  ),
+);
 $("btn-mem-dir-pick").addEventListener("click", async () => {
   const path = await window.nexo.pickFolder();
-  if (path) void salvarMemoriaDir(path);
+  if (path) {
+    void salvarPastaCompartilhada(
+      { campo: "memoriaDir", inputId: "mem-dir", msgId: "mem-dir-msg", badgeId: "mem-dir-badge" },
+      path,
+    );
+  }
 });
 
-async function salvarGraphDir(path) {
-  $("graph-dir").value = path;
-  $("graph-dir-err").textContent = "";
-  try {
-    await req("/v1/config", { method: "PUT", body: JSON.stringify({ graphDir: path.trim() }) });
-  } catch (err) {
-    $("graph-dir-err").textContent = err.message || "Não gravou.";
-  }
-}
-
-$("graph-dir").addEventListener("change", (e) => void salvarGraphDir(e.target.value.trim()));
+$("graph-dir").addEventListener("change", (e) =>
+  void salvarPastaCompartilhada(
+    { campo: "graphDir", inputId: "graph-dir", msgId: "graph-dir-msg", badgeId: "graph-dir-badge" },
+    e.target.value,
+  ),
+);
 $("btn-graph-dir-pick").addEventListener("click", async () => {
   const path = await window.nexo.pickFolder();
-  if (path) void salvarGraphDir(path);
+  if (path) {
+    void salvarPastaCompartilhada(
+      { campo: "graphDir", inputId: "graph-dir", msgId: "graph-dir-msg", badgeId: "graph-dir-badge" },
+      path,
+    );
+  }
 });
 
 async function renderModulos() {
@@ -5544,6 +5688,28 @@ $("btn-deleg-save").addEventListener("click", async () => {
     state.fpProfiles = "";
     syncDelegModo();
     appendEvent({ type: "sys", message: `${id}: delegação — ${modo}. Vale já na próxima mensagem.` });
+  } catch (e) {
+    err.textContent = e.message || "não deu pra salvar";
+  }
+});
+
+$("nav-profile").addEventListener("change", syncNavModo);
+
+$("btn-nav-save").addEventListener("click", async () => {
+  const id = $("nav-profile").value;
+  const err = $("nav-err");
+  err.textContent = "";
+  if (!id) return;
+  const modo = $("nav-modo").value;
+  try {
+    const next = await req(`/v1/profiles/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ navegadorModo: modo }),
+    });
+    state.profiles = state.profiles.map((p) => (p.id === next.id ? next : p));
+    state.fpProfiles = "";
+    syncNavModo();
+    appendEvent({ type: "sys", message: `${id}: navegador — ${modo}. Vale já na próxima mensagem.` });
   } catch (e) {
     err.textContent = e.message || "não deu pra salvar";
   }

@@ -166,6 +166,44 @@ describe("nexo_chamar", () => {
   });
 });
 
+/*
+ * `Saida.imagem` é usado só por `nexo_navegador_screenshot` (navegador.ts) — testado aqui de
+ * forma isolada, com uma ferramenta fake, pra não acoplar este teste ao painel Browser de verdade.
+ */
+describe("Saida.imagem (bloco de imagem MCP)", () => {
+  function conjuntoDeUmaFerramenta(executar: () => { ok: boolean; texto: string; imagem?: { dataBase64: string; mimeType: string } }) {
+    return () => [
+      {
+        name: "fake_screenshot",
+        description: "fake",
+        inputSchema: { type: "object", properties: {} },
+        executar,
+      },
+    ];
+  }
+
+  it("ferramenta que devolve imagem soma um content-block {type:'image'}", async () => {
+    const r = await tratarMcp(
+      { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "fake_screenshot" } },
+      conjuntoDeUmaFerramenta(() => ({ ok: true, texto: "print tirado", imagem: { dataBase64: "QUJD", mimeType: "image/png" } })),
+    );
+    const res = resultado(r);
+    expect(res.content).toEqual([
+      { type: "text", text: "print tirado" },
+      { type: "image", data: "QUJD", mimeType: "image/png" },
+    ]);
+  });
+
+  it("ferramenta sem imagem continua com content de um bloco só, igual antes desta extensão", async () => {
+    const r = await tratarMcp(
+      { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "fake_screenshot" } },
+      conjuntoDeUmaFerramenta(() => ({ ok: true, texto: "sem imagem" })),
+    );
+    const res = resultado(r);
+    expect(res.content).toEqual([{ type: "text", text: "sem imagem" }]);
+  });
+});
+
 describe("configDeMcp", () => {
   it("aponta pro run, com o token no header", () => {
     const cfg = JSON.parse(configDeMcp(7432, "segredo", "r-1"));
@@ -204,7 +242,7 @@ describe("configDeMcpAutoria", () => {
     expect(cfg.mcpServers.nexo.url).toBe("http://127.0.0.1:7432/v1/mcp");
   });
 
-  it("com projeto, embute como query — é como o handler sabe de qual graphify-out/ oferecer ferramenta", () => {
+  it("com projeto, embute como query — é como o handler sabe de qual índice de repo map oferecer ferramenta", () => {
     const cfg = JSON.parse(configDeMcpAutoria(7432, "s", "/proj/a"));
     expect(cfg.mcpServers.nexo.url).toBe("http://127.0.0.1:7432/v1/mcp?projectPath=%2Fproj%2Fa");
   });

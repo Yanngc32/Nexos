@@ -9,10 +9,12 @@ import { promptWithAttachments, removeThreadAttachments, saveImages, type Incomi
 import { loadConfig } from "./config.ts";
 import { projectKey, tokenPath } from "./home.ts";
 import { configDeMcpAutoria, MCP_TOOLS_AUTORIA, urlDeMcpAutoria } from "./mcp.ts";
-import { graphifyDisponivel, MCP_TOOLS_GRAPHIFY } from "./graphify.ts";
+import { indiceDisponivel, lerIndice } from "./repo-map-indice.ts";
+import { MCP_TOOLS_REPO_MAP } from "./repo-map-simbolos.ts";
 import { MCP_TOOLS_VEREDITO } from "./veredito.ts";
 import { MCP_TOOLS_PERGUNTAR } from "./perguntas.ts";
 import { MCP_TOOLS_DELEGAR, resetContadorDeDelegacao } from "./delegar.ts";
+import { MCP_TOOLS_NAVEGADOR } from "./navegador.ts";
 import { ApiEngine } from "./engines/api.ts";
 import { claudeEngine, codexEngine } from "./engines/cli.ts";
 import { contextWindowOf } from "./engines/parse-claude.ts";
@@ -35,7 +37,7 @@ import {
 } from "./compactar.ts";
 import { assertSwitch, suggestFallback } from "./router.ts";
 import { spawnCwd } from "./project-cwd.ts";
-import { activeProfileId, appendEvent, readThread, removeThread } from "./threads.ts";
+import { activeProfileId, appendEvent, readThread, removeThread, threadUsage } from "./threads.ts";
 
 const CONTINUE = "Continue de onde parou.";
 
@@ -276,22 +278,20 @@ function withInstructions(agentId: string | undefined, projectPath: string, pack
   );
   if (instrucoes) blocos.push(`# Agente: ${def?.name ?? agentId}\n${instrucoes}`);
   if (memoria) blocos.push(`# Memória do projeto\n${memoria}`);
-  // A descrição da ferramenta sozinha perde pro hábito de grepar — um lembrete no topo do pack
-  // (mesmo peso que memória/instruções) empurra mais forte do que só o `tools/list` competindo
-  // com o resto das ferramentas.
-  if (graphifyDisponivel(projectPath)) {
+  // Repo map — Camada 1 (índice, texto fixo, sem custo de LLM) + o nudge da Camada 2 (ferramenta
+  // sob demanda). Mesmo bloco/peso que memória: descrição de ferramenta sozinha perde pro hábito
+  // de grepar, um lembrete no topo do pack empurra mais forte que só o `tools/list` competindo.
+  if (indiceDisponivel(projectPath, home)) {
+    const indice = lerIndice(projectPath, home);
+    if (indice) blocos.push(`# Repo map — árvore de arquivos deste projeto\n${indice}`);
     blocos.push(
-      "# Grafo de conhecimento disponível\nEste projeto já tem um grafo semântico construído " +
-        "(classes, funções, comunidades).\n" +
-        "- **Já sabe o nome de um símbolo/arquivo?** Chame `nexo_grafo_explicar` com esse nome — é " +
-        "preciso, não depende de achar o nó certo por busca livre.\n" +
-        "- **Não sabe nenhum nome ainda?** `nexo_grafo_perguntar` faz uma busca livre a partir da " +
-        "pergunta, mas pode partir de um nó errado (uma pergunta genérica tipo \"onde fica X\" pode " +
-        "voltar nós sem relação nenhuma) — **confira se o resultado faz sentido antes de confiar " +
-        "nele**; se vier irrelevante, tente uma pergunta mais específica (nome de tela, arquivo, " +
-        "componente) ou aceite que precisa cair pra grep desta vez.\n" +
-        "Em qualquer um dos dois casos, tente ANTES de sair lendo/grepando arquivo à toa — quando " +
-        "acerta, é bem mais barato.",
+      "# Símbolos sob demanda\nRegra: antes de ler (`Read`) um arquivo de código deste projeto pela " +
+        "PRIMEIRA vez na conversa, chame `nexo_mapa_simbolos` nele — sem perguntar, sem esperar ser " +
+        "pedido. Ele devolve as assinaturas top-level (função, classe, export, interface/type) na hora " +
+        "e custa uma fração do token de ler o arquivo inteiro; abra o arquivo de verdade só depois, e só " +
+        "se os símbolos confirmarem que o que você procura está lá. Vale pra pasta também: antes de " +
+        "listar/explorar uma pasta arquivo por arquivo, chame `nexo_mapa_simbolos` nela pra ver todo " +
+        "mundo de uma vez.",
     );
   }
   if (!blocos.length) return packText;
@@ -466,7 +466,7 @@ function mcpDaConversa(
   if (!arquivo) return {};
   const tools = [
     ...MCP_TOOLS_AUTORIA,
-    ...(graphifyDisponivel(meta.projectPath) ? MCP_TOOLS_GRAPHIFY : []),
+    ...(indiceDisponivel(meta.projectPath, home) ? MCP_TOOLS_REPO_MAP : []),
     // `runId` só existe quando esta conversa é o passo de um run de PIPELINE (ver `executarPasso`
     // em runs.ts) — é o que dá ao agente do hook de pre-push como declarar `{ aprovado, motivo }`.
     ...(meta.runId ? MCP_TOOLS_VEREDITO : []),
@@ -475,6 +475,8 @@ function mcpDaConversa(
     // Só em conversa NORMAL (sem runId) e com a conta liberada: é isso que barra a recursão — o
     // que `nexo_delegar` dispara é sempre um passo de Run, que já nasce com runId.
     ...(!meta.runId && perfil.delegacaoModo && perfil.delegacaoModo !== "negado" ? MCP_TOOLS_DELEGAR : []),
+    // Só em conversa NORMAL — não existe <webview> num run headless (ver navegador.ts).
+    ...(!meta.runId && perfil.navegadorModo && perfil.navegadorModo !== "negado" ? MCP_TOOLS_NAVEGADOR : []),
   ];
   return { mcpConfig: arquivo, mcpTools: tools };
 }
@@ -486,11 +488,11 @@ function tokenDoHome(home: string): string {
 
 /**
  * O arquivo de config das ferramentas de autoria (e, se o projeto tiver
- * grafo construído, das de consulta ao graphify).
+ * índice do repo map construído, da ferramenta de símbolos sob demanda).
  *
  * Um por PROJETO, não mais um por home: desde que a URL passou a levar o
  * projeto embutido (`caminhoDaAutoria` em mcp.ts — é assim que o handler de
- * `/v1/mcp` sabe de qual `graphify-out/` oferecer ferramenta), duas conversas
+ * `/v1/mcp` sabe de qual índice de repo map oferecer ferramenta), duas conversas
  * de projetos diferentes rodando ao mesmo tempo não podem compartilhar um
  * arquivo só: a última a escrever venceria, e o motor da outra leria a URL do
  * projeto errado. Hash igual ao de `memoria.ts`/`services.ts` (sha1 de
@@ -560,7 +562,8 @@ async function talvezCompactar(threadId: string, home: string): Promise<void> {
   const p = getProfile(meta.profileId, home);
   if (!p || !podeCompactar(p)) return;
   const cap = tetoDeToken(janelaDaConta(p, events, meta.agentId, home));
-  if (!precisaCompactar(events, cfg.pack, cap)) return;
+  const contextTokensReal = threadUsage(threadId, home).contextTokens;
+  if (!precisaCompactar(events, cfg.pack, cap, contextTokensReal)) return;
 
   const historico = historicoParaResumir(events, cfg.pack, cap);
   if (!historico) return;

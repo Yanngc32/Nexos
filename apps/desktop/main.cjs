@@ -655,20 +655,6 @@ app.whenReady().then(() => {
     await shell.openExternal(url);
     return { ok: true };
   });
-  /**
-   * Abre um arquivo LOCAL com o app padrão do sistema (`shell.openPath`, não `openExternal`) —
-   * é o que a tela Grafo usa pra abrir a árvore que `graphify tree` gerou. Restrito a `.html`:
-   * mesmo sendo um canal só pra UI própria (não conteúdo remoto), abrir "qualquer arquivo" seria
-   * um gadget genérico de execução; abrir só HTML no navegador é o equivalente a clicar duas
-   * vezes nele no explorador de arquivos.
-   */
-  handle("shell:open-file", async (_e, raw) => {
-    const path = String(raw ?? "");
-    if (!/\.html?$/i.test(path)) throw new Error("só abre .html");
-    const erro = await shell.openPath(path);
-    if (erro) throw new Error(erro);
-    return { ok: true };
-  });
   handle("folder:pick", async () => {
     const r = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
     if (r.canceled) return null;

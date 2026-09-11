@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ensureGitignoreEntry, installGitHookScript, uninstallGitHookScript } from "../src/git-hooks.ts";
+import { installGitHookScript, uninstallGitHookScript } from "../src/git-hooks.ts";
 import { tempHome } from "./helpers.ts";
 
 function repo(): string {
@@ -88,28 +88,5 @@ describe("uninstallGitHookScript", () => {
     expect(uninstallGitHookScript(dir, "git.post-commit")).toBe(false);
     writeFileSync(join(dir, ".git", "hooks", "post-commit"), "#!/bin/sh\necho outra-coisa\n", "utf8");
     expect(uninstallGitHookScript(dir, "git.post-commit")).toBe(false);
-  });
-});
-
-describe("ensureGitignoreEntry", () => {
-  it("cria o .gitignore quando não existe", () => {
-    const dir = repo();
-    expect(ensureGitignoreEntry(dir, "graphify-out/")).toBe(true);
-    expect(readFileSync(join(dir, ".gitignore"), "utf8")).toBe("graphify-out/\n");
-  });
-
-  it("anexa quando o .gitignore já existe e não tem a entrada", () => {
-    const dir = repo();
-    writeFileSync(join(dir, ".gitignore"), "node_modules/", "utf8");
-    ensureGitignoreEntry(dir, "graphify-out/");
-    const conteudo = readFileSync(join(dir, ".gitignore"), "utf8");
-    expect(conteudo).toContain("node_modules/");
-    expect(conteudo).toContain("graphify-out/");
-  });
-
-  it("não duplica se a entrada já está lá (com ou sem barra final)", () => {
-    const dir = repo();
-    writeFileSync(join(dir, ".gitignore"), "graphify-out\n", "utf8");
-    expect(ensureGitignoreEntry(dir, "graphify-out/")).toBe(false);
   });
 });

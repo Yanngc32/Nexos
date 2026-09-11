@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
@@ -22,6 +22,7 @@ import type { Profile, ThreadEvent } from "@nexo/shared";
 const ts0 = "2026-01-01T00:00:00.000Z";
 import { saveAgent } from "../src/agents.ts";
 import { memoriaPath } from "../src/memoria.ts";
+import { construirIndice } from "../src/repo-map-indice.ts";
 import { deadCred, liveCred, tempHome } from "./helpers.ts";
 import { saveConfig } from "../src/config.ts";
 
@@ -415,7 +416,7 @@ describe("session", () => {
     const home = tempHome();
     addProfile({ id: "p1", engine: "stub" }, home);
     saveConfig(home, {
-      modulos: { rtk: false, caveman: true, cavemanNivel: "ultra", grafoAuto: false, grafoAutoProfileId: "" },
+      modulos: { rtk: false, caveman: true, cavemanNivel: "ultra", repoMapResumos: false, repoMapProfileId: "" },
     });
     saveAgent({ id: "rev", name: "Revisor", profileId: "p1", instructions: "só português" }, home);
     const t = createThread({ projectPath: "/proj-caveman", profileId: "p1", agentId: "rev" }, home);
@@ -435,25 +436,24 @@ describe("session", () => {
     expect(engine.lastStart?.contextPack).not.toContain("Caveman");
   });
 
-  it("grafo construído: injeta o lembrete de usar nexo_grafo_perguntar antes de grepar", async () => {
+  it("índice do repo map construído: injeta a árvore e o lembrete de usar nexo_mapa_simbolos", async () => {
     const home = tempHome();
     addProfile({ id: "p1", engine: "stub" }, home);
     const projeto = tempHome();
-    mkdirSync(join(projeto, "graphify-out"), { recursive: true });
-    writeFileSync(join(projeto, "graphify-out", "graph.json"), "{}", "utf8");
+    construirIndice(projeto, home);
     const t = createThread({ projectPath: projeto, profileId: "p1" }, home);
     await postMessage(t.id, "oi", home);
     const engine = getLive(t.id)?.engine as StubEngine;
-    expect(engine.lastStart?.contextPack).toContain("nexo_grafo_perguntar");
+    expect(engine.lastStart?.contextPack).toContain("nexo_mapa_simbolos");
   });
 
-  it("sem grafo construído: não injeta o lembrete", async () => {
+  it("sem índice construído: não injeta o lembrete", async () => {
     const home = tempHome();
     addProfile({ id: "p1", engine: "stub" }, home);
     const t = createThread({ projectPath: tempHome(), profileId: "p1" }, home);
     await postMessage(t.id, "oi", home);
     const engine = getLive(t.id)?.engine as StubEngine;
-    expect(engine.lastStart?.contextPack).not.toContain("nexo_grafo_perguntar");
+    expect(engine.lastStart?.contextPack).not.toContain("nexo_mapa_simbolos");
   });
 
   it("evento tool grava id+input, e tool_result grava separado com o mesmo id", async () => {

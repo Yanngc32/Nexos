@@ -52,6 +52,7 @@ import {
 import { ferramentaDeVeredito } from "./veredito.ts";
 import { ferramentaDePerguntar, responderPergunta } from "./perguntas.ts";
 import { ferramentaDeDelegar, modoDeDelegacaoDaThread } from "./delegar.ts";
+import { ferramentasDeNavegador, modoDeNavegadorDaThread, responderNavegador } from "./navegador.ts";
 import {
   abortarRun,
   criarRun,
@@ -65,14 +66,10 @@ import {
 } from "./runs.ts";
 import { erroDeParse, ferramentasDoSupervisor, tratarMcp, type Conjunto, type JsonRpc } from "./mcp.ts";
 import { ferramentasDeAutoria } from "./autoria.ts";
-import {
-  atualizarGrafo,
-  ferramentasDeGraphify,
-  caminhoDaArvoreDoGrafo,
-  importarGrafoManual,
-  statusDoGrafo,
-} from "./graphify.ts";
-import { desligarGrafoAutomatico, sincronizarGrafoAutomatico } from "./grafo-auto.ts";
+import { construirIndice, indiceDisponivel, statusDoIndice } from "./repo-map-indice.ts";
+import { ferramentasDeRepoMap } from "./repo-map-simbolos.ts";
+import { ferramentaDeResumo, leitorDeResumos } from "./repo-map-enriquecimento.ts";
+import { desligarRepoMapResumos, gerarResumosSobDemanda, sincronizarRepoMapResumos } from "./repo-map-auto.ts";
 import { statusDaMemoria } from "./memoria.ts";
 import { estadoAtual, melhorHost } from "./escuta.ts";
 import { abrirPareamento, fecharPareamento, pareamentoAberto, resgatar } from "./pair.ts";
@@ -338,6 +335,7 @@ export function createApp(home: string, token: string): Hono {
       sandboxMode?: string | null;
       allowedTools?: string[] | null;
       delegacaoModo?: string | null;
+      navegadorModo?: string | null;
       nickname?: string | null;
     };
     try {
@@ -498,12 +496,13 @@ export function createApp(home: string, token: string): Hono {
       } catch (e) {
         console.error("sincronizar hooks ao abrir projeto:", (e as Error).message || e);
       }
-      // "Ao abrir o projeto, busca na pasta compartilhada pelo gráfico" — mesma ideia da memória:
-      // puxa se a pasta compartilhada tiver algo mais novo, empurra se o local tiver.
+      // Primeira vez que este projeto abre no Nexo: constrói o índice do repo map (Camada 1) —
+      // só se ainda não existir, pra não recalcular à toa em toda abertura (git.post-commit já
+      // mantém fresco depois disso). Sem custo de LLM — seguro rodar aqui, best-effort.
       try {
-        statusDoGrafo(projectPath, home);
+        if (!indiceDisponivel(projectPath, home)) construirIndice(projectPath, home, leitorDeResumos(projectPath, home));
       } catch (e) {
-        console.error("sincronizar grafo ao abrir projeto:", (e as Error).message || e);
+        console.error("construir índice do repo map ao abrir projeto:", (e as Error).message || e);
       }
       // `nexo.projeto-novo`: só na PRIMEIRA vez que este projeto aparece pro Nexo — fire-and-forget,
       // igual post-commit/post-push (já aconteceu, não tem o que bloquear).
@@ -847,6 +846,15 @@ export function createApp(home: string, token: string): Hono {
     const event = body.event ?? "";
     const projectPath = body.projectPath ?? "";
     const branch = typeof body.branch === "string" ? body.branch : "";
+    // Camada 1 do repo map (índice) não passa por regra/agente — atualiza direto a cada commit,
+    // best-effort, independente de qualquer regra configurada (ver sincronizarHooksDoProjeto).
+    if (event === "git.post-commit" && projectPath) {
+      try {
+        construirIndice(projectPath, home, leitorDeResumos(projectPath, home));
+      } catch (e) {
+        console.error("construir índice do repo map no post-commit:", (e as Error).message || e);
+      }
+    }
     try {
       if (event === "git.pre-push") return c.json(await dispararPrePush(projectPath, branch, home));
       return c.json(fireHook(event, projectPath, home, branch));
@@ -856,61 +864,39 @@ export function createApp(home: string, token: string): Hono {
     }
   });
 
-  /* ---------- Grafo (graphify) ---------- */
-
-  app.get("/v1/graph/status", (c) => {
-    const projectPath = c.req.query("projectPath") || "";
-    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
-    return c.json(statusDoGrafo(projectPath, home));
-  });
+  /* ---------- Repo map ---------- */
 
   /**
-   * "O que o Nexo sabe deste projeto" — memória + grafo + quantos Nexo Hooks (global ou deste
-   * projeto) valem pra ele, numa chamada só. É a fonte da tela "Memória do Projeto" no desktop —
-   * antes disso, a mesma informação estava espalhada em três telas (Configurações, Grafo, Hooks)
-   * sem nenhum lugar que juntasse os três.
+   * "O que o Nexo sabe deste projeto" — memória + repo map + quantos Nexo Hooks (global ou deste
+   * projeto) valem pra ele, numa chamada só. É a fonte da tela "Memória do Projeto" no desktop.
    */
   app.get("/v1/projeto/status", (c) => {
     const projectPath = c.req.query("projectPath") || "";
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
     return c.json({
       memoria: statusDaMemoria(projectPath, home),
-      grafo: statusDoGrafo(projectPath, home),
-      grafoAuto: loadConfig(home).modulos.grafoAuto,
+      repoMap: statusDoIndice(projectPath, home),
+      repoMapResumos: loadConfig(home).modulos.repoMapResumos,
       hooksCount: regrasDoEscopo(listarRegras(home), projectPath).length,
     });
   });
 
-  /** Importa um grafo de fora (pasta escolhida no modal) — cobre "não achou em lugar nenhum". */
-  app.post("/v1/graph/importar", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { projectPath?: string; origem?: string };
-    const projectPath = body.projectPath ?? "";
-    const origem = body.origem ?? "";
-    if (!projectPath || !origem) return c.json({ error: "projectPath e origem obrigatórios" }, 400);
-    try {
-      importarGrafoManual(projectPath, origem, home);
-      return c.json(statusDoGrafo(projectPath, home));
-    } catch (e) {
-      const err = e as Error & { status?: number };
-      return c.json({ error: err.message }, (err.status ?? 400) as 400);
-    }
-  });
-
-  /** `graphify update` — só AST, sem LLM, por isso seguro num botão (não gasta quota de conta). */
-  app.post("/v1/graph/atualizar", async (c) => {
+  /** Recalcula a Camada 1 (índice) do zero — sem custo de LLM, seguro num botão. */
+  app.post("/v1/repo-map/atualizar", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { projectPath?: string };
     const projectPath = body.projectPath ?? "";
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
-    const r = await atualizarGrafo(projectPath, home);
-    return c.json({ ...r, ...statusDoGrafo(projectPath, home) });
+    construirIndice(projectPath, home, leitorDeResumos(projectPath, home));
+    return c.json(statusDoIndice(projectPath, home));
   });
 
-  /** O `graph.html` do grafo semântico (já gerado pelo próprio `graphify`) — cliente abre no app padrão. */
-  app.post("/v1/graph/arvore", async (c) => {
+  /** Dispara a geração de resumos por IA (enriquecimento opcional) pros arquivos que ainda não têm. */
+  app.post("/v1/repo-map/resumos/gerar", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { projectPath?: string };
     const projectPath = body.projectPath ?? "";
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
-    return c.json(caminhoDaArvoreDoGrafo(projectPath));
+    const r = await gerarResumosSobDemanda(projectPath, home);
+    return c.json(r, r.ok ? 200 : 400);
   });
 
   /* ---------- execuções de time ---------- */
@@ -1000,7 +986,9 @@ export function createApp(home: string, token: string): Hono {
    * em mcp.ts) fez isso na hora de montar a URL desta conversa, e o MCP em si
    * não tem onde carregar um "projeto atual" — cada requisição já chega dizendo.
    * Sem projeto (config velha, ou cliente que não manda) só a autoria responde;
-   * o graphify soma quando o projeto tem `graphify-out/graph.json` construído.
+   * o repo map soma quando o projeto já tem índice construído (Camada 2 + a ferramenta de
+   * gravar resumo do enriquecimento, que fica disponível independente de índice existir —
+   * é escrita de cache, não execução, mesmo critério de "aceitável" que já vale pra autoria).
    */
   app.post("/v1/mcp", (c) => {
     const projectPath = c.req.query("projectPath") || "";
@@ -1009,12 +997,17 @@ export function createApp(home: string, token: string): Hono {
     // `nexo_delegar` só em conversa NORMAL (sem runId) — é isso que impede recursão: o que ele
     // dispara é sempre um passo de Run, que nasce COM runId e por isso nunca cai aqui de novo.
     const modoDelegacao = threadId && projectPath && !runId ? modoDeDelegacaoDaThread(threadId, home) : "negado";
+    // `nexo_navegador_*` também só em conversa normal — não existe <webview> num run headless
+    // (spec explícita: "ferramenta não aparece no conjunto MCP de um passo de Run").
+    const modoNavegador = threadId && !runId ? modoDeNavegadorDaThread(threadId, home) : "negado";
     const conjunto: Conjunto = () => [
       ...ferramentasDeAutoria(home)(),
-      ...(projectPath ? ferramentasDeGraphify(projectPath)() : []),
+      ...(projectPath ? ferramentasDeRepoMap(projectPath, home)() : []),
+      ...(projectPath ? ferramentaDeResumo(projectPath, home)() : []),
       ...(runId ? ferramentaDeVeredito(runId)() : []),
       ...(threadId ? ferramentaDePerguntar(threadId, home)() : []),
       ...(modoDelegacao !== "negado" ? ferramentaDeDelegar(threadId, projectPath, modoDelegacao, home)() : []),
+      ...(modoNavegador !== "negado" ? ferramentasDeNavegador(threadId, home, modoNavegador)() : []),
     ];
     return responderMcp(c, conjunto);
   });
@@ -1027,6 +1020,25 @@ export function createApp(home: string, token: string): Hono {
     if (!resposta.trim()) return c.json({ error: 'faltou "resposta"' }, 400);
     const ok = responderPergunta(threadId, resposta);
     if (!ok) return c.json({ error: "nenhuma pergunta pendente nesta conversa" }, 404);
+    return c.json({ ok: true });
+  });
+
+  /**
+   * Resolve o comando de navegador pendente de `nexo_navegador_*` nesta thread — mesmo formato de
+   * `/v1/perguntas/:threadId/responder`, ver navegador.ts. Diferente da pergunta, `ok` pode vir
+   * `false` (a ação falhou de verdade no painel Browser) sem isso ser erro de rota.
+   */
+  app.post("/v1/navegador/:threadId/responder", async (c) => {
+    const threadId = c.req.param("threadId");
+    const body = (await c.req.json().catch(() => ({}))) as {
+      ok?: boolean;
+      texto?: string;
+      imagem?: { dataBase64: string; mimeType: string };
+    };
+    if (typeof body.ok !== "boolean") return c.json({ error: 'faltou "ok"' }, 400);
+    const resultado = { ok: body.ok, texto: typeof body.texto === "string" ? body.texto : "", imagem: body.imagem };
+    const resolvido = responderNavegador(threadId, resultado);
+    if (!resolvido) return c.json({ error: "nenhum comando de navegador pendente nesta conversa" }, 404);
     return c.json({ ok: true });
   });
 
@@ -1083,15 +1095,15 @@ export function createApp(home: string, token: string): Hono {
 
   app.get("/v1/config", (c) => c.json(loadConfig(home)));
   app.put("/v1/config", async (c) => {
-    const antes = loadConfig(home).modulos.grafoAuto;
+    const antes = loadConfig(home).modulos.repoMapResumos;
     const body = await c.req.json();
     const next = saveConfig(home, body);
-    // Efeito colateral do toggle: liga (ou reconfere, se só a conta trocou) o agente + as duas
-    // regras do módulo "Grafo automático" sem esperar reiniciar o daemon. Só DESLIGA na
-    // transição true→false — chamar em toda gravação de config (mesmo trocar a cor) apagaria uma
-    // regra que a pessoa tivesse criado à mão apontando pro mesmo agente `grafo`, por coincidência.
-    if (next.modulos.grafoAuto) sincronizarGrafoAutomatico(home);
-    else if (antes) desligarGrafoAutomatico(home);
+    // Efeito colateral do toggle: liga (ou reconfere, se só a conta trocou) o agente + a regra do
+    // módulo "Resumos por IA" sem esperar reiniciar o daemon. Só DESLIGA na transição true→false —
+    // chamar em toda gravação de config (mesmo trocar a cor) apagaria uma regra que a pessoa
+    // tivesse criado à mão apontando pro mesmo agente, por coincidência.
+    if (next.modulos.repoMapResumos) sincronizarRepoMapResumos(home);
+    else if (antes) desligarRepoMapResumos(home);
     return c.json(next);
   });
 

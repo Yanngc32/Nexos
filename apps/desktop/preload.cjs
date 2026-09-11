@@ -11,7 +11,6 @@ contextBridge.exposeInMainWorld("nexo", {
   setWidgetMini: (on) => ipcRenderer.invoke("widget:mini", on),
   widgetState: () => ipcRenderer.invoke("widget:state"),
   openExternal: (url) => ipcRenderer.invoke("shell:external", url),
-  openLocalFile: (path) => ipcRenderer.invoke("shell:open-file", path),
   clearBrowserCache: (url) => ipcRenderer.invoke("browser:clear-cache", url),
   pickFolder: () => ipcRenderer.invoke("folder:pick"),
   setProject: (path) => ipcRenderer.invoke("project:set", path),

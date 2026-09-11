@@ -56,8 +56,13 @@ export function loadConfig(home: string): NexoConfig {
     trustedProjects: cleanRepos(raw.trustedProjects),
     memoriaDir: str(raw.memoriaDir),
     graphDir: str(raw.graphDir),
+    ...(isTetoTokens(raw.repoMapTetoTokens) ? { repoMapTetoTokens: raw.repoMapTetoTokens } : {}),
     modulos: cleanModulos(raw.modulos),
   };
+}
+
+function isTetoTokens(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 function isCavemanNivel(value: unknown): value is CavemanNivel {
@@ -70,8 +75,8 @@ function cleanModulos(value: unknown): NexoConfig["modulos"] {
     rtk: Boolean(o.rtk),
     caveman: Boolean(o.caveman),
     cavemanNivel: isCavemanNivel(o.cavemanNivel) ? o.cavemanNivel : DEFAULT_CONFIG.modulos.cavemanNivel,
-    grafoAuto: Boolean(o.grafoAuto),
-    grafoAutoProfileId: str(o.grafoAutoProfileId),
+    repoMapResumos: Boolean(o.repoMapResumos),
+    repoMapProfileId: str(o.repoMapProfileId),
   };
 }
 
@@ -136,6 +141,13 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
       patch.trustedProjects === undefined ? current.trustedProjects : cleanRepos(patch.trustedProjects),
     memoriaDir: patch.memoriaDir === undefined ? current.memoriaDir : str(patch.memoriaDir),
     graphDir: patch.graphDir === undefined ? current.graphDir : str(patch.graphDir),
+    ...(patch.repoMapTetoTokens === undefined
+      ? current.repoMapTetoTokens !== undefined
+        ? { repoMapTetoTokens: current.repoMapTetoTokens }
+        : {}
+      : isTetoTokens(patch.repoMapTetoTokens)
+        ? { repoMapTetoTokens: patch.repoMapTetoTokens }
+        : {}),
     // Merge campo a campo: `{ modulos: { rtk: true } }` liga só o rtk, sem apagar o resto.
     modulos: {
       rtk: patch.modulos?.rtk === undefined ? current.modulos.rtk : Boolean(patch.modulos.rtk),
@@ -143,11 +155,12 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
       cavemanNivel: isCavemanNivel(patch.modulos?.cavemanNivel)
         ? patch.modulos.cavemanNivel
         : current.modulos.cavemanNivel,
-      grafoAuto: patch.modulos?.grafoAuto === undefined ? current.modulos.grafoAuto : Boolean(patch.modulos.grafoAuto),
-      grafoAutoProfileId:
-        patch.modulos?.grafoAutoProfileId === undefined
-          ? current.modulos.grafoAutoProfileId
-          : str(patch.modulos.grafoAutoProfileId),
+      repoMapResumos:
+        patch.modulos?.repoMapResumos === undefined ? current.modulos.repoMapResumos : Boolean(patch.modulos.repoMapResumos),
+      repoMapProfileId:
+        patch.modulos?.repoMapProfileId === undefined
+          ? current.modulos.repoMapProfileId
+          : str(patch.modulos.repoMapProfileId),
     },
   };
   writeJsonAtomico(configPath(home), next);

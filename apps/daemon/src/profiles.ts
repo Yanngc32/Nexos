@@ -19,6 +19,7 @@ import type {
   DelegacaoModo,
   EffortLevel,
   EngineKind,
+  NavegadorModo,
   PermissionMode,
   Profile,
 } from "@nexo/shared";
@@ -28,6 +29,7 @@ import {
   DELEGACAO_MODOS,
   EFFORT_LEVELS,
   MODEL_RE,
+  NAVEGADOR_MODOS,
   PERMISSION_MODES,
   TOOL_PATTERN_RE,
   WINDOW_KEY_RE,
@@ -125,6 +127,7 @@ export type ProfilePatch = {
   sandboxMode?: string | null;
   allowedTools?: string[] | null;
   delegacaoModo?: string | null;
+  navegadorModo?: string | null;
   nickname?: string | null;
 };
 
@@ -174,6 +177,12 @@ export function updateProfile(id: string, home: string, patch: ProfilePatch): Pr
     if (!modo) delete next.delegacaoModo;
     else if (!DELEGACAO_MODOS.includes(modo as DelegacaoModo)) throw new Error(`modo de delegação inválido: ${modo}`);
     else next.delegacaoModo = modo as DelegacaoModo;
+  }
+  if (patch.navegadorModo !== undefined) {
+    const modo = (patch.navegadorModo ?? "").trim();
+    if (!modo) delete next.navegadorModo;
+    else if (!NAVEGADOR_MODOS.includes(modo as NavegadorModo)) throw new Error(`modo de navegador inválido: ${modo}`);
+    else next.navegadorModo = modo as NavegadorModo;
   }
   if (patch.nickname !== undefined) {
     const nickname = (patch.nickname ?? "").trim();

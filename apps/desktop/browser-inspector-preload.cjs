@@ -1,6 +1,8 @@
 const { ipcRenderer } = require("electron");
 const { capturarElemento, gerarSeletor } = require("./inspector-selector.cjs");
 const { criarOverlay } = require("./inspector-overlay.cjs");
+const { MAX_ITENS, elementosInterativosComInfo, papelDe, textoDe } = require("./navegador-selector.cjs");
+const { criarCursorAgente } = require("./navegador-cursor.cjs");
 
 /**
  * Preload do `<webview>` do painel Browser (main.cjs trava este caminho em
@@ -144,4 +146,89 @@ ipcRenderer.on("nexo-inspector:desmarcar", (_e, indice1based) => {
 
 ipcRenderer.on("nexo-inspector:realcar", (_e, indice1based) => {
   overlay.realcar(indice1based);
+});
+
+/*
+ * ---------- Modo navegador (nexo_navegador_*, ver navegador.ts no daemon) ----------
+ *
+ * `refs` é module-scope, não precisa reset explícito: este preload inteiro roda de novo do zero
+ * a cada novo documento carregado no `<webview>` (dom-ready), então o registro morre e nasce
+ * junto com a navegação — ref de uma leitura anterior a uma navegação nunca sobrevive por
+ * construção, sem precisar limpar nada na mão.
+ */
+let refs = new Map();
+let proximoRef = 1;
+const cursorAgente = criarCursorAgente();
+
+function limparRefs() {
+  refs = new Map();
+  proximoRef = 1;
+}
+
+function lerArvore() {
+  limparRefs();
+  const raiz = document.body || document.documentElement;
+  const { itens: elementos, truncado } = elementosInterativosComInfo(raiz, window);
+  const itens = elementos.map((el) => {
+    const ref = `ref_${proximoRef++}`;
+    refs.set(ref, el);
+    return { ref, papel: papelDe(el), texto: textoDe(el) };
+  });
+  if (truncado) {
+    itens.push({ ref: "", papel: "aviso", texto: `(lista cortada em ${MAX_ITENS} itens — role a página ou refine o que procura)` });
+  }
+  return itens;
+}
+
+/** Sequência de eventos que um clique de verdade dispara, na ordem — não só `click` sozinho. */
+function dispararClique(el) {
+  const opts = { bubbles: true, cancelable: true, view: window };
+  const PointerEventCtor = typeof PointerEvent !== "undefined" ? PointerEvent : MouseEvent;
+  el.dispatchEvent(new PointerEventCtor("pointerdown", opts));
+  el.dispatchEvent(new MouseEvent("mousedown", opts));
+  el.focus?.();
+  el.dispatchEvent(new PointerEventCtor("pointerup", opts));
+  el.dispatchEvent(new MouseEvent("mouseup", opts));
+  el.dispatchEvent(new MouseEvent("click", opts));
+}
+
+/**
+ * Digitar de verdade seta `.value` (não existe "digitação real" sem input de SO, fora de escopo —
+ * ver spec) MAS dispara `InputEvent`/`change` de verdade em cima, pra framework que escuta esses
+ * eventos (React, Vue, validação de formulário) reagir — diferente de só setar `.value` em
+ * silêncio, que a spec explicitamente pediu pra não fazer.
+ */
+function dispararDigitacao(el, texto) {
+  el.focus?.();
+  el.value = texto;
+  el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: texto }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+ipcRenderer.on("nexo-navegador:ler", () => {
+  const itens = lerArvore();
+  ipcRenderer.sendToHost("nexo-navegador:lido", { itens });
+});
+
+ipcRenderer.on("nexo-navegador:clicar", (_e, ref) => {
+  const el = refs.get(ref);
+  if (!el) {
+    ipcRenderer.sendToHost("nexo-navegador:acao-resultado", { ok: false, texto: `ref inválido: ${ref} — releia a página` });
+    return;
+  }
+  // mostra ONDE antes de agir — é o "mouse do agente" que a pessoa acompanha ao vivo
+  cursorAgente.mostrarClique(el);
+  dispararClique(el);
+  ipcRenderer.sendToHost("nexo-navegador:acao-resultado", { ok: true, texto: "clicado" });
+});
+
+ipcRenderer.on("nexo-navegador:digitar", (_e, { ref, texto }) => {
+  const el = refs.get(ref);
+  if (!el) {
+    ipcRenderer.sendToHost("nexo-navegador:acao-resultado", { ok: false, texto: `ref inválido: ${ref} — releia a página` });
+    return;
+  }
+  cursorAgente.mostrarFoco(el);
+  dispararDigitacao(el, texto);
+  ipcRenderer.sendToHost("nexo-navegador:acao-resultado", { ok: true, texto: "digitado" });
 });

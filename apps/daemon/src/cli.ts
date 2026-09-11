@@ -13,9 +13,8 @@ import {
   updateProfile,
 } from "./profiles.ts";
 import { HOOK_EVENT_RE } from "./hooks.ts";
-import { ensureGraphifyInstalled } from "./graphify.ts";
 import { ensureCavemanInstalled, ensureRtkInstalled } from "./modules.ts";
-import { sincronizarGrafoAutomatico } from "./grafo-auto.ts";
+import { sincronizarRepoMapResumos } from "./repo-map-auto.ts";
 import { createThread, listThreads, readThread } from "./threads.ts";
 import { pingUsoDeTodasAsContas, postMessage, sessionBus, switchThread } from "./session.ts";
 import { loginProfile } from "./login.ts";
@@ -49,14 +48,13 @@ async function cmdUp(): Promise<void> {
     return;
   }
   // Fire-and-forget, em paralelo ao resto da subida — nunca lançam, então não atrasam nem
-  // condicionam o daemon a isso (ver ensureGraphifyInstalled/ensureRtkInstalled/ensureCavemanInstalled).
-  void ensureGraphifyInstalled();
+  // condicionam o daemon a isso (ver ensureRtkInstalled/ensureCavemanInstalled).
   const modulos = loadConfig(home).modulos;
   if (modulos.rtk) void ensureRtkInstalled();
   if (modulos.caveman) void ensureCavemanInstalled(home);
   // Síncrono e barato (só lê agents.json/hooks.json) — sem network, não precisa de fire-and-forget.
-  const r = sincronizarGrafoAutomatico(home);
-  if (!r.ok) console.error(`grafo automático: ${r.motivo}`);
+  const r = sincronizarRepoMapResumos(home);
+  if (!r.ok) console.error(`resumos do repo map: ${r.motivo}`);
   /*
    * Limite de uso (5h/7d) só vem junto da resposta de uma mensagem de verdade — não tem consulta
    * de graça. Pinga toda conta claude/codex logada a cada 10min (e uma vez já na subida) pra o

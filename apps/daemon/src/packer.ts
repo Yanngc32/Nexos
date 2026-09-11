@@ -131,12 +131,29 @@ export function tokensDoHistorico(events: ThreadEvent[]): number {
 /**
  * Vale resumir agora?
  *
+ * O gatilho usa o MAIOR entre duas medidas: a estimativa (chars/4 sobre o que
+ * o `pack` renderiza) e o `contextTokens` REAL do último turno (do evento
+ * `usage`, tokenizado de verdade pelo motor). Por quê as duas: a estimativa
+ * ignora system prompt, definição de ferramenta e o próprio corpo de resposta
+ * do turno — só conta o texto de user/assistant/resumo de ferramenta. Numa
+ * conta com muitas ferramentas MCP isso já fica muito abaixo do que o motor
+ * realmente usa (visto na prática: ~40k estimado contra 230k reais no mesmo
+ * turno), e o gatilho nunca disparava mesmo com a janela real estourada. O
+ * real vira `0` só antes do primeiro turno (nenhum `usage` ainda) — aí a
+ * estimativa é o único sinal que existe, e continua servindo.
+ *
  * Além do limiar, exige que haja o que resumir: se quase tudo é recente e
  * ficaria verbatim de qualquer jeito, o resumo custaria um turno pra não
  * economizar nada.
  */
-export function precisaCompactar(events: ThreadEvent[], packCfg: PackConfig, tokenCap: number): boolean {
-  if (tokensDoHistorico(events) < tokenCap * LIMIAR) return false;
+export function precisaCompactar(
+  events: ThreadEvent[],
+  packCfg: PackConfig,
+  tokenCap: number,
+  contextTokensReal = 0,
+): boolean {
+  const ocupado = Math.max(tokensDoHistorico(events), contextTokensReal);
+  if (ocupado < tokenCap * LIMIAR) return false;
   return aResumir(events, packCfg, tokenCap).length > 0;
 }
 

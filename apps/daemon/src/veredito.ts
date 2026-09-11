@@ -26,7 +26,7 @@ export function consumirVeredito(runId: string): { aprovado: boolean; motivo: st
 export const MCP_TOOLS_VEREDITO = ["mcp__nexo__nexo_veredito"];
 
 /**
- * Ferramenta MCP `nexo_veredito`, presa a UM run — mesmo padrão de `ferramentasDeGraphify`. Não
+ * Ferramenta MCP `nexo_veredito`, presa a UM run — mesmo padrão de `ferramentasDeRepoMap`. Não
  * usa `/v1/mcp/:id` (a boca do SUPERVISOR): um passo de PIPELINE roda como conversa normal
  * (`executarPasso` em runs.ts chama `createThread`/`postMessage`, sem o mecanismo de supervisor),
  * então esta ferramenta entra pela boca de autoria (`/v1/mcp`) quando a conversa carrega um

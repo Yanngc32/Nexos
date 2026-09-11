@@ -782,6 +782,15 @@ body[data-side-mini="1"] .side .ico-only {
   color: var(--accent);
 }
 
+/* Pausado = vermelho (bloqueio), não a cor de destaque comum — é um "parar", não um modo ligado neutro. */
+#btn-nav-pause[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
+}
+
+#btn-nav-pause[aria-pressed="true"] .ico {
+  color: var(--danger);
+}
+
 .status[data-on="1"] {
   color: var(--ok);
 }
@@ -2850,6 +2859,79 @@ button:disabled {
   content: "";
 }
 
+/* ---- Pastas compartilhadas (memória / repo map) ---- */
+.shared-card {
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.set-sec h3 + .shared-card {
+  border-top: 0;
+}
+
+.shared-card-head h4 {
+  margin: 0 0 3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.shared-card-head p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* pill de status — mesma linguagem visual de .accounts-manage-engine */
+.shared-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--elev);
+  color: var(--muted);
+}
+
+.shared-badge[data-on="1"] {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+}
+
+.shared-card-ctl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shared-card-ctl input {
+  flex: 1;
+  min-width: 0;
+}
+
+.shared-msg {
+  margin: 0;
+  font-size: 12px;
+}
+
+.shared-msg:empty {
+  display: none;
+}
+
+.shared-msg[data-tipo="erro"] {
+  color: var(--danger);
+}
+
+.shared-msg[data-tipo="ok"] {
+  color: var(--accent);
+}
+
 .set-empty {
   margin: 0;
   padding: 0 18px 18px;
@@ -4009,6 +4091,21 @@ body[data-side-mini="1"] .svc-strip {
   padding: 4px 0;
 }
 
+/* Gaveta que esconde/mostra o bloco de controle inteiro (conta + toggles + avançado + salvar) —
+   diferente de .allow-adv, que só esconde o campo de texto livre por dentro dela. */
+.set-drawer > summary {
+  cursor: pointer;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 0;
+  user-select: none;
+}
+
+.set-drawer[open] > summary {
+  margin-bottom: 6px;
+}
+
 .allow-adv input {
   width: 100%;
   margin-top: 4px;
@@ -4325,6 +4422,20 @@ body[data-compactando="1"] .ctx-dot::after {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+}
+.ax-ativos-sec {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+}
+.ax-ativos-title,
+.ax-list-title {
+  margin: 8px 10px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 .ax-edit-area { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .ax-item-head {

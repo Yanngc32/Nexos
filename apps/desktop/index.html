@@ -148,6 +148,19 @@
           <input id="browser-url" type="text" inputmode="url" spellcheck="false" placeholder="https://…" />
           <button
             type="button"
+            id="btn-nav-pause"
+            class="ghost ico-only ico-nav-pause"
+            title="Pausar o agente no painel Browser"
+            aria-label="Pausar o agente no painel Browser"
+            aria-pressed="false"
+          >
+            <svg class="ico ico-nav-pause-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <rect x="6" y="5" width="4" height="14" rx="1" />
+              <rect x="14" y="5" width="4" height="14" rx="1" />
+            </svg>
+          </button>
+          <button
+            type="button"
             id="btn-browser-inspect"
             class="ghost ico-only ico-inspect"
             title="Abra um preview primeiro"
@@ -211,21 +224,22 @@
             <p class="ag-hint" id="mem-detalhe"></p>
           </section>
           <section class="ag-sec">
-            <h2>Grafo (graphify) <span id="graph-status" class="mod-meta" data-on="0">verificando…</span></h2>
-            <p class="ag-hint" id="graph-detalhe"></p>
-            <p class="ag-err hidden" id="graph-err"></p>
+            <h2>Repo map <span id="repomap-status" class="mod-meta" data-on="0">verificando…</span></h2>
+            <p class="ag-hint" id="repomap-detalhe"></p>
+            <p class="ag-err hidden" id="repomap-err"></p>
             <div class="ag-row">
-              <button type="button" id="btn-graph-atualizar" class="ghost">Atualizar agora (sem LLM)</button>
-              <button type="button" id="btn-graph-arvore" class="primary">Ver grafo</button>
-              <button type="button" id="btn-graph-importar" class="ghost">Selecionar pasta manualmente…</button>
+              <button type="button" id="btn-repomap-atualizar" class="ghost">Atualizar agora (sem LLM)</button>
             </div>
-            <label class="ag-check" id="graph-auto-wrap">
-              <input id="graph-auto" type="checkbox" />
-              <span>Manter o grafo sozinho (constrói ao abrir projeto novo, atualiza a cada commit)</span>
+            <label class="ag-check" id="repomap-resumos-wrap">
+              <input id="repomap-resumos" type="checkbox" />
+              <span>Resumos por IA (1 linha por arquivo, mantido a cada commit)</span>
             </label>
-            <label class="ag-f hidden" id="graph-auto-profile-wrap"><span>Conta que roda isso</span>
-              <select id="graph-auto-profile"></select></label>
-            <p class="ag-err hidden" id="graph-auto-err"></p>
+            <label class="ag-f hidden" id="repomap-resumos-profile-wrap"><span>Conta que roda isso</span>
+              <select id="repomap-resumos-profile"></select></label>
+            <p class="ag-err hidden" id="repomap-resumos-err"></p>
+            <div class="ag-row">
+              <button type="button" id="btn-repomap-gerar-resumos" class="ghost">Gerar resumos agora</button>
+            </div>
           </section>
           <section class="ag-sec">
             <h2>Hooks ligados a este projeto</h2>
@@ -252,6 +266,12 @@
 
         <div class="ax-body" id="ax-body-agentes">
           <div class="ax-list">
+            <div class="ax-ativos-sec">
+              <h3 class="ax-ativos-title">Em atividade</h3>
+              <ul id="ax-agentes-ativos" class="agents-list"></ul>
+              <p id="ax-agentes-ativos-empty" class="agents-empty">Nenhum agente rodando agora.</p>
+            </div>
+            <p class="ax-list-title">Agentes criados</p>
             <ul id="agent-defs" class="agents-list"></ul>
             <p id="agent-defs-empty" class="agents-empty">
               Nenhum agente criado. Um agente guarda conta, modelo e instruções próprias.
@@ -851,21 +871,24 @@
                   </p>
                   <p id="allow-err" class="set-err"></p>
                 </div>
-                <div class="set-ctl col">
-                  <select id="allow-profile" aria-label="Conta"></select>
-                  <div id="allow-presets" class="allow-presets"></div>
-                  <details id="allow-adv" class="allow-adv">
-                    <summary>Avançado — padrão do CLI</summary>
-                    <input
-                      id="allow-tools"
-                      type="text"
-                      spellcheck="false"
-                      placeholder="Bash(docker *), WebFetch"
-                      aria-label="Padrões extras separados por vírgula"
-                    />
-                  </details>
-                  <button type="button" id="btn-allow-save" class="primary">Salvar</button>
-                </div>
+                <details id="allow-drawer" class="set-drawer" open>
+                  <summary>Editar ferramentas liberadas</summary>
+                  <div class="set-ctl col">
+                    <select id="allow-profile" aria-label="Conta"></select>
+                    <div id="allow-presets" class="allow-presets"></div>
+                    <details id="allow-adv" class="allow-adv">
+                      <summary>Avançado — padrão do CLI</summary>
+                      <input
+                        id="allow-tools"
+                        type="text"
+                        spellcheck="false"
+                        placeholder="Bash(docker *), WebFetch"
+                        aria-label="Padrões extras separados por vírgula"
+                      />
+                    </details>
+                    <button type="button" id="btn-allow-save" class="primary">Salvar</button>
+                  </div>
+                </details>
               </div>
               <div class="set-row">
                 <div class="set-txt">
@@ -885,6 +908,27 @@
                     <option value="liberado">Liberado</option>
                   </select>
                   <button type="button" id="btn-deleg-save" class="primary">Salvar</button>
+                </div>
+              </div>
+              <div class="set-row">
+                <div class="set-txt">
+                  <h4>Controlar o painel Browser</h4>
+                  <p>
+                    Em conversa normal, o modelo pode abrir URL, ler a página, tirar print, clicar e
+                    digitar no painel Browser (<code>nexo_navegador_*</code>). <b>Negado</b> desliga
+                    (padrão). <b>Questionar</b> pergunta antes de abrir/clicar/digitar (ler e print
+                    rodam direto). <b>Liberado</b> roda tudo direto.
+                  </p>
+                  <p id="nav-err" class="set-err"></p>
+                </div>
+                <div class="set-ctl">
+                  <select id="nav-profile" aria-label="Conta"></select>
+                  <select id="nav-modo" aria-label="Modo do navegador">
+                    <option value="negado">Negado</option>
+                    <option value="questionar">Questionar</option>
+                    <option value="liberado">Liberado</option>
+                  </select>
+                  <button type="button" id="btn-nav-save" class="primary">Salvar</button>
                 </div>
               </div>
             </section>
@@ -966,19 +1010,18 @@
               </div>
             </section>
             <section class="set-sec hidden" data-panel="memoria">
-              <h3>Memória e grafo</h3>
-              <div class="set-row col">
-                <div class="set-txt">
-                  <h4>Pasta compartilhada — memória</h4>
+              <h3>Pastas compartilhadas</h3>
+              <div class="shared-card">
+                <div class="shared-card-head">
+                  <h4>Memória <span id="mem-dir-badge" class="shared-badge" data-on="0">só nesta máquina</span></h4>
                   <p>
                     Onde fica <code>MEMORIA.md</code> de cada projeto (um agente escreve depois de
                     cada commit/push — ver Hooks). Vazio = dentro do próprio Nexo, só nesta
                     máquina. Aponte pra uma pasta já sincronizada (Drive, OneDrive, etc.) pra essa
                     memória atravessar de um PC pro outro.
                   </p>
-                  <p id="mem-dir-err" class="set-err"></p>
                 </div>
-                <div class="set-ctl">
+                <div class="shared-card-ctl">
                   <input
                     id="mem-dir"
                     type="text"
@@ -988,27 +1031,28 @@
                   />
                   <button type="button" id="btn-mem-dir-pick" class="ghost">Escolher…</button>
                 </div>
+                <p id="mem-dir-msg" class="shared-msg"></p>
               </div>
-              <div class="set-row col">
-                <div class="set-txt">
-                  <h4>Pasta compartilhada — grafo (graphify)</h4>
+              <div class="shared-card">
+                <div class="shared-card-head">
+                  <h4>Repo map <span id="graph-dir-badge" class="shared-badge" data-on="0">só nesta máquina</span></h4>
                   <p>
-                    Onde fica o <code>graphify-out/</code> de cada projeto. Separada da memória de
-                    propósito: o grafo é maior e regenerável, pode valer a pena sincronizar num
-                    lugar diferente (ou nem sincronizar). Vazio = só dentro do projeto, como hoje.
+                    Onde fica o cache do repo map (índice + resumos) de cada projeto. Separada da
+                    memória de propósito: o repo map é regenerável, pode valer a pena sincronizar
+                    num lugar diferente (ou nem sincronizar). Vazio = dentro do <code>~/.nexo</code>, como hoje.
                   </p>
-                  <p id="graph-dir-err" class="set-err"></p>
                 </div>
-                <div class="set-ctl">
+                <div class="shared-card-ctl">
                   <input
                     id="graph-dir"
                     type="text"
                     spellcheck="false"
-                    placeholder="G:\Meu Drive\nexo-grafo"
-                    aria-label="Pasta compartilhada de grafo"
+                    placeholder="G:\Meu Drive\nexo-repo-map"
+                    aria-label="Pasta compartilhada do repo map"
                   />
                   <button type="button" id="btn-graph-dir-pick" class="ghost">Escolher…</button>
                 </div>
+                <p id="graph-dir-msg" class="shared-msg"></p>
               </div>
             </section>
             <section class="set-sec hidden" data-panel="modulos">

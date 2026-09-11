@@ -60,8 +60,14 @@ export type Ferramentas = {
   chamar: (membro: string, pedido: string) => Promise<{ ok: boolean; texto: string }>;
 };
 
-/** O que o modelo pediu não deu, mas ele pode corrigir e tentar de novo. */
-export type Saida = { ok: boolean; texto: string };
+/**
+ * O que o modelo pediu não deu, mas ele pode corrigir e tentar de novo.
+ *
+ * `imagem` é opcional e só usada por `nexo_navegador_screenshot` (navegador.ts) — MCP suporta
+ * bloco de imagem nativamente no resultado de uma ferramenta; ferramentas existentes nunca setam
+ * esse campo, então o comportamento delas não muda em nada.
+ */
+export type Saida = { ok: boolean; texto: string; imagem?: { dataBase64: string; mimeType: string } };
 
 /**
  * Uma ferramenta MCP: o que o modelo vê e o que ela faz.
@@ -142,9 +148,17 @@ export function ferramentasDoSupervisor(fer: Ferramentas): Conjunto {
   };
 }
 
-/** Conteúdo de resposta de ferramenta. `isError` é o jeito do MCP dizer "deu errado, mas continue". */
-function conteudo(texto: string, erro = false): unknown {
-  return { content: [{ type: "text", text: texto }], ...(erro ? { isError: true } : {}) };
+/**
+ * Conteúdo de resposta de ferramenta. `isError` é o jeito do MCP dizer "deu errado, mas continue".
+ *
+ * `imagem` soma um content-block `{type:"image"}` do protocolo MCP — usado só por
+ * `nexo_navegador_screenshot` (navegador.ts). Ferramentas que nunca passam `imagem` continuam
+ * gerando exatamente `{content:[{type:"text",...}]}`, igual antes desta extensão.
+ */
+function conteudo(texto: string, erro = false, imagem?: { dataBase64: string; mimeType: string }): unknown {
+  const content: unknown[] = [{ type: "text", text: texto }];
+  if (imagem) content.push({ type: "image", data: imagem.dataBase64, mimeType: imagem.mimeType });
+  return { content, ...(erro ? { isError: true } : {}) };
 }
 
 /**
@@ -189,7 +203,7 @@ export async function tratarMcp(msg: JsonRpc, conjunto: Conjunto): Promise<Respo
        * Erro de protocolo fica pra defeito nosso, que ele não pode contornar.
        */
       const r = await achada.executar(args);
-      return ok(id, conteudo(r.texto, !r.ok));
+      return ok(id, conteudo(r.texto, !r.ok, r.imagem));
     } catch (e) {
       const err = e as Error & { status?: number };
       // 4xx é o daemon dizendo "seu pedido está errado" — isso o modelo conserta
@@ -252,8 +266,8 @@ export function configDeMcp(porta: number, token: string, runId: string): string
  * Caminho de `/v1/mcp` pra ESTA conversa — o projeto vai como query porque
  * `/v1/mcp` é uma boca só, compartilhada por toda conversa normal (ao
  * contrário do supervisor, que tem uma por run). É assim que o handler sabe
- * de qual projeto oferecer as ferramentas do grafo (`graphify.ts`): sem
- * projeto no caminho, ele não saberia qual `graphify-out/` checar.
+ * de qual projeto oferecer as ferramentas do repo map (`repo-map-simbolos.ts`):
+ * sem projeto no caminho, ele não saberia qual índice checar.
  *
  * `runId` soma quando a conversa É o passo de um run de PIPELINE (ver
  * `executarPasso` em runs.ts, que cria a thread com `runId` no meta) — é
@@ -275,14 +289,14 @@ function caminhoDaAutoria(projectPath?: string, runId?: string, threadId?: strin
 
 /**
  * Config da conversa normal: as ferramentas de AUTORIA (e, se o projeto já
- * tiver grafo construído, as de consulta ao graphify; e, se for passo de um
- * run com `runId`, o `nexo_veredito` desse run).
+ * tiver índice de repo map construído, a de símbolos sob demanda; e, se for
+ * passo de um run com `runId`, o `nexo_veredito` desse run).
  *
  * Sem run no caminho porque não há run — o que a autoria faz é escrever
- * `agents.json` e `teams.json`; o que o graphify faz é só LER um grafo que já
- * existe. Nenhuma das duas executa nada, e é isso que torna aceitável estarem
- * numa conversa comum: definição ruim se apaga num segundo, e consulta a
- * grafo não muda nada no disco.
+ * `agents.json` e `teams.json`; o que o repo map faz é só LER estrutura/símbolo
+ * que já existe (ou parsear na hora, sem gravar nada no projeto). Nenhuma das
+ * duas executa nada, e é isso que torna aceitável estarem numa conversa comum:
+ * definição ruim se apaga num segundo, e consultar símbolo não muda nada no disco.
  */
 export function configDeMcpAutoria(
   porta: number,

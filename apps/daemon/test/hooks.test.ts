@@ -309,16 +309,25 @@ describe("sincronizarHooksDoProjeto", () => {
   });
 
   it("remover a única regra de um evento tira a linha do script (chamado de novo depois de apagar)", () => {
+    // git.post-push, não git.post-commit: este último agora é instalado sempre (mantém a Camada 1
+    // do repo map fresca, ver comentário de sincronizarHooksDoProjeto), então nunca é removido.
     const home = base();
     const dir = repo();
     const r = saveRegra(
-      { escopo: { tipo: "projeto", projectPath: dir }, evento: "git.post-commit", agentId: "memoria" },
+      { escopo: { tipo: "projeto", projectPath: dir }, evento: "git.post-push", agentId: "memoria" },
       home,
     );
-    expect(existsSync(join(dir, ".git", "hooks", "post-commit"))).toBe(true);
+    expect(existsSync(join(dir, ".git", "hooks", "post-push"))).toBe(true);
     apagarRegra(r.id, home);
-    const conteudo = readFileSync(join(dir, ".git", "hooks", "post-commit"), "utf8");
+    const conteudo = readFileSync(join(dir, ".git", "hooks", "post-push"), "utf8");
     expect(conteudo.trim()).toBe("");
+  });
+
+  it("git.post-commit é instalado sempre, mesmo sem regra nenhuma pedindo (mantém a Camada 1 do repo map fresca)", () => {
+    const home = base();
+    const dir = repo();
+    sincronizarHooksDoProjeto(dir, home);
+    expect(existsSync(join(dir, ".git", "hooks", "post-commit"))).toBe(true);
   });
 
   it("silencioso fora de um repositório git", () => {

@@ -140,6 +140,23 @@ describe("precisaCompactar", () => {
     const cfg = { ...CFG, keepLastMessages: 100 };
     expect(precisaCompactar(conversa(20), cfg, 1)).toBe(false);
   });
+
+  it("usa o contextTokens REAL quando ele é maior que a estimativa — a estimativa (chars/4 só de user/assistant/resumo de ferramenta) ignora system prompt e definição de ferramenta MCP, e fica muito abaixo do que o motor realmente usa", () => {
+    const ev = conversa(20);
+    const estimativa = tokensDoHistorico(ev);
+    // teto tal que a ESTIMATIVA fica bem abaixo do limiar (não dispararia sozinha)
+    const tokenCap = Math.ceil(estimativa / 0.3);
+    expect(precisaCompactar(ev, CFG, tokenCap)).toBe(false);
+    // mas o real (visto no evento `usage`) já passou de 80% desse mesmo teto
+    const real = Math.ceil(tokenCap * 0.85);
+    expect(precisaCompactar(ev, CFG, tokenCap, real)).toBe(true);
+  });
+
+  it("sem contextTokens real (thread sem usage ainda, valor 0), continua só na estimativa — comportamento de antes preservado", () => {
+    const ev = conversa(20);
+    const tokenCap = Math.floor(tokensDoHistorico(ev) / 0.8) - 1;
+    expect(precisaCompactar(ev, CFG, tokenCap, 0)).toBe(true);
+  });
 });
 
 describe("aResumir e cobertosPor", () => {

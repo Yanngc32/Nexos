@@ -11,8 +11,9 @@ import { projectKey } from "./home.ts";
  *
  * Fica FORA da pasta do projeto de propósito — projeto pode ser open-source, e
  * memória (decisão interna, causa-raiz, convenção) não pode arriscar ir num
- * `git push` de repositório público. `graphify-out/` (estrutural, regenerável
- * do código) é a única parte que continua dentro do projeto.
+ * `git push` de repositório público. O cache do repo map (ver
+ * `repo-map-indice.ts`) segue a mesma regra — nada de estrutural é gravado
+ * dentro da pasta do projeto.
  */
 
 /** Raiz de todas as memórias de projeto. Configurável pra apontar numa pasta já sincronizada. */

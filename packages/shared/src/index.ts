@@ -41,6 +41,12 @@ export type CodexModelInfo = {
 /** negado: nexo_delegar nem existe. questionar: pergunta antes via nexo_perguntar. liberado: roda direto. */
 export type DelegacaoModo = "negado" | "questionar" | "liberado";
 export const DELEGACAO_MODOS: DelegacaoModo[] = ["negado", "questionar", "liberado"];
+/**
+ * negado: nexo_navegador_* nem existe. questionar: abrir/clicar/digitar perguntam antes via
+ * nexo_perguntar (ler/screenshot não, são só leitura). liberado: tudo roda direto.
+ */
+export type NavegadorModo = "negado" | "questionar" | "liberado";
+export const NAVEGADOR_MODOS: NavegadorModo[] = ["negado", "questionar", "liberado"];
 /** Aliases que o CLI aceita; nome cheio de modelo também vale. */
 export const MODEL_ALIASES = ["opus", "sonnet", "haiku", "fable"];
 /** Sem metacaractere: no Windows o motor é spawnado via cmd.exe. */
@@ -102,6 +108,8 @@ export type Profile = {
   allowedTools?: string[];
   /** Padrão "negado": nexo_delegar não entra no pack da conversa dessa conta. */
   delegacaoModo?: DelegacaoModo;
+  /** Padrão "negado": nexo_navegador_* não entra no pack da conversa dessa conta. */
+  navegadorModo?: NavegadorModo;
   api?: { provider: ApiProvider; model: string };
   /**
    * Janela efetiva por modelo, aprendida do stream (`effective_window`).
@@ -269,26 +277,33 @@ export type NexoConfig = {
    */
   memoriaDir: string;
   /**
-   * Raiz de `~/.nexo/grafo/<hash-do-projeto>/graph.json` — o grafo do `graphify` (ver
-   * `graphify.ts`). Vazio = default (dentro do `NEXO_HOME`). Separado de `memoriaDir` de
-   * propósito: o usuário pode querer sincronizar o grafo (regenerável, maior) numa pasta
-   * diferente da memória (curada, pequena, mais sensível).
+   * Raiz de `~/.nexo/grafo/<hash-do-projeto>/` — cache em disco do repo map (índice de
+   * arquivos + resumos, ver `repo-map-indice.ts`). Vazio = default (dentro do `NEXO_HOME`).
+   * Separado de `memoriaDir` de propósito: o usuário pode querer sincronizar o repo map
+   * (regenerável, maior) numa pasta diferente da memória (curada, pequena, mais sensível).
+   * Nome mantido do tempo do `graphify` — trocar quebraria config de quem já usa.
    */
   graphDir: string;
+  /**
+   * Teto de tokens do índice (Camada 1 do repo map) injetado no prompt — ver
+   * `repo-map-indice.ts`. Ausente = usa a constante padrão (1200).
+   */
+  repoMapTetoTokens?: number;
   /**
    * Módulos externos opcionais, cada um ligado/desligado à parte. `rtk` é um proxy de CLI (hook
    * `PreToolUse`) que filtra saída de comando antes dela entrar no contexto; `caveman` é uma skill
    * de comunicação comprimida — nenhum dos dois é instalado nem sincronizado se estiver desligado
-   * (ver `modules.ts`). `grafoAuto` liga um agente + duas regras de Nexo Hook (`nexo.projeto-novo`
-   * e `git.post-commit`) que constroem e mantêm o grafo do `graphify` sozinhos, sem botão manual
-   * (ver `grafo-auto.ts`) — precisa de `grafoAutoProfileId` (a conta que roda esse agente).
+   * (ver `modules.ts`). `repoMapResumos` liga um agente + uma regra global de Nexo Hook
+   * (`git.post-commit`) que gera/mantém os resumos por IA do repo map sozinho, sem botão manual
+   * (ver `repo-map-auto.ts`) — precisa de `repoMapProfileId` (a conta que roda esse agente). O
+   * índice em si (Camada 1) não depende deste módulo: roda sempre, sem LLM.
    */
   modulos: {
     rtk: boolean;
     caveman: boolean;
     cavemanNivel: CavemanNivel;
-    grafoAuto: boolean;
-    grafoAutoProfileId: string;
+    repoMapResumos: boolean;
+    repoMapProfileId: string;
   };
 };
 
@@ -309,7 +324,7 @@ export const DEFAULT_CONFIG: NexoConfig = {
   trustedProjects: [],
   memoriaDir: "",
   graphDir: "",
-  modulos: { rtk: false, caveman: false, cavemanNivel: "full", grafoAuto: false, grafoAutoProfileId: "" },
+  modulos: { rtk: false, caveman: false, cavemanNivel: "full", repoMapResumos: false, repoMapProfileId: "" },
 };
 
 export type ThreadEvent =
