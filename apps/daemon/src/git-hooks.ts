@@ -61,12 +61,19 @@ export function installGitHookScript(projectPath: string, event: string): boolea
   const path = join(projectPath, ".git", "hooks", arquivo);
   const bloco = blocoDoHook(event);
   const { inicio } = marcador(event);
-  if (existsSync(path)) {
-    const atual = readFileSync(path, "utf8");
-    if (atual.includes(inicio)) return false;
-    appendFileSync(path, `\n${bloco}\n`, "utf8");
-  } else {
+  const atual = existsSync(path) ? readFileSync(path, "utf8") : "";
+  if (atual.includes(inicio)) return false;
+  /*
+   * Arquivo existe mas está vazio (ou só espaço): é o que `uninstallGitHookScript` deixa
+   * pra trás quando remove o ÚLTIMO bloco (esvazia em vez de apagar o arquivo). Tratar isso
+   * como "já tem conteúdo, então só anexa" perdia o shebang pra sempre — o hook virava um
+   * script sem `#!/bin/sh` que o git tenta executar direto e falha com
+   * "cannot spawn ...: No such file or directory" (visto de verdade neste repo).
+   */
+  if (atual.trim() === "") {
     writeFileSync(path, `#!/bin/sh\n${bloco}\n`, "utf8");
+  } else {
+    appendFileSync(path, `\n${bloco}\n`, "utf8");
   }
   try {
     chmodSync(path, 0o755);

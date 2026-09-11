@@ -40,6 +40,24 @@ describe("installGitHookScript", () => {
     expect(segunda.match(/nexo hook fire/g)).toHaveLength(1);
   });
 
+  it("arquivo existe mas está vazio (sobra de um uninstall que removeu o último bloco): reinstala COM shebang, não anexa num arquivo sem shebang nenhum", () => {
+    /*
+     * Bug real, visto neste repo: instalar → desinstalar (uninstall esvazia o arquivo,
+     * mas não apaga) → instalar de novo tratava "arquivo existe" como "já tem conteúdo,
+     * só anexar", perdendo o shebang pra sempre. O git tentava rodar o hook direto e
+     * falhava com "cannot spawn ...: No such file or directory".
+     */
+    const dir = repo();
+    const path = join(dir, ".git", "hooks", "post-commit");
+    installGitHookScript(dir, "git.post-commit");
+    uninstallGitHookScript(dir, "git.post-commit");
+    expect(readFileSync(path, "utf8").trim()).toBe(""); // pré-condição: ficou vazio, não apagado
+    installGitHookScript(dir, "git.post-commit");
+    const conteudo = readFileSync(path, "utf8");
+    expect(conteudo.startsWith("#!/bin/sh")).toBe(true);
+    expect(conteudo).toContain("nexo hook fire git.post-commit");
+  });
+
   it("post-commit e post-push são arquivos separados", () => {
     const dir = repo();
     installGitHookScript(dir, "git.post-commit");
