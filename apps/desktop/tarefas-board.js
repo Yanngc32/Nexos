@@ -32,6 +32,7 @@ export function filtrarPorMarco(tarefas, marcoId) {
 }
 
 const ROTULO_PRIORIDADE = { baixa: "⌄ baixa", media: "≡ média", alta: "⌃ alta", urgente: "⚠ urgente" };
+const ROTULO_TIPO = { bug: "🐛 bug", feature: "✨ feature", chore: "🔧 chore", spike: "🔬 spike" };
 
 export function createTarefasBoard({
   req,
@@ -112,6 +113,12 @@ export function createTarefasBoard({
 
     const marco = t.marcoId ? quadro.marcos.find((m) => m.id === t.marcoId) : null;
     const partes = [];
+    if (t.tipo) partes.push({ cls: "kanban-card-tipo", txt: ROTULO_TIPO[t.tipo] ?? t.tipo });
+    if (t.parentId) {
+      const mae = tarefas.find((x) => x.id === t.parentId);
+      partes.push({ cls: "kanban-card-sub", txt: `↳ ${mae ? mae.titulo : "tarefa-mãe"}` });
+    }
+    if (t.dependeDe?.length) partes.push({ cls: "kanban-card-bloqueada", txt: `🔒 bloqueada por ${t.dependeDe.length}` });
     if (t.prioridade) partes.push({ cls: "kanban-card-prioridade", txt: ROTULO_PRIORIDADE[t.prioridade] ?? t.prioridade, dataP: t.prioridade });
     if (marco) partes.push({ cls: "kanban-card-marco", txt: `🏁 ${marco.nome}` });
     if (t.prazo) partes.push({ cls: "kanban-card-prazo", txt: `📅 ${t.prazo}` });
@@ -397,6 +404,73 @@ export function createTarefasBoard({
     }
   }
 
+  /**
+   * `tk-f-parent`/`tk-f-depende-de`: lista de tarefas do MESMO quadro, excluindo a própria
+   * (`id`, ausente = tarefa nova) e — só pra "subtarefa de" — quem já é filha direta dela (evita
+   * montar um ciclo óbvio já na hora de escolher; ciclo mais profundo o servidor ainda recusa,
+   * ver `limparParentId`). Mesmo idioma de `preencherEtiquetasDoModal`: recebe a seleção atual
+   * em vez de tentar preservar estado de uma renderização anterior.
+   */
+  function opcao(texto, valor) {
+    const o = document.createElement("option");
+    o.value = valor;
+    o.textContent = texto;
+    return o;
+  }
+
+  function preencherParentEDependencias(id, parentIdAtual, dependeDeAtual) {
+    const outras = tarefas.filter((x) => x.id !== id);
+
+    const selParent = el("tk-f-parent");
+    selParent.replaceChildren(opcao("Nenhuma — é uma tarefa de topo", ""));
+    for (const t of outras) {
+      if (t.parentId === id) continue; // já é filha desta — vira ciclo direto se virar mãe
+      selParent.append(opcao(t.titulo, t.id));
+    }
+    selParent.value = parentIdAtual ?? "";
+
+    const selDep = el("tk-f-depende-de");
+    selDep.replaceChildren();
+    for (const t of outras) selDep.append(opcao(t.titulo, t.id));
+    const marcadas = new Set(dependeDeAtual ?? []);
+    for (const o of selDep.options) o.selected = marcadas.has(o.value);
+  }
+
+  async function preencherCommits(id) {
+    const wrap = el("tk-commits-wrap");
+    const ul = el("tk-f-commits");
+    if (!id) {
+      wrap.classList.add("hidden");
+      return;
+    }
+    wrap.classList.remove("hidden");
+    ul.replaceChildren();
+    let commits;
+    try {
+      commits = await req(`/v1/tarefas/${id}/commits?${qs()}`);
+    } catch {
+      commits = [];
+    }
+    if (!commits.length) {
+      const li = document.createElement("li");
+      li.className = "tk-marco-vazio";
+      li.textContent = "Nenhum commit menciona o id desta tarefa ainda.";
+      ul.append(li);
+      return;
+    }
+    for (const c of commits) {
+      const li = document.createElement("li");
+      li.className = "tk-comentario-item";
+      const texto = document.createElement("div");
+      texto.textContent = c.mensagem;
+      const meta = document.createElement("div");
+      meta.className = "tk-comentario-meta";
+      meta.textContent = `${c.hash.slice(0, 7)} · ${new Date(c.data).toLocaleString("pt-BR")}`;
+      li.append(texto, meta);
+      ul.append(li);
+    }
+  }
+
   function preencherEtiquetasDoModal(selecionadas) {
     const wrap = el("tk-f-etiquetas");
     wrap.replaceChildren();
@@ -544,7 +618,9 @@ export function createTarefasBoard({
     el("tk-f-prazo").value = t?.prazo ?? "";
     el("tk-f-responsavel").value = t?.responsavel ?? "";
     el("tk-f-agente").value = t?.agentId ?? "";
+    el("tk-f-tipo").value = t?.tipo ?? "";
     preencherEtiquetasDoModal(t?.etiquetaIds ?? []);
+    preencherParentEDependencias(t?.id, t?.parentId, t?.dependeDe);
     el("btn-tk-apagar").classList.toggle("hidden", !t);
     el("btn-tk-abrir-conversa").classList.toggle("hidden", !t);
     el("tk-checklist-wrap").classList.toggle("hidden", !t);
@@ -554,6 +630,7 @@ export function createTarefasBoard({
       preencherChecklist(t);
       preencherComentarios(t);
     }
+    void preencherCommits(t?.id);
     erro("");
     el("tarefa-modal").classList.remove("hidden");
   }
@@ -577,6 +654,9 @@ export function createTarefasBoard({
       responsavel: el("tk-f-responsavel").value.trim() || null,
       agentId: el("tk-f-agente").value.trim() || null,
       prazo: el("tk-f-prazo").value || null,
+      tipo: el("tk-f-tipo").value || null,
+      parentId: el("tk-f-parent").value || null,
+      dependeDe: [...el("tk-f-depende-de").selectedOptions].map((o) => o.value),
     };
     try {
       if (editando) {

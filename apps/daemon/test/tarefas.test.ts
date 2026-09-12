@@ -2,6 +2,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { tempHome } from "./helpers.ts";
+import { addProfile } from "../src/profiles.ts";
+import { saveAgent } from "../src/agents.ts";
+import { resetHooksForTest, saveRegra } from "../src/hooks.ts";
+import { listRuns, resetRunsForTest } from "../src/runs.ts";
 import {
   adicionarChecklistItem,
   adicionarComentario,
@@ -294,6 +298,101 @@ describe("salvarTarefa", () => {
   });
 });
 
+describe("tipo de tarefa", () => {
+  it("aceita os quatro tipos e recusa o resto", () => {
+    const home = tempHome();
+    const colunaId = getQuadro(P1, home).colunas[0]!.id;
+    for (const tipo of ["bug", "feature", "chore", "spike"] as const) {
+      const t = salvarTarefa({ projectPath: P1, titulo: `t-${tipo}`, colunaId, tipo }, home);
+      expect(t.tipo).toBe(tipo);
+    }
+    expect(() =>
+      salvarTarefa({ projectPath: P1, titulo: "x", colunaId, tipo: "urgentissimo" as never }, home),
+    ).toThrow(/tipo inválido/);
+  });
+
+  it("sem tipo, fica undefined — e mandar null limpa um tipo já gravado", () => {
+    const home = tempHome();
+    const colunaId = getQuadro(P1, home).colunas[0]!.id;
+    const sem = salvarTarefa({ projectPath: P1, titulo: "sem tipo", colunaId }, home);
+    expect(sem.tipo).toBeUndefined();
+    const com = salvarTarefa({ projectPath: P1, titulo: "com tipo", colunaId, tipo: "bug" }, home);
+    const limpo = salvarTarefa({ id: com.id, projectPath: P1, tipo: null as never }, home);
+    expect(limpo.tipo).toBeUndefined();
+  });
+});
+
+describe("subtarefas (parentId)", () => {
+  it("cria subtarefa apontando pra tarefa-mãe existente", () => {
+    const home = tempHome();
+    const colunaId = getQuadro(P1, home).colunas[0]!.id;
+    const mae = salvarTarefa({ projectPath: P1, titulo: "épico", colunaId }, home);
+    const filha = salvarTarefa({ projectPath: P1, titulo: "sub", colunaId, parentId: mae.id }, home);
+    expect(filha.parentId).toBe(mae.id);
+  });
+
+  it("recusa parentId que não existe neste projeto", () => {
+    const home = tempHome();
+    const colunaId = getQuadro(P1, home).colunas[0]!.id;
+    expect(() =>
+      salvarTarefa({ projectPath: P1, titulo: "x", colunaId, parentId: "tk-fantasma" }, home),
+    ).toThrow(/não existe/);
+  });
+
+  it("recusa uma tarefa ser sua própria mãe", () => {
+    const home = tempHome();
+    const colunaId = getQuadro(P1, home).colunas[0]!.id;
+    const t = salvarTarefa({ projectPath: P1, titulo: "x", colunaId }, home);
+    expect(() => salvarTarefa({ id: t.id, projectPath: P1, parentId: t.id }, home)).toThrow(/própria mãe/);
+  });
+
+  it("recusa ciclo direto: mãe não pode virar filha da própria filha", () => {
+    const home = tempHome();
+    const colunaId = getQuadro(P1, home).colunas[0]!.id;
+    const mae = salvarTarefa({ projectPath: P1, titulo: "mãe", colunaId }, home);
+    const filha = salvarTarefa({ projectPath: P1, titulo: "filha", colunaId, parentId: mae.id }, home);
+    expect(() => salvarTarefa({ id: mae.id, projectPath: P1, parentId: filha.id }, home)).toThrow(/ciclo/);
+  });
+});
+
+describe("dependências (dependeDe)", () => {
+  it("aceita lista de ids existentes, sem duplicado", () => {
+    const home = tempHome();
+    const colunaId = getQuadro(P1, home).colunas[0]!.id;
+    const a = salvarTarefa({ projectPath: P1, titulo: "a", colunaId }, home);
+    const b = salvarTarefa({ projectPath: P1, titulo: "b", colunaId, dependeDe: [a.id, a.id] }, home);
+    expect(b.dependeDe).toEqual([a.id]);
+  });
+
+  it("recusa id que não existe neste projeto", () => {
+    const home = tempHome();
+    const colunaId = getQuadro(P1, home).colunas[0]!.id;
+    expect(() =>
+      salvarTarefa({ projectPath: P1, titulo: "x", colunaId, dependeDe: ["tk-fantasma"] }, home),
+    ).toThrow(/não existe/);
+  });
+
+  it("recusa depender de si mesma", () => {
+    const home = tempHome();
+    const colunaId = getQuadro(P1, home).colunas[0]!.id;
+    const t = salvarTarefa({ projectPath: P1, titulo: "x", colunaId }, home);
+    expect(() => salvarTarefa({ id: t.id, projectPath: P1, dependeDe: [t.id] }, home)).toThrow(/si mesma/);
+  });
+
+  it("é só informativo: mover pra outra coluna com dependência aberta não é recusado", () => {
+    const home = tempHome();
+    const quadro = getQuadro(P1, home);
+    const [c1, c2] = quadro.colunas;
+    const bloqueadora = salvarTarefa({ projectPath: P1, titulo: "bloqueadora", colunaId: c1!.id }, home);
+    const bloqueada = salvarTarefa(
+      { projectPath: P1, titulo: "bloqueada", colunaId: c1!.id, dependeDe: [bloqueadora.id] },
+      home,
+    );
+    const movida = salvarTarefa({ id: bloqueada.id, projectPath: P1, colunaId: c2!.id }, home);
+    expect(movida.colunaId).toBe(c2!.id);
+  });
+});
+
 describe("listarTarefas", () => {
   it("filtra por projectKey — capitalização diferente do MESMO path não vaza tarefa entre 'projetos'", () => {
     const home = tempHome();
@@ -456,6 +555,55 @@ describe("ferramentasDeTarefas (MCP)", () => {
     const r = await salvar!.executar({ titulo: "x", colunaId: "fantasma" });
     expect(r.ok).toBe(false);
     expect(r.texto).toMatch(/coluna não existe/);
+  });
+});
+
+describe("automação de coluna (tarefa.mudou-coluna)", () => {
+  /** Espera até a fila de microtasks/timers do run em voo (fire-and-forget) esvaziar. */
+  async function tick(vezes = 10): Promise<void> {
+    for (let i = 0; i < vezes; i++) await new Promise((r) => setTimeout(r, 0));
+  }
+
+  it("mudar de coluna dispara a regra casando; gravar sem trocar de coluna não dispara nada", async () => {
+    resetRunsForTest();
+    resetHooksForTest();
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    saveAgent({ id: "trabalhador", name: "Trabalhador", profileId: "p1" }, home);
+    const quadro = getQuadro(P1, home);
+    const [c1, c2] = quadro.colunas;
+    saveRegra(
+      { escopo: { tipo: "projeto", projectPath: P1 }, evento: "tarefa.mudou-coluna", colunaId: c2!.id, agentId: "trabalhador" },
+      home,
+    );
+
+    const t = salvarTarefa({ projectPath: P1, titulo: "revisar", colunaId: c1!.id }, home);
+    // só editar descrição, mesma coluna: não é "mudou de coluna"
+    salvarTarefa({ id: t.id, projectPath: P1, descricao: "editando" }, home);
+    await tick();
+    expect(listRuns(home, P1)).toHaveLength(0);
+
+    salvarTarefa({ id: t.id, projectPath: P1, colunaId: c2!.id }, home);
+    await tick();
+    expect(listRuns(home, P1)).toHaveLength(1);
+  });
+
+  it("regra com colunaId de OUTRA coluna não dispara", async () => {
+    resetRunsForTest();
+    resetHooksForTest();
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    saveAgent({ id: "trabalhador", name: "Trabalhador", profileId: "p1" }, home);
+    const quadro = getQuadro(P1, home);
+    const [c1, c2, c3] = quadro.colunas;
+    saveRegra(
+      { escopo: { tipo: "projeto", projectPath: P1 }, evento: "tarefa.mudou-coluna", colunaId: c3!.id, agentId: "trabalhador" },
+      home,
+    );
+    const t = salvarTarefa({ projectPath: P1, titulo: "x", colunaId: c1!.id }, home);
+    salvarTarefa({ id: t.id, projectPath: P1, colunaId: c2!.id }, home);
+    await tick();
+    expect(listRuns(home, P1)).toHaveLength(0);
   });
 });
 

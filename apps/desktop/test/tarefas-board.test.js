@@ -37,6 +37,18 @@ const HTML = `
     <input id="tk-f-responsavel" />
     <input id="tk-f-agente" />
     <input id="tk-f-prazo" type="date" />
+    <select id="tk-f-tipo">
+      <option value="">Nenhum</option>
+      <option value="bug">Bug</option>
+      <option value="feature">Feature</option>
+      <option value="chore">Chore</option>
+      <option value="spike">Spike</option>
+    </select>
+    <select id="tk-f-parent"><option value="">Nenhuma</option></select>
+    <select id="tk-f-depende-de" multiple></select>
+    <div id="tk-commits-wrap" class="hidden">
+      <ul id="tk-f-commits"></ul>
+    </div>
     <div id="tk-f-etiquetas"></div>
     <div id="tk-checklist-wrap">
       <ul id="tk-f-checklist"></ul>
@@ -95,6 +107,7 @@ function montar({ quadro = quadroFixture(), tarefas = [], reqImpl, aoAbrirConver
     vi.fn(async (path) => {
       chamadas.push(path);
       if (path.startsWith("/v1/tarefas/quadro")) return quadro;
+      if (/^\/v1\/tarefas\/[^/?]+\/commits/.test(path)) return [];
       if (path.startsWith("/v1/tarefas")) return tarefas;
       return {};
     });
@@ -114,11 +127,13 @@ function montar({ quadro = quadroFixture(), tarefas = [], reqImpl, aoAbrirConver
  * Backend falso o bastante pra exercitar checklist/comentário de verdade: guarda o quadro e as
  * tarefas em memória e responde os mesmos formatos de rota do daemon (ver http.ts).
  */
-function fakeBackend({ quadro, tarefas }) {
+function fakeBackend({ quadro, tarefas, commits = {} }) {
   const t = () => tarefas;
   return vi.fn(async (path, opts = {}) => {
     const method = opts.method ?? "GET";
     if (path.startsWith("/v1/tarefas/quadro")) return quadro;
+    const mCommits = /^\/v1\/tarefas\/([^/?]+)\/commits/.exec(path);
+    if (mCommits) return commits[mCommits[1]] ?? [];
     const mChecklist = /^\/v1\/tarefas\/([^/?]+)\/checklist(?:\/([^/?]+))?/.exec(path);
     if (mChecklist) {
       const [, tarefaId, itemId] = mChecklist;
@@ -234,6 +249,17 @@ describe("render do quadro", () => {
     expect(card.querySelector(".kanban-card-checklist").textContent).toContain("1/2");
     expect(card.querySelector(".kanban-card-comentarios").textContent).toContain("1");
   });
+
+  it("cartão mostra badge de tipo, 'sub de <mãe>' e 'bloqueada por N'", async () => {
+    const mae = tarefaFixture({ id: "mae", titulo: "épico" });
+    const filha = tarefaFixture({ id: "t1", tipo: "bug", parentId: "mae", dependeDe: ["mae"] });
+    const { board, $ } = montar({ tarefas: [mae, filha] });
+    await board.abrir();
+    const card = $("tk-board").querySelector('.kanban-card[data-id="t1"]');
+    expect(card.querySelector(".kanban-card-tipo").textContent).toContain("bug");
+    expect(card.querySelector(".kanban-card-sub").textContent).toContain("épico");
+    expect(card.querySelector(".kanban-card-bloqueada").textContent).toContain("1");
+  });
 });
 
 describe("modal de tarefa", () => {
@@ -245,6 +271,62 @@ describe("modal de tarefa", () => {
     expect($("btn-tk-apagar").classList.contains("hidden")).toBe(false);
     expect($("btn-tk-abrir-conversa").classList.contains("hidden")).toBe(false);
     expect($("tk-checklist-wrap").classList.contains("hidden")).toBe(false);
+  });
+
+  it("abrir cartão preenche tipo/subtarefa/dependências e exclui a própria tarefa das listas", async () => {
+    const outra = tarefaFixture({ id: "outra", titulo: "outra tarefa" });
+    const mae = tarefaFixture({ id: "mae", titulo: "épico" });
+    const t1 = tarefaFixture({ id: "t1", titulo: "x", tipo: "feature", parentId: "mae", dependeDe: ["outra"] });
+    const { board, $ } = montar({ tarefas: [outra, mae, t1] });
+    await board.abrir();
+    $("tk-board").querySelector('.kanban-card[data-id="t1"]').dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect($("tk-f-tipo").value).toBe("feature");
+    expect($("tk-f-parent").value).toBe("mae");
+    expect([...$("tk-f-depende-de").selectedOptions].map((o) => o.value)).toEqual(["outra"]);
+    // a própria tarefa (t1) não pode aparecer como opção de mãe/dependência de si mesma
+    expect([...$("tk-f-parent").options].some((o) => o.value === "t1")).toBe(false);
+    expect([...$("tk-f-depende-de").options].some((o) => o.value === "t1")).toBe(false);
+  });
+
+  it("salvar manda tipo/parentId/dependeDe no corpo da requisição", async () => {
+    const outra = tarefaFixture({ id: "outra", titulo: "outra" });
+    const { board, req, $ } = montar({ tarefas: [outra, tarefaFixture({ id: "t1" })] });
+    await board.abrir();
+    $("tk-board").querySelector('.kanban-card[data-id="t1"]').dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    $("tk-f-tipo").value = "chore";
+    $("tk-f-parent").value = "outra";
+    [...$("tk-f-depende-de").options].find((o) => o.value === "outra").selected = true;
+    $("btn-tk-salvar").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+    const chamada = req.mock.calls.find(([path, opts]) => path.startsWith("/v1/tarefas/t1?") && opts?.method === "PUT");
+    const body = JSON.parse(chamada[1].body);
+    expect(body.tipo).toBe("chore");
+    expect(body.parentId).toBe("outra");
+    expect(body.dependeDe).toEqual(["outra"]);
+  });
+
+  it("carrega commits relacionados ao abrir uma tarefa existente; tarefa nova não mostra a seção", async () => {
+    const commits = { t1: [{ hash: "abc1234def", mensagem: "corrige tk-1", data: "2026-01-01T00:00:00.000Z" }] };
+    const req = fakeBackend({ quadro: quadroFixture(), tarefas: [tarefaFixture({ id: "t1" })], commits });
+    document.body.innerHTML = HTML;
+    const board = createTarefasBoard({
+      req,
+      el: (id) => document.getElementById(id),
+      getProjectPath: () => "/proj",
+      aoAbrirConversa: vi.fn(),
+    });
+    board.ligar();
+    await board.abrir();
+    const $ = (id) => document.getElementById(id);
+    $("tk-board").querySelector('.kanban-card[data-id="t1"]').dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect($("tk-commits-wrap").classList.contains("hidden")).toBe(false);
+    expect($("tk-f-commits").textContent).toContain("corrige tk-1");
+
+    $("tk-board").querySelector(".kanban-col-add").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect($("tk-commits-wrap").classList.contains("hidden")).toBe(true);
   });
 
   it("botão '+ tarefa' da coluna abre modal vazio sem 'Apagar', com aviso de salvar antes de comentar", async () => {
@@ -261,8 +343,10 @@ describe("modal de tarefa", () => {
     const confirmar = vi.fn(async () => false);
     const { board, req, $ } = montar({ tarefas: [tarefaFixture({ id: "t1" })], confirmar });
     await board.abrir();
-    const chamadasAntes = req.mock.calls.length;
     $("tk-board").querySelector(".kanban-card").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+    const chamadasAntes = req.mock.calls.length; // já abriu o modal (busca de commits inclusa)
     $("btn-tk-apagar").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await Promise.resolve();
     await Promise.resolve();

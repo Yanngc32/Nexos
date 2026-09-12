@@ -92,6 +92,7 @@ import {
   type MarcoInput,
   type TarefaInput,
 } from "./tarefas.ts";
+import { commitsRelacionados } from "./tarefas-git.ts";
 import { desligarRepoMapResumos, gerarResumosSobDemanda, sincronizarRepoMapResumos } from "./repo-map-auto.ts";
 import { statusDaMemoria } from "./memoria.ts";
 import { estadoAtual, melhorHost } from "./escuta.ts";
@@ -976,6 +977,15 @@ export function createApp(home: string, token: string): Hono {
     }
   });
 
+  /** Commits cuja mensagem menciona o id da tarefa — sempre computado na hora, ver tarefas-git.ts. */
+  app.get("/v1/tarefas/:id/commits", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    const id = c.req.param("id");
+    if (!getTarefa(projectPath, home, id)) return c.json({ error: "tarefa não existe" }, 404);
+    return c.json(commitsRelacionados(projectPath, id));
+  });
+
   app.post("/v1/tarefas/etiquetas", async (c) => {
     const projectPath = c.req.query("projectPath") || "";
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
@@ -1092,7 +1102,7 @@ export function createApp(home: string, token: string): Hono {
     }
     try {
       if (event === "git.pre-push") return c.json(await dispararPrePush(projectPath, branch, home));
-      return c.json(fireHook(event, projectPath, home, branch));
+      return c.json(fireHook(event, projectPath, home, { branch }));
     } catch (e) {
       const err = e as Error & { status?: number };
       return c.json({ error: err.message }, (err.status ?? 400) as 400);

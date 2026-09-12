@@ -506,10 +506,13 @@
                       <option value="git.post-push">git.post-push — depois de cada push</option>
                       <option value="git.pre-push">git.pre-push — antes do push (pode barrar)</option>
                       <option value="nexo.projeto-novo">nexo.projeto-novo — 1ª vez que o projeto abre no Nexo</option>
+                      <option value="tarefa.mudou-coluna">tarefa.mudou-coluna — uma tarefa entrou numa coluna</option>
                     </select></label>
                 </div>
                 <label class="ag-f" id="hk-branch-wrap"><span>Branch (opcional — vazio casa qualquer uma)</span>
                   <input id="hk-branch" type="text" maxlength="200" placeholder="main" /></label>
+                <label class="ag-f" id="hk-coluna-wrap"><span>Coluna (opcional — vazio casa qualquer uma; só disponível com escopo de projeto)</span>
+                  <select id="hk-coluna"><option value="">qualquer coluna</option></select></label>
                 <label class="ag-check" id="hk-bloqueante-wrap">
                   <input id="hk-bloqueante" type="checkbox" />
                   <span>Bloqueante — reprova o push se o agente não aprovar (ou não decidir)</span>
@@ -851,6 +854,32 @@
             <span>Prazo</span>
             <input id="tk-f-prazo" type="date" />
           </label>
+        </div>
+        <div class="tk-f-row">
+          <label class="field">
+            <span>Tipo</span>
+            <select id="tk-f-tipo">
+              <option value="">Nenhum</option>
+              <option value="bug">🐛 Bug</option>
+              <option value="feature">✨ Feature</option>
+              <option value="chore">🔧 Chore</option>
+              <option value="spike">🔬 Spike</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Subtarefa de</span>
+            <select id="tk-f-parent">
+              <option value="">Nenhuma — é uma tarefa de topo</option>
+            </select>
+          </label>
+        </div>
+        <label class="field">
+          <span>Bloqueada por (depende de)</span>
+          <select id="tk-f-depende-de" multiple size="4"></select>
+        </label>
+        <div class="field hidden" id="tk-commits-wrap">
+          <span>Commits relacionados</span>
+          <ul id="tk-f-commits" class="tk-comentarios"></ul>
         </div>
         <div class="tk-f-row">
           <label class="field">

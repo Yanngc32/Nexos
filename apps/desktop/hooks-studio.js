@@ -11,6 +11,7 @@ export function createHooksStudio({ req, el, getProjects, getAgents, getTeams, a
 
   const GLOBAL = "__global__";
   const EVENTOS_COM_BRANCH = new Set(["git.post-push", "git.pre-push"]);
+  const EVENTOS_COM_COLUNA = new Set(["tarefa.mudou-coluna"]);
 
   function erro(msg) {
     const p = el("hk-err");
@@ -27,6 +28,7 @@ export function createHooksStudio({ req, el, getProjects, getAgents, getTeams, a
       escopo: escopoVal === GLOBAL ? { tipo: "global" } : { tipo: "projeto", projectPath: escopoVal },
       evento: el("hk-evento").value,
       branch: el("hk-branch").value.trim(),
+      colunaId: el("hk-coluna").value,
       agentId: alvoTipo === "agente" ? el("hk-agent").value : "",
       teamId: alvoTipo === "time" ? el("hk-team").value : "",
       bloqueante: el("hk-bloqueante").checked,
@@ -42,11 +44,46 @@ export function createHooksStudio({ req, el, getProjects, getAgents, getTeams, a
     const evento = el("hk-evento").value;
     const alvoTipo = el("hk-alvo-tipo").value;
     el("hk-branch-wrap").classList.toggle("hidden", !EVENTOS_COM_BRANCH.has(evento));
+    el("hk-coluna-wrap").classList.toggle("hidden", !EVENTOS_COM_COLUNA.has(evento));
     el("hk-bloqueante-wrap").classList.toggle("hidden", evento !== "git.pre-push");
     el("hk-agent-wrap").classList.toggle("hidden", alvoTipo !== "agente");
     el("hk-team-wrap").classList.toggle("hidden", alvoTipo !== "time");
     el("hk-dirty").classList.toggle("hidden", !sujo());
     el("hk-head-name").textContent = el("hk-nome").value.trim() || editando || "nova regra";
+  }
+
+  /**
+   * Coluna só existe dentro de UM projeto (ids não fazem sentido em escopo global) — busca o
+   * quadro do projeto escolhido e preenche o select; desliga (some das opções) sem projeto
+   * específico. Chamada só na troca de evento/escopo, nunca a cada tecla (`aoMudar` roda em
+   * todo input — misturar os dois faria uma requisição por letra digitada em "nome"/"descrição").
+   */
+  function opcao(texto, valor) {
+    const o = document.createElement("option");
+    o.value = valor;
+    o.textContent = texto;
+    return o;
+  }
+
+  async function carregarColunas() {
+    const evento = el("hk-evento").value;
+    const escopoVal = el("hk-escopo").value;
+    const sel = el("hk-coluna");
+    const habilitado = EVENTOS_COM_COLUNA.has(evento) && escopoVal !== GLOBAL;
+    sel.disabled = !habilitado;
+    if (!habilitado) {
+      sel.replaceChildren(opcao("qualquer coluna", ""));
+      return;
+    }
+    const atual = sel.value;
+    try {
+      const quadro = await req(`/v1/tarefas/quadro?projectPath=${encodeURIComponent(escopoVal)}`);
+      sel.replaceChildren(opcao("qualquer coluna", ""));
+      for (const c of quadro.colunas) sel.append(opcao(c.nome, c.id));
+      if ([...sel.options].some((o) => o.value === atual)) sel.value = atual;
+    } catch {
+      // quadro indisponível (projeto sem conversa ainda, erro de rede): mantém o que já tinha
+    }
   }
 
   /** Preenche um `<select>` com `{id, name}` preservando o valor atual, se ainda existir na lista. */
@@ -96,9 +133,15 @@ export function createHooksStudio({ req, el, getProjects, getAgents, getTeams, a
     el("hk-team").value = def?.teamId ?? "";
     el("hk-bloqueante").checked = Boolean(def?.bloqueante);
     el("btn-hk-del").classList.toggle("hidden", !def);
-    original = def ? ler() : null;
-    erro("");
     aoMudar();
+    // colunaId só é aplicado depois do select carregar as opções do projeto (senão o value cai
+    // no vazio por não existir ainda) — "original" (snapshot de sujeira) espera essa volta.
+    void carregarColunas().then(() => {
+      el("hk-coluna").value = def?.colunaId ?? "";
+      original = def ? ler() : null;
+      aoMudar();
+    });
+    erro("");
   }
 
   async function salvar() {
@@ -115,6 +158,7 @@ export function createHooksStudio({ req, el, getProjects, getAgents, getTeams, a
       ...(v.agentId ? { agentId: v.agentId } : {}),
       ...(v.teamId ? { teamId: v.teamId } : {}),
       ...(v.branch && EVENTOS_COM_BRANCH.has(v.evento) ? { branch: v.branch } : {}),
+      ...(v.colunaId && EVENTOS_COM_COLUNA.has(v.evento) ? { colunaId: v.colunaId } : {}),
       ...(v.evento === "git.pre-push" ? { bloqueante: v.bloqueante } : {}),
     };
     try {
@@ -151,12 +195,16 @@ export function createHooksStudio({ req, el, getProjects, getAgents, getTeams, a
 
   /** Liga os controles. Chamado uma vez, no boot. */
   function ligar() {
-    for (const id of ["hk-escopo", "hk-evento", "hk-alvo-tipo", "hk-agent", "hk-team", "hk-bloqueante"]) {
+    for (const id of ["hk-escopo", "hk-evento", "hk-alvo-tipo", "hk-agent", "hk-team", "hk-bloqueante", "hk-coluna"]) {
       el(id).addEventListener("change", aoMudar);
     }
     for (const id of ["hk-branch", "hk-nome", "hk-descricao"]) {
       el(id).addEventListener("input", aoMudar);
     }
+    // Só evento/escopo mudam QUAL projeto (se algum) fornece as colunas — nome/descrição etc.
+    // (acima) não podem disparar uma requisição por tecla digitada.
+    el("hk-evento").addEventListener("change", () => void carregarColunas().then(aoMudar));
+    el("hk-escopo").addEventListener("change", () => void carregarColunas().then(aoMudar));
     el("btn-hk-save").addEventListener("click", () => void salvar());
     el("btn-hk-del").addEventListener("click", () => void excluir());
   }

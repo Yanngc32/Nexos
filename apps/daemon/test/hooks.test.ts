@@ -72,6 +72,25 @@ describe("saveRegra / apagarRegra", () => {
     ).toThrow(/agente não existe/);
   });
 
+  it("recusa colunaId em evento que não seja tarefa.mudou-coluna", () => {
+    const home = base();
+    expect(() =>
+      saveRegra(
+        { escopo: { tipo: "global" }, evento: "git.post-commit", colunaId: "cl-abc", agentId: "memoria" },
+        home,
+      ),
+    ).toThrow(/colunaId não se aplica/);
+  });
+
+  it("aceita colunaId em tarefa.mudou-coluna", () => {
+    const home = base();
+    const r = saveRegra(
+      { escopo: { tipo: "global" }, evento: "tarefa.mudou-coluna", colunaId: "cl-abc", agentId: "memoria" },
+      home,
+    );
+    expect(r.colunaId).toBe("cl-abc");
+  });
+
   it("bloqueante só pega em git.pre-push — ignorado (não gravado) noutro evento", () => {
     const home = base();
     const r = saveRegra(
@@ -197,9 +216,29 @@ describe("fireHook", () => {
       { escopo: { tipo: "global" }, evento: "git.post-push", branch: "main", agentId: "memoria" },
       home,
     );
-    expect(fireHook("git.post-push", "/proj", home, "outra")).toEqual({ disparado: false });
-    expect(fireHook("git.post-push", "/proj", home, "main")).toEqual({ disparado: true });
+    expect(fireHook("git.post-push", "/proj", home, { branch: "outra" })).toEqual({ disparado: false });
+    expect(fireHook("git.post-push", "/proj", home, { branch: "main" })).toEqual({ disparado: true });
     await tick();
+  });
+
+  it("colunaId filtra igual branch: só dispara quando bate (ou a regra não tem coluna)", async () => {
+    const home = base();
+    saveRegra(
+      { escopo: { tipo: "global" }, evento: "tarefa.mudou-coluna", colunaId: "cl-feito", agentId: "memoria" },
+      home,
+    );
+    expect(fireHook("tarefa.mudou-coluna", "/proj", home, { colunaId: "cl-fazendo" })).toEqual({ disparado: false });
+    expect(fireHook("tarefa.mudou-coluna", "/proj", home, { colunaId: "cl-feito" })).toEqual({ disparado: true });
+    await tick();
+  });
+
+  it("contexto entra no goal do run disparado", async () => {
+    const home = base();
+    saveRegra({ escopo: { tipo: "global" }, evento: "tarefa.mudou-coluna", agentId: "memoria" }, home);
+    fireHook("tarefa.mudou-coluna", "/proj", home, { colunaId: "cl-feito", contexto: "Tarefa tk-xyz — título aqui" });
+    await tick();
+    const [run] = listRuns(home, "/proj");
+    expect(run!.goal).toContain("Tarefa tk-xyz — título aqui");
   });
 
   it("coalesce: fire em cima de fire em voo não dispara dois runs, só agenda um re-run", async () => {

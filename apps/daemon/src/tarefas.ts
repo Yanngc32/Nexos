@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { join } from "node:path";
 import { loadConfig } from "./config.ts";
 import { projectKey, tarefasPath as legadoPath } from "./home.ts";
+import { fireHook } from "./hooks.ts";
 import { newChecklistItemId, newColunaId, newComentarioId, newEtiquetaId, newMarcoId, newTarefaId } from "./ids.ts";
 import type { Conjunto, Ferramenta, Saida } from "./mcp.ts";
 import { projectDir, projectDirSemCriar } from "./projeto-dir.ts";
@@ -32,6 +33,8 @@ export type ChecklistItem = { id: string; texto: string; feito: boolean };
 export type Comentario = { id: string; texto: string; autor?: string; criadoEm: string };
 export const PRIORIDADES = ["baixa", "media", "alta", "urgente"] as const;
 export type Prioridade = (typeof PRIORIDADES)[number];
+export const TIPOS_TAREFA = ["bug", "feature", "chore", "spike"] as const;
+export type TipoTarefa = (typeof TIPOS_TAREFA)[number];
 
 export type Tarefa = {
   id: string;
@@ -53,6 +56,11 @@ export type Tarefa = {
   threadId?: string;
   /** Ausente = pessoa. Só um badge visual — não muda validação nem permissão. */
   criadoPor?: "agente";
+  tipo?: TipoTarefa;
+  /** Tarefa-mãe, se esta for uma subtarefa. Precisa existir no MESMO projeto (ver `salvarTarefa`). */
+  parentId?: string;
+  /** Ids de tarefas que bloqueiam esta — só informativo, não impede mover de coluna. */
+  dependeDe?: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -175,6 +183,7 @@ function corpoDoQuadro(q: Quadro): string {
 function corpoDaTarefa(t: Tarefa, quadro: Quadro): string {
   const coluna = quadro.colunas.find((c) => c.id === t.colunaId)?.nome ?? t.colunaId;
   const linhas = [`# ${t.titulo}`, "", `- Coluna: ${coluna}`];
+  if (t.tipo) linhas.push(`- Tipo: ${t.tipo}`);
   if (t.prioridade) linhas.push(`- Prioridade: ${t.prioridade}`);
   if (t.responsavel) linhas.push(`- Responsável: ${t.responsavel}`);
   if (t.agentId) linhas.push(`- Agente: ${t.agentId}`);
@@ -184,6 +193,8 @@ function corpoDaTarefa(t: Tarefa, quadro: Quadro): string {
     const nomes = t.etiquetaIds.map((id) => quadro.etiquetas.find((e) => e.id === id)?.nome ?? id);
     linhas.push(`- Etiquetas: ${nomes.join(", ")}`);
   }
+  if (t.parentId) linhas.push(`- Subtarefa de: ${t.parentId}`);
+  if (t.dependeDe?.length) linhas.push(`- Bloqueada por: ${t.dependeDe.join(", ")}`);
   linhas.push("");
   if (t.descricao) linhas.push(t.descricao, "");
   if (t.checklist.length) {
@@ -473,6 +484,9 @@ export type TarefaInput = {
   prazo?: string | null;
   threadId?: string | null;
   ordem?: number;
+  tipo?: string | null;
+  parentId?: string | null;
+  dependeDe?: string[];
 };
 
 function agora(): string {
@@ -486,6 +500,51 @@ function limparEtiquetaIds(v: unknown, quadro: Quadro): string[] {
     if (!quadro.etiquetas.some((e) => e.id === id)) throw badRequest(`etiqueta não existe neste projeto: ${id}`);
   }
   return [...new Set(v)];
+}
+
+function limparTipo(v: unknown): TipoTarefa | undefined {
+  if (v === undefined || v === null || v === "") return undefined;
+  if (typeof v !== "string" || !(TIPOS_TAREFA as readonly string[]).includes(v)) {
+    throw badRequest(`tipo inválido — use ${TIPOS_TAREFA.join("|")}`);
+  }
+  return v as TipoTarefa;
+}
+
+/** Tarefa-mãe: precisa existir no mesmo projeto, não pode ser a própria tarefa, nem criar ciclo direto (mãe↔filha). */
+function limparParentId(v: unknown, projectPath: string, home: string, idAtual?: string): string | undefined {
+  if (v === undefined || v === null || v === "") return undefined;
+  if (typeof v !== "string") throw badRequest("parentId inválido");
+  if (v === idAtual) throw badRequest("uma tarefa não pode ser sua própria mãe");
+  const mae = lerTarefaDoDisco(projectPath, home, v);
+  if (!mae) throw badRequest(`tarefa não existe neste projeto: ${v}`);
+  if (idAtual && mae.parentId === idAtual) throw badRequest("isso criaria um ciclo: a tarefa escolhida já é subtarefa desta");
+  return v;
+}
+
+/** Ids de tarefas que bloqueiam esta — cada um precisa existir no mesmo projeto; sem duplicado, sem o próprio id. */
+function limparDependeDe(v: unknown, projectPath: string, home: string, idAtual?: string): string[] {
+  if (v === undefined) return [];
+  if (!Array.isArray(v) || !v.every((x) => typeof x === "string")) throw badRequest("dependeDe inválido");
+  for (const id of v) {
+    if (id === idAtual) throw badRequest("uma tarefa não pode depender de si mesma");
+    if (!lerTarefaDoDisco(projectPath, home, id)) throw badRequest(`tarefa não existe neste projeto: ${id}`);
+  }
+  return [...new Set(v)];
+}
+
+/**
+ * Automação de coluna (Nexo Hooks, evento `tarefa.mudou-coluna`): best-effort, nunca lança —
+ * uma regra mal configurada (agente apagado, etc.) não pode impedir a MUDANÇA DE COLUNA de
+ * gravar, só a automação em cima dela falha silenciosamente (loga e segue).
+ */
+function dispararAutomacaoDeColuna(t: Tarefa, quadro: Quadro, home: string): void {
+  try {
+    const coluna = quadro.colunas.find((c) => c.id === t.colunaId)?.nome ?? t.colunaId;
+    const contexto = `Tarefa ${t.id} — "${t.titulo}"${t.descricao ? `: ${t.descricao}` : ""} — entrou na coluna "${coluna}".`;
+    fireHook("tarefa.mudou-coluna", t.projectPath, home, { colunaId: t.colunaId, contexto });
+  } catch (e) {
+    console.error(`automação de coluna (tarefa ${t.id}):`, (e as Error).message || e);
+  }
 }
 
 /**
@@ -521,6 +580,11 @@ export function salvarTarefa(input: TarefaInput, home: string, criadoPor?: "agen
   const agentId = input.agentId === undefined ? atual?.agentId : (input.agentId ?? undefined);
   const prazo = input.prazo === undefined ? atual?.prazo : (limparData(input.prazo, "prazo") ?? undefined);
   const threadId = input.threadId === undefined ? atual?.threadId : (input.threadId ?? undefined);
+  const tipo = input.tipo === undefined ? atual?.tipo : limparTipo(input.tipo);
+  const parentId =
+    input.parentId === undefined ? atual?.parentId : limparParentId(input.parentId, projectPath, home, atual?.id);
+  const dependeDe =
+    input.dependeDe === undefined ? (atual?.dependeDe ?? []) : limparDependeDe(input.dependeDe, projectPath, home, atual?.id);
 
   if (!atual && listarTarefas(projectPath, home).length >= TAREFAS_MAX_POR_PROJETO) {
     throw badRequest(`limite de ${TAREFAS_MAX_POR_PROJETO} tarefas por projeto`);
@@ -554,10 +618,14 @@ export function salvarTarefa(input: TarefaInput, home: string, criadoPor?: "agen
     // Quem CRIOU, não quem tocou por último — editar uma tarefa da pessoa por MCP não deve
     // retroativamente virar "criada por agente".
     ...((atual ? atual.criadoPor : criadoPor) ? { criadoPor: (atual ? atual.criadoPor : criadoPor) as "agente" } : {}),
+    ...(tipo ? { tipo } : {}),
+    ...(parentId ? { parentId } : {}),
+    ...(dependeDe.length ? { dependeDe } : {}),
     createdAt: atual?.createdAt ?? ts,
     updatedAt: ts,
   };
   escreverTarefa(def, quadro, home);
+  if (atual && atual.colunaId !== colunaId) dispararAutomacaoDeColuna(def, quadro, home);
   return def;
 }
 

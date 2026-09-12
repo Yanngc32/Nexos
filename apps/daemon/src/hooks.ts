@@ -44,6 +44,8 @@ export type RegraHook = {
    * marcado, nunca bloqueiam (fisicamente não tem o que abortar).
    */
   bloqueante?: boolean;
+  /** Id da coluna que dispara a regra — vazio/ausente casa qualquer uma. Só faz sentido em `tarefa.mudou-coluna`. */
+  colunaId?: string;
 };
 
 /**
@@ -52,16 +54,26 @@ export type RegraHook = {
  * `nexo.projeto-novo` não tem script nenhum, é o PRÓPRIO daemon quem detecta e dispara (ver
  * `POST /v1/threads`, http.ts) na primeira vez que um projeto é aberto no Nexo.
  */
-export const HOOK_EVENTS = ["git.post-commit", "git.post-push", "git.pre-push", "nexo.projeto-novo"] as const;
+export const HOOK_EVENTS = [
+  "git.post-commit",
+  "git.post-push",
+  "git.pre-push",
+  "nexo.projeto-novo",
+  "tarefa.mudou-coluna",
+] as const;
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
 /** Só os eventos de push têm branch remota de verdade — post-commit e o evento de projeto não. */
 const EVENTOS_COM_BRANCH = new Set<string>(["git.post-push", "git.pre-push"]);
+/** Só `tarefa.mudou-coluna` tem coluna de verdade pra filtrar. */
+const EVENTOS_COM_COLUNA = new Set<string>(["tarefa.mudou-coluna"]);
 
 /** `<categoria>.<nome>` — recusa qualquer coisa fora disso, inclusive vindo de fora (HTTP). */
 export const HOOK_EVENT_RE = /^[a-z]+\.[a-z-]+$/;
 
 const BRANCH_RE = /^[A-Za-z0-9._/-]{1,200}$/;
+/** Mesmo formato de todo id gerado em `ids.ts` (`cl-<...>`) — não valida contra o quadro (regra pode ser criada antes da coluna existir). */
+const COLUNA_ID_RE = /^[a-z0-9-]{1,80}$/;
 
 function badRequest(message: string): Error {
   const err = new Error(message) as Error & { status: number };
@@ -128,6 +140,7 @@ export type RegraInput = {
   agentId?: string;
   teamId?: string;
   bloqueante?: boolean;
+  colunaId?: string;
 };
 
 const NOME_MAX = 60;
@@ -163,6 +176,13 @@ function limparBranch(v: unknown, evento: string): string | undefined {
   if (typeof v !== "string" || !BRANCH_RE.test(v)) throw badRequest("branch inválido");
   // Recusa em vez de aceitar e ignorar em silêncio — passaria confiança de um filtro que nunca vale.
   if (!EVENTOS_COM_BRANCH.has(evento)) throw badRequest(`branch não se aplica a ${evento}`);
+  return v;
+}
+
+function limparColunaId(v: unknown, evento: string): string | undefined {
+  if (v === undefined || v === null || v === "") return undefined;
+  if (typeof v !== "string" || !COLUNA_ID_RE.test(v)) throw badRequest("colunaId inválido");
+  if (!EVENTOS_COM_COLUNA.has(evento)) throw badRequest(`colunaId não se aplica a ${evento}`);
   return v;
 }
 
@@ -208,6 +228,7 @@ export function saveRegra(input: RegraInput & { id?: string }, home: string): Re
   if (!agentId && !teamId) throw badRequest("agentId ou teamId obrigatório");
 
   const branch = input.branch === undefined ? atual?.branch : limparBranch(input.branch, evento);
+  const colunaId = input.colunaId === undefined ? atual?.colunaId : limparColunaId(input.colunaId, evento);
   const nome = input.nome === undefined ? atual?.nome : limparTexto(input.nome, "nome", NOME_MAX);
   const descricao =
     input.descricao === undefined ? atual?.descricao : limparTexto(input.descricao, "descrição", DESCRICAO_MAX);
@@ -226,6 +247,7 @@ export function saveRegra(input: RegraInput & { id?: string }, home: string): Re
     ...(teamId ? { teamId } : {}),
     ...(branch ? { branch } : {}),
     ...(bloqueante ? { bloqueante: true } : {}),
+    ...(colunaId ? { colunaId } : {}),
   };
   writeAll(atual ? list.map((r) => (r.id === def.id ? def : r)) : [...list, def], home);
   sincronizarAposMudanca(escopo, atual?.escopo, home);
@@ -249,9 +271,15 @@ export function regrasDoEscopo(regras: RegraHook[], projectPath: string): RegraH
   return regras.filter((r) => r.escopo.tipo === "global" || projectKey(r.escopo.projectPath) === alvo);
 }
 
-function regrasCasando(regras: RegraHook[], projectPath: string, event: string, branch: string): RegraHook[] {
+function regrasCasando(
+  regras: RegraHook[],
+  projectPath: string,
+  event: string,
+  branch: string,
+  colunaId: string,
+): RegraHook[] {
   return regrasDoEscopo(regras, projectPath).filter(
-    (r) => r.evento === event && (!r.branch || r.branch === branch),
+    (r) => r.evento === event && (!r.branch || r.branch === branch) && (!r.colunaId || r.colunaId === colunaId),
   );
 }
 
@@ -328,10 +356,11 @@ function sincronizarAposMudanca(novo: EscopoHook | undefined, antigo: EscopoHook
  * fato que só o daemon sabe (fora do projeto, varia por instalação — `memoriaDir` configurável) e
  * que faz sentido pra um agente de memória, mas é ruído inofensivo pra qualquer outro.
  */
-function metaDoEvento(event: string, projectPath: string, branch: string, home: string): string {
-  const contexto = `Evento \`${event}\` disparado no projeto ${projectPath}${branch ? ` (branch \`${branch}\`)` : ""}.`;
+function metaDoEvento(event: string, projectPath: string, branch: string, home: string, contexto?: string): string {
+  const base = `Evento \`${event}\` disparado no projeto ${projectPath}${branch ? ` (branch \`${branch}\`)` : ""}.`;
+  const extra = contexto ? `\n\n${contexto}` : "";
   const dica = `Se você for o agente de memória de projeto: escreva/atualize ${memoriaPath(projectPath, home)} (crie o arquivo se não existir).`;
-  return `${contexto}\n\n${dica}`;
+  return `${base}${extra}\n\n${dica}`;
 }
 
 /** Mesma meta do evento, com a instrução de veredito obrigatória — só pra regra BLOQUEANTE de pre-push. */
@@ -365,7 +394,7 @@ function chaveDe(projectPath: string, event: string): string {
 /** Projetos+evento com uma execução de hook em voo agora. */
 const emVoo = new Set<string>();
 /** Fire que chegou enquanto já tinha um em voo — roda de novo uma vez ao terminar. */
-const pendente = new Map<string, { regras: RegraHook[]; branch: string }>();
+const pendente = new Map<string, { regras: RegraHook[]; branch: string; contexto?: string }>();
 
 /**
  * O time que uma regra roda: `teamId` já é um time de verdade; `agentId` é embrulhado num
@@ -385,9 +414,10 @@ async function executarRegras(
   branch: string,
   home: string,
   chave: string,
+  contexto?: string,
 ): Promise<void> {
   try {
-    const goal = metaDoEvento(event, projectPath, branch, home);
+    const goal = metaDoEvento(event, projectPath, branch, home, contexto);
     for (const regra of regras) {
       const run = criarRun({ teamId: teamIdDaRegra(regra, home), projectPath, goal }, home);
       await executarRun(run, home);
@@ -403,7 +433,7 @@ async function executarRegras(
     if (atrasada) {
       pendente.delete(chave);
       emVoo.add(chave);
-      void executarRegras(atrasada.regras, projectPath, event, atrasada.branch, home, chave);
+      void executarRegras(atrasada.regras, projectPath, event, atrasada.branch, home, chave, atrasada.contexto);
     }
   }
 }
@@ -419,26 +449,33 @@ function dispararFireAndForget(
   event: string,
   branch: string,
   home: string,
+  contexto?: string,
 ): boolean {
   if (!regras.length) return false;
   const chave = chaveDe(projectPath, event);
   if (emVoo.has(chave)) {
-    pendente.set(chave, { regras, branch });
+    pendente.set(chave, { regras, branch, contexto });
     return false;
   }
   emVoo.add(chave);
-  void executarRegras(regras, projectPath, event, branch, home, chave);
+  void executarRegras(regras, projectPath, event, branch, home, chave, contexto);
   return true;
 }
 
+export type FireHookOpts = { branch?: string; colunaId?: string; contexto?: string };
+
 /**
- * Despacha `git.post-commit`/`git.post-push` (sempre fire-and-forget — já aconteceram, não tem o
- * que bloquear) e `git.pre-push` (delega pra `dispararPrePush`, que é quem decide o veredito).
+ * Despacha `git.post-commit`/`git.post-push`/`tarefa.mudou-coluna` (sempre fire-and-forget —
+ * já aconteceram, não tem o que bloquear) e `git.pre-push` (delega pra `dispararPrePush`, que
+ * é quem decide o veredito). `contexto` é texto livre opcional anexado ao `goal` do run — é
+ * como um evento entrega informação específica (ex.: título/descrição de uma tarefa) sem este
+ * despacho precisar saber o que é uma tarefa.
  */
-export function fireHook(event: string, projectPath: string, home: string, branch = ""): { disparado: boolean } {
+export function fireHook(event: string, projectPath: string, home: string, opts: FireHookOpts = {}): { disparado: boolean } {
   if (!HOOK_EVENT_RE.test(event)) throw badRequest(`evento inválido: ${event}`);
-  const regras = regrasCasando(readAll(home), projectPath, event, branch);
-  return { disparado: dispararFireAndForget(regras, projectPath, event, branch, home) };
+  const branch = opts.branch ?? "";
+  const regras = regrasCasando(readAll(home), projectPath, event, branch, opts.colunaId ?? "");
+  return { disparado: dispararFireAndForget(regras, projectPath, event, branch, home, opts.contexto) };
 }
 
 /**
@@ -451,7 +488,7 @@ export async function dispararPrePush(
   branch: string,
   home: string,
 ): Promise<{ aprovado: boolean; motivo: string }> {
-  const casando = regrasCasando(readAll(home), projectPath, "git.pre-push", branch);
+  const casando = regrasCasando(readAll(home), projectPath, "git.pre-push", branch, "");
   const bloqueantes = casando.filter((r) => r.bloqueante);
   const naoBloqueantes = casando.filter((r) => !r.bloqueante);
 

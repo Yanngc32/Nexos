@@ -1291,6 +1291,28 @@ describe("http tarefas", () => {
     expect(depois.status).toBe(404);
   });
 
+  it("GET /v1/tarefas/:id/commits — vazio (projeto sem git), 404 pra tarefa inexistente", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const qs = `projectPath=${encodeURIComponent(PROJ)}`;
+    const quadro = (await (await app.request(`/v1/tarefas/quadro?${qs}`, { headers: hdr })).json()) as {
+      colunas: Array<{ id: string }>;
+    };
+    const criada = await app.request("/v1/tarefas", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ projectPath: PROJ, titulo: "x", colunaId: quadro.colunas[0]!.id }),
+    });
+    const tarefa = (await criada.json()) as { id: string };
+
+    const commits = await app.request(`/v1/tarefas/${tarefa.id}/commits?${qs}`, { headers: hdr });
+    expect(commits.status).toBe(200);
+    expect(await commits.json()).toEqual([]);
+
+    const naoExiste = await app.request(`/v1/tarefas/tk-fantasma/commits?${qs}`, { headers: hdr });
+    expect(naoExiste.status).toBe(404);
+  });
+
   it("criar tarefa com colunaId que não existe é 400", async () => {
     const home = tempHome();
     const app = createApp(home, token);
