@@ -1126,6 +1126,23 @@ function initPet() {
   setPet("off", true);
 }
 
+const BANNER_PADRAO = $("banner").textContent;
+
+/** Some no próximo `setMotor` (que reaplica hidden/visível), mas o texto some com ele. */
+function bannerErro(msg) {
+  const banner = $("banner");
+  const linhas = String(msg || "").trim().split(/\r?\n/).filter(Boolean);
+  // Stack de erro do Node sempre termina com o banner "Node.js vX" — a linha útil é a
+  // que nomeia o erro (`Error [...]:` ou `Error:`), não a última do arquivo.
+  const linha = [...linhas].reverse().find((l) => /error/i.test(l) && !/^\s*at\s/.test(l)) || linhas.at(-1) || "erro desconhecido";
+  banner.textContent = `Motor não ligou: ${linha.trim().slice(0, 300)}`;
+  banner.classList.remove("hidden");
+}
+
+function bannerPadrao() {
+  $("banner").textContent = BANNER_PADRAO;
+}
+
 function setMotor(on, live = false) {
   const was = state.talking;
   state.talking = Boolean(on && live);
@@ -1138,6 +1155,7 @@ function setMotor(on, live = false) {
   syncPet(on, live);
   const btn = $("btn-motor");
   btn.textContent = on ? "Desligar" : "Ligar";
+  if (on) bannerPadrao();
   $("banner").classList.toggle("hidden", on);
   syncTalking();
   // A conversa aberta não espera o poll de 4s pra acender/apagar o ponto.
@@ -3677,6 +3695,9 @@ async function loadGraphStatus() {
     return;
   }
 
+  $("slug-instavel-sec").classList.toggle("hidden", status.origem !== "pasta");
+  $("slug-atual").textContent = status.slug || "";
+
   const mem = status.memoria;
   $("mem-status").textContent = mem.existe ? "escrita" : "vazia";
   $("mem-status").dataset.on = mem.existe ? "1" : "0";
@@ -3745,6 +3766,24 @@ $("repomap-resumos-profile").addEventListener("change", async (e) => {
     $("repomap-resumos-err").textContent = err.message || "Não gravou.";
     $("repomap-resumos-err").classList.remove("hidden");
   }
+});
+
+$("btn-slug-manual-salvar").addEventListener("click", async () => {
+  const slug = $("slug-manual").value.trim();
+  $("slug-manual-err").classList.add("hidden");
+  if (!slug) return;
+  try {
+    await req("/v1/projeto/slug", {
+      method: "PUT",
+      body: JSON.stringify({ projectPath: state.projectPath, slug }),
+    });
+  } catch (err) {
+    $("slug-manual-err").textContent = err.message || "Não gravou.";
+    $("slug-manual-err").classList.remove("hidden");
+    return;
+  }
+  $("slug-manual").value = "";
+  await loadGraphStatus();
 });
 
 $("btn-proj-hooks-abrir").addEventListener("click", () => {
@@ -4357,13 +4396,15 @@ async function bindProject(path) {
 
 $("btn-motor").addEventListener("click", async () => {
   const wantOn = !state.ok;
-  if (wantOn) await window.nexo.startDaemon();
-  else await window.nexo.stopDaemon();
+  // `daemon:start` já espera o /health responder (ou falhar) do lado do main process —
+  // só sobra reconferir aqui. `daemon:stop` é fire-and-forget, esse sim precisa do poll.
+  const result = wantOn ? await window.nexo.startDaemon() : await window.nexo.stopDaemon();
   for (let i = 0; i < 25; i++) {
-    await new Promise((r) => setTimeout(r, 300));
     await refreshDaemon();
     if (state.ok === wantOn) break;
+    await new Promise((r) => setTimeout(r, 300));
   }
+  if (wantOn && !state.ok && result?.error) bannerErro(result.error);
 });
 
 $("model-select").addEventListener("change", (e) => {
@@ -5481,9 +5522,11 @@ async function renderMemoria() {
   } catch {
     return;
   }
+  $("projetos-dir").value = cfg.projetosDir || "";
   $("mem-dir").value = cfg.memoriaDir || "";
   $("graph-dir").value = cfg.graphDir || "";
   $("tarefas-dir").value = cfg.tarefasDir || "";
+  pintarBadgePasta("projetos-dir-badge", cfg.projetosDir);
   pintarBadgePasta("mem-dir-badge", cfg.memoriaDir);
   pintarBadgePasta("graph-dir-badge", cfg.graphDir);
   pintarBadgePasta("tarefas-dir-badge", cfg.tarefasDir);
@@ -5513,6 +5556,22 @@ async function salvarPastaCompartilhada({ campo, inputId, msgId, badgeId }, path
   pintarBadgePasta(badgeId, next[campo]);
   mostrarMsgPasta(msgId, "Salvo.", "ok");
 }
+
+$("projetos-dir").addEventListener("change", (e) =>
+  void salvarPastaCompartilhada(
+    { campo: "projetosDir", inputId: "projetos-dir", msgId: "projetos-dir-msg", badgeId: "projetos-dir-badge" },
+    e.target.value,
+  ),
+);
+$("btn-projetos-dir-pick").addEventListener("click", async () => {
+  const path = await window.nexo.pickFolder();
+  if (path) {
+    void salvarPastaCompartilhada(
+      { campo: "projetosDir", inputId: "projetos-dir", msgId: "projetos-dir-msg", badgeId: "projetos-dir-badge" },
+      path,
+    );
+  }
+});
 
 $("mem-dir").addEventListener("change", (e) =>
   void salvarPastaCompartilhada(

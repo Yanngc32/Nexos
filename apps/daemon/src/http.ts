@@ -6,6 +6,7 @@ import type { SwitchReason } from "@nexo/shared";
 import { getAgent, listAgents, removeAgent, saveAgent, type AgentInput } from "./agents.ts";
 import { loadConfig, saveConfig } from "./config.ts";
 import { projectKey, tokenPath } from "./home.ts";
+import { migrarProjeto, projectSlug } from "./projeto-dir.ts";
 import {
   accountInfo,
   addProfile,
@@ -1112,7 +1113,25 @@ export function createApp(home: string, token: string): Hono {
       repoMap: statusDoIndice(projectPath, home),
       repoMapResumos: loadConfig(home).modulos.repoMapResumos,
       hooksCount: regrasDoEscopo(listarRegras(home), projectPath).length,
+      ...projectSlug(projectPath, home),
     });
+  });
+
+  /**
+   * Nome de pasta manual pra este projeto dentro de `projetosDir` — sobrescreve o slug detectado
+   * (git remote ou nome da pasta local). Migra na hora (não espera o próximo restart do daemon)
+   * pra quem já tinha dados no slug antigo não perder nada até reabrir o Nexo.
+   */
+  app.put("/v1/projeto/slug", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { projectPath?: string; slug?: string };
+    const projectPath = body.projectPath ?? "";
+    const slug = (body.slug ?? "").trim();
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    if (!/^[a-z0-9-]{1,60}$/.test(slug)) return c.json({ error: "slug inválido — use letras minúsculas, números e -" }, 400);
+    const chave = projectKey(projectPath);
+    saveConfig(home, { slugOverrides: { ...loadConfig(home).slugOverrides, [chave]: slug } });
+    migrarProjeto(projectPath, home);
+    return c.json(projectSlug(projectPath, home));
   });
 
   /** Recalcula a Camada 1 (índice) do zero — sem custo de LLM, seguro num botão. */

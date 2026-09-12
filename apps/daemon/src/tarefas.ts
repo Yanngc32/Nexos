@@ -5,6 +5,7 @@ import { loadConfig } from "./config.ts";
 import { projectKey, tarefasPath as legadoPath } from "./home.ts";
 import { newChecklistItemId, newColunaId, newComentarioId, newEtiquetaId, newMarcoId, newTarefaId } from "./ids.ts";
 import type { Conjunto, Ferramenta, Saida } from "./mcp.ts";
+import { projectDir, projectDirSemCriar } from "./projeto-dir.ts";
 
 /**
  * Quadro Kanban por projeto: colunas customizáveis, marcos (milestones), etiquetas e tarefas —
@@ -93,7 +94,7 @@ function colunasPadrao(): Coluna[] {
   ];
 }
 
-/** Raiz de todas as pastas de tarefas — cada módulo é dono do seu hash de pasta (mesmo padrão de `memoria.ts`/`repo-map-indice.ts`). */
+/** Raiz LEGADA de tarefas (layout por-tipo, um hash por projeto) — só usada quando `tarefasDir` está configurado. */
 export function tarefasRoot(home: string): string {
   const cfg = loadConfig(home);
   return cfg.tarefasDir || join(home, "tarefas");
@@ -103,23 +104,40 @@ function tarefasHash(projectPath: string): string {
   return createHash("sha1").update(projectKey(projectPath)).digest("hex");
 }
 
-/** Pasta de tarefas de UM projeto. Cria (com o `meta.json`) se ainda não existir. */
+/** Mesma escolha de layout (novo `projectDir/tarefas` vs. legado `tarefasRoot/<hash>`), sem criar nada. */
+function pastaTarefasSemCriar(projectPath: string, home: string): string {
+  return loadConfig(home).tarefasDir
+    ? join(tarefasRoot(home), tarefasHash(projectPath))
+    : join(projectDirSemCriar(projectPath, home), "tarefas");
+}
+
+/**
+ * Pasta de tarefas de UM projeto. Layout novo (`projectDir/tarefas`) por padrão; cai pro
+ * layout legado (`tarefasRoot/<hash>`, com `meta.json` próprio) só quando `config.tarefasDir`
+ * está explicitamente definido — ver spec docs/superpowers/specs/2026-09-12-storage-cross-device-design.md.
+ * Cria a pasta se ainda não existir.
+ */
 function projectTarefasDir(projectPath: string, home: string): string {
-  const dir = join(tarefasRoot(home), tarefasHash(projectPath));
-  const metaPath = join(dir, "meta.json");
-  if (!existsSync(metaPath)) {
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(metaPath, JSON.stringify({ projectPath }, null, 2), "utf8");
+  if (loadConfig(home).tarefasDir) {
+    const dir = join(tarefasRoot(home), tarefasHash(projectPath));
+    const metaPath = join(dir, "meta.json");
+    if (!existsSync(metaPath)) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(metaPath, JSON.stringify({ projectPath }, null, 2), "utf8");
+    }
+    return dir;
   }
+  const dir = join(projectDir(projectPath, home), "tarefas");
+  mkdirSync(dir, { recursive: true });
   return dir;
 }
 
 function quadroPath(projectPath: string, home: string): string {
-  return join(tarefasRoot(home), tarefasHash(projectPath), "quadro.md");
+  return join(pastaTarefasSemCriar(projectPath, home), "quadro.md");
 }
 
 function itensDir(projectPath: string, home: string): string {
-  return join(tarefasRoot(home), tarefasHash(projectPath), "itens");
+  return join(pastaTarefasSemCriar(projectPath, home), "itens");
 }
 
 function itemPath(projectPath: string, home: string, id: string): string {

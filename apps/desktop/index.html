@@ -219,6 +219,19 @@
           <button type="button" id="btn-close-graph" class="ghost mod-close" title="Fechar (volta só pro chat)">✕</button>
         </header>
         <div class="ag-edit">
+          <section class="ag-sec hidden" id="slug-instavel-sec">
+            <h2>Pasta deste projeto <span class="mod-meta" data-on="0">nome instável</span></h2>
+            <p class="ag-hint">
+              Sem remote git pra identificar o projeto, o nome da pasta (<code id="slug-atual"></code>)
+              vem do nome da pasta local — pode mudar ou colidir se você abrir este projeto de outra
+              máquina. Defina um nome fixo pra evitar isso:
+            </p>
+            <div class="ag-row">
+              <input id="slug-manual" type="text" spellcheck="false" placeholder="meu-projeto" aria-label="Nome fixo da pasta do projeto" />
+              <button type="button" id="btn-slug-manual-salvar" class="ghost">Definir nome</button>
+            </div>
+            <p class="ag-err hidden" id="slug-manual-err"></p>
+          </section>
           <section class="ag-sec">
             <h2>Memória <span id="mem-status" class="mod-meta" data-on="0">verificando…</span></h2>
             <p class="ag-hint" id="mem-detalhe"></p>
@@ -1149,69 +1162,89 @@
               <h3>Pastas compartilhadas</h3>
               <div class="shared-card">
                 <div class="shared-card-head">
-                  <h4>Memória <span id="mem-dir-badge" class="shared-badge" data-on="0">só nesta máquina</span></h4>
+                  <h4>Projetos <span id="projetos-dir-badge" class="shared-badge" data-on="0">só nesta máquina</span></h4>
                   <p>
-                    Onde fica <code>MEMORIA.md</code> de cada projeto (um agente escreve depois de
-                    cada commit/push — ver Hooks). Vazio = dentro do próprio Nexo, só nesta
-                    máquina. Aponte pra uma pasta já sincronizada (Drive, OneDrive, etc.) pra essa
-                    memória atravessar de um PC pro outro.
+                    Onde fica a pasta de CADA projeto (memória, tarefas e repo map, tudo dentro
+                    dela). Vazio = dentro do próprio Nexo, só nesta máquina. Aponte pra uma pasta
+                    já sincronizada (Drive, OneDrive, etc.) pra abrir o mesmo projeto de outro PC
+                    e continuar de onde parou.
                   </p>
                 </div>
                 <div class="shared-card-ctl">
                   <input
-                    id="mem-dir"
+                    id="projetos-dir"
                     type="text"
                     spellcheck="false"
-                    placeholder="G:\Meu Drive\nexo-memoria"
-                    aria-label="Pasta compartilhada de memória"
+                    placeholder="G:\Meu Drive\nexo-projetos"
+                    aria-label="Pasta compartilhada de projetos"
                   />
-                  <button type="button" id="btn-mem-dir-pick" class="ghost">Escolher…</button>
+                  <button type="button" id="btn-projetos-dir-pick" class="ghost">Escolher…</button>
                 </div>
-                <p id="mem-dir-msg" class="shared-msg"></p>
+                <p id="projetos-dir-msg" class="shared-msg"></p>
               </div>
-              <div class="shared-card">
-                <div class="shared-card-head">
-                  <h4>Repo map <span id="graph-dir-badge" class="shared-badge" data-on="0">só nesta máquina</span></h4>
-                  <p>
-                    Onde fica o cache do repo map (índice + resumos) de cada projeto. Separada da
-                    memória de propósito: o repo map é regenerável, pode valer a pena sincronizar
-                    num lugar diferente (ou nem sincronizar). Vazio = dentro do <code>~/.nexo</code>, como hoje.
-                  </p>
+              <details class="shared-avancado">
+                <summary>Avançado — pastas separadas por tipo (layout antigo)</summary>
+                <div class="shared-card">
+                  <div class="shared-card-head">
+                    <h4>Memória <span id="mem-dir-badge" class="shared-badge" data-on="0">só nesta máquina</span></h4>
+                    <p>
+                      Onde fica <code>MEMORIA.md</code> de cada projeto. Preenchido aqui, IGNORA
+                      "Projetos" acima só pra memória — layout antigo, um por tipo.
+                    </p>
+                  </div>
+                  <div class="shared-card-ctl">
+                    <input
+                      id="mem-dir"
+                      type="text"
+                      spellcheck="false"
+                      placeholder="G:\Meu Drive\nexo-memoria"
+                      aria-label="Pasta compartilhada de memória"
+                    />
+                    <button type="button" id="btn-mem-dir-pick" class="ghost">Escolher…</button>
+                  </div>
+                  <p id="mem-dir-msg" class="shared-msg"></p>
                 </div>
-                <div class="shared-card-ctl">
-                  <input
-                    id="graph-dir"
-                    type="text"
-                    spellcheck="false"
-                    placeholder="G:\Meu Drive\nexo-repo-map"
-                    aria-label="Pasta compartilhada do repo map"
-                  />
-                  <button type="button" id="btn-graph-dir-pick" class="ghost">Escolher…</button>
+                <div class="shared-card">
+                  <div class="shared-card-head">
+                    <h4>Repo map <span id="graph-dir-badge" class="shared-badge" data-on="0">só nesta máquina</span></h4>
+                    <p>
+                      Onde fica o cache do repo map (índice + resumos) de cada projeto. Preenchido
+                      aqui, IGNORA "Projetos" acima só pro repo map.
+                    </p>
+                  </div>
+                  <div class="shared-card-ctl">
+                    <input
+                      id="graph-dir"
+                      type="text"
+                      spellcheck="false"
+                      placeholder="G:\Meu Drive\nexo-repo-map"
+                      aria-label="Pasta compartilhada do repo map"
+                    />
+                    <button type="button" id="btn-graph-dir-pick" class="ghost">Escolher…</button>
+                  </div>
+                  <p id="graph-dir-msg" class="shared-msg"></p>
                 </div>
-                <p id="graph-dir-msg" class="shared-msg"></p>
-              </div>
-              <div class="shared-card">
-                <div class="shared-card-head">
-                  <h4>Tarefas <span id="tarefas-dir-badge" class="shared-badge" data-on="0">só nesta máquina</span></h4>
-                  <p>
-                    Onde fica o quadro de tarefas (colunas, marcos, etiquetas e cada tarefa) de cada
-                    projeto. Vazio = dentro do <code>~/.nexo</code>, só nesta máquina. Aponte pra uma
-                    pasta já sincronizada (Drive, OneDrive etc.) pra o quadro atravessar de um PC pro
-                    outro — mesma ideia da Memória.
-                  </p>
+                <div class="shared-card">
+                  <div class="shared-card-head">
+                    <h4>Tarefas <span id="tarefas-dir-badge" class="shared-badge" data-on="0">só nesta máquina</span></h4>
+                    <p>
+                      Onde fica o quadro de tarefas de cada projeto. Preenchido aqui, IGNORA
+                      "Projetos" acima só pras tarefas.
+                    </p>
+                  </div>
+                  <div class="shared-card-ctl">
+                    <input
+                      id="tarefas-dir"
+                      type="text"
+                      spellcheck="false"
+                      placeholder="G:\Meu Drive\nexo-tarefas"
+                      aria-label="Pasta compartilhada de tarefas"
+                    />
+                    <button type="button" id="btn-tarefas-dir-pick" class="ghost">Escolher…</button>
+                  </div>
+                  <p id="tarefas-dir-msg" class="shared-msg"></p>
                 </div>
-                <div class="shared-card-ctl">
-                  <input
-                    id="tarefas-dir"
-                    type="text"
-                    spellcheck="false"
-                    placeholder="G:\Meu Drive\nexo-tarefas"
-                    aria-label="Pasta compartilhada de tarefas"
-                  />
-                  <button type="button" id="btn-tarefas-dir-pick" class="ghost">Escolher…</button>
-                </div>
-                <p id="tarefas-dir-msg" class="shared-msg"></p>
-              </div>
+              </details>
             </section>
             <section class="set-sec hidden" data-panel="modulos">
               <h3>Módulos</h3>

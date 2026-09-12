@@ -14,8 +14,9 @@ import {
 } from "./profiles.ts";
 import { HOOK_EVENT_RE } from "./hooks.ts";
 import { ensureCavemanInstalled, ensureRtkInstalled } from "./modules.ts";
+import { migrarProjeto } from "./projeto-dir.ts";
 import { sincronizarRepoMapResumos } from "./repo-map-auto.ts";
-import { createThread, listThreads, readThread } from "./threads.ts";
+import { createThread, listThreads, projetosConhecidos, readThread } from "./threads.ts";
 import { pingUsoDeTodasAsContas, postMessage, sessionBus, switchThread } from "./session.ts";
 import { loginProfile } from "./login.ts";
 import { pidPath, startDaemon, waitClosed } from "./server.ts";
@@ -55,6 +56,9 @@ async function cmdUp(): Promise<void> {
   // Síncrono e barato (só lê agents.json/hooks.json) — sem network, não precisa de fire-and-forget.
   const r = sincronizarRepoMapResumos(home);
   if (!r.ok) console.error(`resumos do repo map: ${r.motivo}`);
+  // Move memória/tarefas/repo-map do layout antigo (por-tipo+hash) pro layout novo (pasta única
+  // por projeto) pra cada projeto conhecido — best-effort, nunca lança, ver projeto-dir.ts.
+  for (const p of projetosConhecidos(home)) migrarProjeto(p, home);
   /*
    * Limite de uso (5h/7d) só vem junto da resposta de uma mensagem de verdade — não tem consulta
    * de graça. Pinga toda conta claude/codex logada QUE NÃO ESTÁ EM USO agora (ver `perfilEmUso`

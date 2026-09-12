@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { join } from "node:path";
 import { loadConfig } from "./config.ts";
 import { projectKey } from "./home.ts";
+import { projectDir, projectDirSemCriar } from "./projeto-dir.ts";
 
 /**
  * Camada 1 do repo map: árvore de arquivos do projeto, sem símbolo nenhum, sempre no prompt (ver
@@ -22,7 +23,7 @@ function estimarTokens(texto: string): number {
   return Math.ceil(texto.length / 4);
 }
 
-/** Raiz de todas as pastas de repo map — reaproveita `graphDir` (mesmo campo de config de antes). */
+/** Raiz LEGADA de repo map (layout por-tipo, um hash por projeto) — só usada quando `graphDir` está configurado. */
 export function repoMapRoot(home: string): string {
   const cfg = loadConfig(home);
   return cfg.graphDir || join(home, "grafo");
@@ -32,9 +33,28 @@ function repoMapHash(projectPath: string): string {
   return createHash("sha1").update(projectKey(projectPath)).digest("hex");
 }
 
-/** Pasta de cache de UM projeto (índice + resumos) — usada também por `repo-map-enriquecimento.ts`. */
+/**
+ * Pasta de cache de UM projeto (índice + resumos) — usada também por `repo-map-enriquecimento.ts`.
+ * Layout novo (`projectDir/repo-map`) por padrão; cai pro legado (`repoMapRoot/<hash>`) só quando
+ * `config.graphDir` está explicitamente definido. Não cria nada — quem escreve usa
+ * `ensureProjectIndiceDir`.
+ */
 export function projectIndiceDir(projectPath: string, home: string): string {
-  return join(repoMapRoot(home), repoMapHash(projectPath));
+  return loadConfig(home).graphDir
+    ? join(repoMapRoot(home), repoMapHash(projectPath))
+    : join(projectDirSemCriar(projectPath, home), "repo-map");
+}
+
+/** Mesmo caminho de `projectIndiceDir`, mas garantindo (criando) a pasta antes de escrever nela. */
+export function ensureProjectIndiceDir(projectPath: string, home: string): string {
+  if (loadConfig(home).graphDir) {
+    const dir = join(repoMapRoot(home), repoMapHash(projectPath));
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+  const dir = join(projectDir(projectPath, home), "repo-map");
+  mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 function indicePath(projectPath: string, home: string): string {
@@ -185,8 +205,7 @@ export function construirIndice(
   const arvore = montarArvore(arquivos);
   const teto = loadConfig(home).repoMapTetoTokens || TETO_TOKENS_PADRAO;
   const resultado = renderizarComTeto(arvore, teto, lerResumo);
-  const dir = projectIndiceDir(projectPath, home);
-  mkdirSync(dir, { recursive: true });
+  ensureProjectIndiceDir(projectPath, home);
   const cache: CacheIndice = { geradoEm: new Date().toISOString(), arquivos: arquivos.length, ...resultado };
   writeFileSync(indicePath(projectPath, home), JSON.stringify(cache, null, 2), "utf8");
   return resultado;

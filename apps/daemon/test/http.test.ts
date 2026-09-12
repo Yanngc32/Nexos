@@ -46,16 +46,72 @@ describe("GET /v1/projeto/status", () => {
       repoMap: { existe: boolean };
       repoMapResumos: boolean;
       hooksCount: number;
+      slug: string;
+      origem: string;
     };
     expect(body.memoria.existe).toBe(false);
     expect(body.repoMap.existe).toBe(false);
     expect(body.repoMapResumos).toBe(false);
     expect(body.hooksCount).toBe(1);
+    expect(body.slug).toBe("status"); // sem git remote, sem override: cai pro nome da pasta
+    expect(body.origem).toBe("pasta");
   });
 
   it("sem projectPath: 400", async () => {
     const app = createApp(tempHome(), token);
     const res = await app.request("/v1/projeto/status", { headers: { authorization: `Bearer ${token}` } });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("PUT /v1/projeto/slug", () => {
+  it("grava o override, migra na hora e passa a valer no status", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const hdr = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    const projectPath = "C:/proj/renomear";
+
+    // pasta antiga (layout legado) — confirma que o migrarProjeto disparado pelo PUT já move na hora
+    const { createHash } = await import("node:crypto");
+    const { projectKey } = await import("../src/home.ts");
+    const hash = createHash("sha1").update(projectKey(projectPath)).digest("hex");
+    mkdirSync(join(home, "memoria", hash), { recursive: true });
+    writeFileSync(join(home, "memoria", hash, "MEMORIA.md"), "# fatos antigos", "utf8");
+
+    const put = await app.request("/v1/projeto/slug", {
+      method: "PUT",
+      headers: hdr,
+      body: JSON.stringify({ projectPath, slug: "meu-nome" }),
+    });
+    expect(put.status).toBe(200);
+    expect(await put.json()).toEqual({ slug: "meu-nome", origem: "manual" });
+
+    const status = await app.request(`/v1/projeto/status?projectPath=${encodeURIComponent(projectPath)}`, {
+      headers: hdr,
+    });
+    const body = (await status.json()) as { slug: string; origem: string };
+    expect(body.slug).toBe("meu-nome");
+    expect(body.origem).toBe("manual");
+    expect(existsSync(join(home, "projetos", "meu-nome", "memoria", "MEMORIA.md"))).toBe(true);
+  });
+
+  it("slug inválido é 400", async () => {
+    const app = createApp(tempHome(), token);
+    const res = await app.request("/v1/projeto/slug", {
+      method: "PUT",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ projectPath: "C:/proj/x", slug: "Nome Com Espaço" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("sem projectPath: 400", async () => {
+    const app = createApp(tempHome(), token);
+    const res = await app.request("/v1/projeto/slug", {
+      method: "PUT",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ slug: "ok" }),
+    });
     expect(res.status).toBe(400);
   });
 });

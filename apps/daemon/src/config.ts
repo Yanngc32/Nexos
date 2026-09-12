@@ -57,6 +57,8 @@ export function loadConfig(home: string): NexoConfig {
     memoriaDir: str(raw.memoriaDir),
     graphDir: str(raw.graphDir),
     tarefasDir: str(raw.tarefasDir),
+    projetosDir: str(raw.projetosDir),
+    slugOverrides: cleanSlugOverrides(raw.slugOverrides),
     ...(isTetoTokens(raw.repoMapTetoTokens) ? { repoMapTetoTokens: raw.repoMapTetoTokens } : {}),
     modulos: cleanModulos(raw.modulos),
   };
@@ -107,6 +109,21 @@ function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+/** Chave/valor string→string (override manual de slug de projeto): sem vazio, teto pra não crescer sem fim. */
+function cleanSlugOverrides(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v !== "string") continue;
+    const chave = k.trim();
+    const slug = v.trim();
+    if (!chave || !slug) continue;
+    out[chave] = slug;
+    if (Object.keys(out).length >= 200) break;
+  }
+  return out;
+}
+
 /** Lista de pastas: sem vazio, sem repetido, teto pra não crescer sem fim. */
 function cleanRepos(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -143,6 +160,11 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
     memoriaDir: patch.memoriaDir === undefined ? current.memoriaDir : str(patch.memoriaDir),
     graphDir: patch.graphDir === undefined ? current.graphDir : str(patch.graphDir),
     tarefasDir: patch.tarefasDir === undefined ? current.tarefasDir : str(patch.tarefasDir),
+    projetosDir: patch.projetosDir === undefined ? current.projetosDir : str(patch.projetosDir),
+    // Merge raso: um PATCH de slugOverrides SUBSTITUI o mapa inteiro (igual todo outro campo
+    // aqui) — quem quer só ACRESCENTAR uma entrada manda o mapa atual + a nova (a UI já lê o
+    // config antes de patchar, então tem o mapa corrente em mãos).
+    slugOverrides: patch.slugOverrides === undefined ? current.slugOverrides : cleanSlugOverrides(patch.slugOverrides),
     ...(patch.repoMapTetoTokens === undefined
       ? current.repoMapTetoTokens !== undefined
         ? { repoMapTetoTokens: current.repoMapTetoTokens }

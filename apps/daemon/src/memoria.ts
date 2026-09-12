@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { join } from "node:path";
 import { loadConfig } from "./config.ts";
 import { projectKey } from "./home.ts";
+import { projectDir, projectDirSemCriar } from "./projeto-dir.ts";
 
 /**
  * Memória de projeto: fatos duráveis que o agente "memória" escreve depois de
@@ -16,7 +17,7 @@ import { projectKey } from "./home.ts";
  * dentro da pasta do projeto.
  */
 
-/** Raiz de todas as memórias de projeto. Configurável pra apontar numa pasta já sincronizada. */
+/** Raiz LEGADA de memórias (layout por-tipo, um hash por projeto) — só usada quando `memoriaDir` está configurado. */
 export function memoriaRoot(home: string): string {
   const cfg = loadConfig(home);
   return cfg.memoriaDir || join(home, "memoria");
@@ -32,15 +33,32 @@ export function projectHash(projectPath: string): string {
   return createHash("sha1").update(projectKey(projectPath)).digest("hex");
 }
 
-/** Pasta de memória de UM projeto. Cria (com o `meta.json`) se ainda não existir. */
+/**
+ * Pasta de memória de UM projeto. Layout novo (`projectDir/memoria`) por padrão; cai pro
+ * layout legado (`memoriaRoot/<hash>`) só quando `config.memoriaDir` está explicitamente
+ * definido — ver spec docs/superpowers/specs/2026-09-12-storage-cross-device-design.md.
+ * Cria a pasta (com `meta.json` no caso legado) se ainda não existir.
+ */
 export function projectMemoriaDir(projectPath: string, home: string): string {
-  const dir = join(memoriaRoot(home), projectHash(projectPath));
-  const metaPath = join(dir, "meta.json");
-  if (!existsSync(metaPath)) {
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(metaPath, JSON.stringify({ projectPath }, null, 2), "utf8");
+  if (loadConfig(home).memoriaDir) {
+    const dir = join(memoriaRoot(home), projectHash(projectPath));
+    const metaPath = join(dir, "meta.json");
+    if (!existsSync(metaPath)) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(metaPath, JSON.stringify({ projectPath }, null, 2), "utf8");
+    }
+    return dir;
   }
+  const dir = join(projectDir(projectPath, home), "memoria");
+  mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/** Mesma escolha de layout de `projectMemoriaDir`, mas SEM criar nada — pra caminhos de leitura. */
+function projectMemoriaDirSemCriar(projectPath: string, home: string): string {
+  return loadConfig(home).memoriaDir
+    ? join(memoriaRoot(home), projectHash(projectPath))
+    : join(projectDirSemCriar(projectPath, home), "memoria");
 }
 
 export function memoriaPath(projectPath: string, home: string): string {
@@ -60,8 +78,8 @@ export function statusDaMemoria(
   projectPath: string,
   home: string,
 ): { existe: boolean; caminho: string; compartilhado: boolean; atualizadoEm?: string } {
-  const caminho = join(memoriaRoot(home), projectHash(projectPath), "MEMORIA.md");
-  const compartilhado = Boolean(loadConfig(home).memoriaDir);
+  const caminho = join(projectMemoriaDirSemCriar(projectPath, home), "MEMORIA.md");
+  const compartilhado = Boolean(loadConfig(home).memoriaDir || loadConfig(home).projetosDir);
   try {
     const st = statSync(caminho);
     return { existe: true, caminho, compartilhado, atualizadoEm: st.mtime.toISOString() };
@@ -71,7 +89,7 @@ export function statusDaMemoria(
 }
 
 export function readMemoria(projectPath: string, home: string): string {
-  const path = join(memoriaRoot(home), projectHash(projectPath), "MEMORIA.md");
+  const path = join(projectMemoriaDirSemCriar(projectPath, home), "MEMORIA.md");
   if (!existsSync(path)) return "";
   try {
     return readFileSync(path, "utf8");

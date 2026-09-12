@@ -54,10 +54,10 @@ describe("getQuadro", () => {
   it("grava num arquivo .md legível, com bloco json no topo", () => {
     const home = tempHome();
     getQuadro(P1, home);
-    const dir = tarefasRoot(home);
+    const dir = join(home, "projetos");
     const arquivos = readdirSync(dir);
-    expect(arquivos.length).toBe(1); // uma pasta por hash de projeto
-    const pastaProjeto = join(dir, arquivos[0]);
+    expect(arquivos.length).toBe(1); // uma pasta por projeto (layout novo, não mais por hash)
+    const pastaProjeto = join(dir, arquivos[0], "tarefas");
     const conteudo = readFileSync(join(pastaProjeto, "quadro.md"), "utf8");
     expect(conteudo).toMatch(/^```json\n/);
     expect(conteudo).toContain("# Quadro de tarefas");
@@ -285,8 +285,8 @@ describe("salvarTarefa", () => {
     const home = tempHome();
     const colunaId = getQuadro(P1, home).colunas[0]!.id;
     const t = salvarTarefa({ projectPath: P1, titulo: "revisar PR", descricao: "olhar os testes", colunaId }, home);
-    const dir = tarefasRoot(home);
-    const pastaProjeto = join(dir, readdirSync(dir)[0]);
+    const dir = join(home, "projetos");
+    const pastaProjeto = join(dir, readdirSync(dir)[0], "tarefas");
     const conteudo = readFileSync(join(pastaProjeto, "itens", `${t.id}.md`), "utf8");
     expect(conteudo).toMatch(/^```json\n/);
     expect(conteudo).toContain("# revisar PR");

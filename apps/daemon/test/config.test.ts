@@ -75,3 +75,28 @@ describe("config repos", () => {
     expect(cfg.lastProject).toBe("");
   });
 });
+
+describe("config projetosDir/slugOverrides", () => {
+  it("projetosDir vazio por padrão, grava e recupera", () => {
+    const home = tempHome();
+    expect(loadConfig(home).projetosDir).toBe("");
+    saveConfig(home, { projetosDir: "G:/Meu Drive/nexo-projetos" });
+    expect(loadConfig(home).projetosDir).toBe("G:/Meu Drive/nexo-projetos");
+  });
+
+  it("slugOverrides guarda mapa string->string, ignora valor não-string e mapa inválido", () => {
+    const home = tempHome();
+    expect(loadConfig(home).slugOverrides).toEqual({});
+    saveConfig(home, { slugOverrides: { "c:/proj/a": "meu-projeto", "c:/proj/b": 123 as never } });
+    expect(loadConfig(home).slugOverrides).toEqual({ "c:/proj/a": "meu-projeto" });
+    saveConfig(home, { slugOverrides: "lixo" as never });
+    expect(loadConfig(home).slugOverrides).toEqual({});
+  });
+
+  it("patch sem slugOverrides não apaga o mapa existente", () => {
+    const home = tempHome();
+    saveConfig(home, { slugOverrides: { "c:/proj/a": "meu-projeto" } });
+    saveConfig(home, { accent: "#123456" });
+    expect(loadConfig(home).slugOverrides).toEqual({ "c:/proj/a": "meu-projeto" });
+  });
+});

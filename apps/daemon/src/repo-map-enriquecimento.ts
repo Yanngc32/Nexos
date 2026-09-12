@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Conjunto } from "./mcp.ts";
-import { listarArquivos, projectIndiceDir } from "./repo-map-indice.ts";
+import { ensureProjectIndiceDir, listarArquivos, projectIndiceDir } from "./repo-map-indice.ts";
 
 /**
  * Enriquecimento opcional do repo map: resumo de 1 linha por arquivo, gerado por IA sob pedido —
@@ -31,7 +31,7 @@ function lerCache(projectPath: string, home: string): CacheResumos {
 }
 
 function escreverCache(projectPath: string, home: string, cache: CacheResumos): void {
-  mkdirSync(projectIndiceDir(projectPath, home), { recursive: true });
+  ensureProjectIndiceDir(projectPath, home);
   writeFileSync(resumosPath(projectPath, home), JSON.stringify(cache, null, 2), "utf8");
 }
 

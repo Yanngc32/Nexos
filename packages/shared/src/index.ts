@@ -292,6 +292,19 @@ export type NexoConfig = {
    */
   tarefasDir: string;
   /**
+   * Raiz nova unificada: `<projetosDir>/<slug-do-projeto>/{memoria,tarefas,repo-map}/`. Vazio
+   * = default (`<NEXO_HOME>/projetos`). Quando `memoriaDir`/`graphDir`/`tarefasDir` estão
+   * preenchidos, esse tipo específico ignora `projetosDir` e continua no layout antigo (ver
+   * `projeto-dir.ts`) — existe só pra quem nunca usou os três campos separados.
+   */
+  projetosDir: string;
+  /**
+   * Override manual do nome de pasta de um projeto dentro de `projetosDir`, chaveado por
+   * `projectKey(projectPath)`. Sem entrada aqui, o nome vem do remote git (`owner-repo`) ou,
+   * na falta de remote, do nome da própria pasta local (ver `projectSlug` em `projeto-dir.ts`).
+   */
+  slugOverrides: Record<string, string>;
+  /**
    * Teto de tokens do índice (Camada 1 do repo map) injetado no prompt — ver
    * `repo-map-indice.ts`. Ausente = usa a constante padrão (1200).
    */
@@ -332,6 +345,8 @@ export const DEFAULT_CONFIG: NexoConfig = {
   memoriaDir: "",
   graphDir: "",
   tarefasDir: "",
+  projetosDir: "",
+  slugOverrides: {},
   modulos: { rtk: false, caveman: false, cavemanNivel: "full", repoMapResumos: false, repoMapProfileId: "" },
 };
 

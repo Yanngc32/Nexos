@@ -1,6 +1,16 @@
 const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, nativeImage, shell } = require("electron");
-const { spawn } = require("node:child_process");
-const { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } = require("node:fs");
+const { execFile, spawn } = require("node:child_process");
+const {
+  closeSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} = require("node:fs");
 const { readdir, readFile, stat } = require("node:fs/promises");
 const { homedir, tmpdir } = require("node:os");
 const { dirname, join, resolve, sep } = require("node:path");
@@ -38,6 +48,7 @@ if (!app.requestSingleInstanceLock()) {
 
 const here = __dirname;
 const daemonRoot = join(here, "../daemon");
+const repoRoot = resolve(daemonRoot, "..", "..");
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "target", ".next", "coverage", ".turbo", ".nexo-test"]);
 const BIN_EXT =
   /\.(png|jpe?g|gif|webp|ico|bmp|exe|dll|zip|gz|7z|rar|pdf|woff2?|ttf|otf|eot|mp[34]|wav|ogg|webm|mov|avi|node|wasm|bin|so|dylib|psd|sqlite3?)$/i;
@@ -94,7 +105,7 @@ async function daemonInfo() {
  * (o windowsHide é ignorado nesse caso). O electron.exe é GUI, então não abre
  * console nenhum — e com detached o motor sobrevive ao fechar o app.
  */
-function spawnNexo(args) {
+function spawnNexo(args, extra = {}) {
   return spawnNexoProcess(args, {
     daemonRoot,
     nodeBin: process.execPath,
@@ -102,6 +113,42 @@ function spawnNexo(args) {
     detached: true,
     stdio: "ignore",
     windowsHide: true,
+    ...extra,
+  });
+}
+
+function daemonLogPath() {
+  return join(nexoHome(), "daemon.log");
+}
+
+function readLogTail(path, maxChars = 4000) {
+  try {
+    const raw = readFileSync(path, "utf8");
+    return raw.length > maxChars ? raw.slice(-maxChars) : raw;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * `pnpm install --frozen-lockfile` antes de subir o motor: sem rede e ~1s quando já está tudo
+ * instalado, e conserta sozinho o caso de puxar um commit que adiciona dependência nova sem
+ * ninguém rodar `pnpm install` depois — isso derrubava o motor com um crash de import ANTES de
+ * qualquer código nosso rodar (nem log sobrava, `stdio` do processo era "ignore").
+ * `corepack` (não `pnpm` direto) porque é quem lê o `packageManager` do package.json e já
+ * vem com o Node — não depende do usuário ter pnpm instalado à parte.
+ */
+function ensureDepsInstalled() {
+  return new Promise((resolvePromise) => {
+    execFile(
+      "corepack",
+      ["pnpm", "install", "--frozen-lockfile"],
+      { cwd: repoRoot, timeout: 120_000, windowsHide: true, shell: process.platform === "win32" },
+      (err, stdout, stderr) => {
+        if (err) resolvePromise({ ok: false, log: `${stdout || ""}${stderr || ""}`.trim() || err.message });
+        else resolvePromise({ ok: true });
+      },
+    );
   });
 }
 
@@ -585,9 +632,30 @@ app.whenReady().then(() => {
   // dela (o menu de verdade é a UI própria), então só sobra como ruído acima da janela.
   Menu.setApplicationMenu(null);
   handle("daemon:info", () => daemonInfo());
-  handle("daemon:start", () => {
-    spawnNexo(["up"]).unref();
-    return { ok: true };
+  handle("daemon:start", async () => {
+    const deps = await ensureDepsInstalled();
+    if (!deps.ok) return { ok: false, error: `Não consegui instalar dependências:\n${deps.log}`.trim() };
+
+    const logPath = daemonLogPath();
+    mkdirSync(nexoHome(), { recursive: true });
+    let logFd;
+    try {
+      logFd = openSync(logPath, "a");
+    } catch {
+      logFd = undefined;
+    }
+    const child = spawnNexo(["up"], logFd === undefined ? {} : { stdio: ["ignore", logFd, logFd] });
+    if (logFd !== undefined) closeSync(logFd);
+    child.unref();
+
+    // Poll em vez de esperar o processo "terminar": ele é pra ficar de pé (server ouvindo),
+    // então sucesso aqui é o /health responder, não o child sair.
+    for (let i = 0; i < 24; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      if ((await daemonInfo()).ok) return { ok: true };
+      if (child.exitCode !== null || child.signalCode) break;
+    }
+    return { ok: false, error: readLogTail(logPath).trim() || "motor não respondeu" };
   });
   handle("daemon:stop", () => {
     spawnNexo(["down"]).unref();
