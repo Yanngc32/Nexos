@@ -982,6 +982,9 @@ describe("http mcp", () => {
       "nexo_repomap_resumo_salvar",
       "nexo_tarefa_listar",
       "nexo_tarefa_salvar",
+      "nexo_tarefa_checklist",
+      "nexo_tarefa_comentar",
+      "nexo_tarefa_commits",
     ]);
   });
 
@@ -1000,6 +1003,9 @@ describe("http mcp", () => {
       "nexo_repomap_resumo_salvar",
       "nexo_tarefa_listar",
       "nexo_tarefa_salvar",
+      "nexo_tarefa_checklist",
+      "nexo_tarefa_comentar",
+      "nexo_tarefa_commits",
     ]);
   });
 

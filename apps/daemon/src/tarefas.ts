@@ -7,6 +7,7 @@ import { fireHook } from "./hooks.ts";
 import { newChecklistItemId, newColunaId, newComentarioId, newEtiquetaId, newMarcoId, newTarefaId } from "./ids.ts";
 import type { Conjunto, Ferramenta, Saida } from "./mcp.ts";
 import { projectDir, projectDirSemCriar } from "./projeto-dir.ts";
+import { commitsRelacionados } from "./tarefas-git.ts";
 
 /**
  * Quadro Kanban por projeto: colunas customizáveis, marcos (milestones), etiquetas e tarefas —
@@ -786,6 +787,13 @@ export function ferramentasDeTarefas(projectPath: string, home: string): Conjunt
             prioridade: { type: "string", enum: PRIORIDADES as unknown as string[] },
             responsavel: { type: "string", description: "nome de uma pessoa" },
             prazo: { type: "string", description: "data AAAA-MM-DD, opcional" },
+            tipo: { type: "string", enum: TIPOS_TAREFA as unknown as string[] },
+            parentId: { type: "string", description: "id de outra tarefa deste projeto — esta vira subtarefa dela" },
+            dependeDe: {
+              type: "array",
+              items: { type: "string" },
+              description: "ids de tarefas que bloqueiam esta (só informativo, não impede mover de coluna)",
+            },
           },
           additionalProperties: false,
         },
@@ -794,6 +802,75 @@ export function ferramentasDeTarefas(projectPath: string, home: string): Conjunt
             const t = salvarTarefa({ ...(args as TarefaInput), projectPath }, home, "agente");
             return `tarefa ${t.id} salva — [${quadro.colunas.find((c) => c.id === t.colunaId)?.nome ?? t.colunaId}] ${t.titulo}`;
           }),
+      },
+      {
+        name: "nexo_tarefa_checklist",
+        description:
+          "Adiciona ou marca/desmarca um item de checklist de uma tarefa deste projeto. Pra 'adicionar' " +
+          "mande texto; pra 'marcar'/'desmarcar' mande itemId (veja em nexo_tarefa_listar).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tarefaId: { type: "string" },
+            acao: { type: "string", enum: ["adicionar", "marcar", "desmarcar"] },
+            texto: { type: "string", description: "obrigatório só pra 'adicionar'" },
+            itemId: { type: "string", description: "obrigatório só pra 'marcar'/'desmarcar'" },
+          },
+          required: ["tarefaId", "acao"],
+          additionalProperties: false,
+        },
+        executar: (args) =>
+          tentar(() => {
+            const a = args as { tarefaId?: string; acao?: string; texto?: string; itemId?: string };
+            if (!a.tarefaId) throw badRequest("tarefaId obrigatório");
+            if (a.acao === "adicionar") {
+              if (!a.texto) throw badRequest("texto obrigatório pra adicionar");
+              const item = adicionarChecklistItem(projectPath, home, a.tarefaId, a.texto);
+              return `item ${item.id} adicionado ao checklist`;
+            }
+            if (a.acao === "marcar" || a.acao === "desmarcar") {
+              if (!a.itemId) throw badRequest("itemId obrigatório pra marcar/desmarcar");
+              alternarChecklistItem(projectPath, home, a.tarefaId, a.itemId, a.acao === "marcar");
+              return `item ${a.itemId} ${a.acao === "marcar" ? "marcado" : "desmarcado"}`;
+            }
+            throw badRequest(`ação inválida: ${String(a.acao)}`);
+          }),
+      },
+      {
+        name: "nexo_tarefa_comentar",
+        description: "Adiciona um comentário numa tarefa deste projeto — activity log, sem editar/apagar depois.",
+        inputSchema: {
+          type: "object",
+          properties: { tarefaId: { type: "string" }, texto: { type: "string" } },
+          required: ["tarefaId", "texto"],
+          additionalProperties: false,
+        },
+        executar: (args) =>
+          tentar(() => {
+            const a = args as { tarefaId?: string; texto?: string };
+            if (!a.tarefaId || !a.texto) throw badRequest("tarefaId e texto obrigatórios");
+            const c = adicionarComentario(projectPath, home, a.tarefaId, a.texto);
+            return `comentário ${c.id} adicionado`;
+          }),
+      },
+      {
+        name: "nexo_tarefa_commits",
+        description:
+          "Lista os commits deste projeto cuja mensagem menciona o id da tarefa — útil pra ver o que já foi " +
+          "feito antes de continuar o trabalho nela.",
+        inputSchema: {
+          type: "object",
+          properties: { tarefaId: { type: "string" } },
+          required: ["tarefaId"],
+          additionalProperties: false,
+        },
+        executar: (args) => {
+          const a = args as { tarefaId?: string };
+          if (!a.tarefaId) return { ok: false, texto: "tarefaId obrigatório" };
+          const commits = commitsRelacionados(projectPath, a.tarefaId);
+          if (!commits.length) return { ok: true, texto: "nenhum commit menciona esta tarefa ainda" };
+          return { ok: true, texto: commits.map((c) => `- ${c.hash.slice(0, 7)} — ${c.mensagem} (${c.data})`).join("\n") };
+        },
       },
     ];
     return ferramentas;

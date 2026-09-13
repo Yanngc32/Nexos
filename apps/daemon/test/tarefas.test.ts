@@ -559,7 +559,14 @@ describe("ferramentasDeTarefas (MCP)", () => {
   it("não tem ferramenta de apagar — mesma assimetria de autoria.ts (agente/time/hook)", () => {
     const home = tempHome();
     const nomes = ferramentasDeTarefas(P1, home)().map((f) => f.name);
-    expect(nomes).toEqual(["nexo_tarefa_listar", "nexo_tarefa_salvar"]);
+    expect(nomes).toEqual([
+      "nexo_tarefa_listar",
+      "nexo_tarefa_salvar",
+      "nexo_tarefa_checklist",
+      "nexo_tarefa_comentar",
+      "nexo_tarefa_commits",
+    ]);
+    expect(nomes).not.toContain("nexo_tarefa_apagar");
   });
 
   it("nexo_tarefa_listar sem tarefa nenhuma ainda assim mostra as colunas (pro modelo saber que colunaId usar)", async () => {
@@ -587,6 +594,72 @@ describe("ferramentasDeTarefas (MCP)", () => {
     const r = await salvar!.executar({ titulo: "x", colunaId: "fantasma" });
     expect(r.ok).toBe(false);
     expect(r.texto).toMatch(/coluna não existe/);
+  });
+
+  it("nexo_tarefa_salvar aceita tipo/parentId/dependeDe, e devolve erro (não lança) pra parentId inválido", async () => {
+    const home = tempHome();
+    const colunaId = getQuadro(P1, home).colunas[0]!.id;
+    const [, salvar] = ferramentasDeTarefas(P1, home)();
+    const mae = await salvar!.executar({ titulo: "mãe", colunaId });
+    expect(mae.ok).toBe(true);
+    const maeId = listarTarefas(P1, home).find((t) => t.titulo === "mãe")!.id;
+
+    const filha = await salvar!.executar({ titulo: "filha", colunaId, tipo: "bug", parentId: maeId, dependeDe: [maeId] });
+    expect(filha.ok).toBe(true);
+    const t = listarTarefas(P1, home).find((x) => x.titulo === "filha")!;
+    expect(t.tipo).toBe("bug");
+    expect(t.parentId).toBe(maeId);
+    expect(t.dependeDe).toEqual([maeId]);
+
+    const invalida = await salvar!.executar({ titulo: "x", colunaId, parentId: "tk-fantasma" });
+    expect(invalida.ok).toBe(false);
+    expect(invalida.texto).toMatch(/não existe/);
+  });
+
+  it("nexo_tarefa_checklist: adicionar exige texto, marcar/desmarcar exigem itemId, fluxo completo funciona", async () => {
+    const home = tempHome();
+    const colunaId = getQuadro(P1, home).colunas[0]!.id;
+    const t = salvarTarefa({ projectPath: P1, titulo: "x", colunaId }, home);
+    const [, , checklist] = ferramentasDeTarefas(P1, home)();
+
+    const semTexto = await checklist!.executar({ tarefaId: t.id, acao: "adicionar" });
+    expect(semTexto.ok).toBe(false);
+
+    const add = await checklist!.executar({ tarefaId: t.id, acao: "adicionar", texto: "revisar" });
+    expect(add.ok).toBe(true);
+    const itemId = getTarefa(P1, home, t.id)!.checklist[0]!.id;
+
+    const semItemId = await checklist!.executar({ tarefaId: t.id, acao: "marcar" });
+    expect(semItemId.ok).toBe(false);
+
+    const marcar = await checklist!.executar({ tarefaId: t.id, acao: "marcar", itemId });
+    expect(marcar.ok).toBe(true);
+    expect(getTarefa(P1, home, t.id)!.checklist[0]!.feito).toBe(true);
+
+    const desmarcar = await checklist!.executar({ tarefaId: t.id, acao: "desmarcar", itemId });
+    expect(desmarcar.ok).toBe(true);
+    expect(getTarefa(P1, home, t.id)!.checklist[0]!.feito).toBe(false);
+  });
+
+  it("nexo_tarefa_comentar adiciona comentário sem autor", async () => {
+    const home = tempHome();
+    const colunaId = getQuadro(P1, home).colunas[0]!.id;
+    const t = salvarTarefa({ projectPath: P1, titulo: "x", colunaId }, home);
+    const [, , , comentar] = ferramentasDeTarefas(P1, home)();
+    const r = await comentar!.executar({ tarefaId: t.id, texto: "oi" });
+    expect(r.ok).toBe(true);
+    const comentarios = getTarefa(P1, home, t.id)!.comentarios;
+    expect(comentarios).toHaveLength(1);
+    expect(comentarios[0]!.texto).toBe("oi");
+    expect(comentarios[0]!.autor).toBeUndefined();
+  });
+
+  it("nexo_tarefa_commits devolve texto de vazio sem lançar quando não há commit nenhum", async () => {
+    const home = tempHome();
+    const [, , , , commits] = ferramentasDeTarefas(P1, home)();
+    const r = await commits!.executar({ tarefaId: "tk-qualquer" });
+    expect(r.ok).toBe(true);
+    expect(r.texto).toMatch(/nenhum commit/);
   });
 });
 
