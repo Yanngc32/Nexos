@@ -259,7 +259,9 @@ button {
   padding-bottom: 2px;
 }
 
-.chip {
+/* nome próprio, e não `.chip`: essa classe já existe (botão "+ Nova") com outro
+   visual (fundo `--accent`); reusar o nome sobrescreveria a cor dela. */
+.compositor-chip {
   flex: 0 0 auto;
   max-width: 42vw;
   height: 26px;
@@ -274,7 +276,7 @@ button {
   white-space: nowrap;
 }
 
-.chip:active { background: color-mix(in srgb, var(--accent) 20%, var(--cartao)); color: var(--text); }
+.compositor-chip:active { background: color-mix(in srgb, var(--accent) 20%, var(--cartao)); color: var(--text); }
 
 /* ---------- abas ---------- */
 
