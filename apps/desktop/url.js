@@ -52,6 +52,22 @@ export function urlDoCelular(host, porta, codigo) {
   return `http://${alvo}:${porta || 7432}/app/${frag}`;
 }
 
+/**
+ * O endereço que o QR de download de APK carrega — SEMPRE separado do de
+ * pareamento, e nunca com `#c=` misturado no mesmo link.
+ *
+ * O código vai na QUERY, não no fragmento: `GET /apk` roda no daemon, e
+ * fragmento nunca chega ao servidor — só o `#c=` do pareamento pode ficar lá,
+ * porque quem lê aquele é o JS da SPA, já carregada. Aqui não há SPA
+ * nenhuma antes: o celular ainda pode nem ter o Nexo aberto.
+ */
+export function urlDoApk(host, porta, codigo) {
+  const h = String(host || "127.0.0.1").trim();
+  const alvo = hostNaUrl(h);
+  const q = /^[0-9A-HJKMNP-TV-Z]{6}$/.test(String(codigo ?? "")) ? `?c=${codigo}` : "";
+  return `http://${alvo}:${porta || 7432}/apk${q}`;
+}
+
 export function portaDaUrl(href) {
   try {
     const u = new URL(href);

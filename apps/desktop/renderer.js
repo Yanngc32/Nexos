@@ -25,7 +25,7 @@ import {
   normPath,
   samePath,
 } from "./format.js";
-import { portaDaUrl, safeUrl, urlDoCelular } from "./url.js";
+import { portaDaUrl, safeUrl, urlDoApk, urlDoCelular } from "./url.js";
 import { qrSvg } from "./qr.js";
 import { celAlcance, celAviso } from "./celular.js";
 import { extrairMencoes } from "./mention.js";
@@ -4564,6 +4564,7 @@ async function celPintar() {
   $("cel-alcance").textContent = celAlcance(celEscuta);
   $("cel-aviso").textContent = celAviso(celEscuta);
   if (celPar) celMostrar(celPar);
+  if (apkAberto) apkMostrar(apkAberto);
 }
 
 /** O campo avançado: só o que foi escrito à mão, que é acréscimo e não escolha única. */
@@ -4575,6 +4576,52 @@ function celPintarUrl(cfg) {
 }
 
 $("btn-cel-codigo").addEventListener("click", () => void celPedirCodigo());
+
+/**
+ * QR de download do APK, visto do desktop — MESMA ideia do de pareamento
+ * (código curto, TTL, uso único), mas estado e QR completamente separados: um
+ * nunca fecha o outro, e o link de um nunca carrega o código do outro.
+ *
+ * Enquanto o build não existir (Fase 2 do plano), o código já vale e já
+ * protege — só que a página que o celular abre (`GET /apk`) avisa que ainda
+ * não há artefato, em vez de servir um `.apk`.
+ */
+let apkTimer = 0;
+let apkAberto = null;
+
+function apkMostrar(par) {
+  if (apkTimer) clearInterval(apkTimer);
+  apkAberto = par ?? null;
+  if (!par) {
+    $("apk-qr").classList.add("hidden");
+    $("apk-qr-img").textContent = "";
+    $("btn-apk-codigo").textContent = "Gerar QR de download";
+    return;
+  }
+  const url = urlDoApk(celEscuta?.melhor, celEscuta?.port, par.codigo);
+  $("apk-qr").classList.remove("hidden");
+  // mesma garantia do QR de pareamento: SVG inline gerado aqui, nada externo
+  $("apk-qr-img").innerHTML = qrSvg(url);
+  const tique = () => {
+    const resta = Math.max(0, Math.round((par.expiraEm - Date.now()) / 1000));
+    if (!resta) return apkMostrar(null);
+    $("apk-codigo").textContent = par.codigo;
+    $("btn-apk-codigo").textContent = `expira em ${resta}s`;
+  };
+  tique();
+  apkTimer = setInterval(tique, 1000);
+}
+
+async function apkPedirCodigo() {
+  try {
+    await celPintar();
+    apkMostrar(await req("/v1/apk", { method: "POST" }));
+  } catch (e) {
+    $("cel-aviso").textContent = e.message || "Não deu pra gerar o QR de download.";
+  }
+}
+
+$("btn-apk-codigo").addEventListener("click", () => void apkPedirCodigo());
 
 /**
  * Desconecta todos os celulares de uma vez.

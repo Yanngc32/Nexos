@@ -97,6 +97,8 @@ import { desligarRepoMapResumos, gerarResumosSobDemanda, sincronizarRepoMapResum
 import { statusDaMemoria } from "./memoria.ts";
 import { estadoAtual, melhorHost } from "./escuta.ts";
 import { abrirPareamento, fecharPareamento, pareamentoAberto, resgatar } from "./pair.ts";
+import { abrirDownload, downloadAberto, fecharDownload, resgatarDownload } from "./apk-share.ts";
+import { paginaApk } from "./apk-pagina.ts";
 import { servirWeb } from "./web.ts";
 import {
   autostartServices,
@@ -172,6 +174,24 @@ export function createApp(home: string, token: string): Hono {
   });
 
   /*
+   * `GET /apk` é do CELULAR e também NÃO é autenticada, pela mesma razão do
+   * `/pair` logo acima: quem chega aqui ainda não tem o app instalado, então
+   * não pode ter o token. A trava está em `apk-share.ts` (TTL curto, uso
+   * único, erro demais queima o código) — mesma classe de risco do `/pair`,
+   * mesma rigidez. NUNCA vira `/v1/*`: o middleware ali embaixo bloquearia
+   * exatamente o celular que esta rota existe pra atender.
+   *
+   * Devolve HTML solto (não a SPA de `/app/`), e nunca um `.apk`: o path do
+   * artefato de verdade (quando existir, na Fase 2) é gated por si só — esta
+   * rota só decide se o código serve, não substitui aquele gate.
+   */
+  app.get("/apk", (c) => {
+    const r = resgatarDownload(c.req.query("c"));
+    if (!r.ok) return c.html(paginaApk({ tipo: "erro", motivo: r.motivo }), 403);
+    return c.html(paginaApk({ tipo: "sem-build" }));
+  });
+
+  /*
    * A interface web, servida sem autenticação: a página tem que carregar ANTES
    * de existir token, porque é nela que se digita o código de pareamento. Sem
    * token ela não faz nada — todo `/v1/*` abaixo continua exigindo o bearer.
@@ -221,6 +241,20 @@ export function createApp(home: string, token: string): Hono {
 
   app.delete("/v1/pair", (c) => {
     fecharPareamento();
+    return c.json({ ok: true });
+  });
+
+  /**
+   * Download de APK visto do DESKTOP: abre um código pra mostrar num QR
+   * SEPARADO do de pareamento (nunca `#c=` misturado no mesmo link) — estado
+   * próprio em `apk-share.ts`, então abrir um não fecha o outro.
+   */
+  app.post("/v1/apk", (c) => c.json(abrirDownload()));
+
+  app.get("/v1/apk", (c) => c.json(downloadAberto() ?? null));
+
+  app.delete("/v1/apk", (c) => {
+    fecharDownload();
     return c.json({ ok: true });
   });
 

@@ -672,6 +672,16 @@ export const PAIR_TTL_MS = 2 * 60 * 1000;
 export const PAIR_MAX_ERROS = 5;
 
 /**
+ * Código de download do APK (`apps/daemon/src/apk-share.ts`) — mesmo alfabeto e
+ * a mesma lógica de trava do pareamento, mas constantes PRÓPRIAS: é outro
+ * segredo, com outro dono de estado, e as duas coisas só coincidem de valor
+ * por acaso hoje. Mudar uma não deve mudar a outra por engano.
+ */
+export const APK_CODE_LEN = 6;
+export const APK_TTL_MS = 5 * 60 * 1000;
+export const APK_MAX_ERROS = 5;
+
+/**
  * Deixa a tentativa comparável: maiúscula, sem separador, e com as confusões
  * óbvias desfeitas (I e L viram 1, O vira 0).
  *
