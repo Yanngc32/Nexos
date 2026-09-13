@@ -1,10 +1,11 @@
 # Nexo — HTTPS no daemon via `tailscale cert` (design)
 
 Data: 2026-09-13
-Status: proposto, aguardando aprovação do usuário. **Nenhuma linha de código deste spec foi
-implementada ainda** — é design puro, para revisão antes de tocar em `escuta.ts`/`server.ts`
-(bind e listen são infraestrutura que todo usuário do Nexo depende, inclusive quem nunca vai
-usar mobile/APK).
+Status: **implementado** (aprovado pelo usuário — "Segue"). O desenho abaixo é o que foi
+construído, com testes reais rodando (`apk-share`, `tls-tailscale`, `escuta-https`) — inclusive
+um teste que sobe um socket HTTPS de verdade com certificado autoassinado e faz o handshake TLS
+completo. Três dos quatro riscos listados na seção "Riscos e perguntas em aberto" seguem SEM
+resolver — ver o rodapé "O que ficou pra depois".
 
 Nasce do achado da spike de APK
 ([2026-09-13-mobile-apk-spike.md](2026-09-13-mobile-apk-spike.md)): o daemon não serve HTTPS em
@@ -117,8 +118,40 @@ do protocolo/porta — `#c=` e `?c=` continuam exatamente como são.
    binário atrás de uma interface que os testes possam trocar por um fake, do jeito que
    `login-session.ts`/`auth-status.ts` já isolam CLI externa hoje.
 
-## Próximo passo
+## O que foi construído
 
-Este documento é só design. Com aprovação, a implementação vira um plano à parte (branch,
-commits incrementais: módulo de cert → segundo socket em `escuta.ts` → QR condicional →
-aviso de expiração na tela), testado passo a passo — não um commit só.
+Seguiu o plano incremental à risca, testado passo a passo (nunca um commit só):
+
+1. `apps/daemon/src/tls-tailscale.ts` — `hostnameTailscale()` (lê `Self.DNSName` de
+   `tailscale status --json`) e `pedirCertTailscale(hostname, home)` (roda `tailscale cert`,
+   grava em `~/.nexo/tls/`, `chmod 0600` na chave). As DUAS best-effort, nunca lançam. Testado
+   com `node:child_process` mockado (`apps/daemon/test/tls-tailscale.test.ts`).
+2. `apps/daemon/src/escuta.ts` — `EstadoHttps`/`Estado.https`, socket HTTPS separado
+   (`ligadoHttps`/`httpsPort`/`httpsInfo`, tudo estado PRÓPRIO — nunca reusa `ligados`/`porta`
+   do HTTP), relógio próprio (`manterHttpsEmDia`, a cada 6h — bem mais espaçado que os 20s do
+   HTTP, porque `tailscale cert` já decide sozinho quando renovar). `tentarHttps` só age quando
+   há hostname MagicDNS E um socket de túnel de fato de pé; qualquer falha fecha o HTTPS e
+   nunca deita o HTTP. Testado com um handshake TLS REAL (`apps/daemon/test/escuta-https.test.ts`,
+   usando um certificado autoassinado de fixture, `test/fixtures/fake-tls-*.pem`).
+3. `apps/daemon/src/server.ts` — `manterHttpsEmDia` chamada logo depois de `manterEmDia`, sem
+   bloquear a subida (confirmado por smoke test manual: `religar()` continua levando poucos ms).
+4. Desktop — `urlDoCelular`/`urlDoApk` (`apps/desktop/url.js`) ganham um 4º parâmetro opcional
+   `https: {hostname, port}`; quando presente, a URL vira `https://hostname:porta/...` em vez de
+   `http://ip:porta/...`. `renderer.js` só passa esse parâmetro quando `https.host` bate com o
+   host que a tela já está mostrando (`httpsSeAplica`). `GET /v1/escuta` já expõe `https` de
+   graça (é um espalhamento de `estadoAtual()`, sem rota nova).
+
+### O que ficou pra depois (riscos 1-3 acima, nenhum resolvido)
+
+- **Sem aviso de expiração na tela.** O painel Celular não avisa quando o certificado está perto
+  de vencer — hoje, se a renovação falhar silenciosamente, o único sintoma é o Android parar de
+  confiar, sem pista nenhuma na UI.
+- **Sem otimização do custo de subida** — hoje `manterHttpsEmDia` sempre tenta na subida
+  (`hostnameTailscale` falha rápido sem Tailscale, então o custo é baixo quando não se aplica,
+  mas continua sem cache entre subidas).
+- **Sem tratamento de troca de tailnet** — se o hostname MagicDNS mudar, `tentarHttps` religa
+  pro hostname novo na tentativa seguinte (funciona), mas não há nada que detecte ou avise
+  ativamente sobre a troca em si.
+
+Nenhum dos três bloqueia o uso — HTTPS aparece quando as condições batem e nunca atrapalha o
+HTTP quando não batem. São lacunas de robustez/UX pra tratar numa iteração futura, não bugs.

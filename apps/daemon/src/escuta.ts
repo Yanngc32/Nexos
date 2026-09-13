@@ -1,7 +1,9 @@
 import type { Server } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { DEFAULT_CONFIG } from "@nexo/shared";
-import { enderecosDaMaquina, escolherHostDoCelular, ondeEscutar } from "./enderecos.ts";
+import { classificar, enderecosDaMaquina, escolherHostDoCelular, ondeEscutar } from "./enderecos.ts";
+import { hostnameTailscale, pedirCertTailscale } from "./tls-tailscale.ts";
 
 /**
  * Em quais endereços o daemon está escutando — e mantê-los em dia sem reiniciar.
@@ -27,6 +29,14 @@ export type Ligado = { host: string; server: Server };
 
 export type Falha = { host: string; motivo: string };
 
+/**
+ * HTTPS de verdade (certificado emitido via `tailscale cert`), quando existe. `null`
+ * sempre que faltar qualquer pré-requisito — sem túnel, tailnet sem HTTPS habilitado,
+ * binário ausente — e o celular cai pro `http://` de sempre nesse caso. Ver
+ * `docs/superpowers/specs/2026-09-13-https-tailscale-cert-design.md`.
+ */
+export type EstadoHttps = { host: string; hostname: string; port: number } | null;
+
 export type Estado = {
   /** Onde está escutando de verdade, agora. */
   hosts: string[];
@@ -34,6 +44,7 @@ export type Estado = {
   falhas: Falha[];
   /** A porta EFETIVA. Com `--port 0` quem escolhe é o SO, e só ele sabe qual. */
   port: number;
+  https: EstadoHttps;
 };
 
 type Fetch = Parameters<typeof serve>[0]["fetch"];
@@ -41,6 +52,13 @@ type Fetch = Parameters<typeof serve>[0]["fetch"];
 let ligados: Ligado[] = [];
 let falhas: Falha[] = [];
 let porta = 0;
+
+let ligadoHttps: Ligado | null = null;
+let httpsPort = 0;
+let httpsInfo: EstadoHttps = null;
+/** Uma tentativa de cada vez — `tailscale cert` pode demorar, e empilhar chamada
+ *  concorrente só faria a mesma pergunta duas vezes sem ganhar nada. */
+let tentandoHttps = false;
 
 function abrir(fetchHandler: Fetch, hostname: string, port: number): Promise<{ server: Server; port: number }> {
   return new Promise((resolve, reject) => {
@@ -65,6 +83,38 @@ function fechar(l: Ligado): void {
   } catch {
     /* já estava fechado */
   }
+}
+
+function abrirHttps(
+  fetchHandler: Fetch,
+  hostname: string,
+  port: number,
+  cert: string,
+  key: string,
+): Promise<{ server: Server; port: number }> {
+  return new Promise((resolve, reject) => {
+    let pronto = false;
+    const server = serve(
+      { fetch: fetchHandler, hostname, port, createServer: createHttpsServer, serverOptions: { cert, key } },
+      (info) => {
+        if (pronto) return;
+        pronto = true;
+        resolve({ server: server as Server, port: Number(info.port) });
+      },
+    ) as Server;
+    server.on("error", (err) => {
+      if (pronto) return;
+      pronto = true;
+      server.close();
+      reject(err);
+    });
+  });
+}
+
+function fecharHttps(): void {
+  if (ligadoHttps) fechar(ligadoHttps);
+  ligadoHttps = null;
+  httpsInfo = null;
 }
 
 /**
@@ -110,7 +160,7 @@ export function ligadoEm(host: string): Server | undefined {
 
 export function estadoAtual(): Estado {
   // a ordem de `ligados` segue a de `ondeEscutar`: loopback primeiro
-  return { hosts: ligados.map((l) => l.host), falhas, port: porta };
+  return { hosts: ligados.map((l) => l.host), falhas, port: porta, https: httpsInfo };
 }
 
 /** O endereço que a tela deve mostrar: o túnel se houver, senão o loopback. */
@@ -123,6 +173,54 @@ export function fecharTudo(): void {
   ligados = [];
   falhas = [];
   porta = 0;
+  fecharHttps();
+  httpsPort = 0;
+}
+
+/**
+ * Pede (ou confirma que já tem) o certificado e sobe/atualiza o socket HTTPS.
+ *
+ * Chamada isolada da `religar()` de propósito: `tailscale cert` pode levar
+ * dezenas de segundos (rede até o Let's Encrypt), e a religada de HTTP — que
+ * roda a cada 20s e é o que faz o app desktop continuar de pé — nunca pode
+ * esperar por isso. As duas mexem em estado de módulo diferente
+ * (`ligadoHttps`/`httpsInfo` vs. `ligados`/`falhas`), então não há corrida
+ * entre elas mesmo rodando em paralelo.
+ *
+ * NUNCA lança: qualquer falha (sem túnel, sem HTTPS no tailnet, binário
+ * ausente, erro de rede) só fecha o que já havia — o daemon segue servindo
+ * HTTP, exatamente como antes deste módulo existir.
+ */
+export async function tentarHttps(fetchHandler: Fetch, port: number, home: string): Promise<void> {
+  if (tentandoHttps) return;
+  tentandoHttps = true;
+  try {
+    const hostname = await hostnameTailscale();
+    if (!hostname) return fecharHttps();
+
+    // só serve pedir certificado se há, AGORA, um socket de túnel de pé pra
+    // atender quem se conectar nele — certificado sem ninguém escutando atrás
+    // não ajuda ninguém
+    const tunel = ligados.find((l) => classificar(l.host) === "tunel");
+    if (!tunel) return fecharHttps();
+
+    // já está de pé com o hostname certo: nada a fazer (evita religar o
+    // socket, e derrubar conexão em voo, sem necessidade)
+    if (ligadoHttps && httpsInfo?.hostname === hostname && httpsInfo.host === tunel.host) return;
+
+    const par = await pedirCertTailscale(hostname, home);
+    if (!par) return fecharHttps();
+
+    if (ligadoHttps) fechar(ligadoHttps);
+    const aberto = await abrirHttps(fetchHandler, tunel.host, httpsPort || port + 1, par.certPem, par.keyPem);
+    httpsPort = aberto.port;
+    ligadoHttps = { host: tunel.host, server: aberto.server };
+    httpsInfo = { host: tunel.host, hostname, port: httpsPort };
+  } catch {
+    fecharHttps();
+  } finally {
+    tentandoHttps = false;
+  }
 }
 
 /**
@@ -151,8 +249,32 @@ export function pararDeManter(): void {
   relogio = null;
 }
 
+/**
+ * Relógio PRÓPRIO do HTTPS, bem mais espaçado que o de HTTP: `tailscale cert`
+ * já decide sozinho se está perto de vencer (Let's Encrypt dá ~90 dias), então
+ * checar a cada poucas horas sobra — checar a cada 20s só bateria à toa no
+ * binário externo sem ganhar nada.
+ */
+const HTTPS_PERIODO_MS = 6 * 60 * 60 * 1000;
+let httpsRelogio: NodeJS.Timeout | null = null;
+
+export function manterHttpsEmDia(fetchHandler: Fetch, port: number, home: string): void {
+  pararDeManterHttps();
+  void tentarHttps(fetchHandler, port, home);
+  httpsRelogio = setInterval(() => {
+    void tentarHttps(fetchHandler, port, home);
+  }, HTTPS_PERIODO_MS);
+  httpsRelogio.unref?.();
+}
+
+export function pararDeManterHttps(): void {
+  if (httpsRelogio) clearInterval(httpsRelogio);
+  httpsRelogio = null;
+}
+
 /** Só pra teste: o estado é de módulo e vaza entre casos. */
 export function resetEscutaForTest(): void {
   pararDeManter();
+  pararDeManterHttps();
   fecharTudo();
 }

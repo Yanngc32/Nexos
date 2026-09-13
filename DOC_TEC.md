@@ -276,11 +276,21 @@ solta dizendo que ainda não há build.
 **Keystore**: não existe ainda — só entra quando a Fase 2 (pipeline de build) começar; vai morar em
 `~/.nexo`, modo `0600`, mesmo padrão do `daemon.token`.
 
-**Limitações conhecidas** (achadas na spike, não resolvidas): o daemon não serve HTTPS em lugar
-nenhum, e isso trava tanto uma PWA de verdade instalável (Chrome exige HTTPS ou `localhost` pra
-`display: standalone` valer) quanto um TWA (Digital Asset Links exige hostname+HTTPS
-verificáveis — `127.0.0.1` ou IP de LAN não fecham). Side-load de um `.apk` sempre vai exigir
-"fontes desconhecidas" habilitado no Android.
+Side-load de um `.apk` sempre vai exigir "fontes desconhecidas" habilitado no Android.
+
+#### HTTPS (`tailscale cert`)
+
+Achado da spike (daemon sem HTTPS trava PWA instalável de verdade e TWA ao mesmo tempo) —
+resolvido, ver [design](docs/superpowers/specs/2026-09-13-https-tailscale-cert-design.md). Quando
+a máquina tem Tailscale com HTTPS habilitado no tailnet, o daemon pede um certificado real (Let's
+Encrypt) pro hostname MagicDNS (`apps/daemon/src/tls-tailscale.ts`) e sobe um **segundo** socket,
+só nesse host, numa porta própria (`apps/daemon/src/escuta.ts`, `manterHttpsEmDia`) — loopback e
+LAN continuam só em HTTP, porque IP privado não recebe certificado público. `GET /v1/escuta`
+expõe `https: { host, hostname, port } | null`; o QR (`urlDoCelular`/`urlDoApk`) usa
+`https://hostname:porta` quando existe, `http://ip:porta` quando não. Melhor-esforço em toda
+parte: sem o binário `tailscale`, sem HTTPS no tailnet, ou qualquer erro no meio, o daemon segue
+só em HTTP exatamente como antes — nunca atrasa a subida nem derruba nada. Ainda sem aviso de
+expiração de certificado na tela.
 
 ## CLI
 

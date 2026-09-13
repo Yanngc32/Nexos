@@ -4508,6 +4508,17 @@ let celPar = null;
 /** O que `GET /v1/escuta` devolveu: onde o daemon está de fato escutando. */
 let celEscuta = null;
 
+/**
+ * `https`, quando `GET /v1/escuta` devolve um: certificado de verdade
+ * (`tailscale cert`) pro host que a tela está mostrando. Só entra no QR
+ * quando o host do certificado é o MESMO que `melhor` — o daemon só emite
+ * HTTPS pro host de túnel específico, então um certificado de um host
+ * diferente do que a tela mostra não serve pra nada aqui.
+ */
+function httpsSeAplica(escuta) {
+  return escuta?.https?.host === escuta?.melhor ? escuta.https : null;
+}
+
 function celMostrar(par) {
   if (celTimer) clearInterval(celTimer);
   celPar = par ?? null;
@@ -4523,7 +4534,7 @@ function celMostrar(par) {
    * com o endereço errado manda o telefone pra um lugar onde não há ninguém, e
    * ele falha calado.
    */
-  const url = urlDoCelular(celEscuta?.melhor, celEscuta?.port, par.codigo);
+  const url = urlDoCelular(celEscuta?.melhor, celEscuta?.port, par.codigo, httpsSeAplica(celEscuta));
   $("cel-qr").classList.remove("hidden");
   // innerHTML com SVG que este módulo acabou de gerar a partir de um endereço e
   // 6 caracteres — nada aqui vem de fora, e SVG inline não carrega nem executa nada
@@ -4598,7 +4609,7 @@ function apkMostrar(par) {
     $("btn-apk-codigo").textContent = "Gerar QR de download";
     return;
   }
-  const url = urlDoApk(celEscuta?.melhor, celEscuta?.port, par.codigo);
+  const url = urlDoApk(celEscuta?.melhor, celEscuta?.port, par.codigo, httpsSeAplica(celEscuta));
   $("apk-qr").classList.remove("hidden");
   // mesma garantia do QR de pareamento: SVG inline gerado aqui, nada externo
   $("apk-qr-img").innerHTML = qrSvg(url);

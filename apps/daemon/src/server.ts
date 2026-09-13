@@ -4,7 +4,7 @@ import type { Server } from "node:http";
 import { join } from "node:path";
 import { DEFAULT_CONFIG } from "@nexo/shared";
 import { loadConfig } from "./config.ts";
-import { fecharTudo, ligadoEm, manterEmDia, religar } from "./escuta.ts";
+import { fecharTudo, ligadoEm, manterEmDia, manterHttpsEmDia, religar } from "./escuta.ts";
 import { ensureHome, tokenPath } from "./home.ts";
 import { createApp } from "./http.ts";
 import { reapRunPids } from "./kill-tree.ts";
@@ -119,6 +119,9 @@ export async function startDaemon(home: string, opts?: { port?: number }): Promi
   // e daqui pra frente ele se mantém em dia sozinho: túnel que sobe depois
   // entra sem ninguém reiniciar nada
   manterEmDia(app.fetch, estado.port, hostManual);
+  // HTTPS é melhor-esforço e roda no fundo — nunca atrasa a subida do daemon,
+  // que segue em HTTP com ou sem ele (ver escuta.ts)
+  manterHttpsEmDia(app.fetch, estado.port, home);
 
   const principal = ligadoEm(estado.hosts[0] ?? "");
   if (!principal) throw new Error("escuta sem servidor: isto é bug");
