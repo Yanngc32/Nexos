@@ -2986,28 +2986,6 @@ button:disabled {
   color: var(--danger);
 }
 
-.shared-avancado {
-  margin-top: 6px;
-  border-top: 1px solid var(--line);
-}
-
-.shared-avancado summary {
-  padding: 12px 0;
-  font-size: 12px;
-  color: var(--muted);
-  cursor: pointer;
-  user-select: none;
-}
-
-.shared-avancado summary:hover {
-  color: var(--text);
-}
-
-.shared-avancado .shared-card:first-of-type {
-  border-top: 0;
-  padding-top: 0;
-}
-
 .shared-msg[data-tipo="ok"] {
   color: var(--accent);
 }

@@ -5523,13 +5523,7 @@ async function renderMemoria() {
     return;
   }
   $("projetos-dir").value = cfg.projetosDir || "";
-  $("mem-dir").value = cfg.memoriaDir || "";
-  $("graph-dir").value = cfg.graphDir || "";
-  $("tarefas-dir").value = cfg.tarefasDir || "";
   pintarBadgePasta("projetos-dir-badge", cfg.projetosDir);
-  pintarBadgePasta("mem-dir-badge", cfg.memoriaDir);
-  pintarBadgePasta("graph-dir-badge", cfg.graphDir);
-  pintarBadgePasta("tarefas-dir-badge", cfg.tarefasDir);
 }
 
 /**
@@ -5568,54 +5562,6 @@ $("btn-projetos-dir-pick").addEventListener("click", async () => {
   if (path) {
     void salvarPastaCompartilhada(
       { campo: "projetosDir", inputId: "projetos-dir", msgId: "projetos-dir-msg", badgeId: "projetos-dir-badge" },
-      path,
-    );
-  }
-});
-
-$("mem-dir").addEventListener("change", (e) =>
-  void salvarPastaCompartilhada(
-    { campo: "memoriaDir", inputId: "mem-dir", msgId: "mem-dir-msg", badgeId: "mem-dir-badge" },
-    e.target.value,
-  ),
-);
-$("btn-mem-dir-pick").addEventListener("click", async () => {
-  const path = await window.nexo.pickFolder();
-  if (path) {
-    void salvarPastaCompartilhada(
-      { campo: "memoriaDir", inputId: "mem-dir", msgId: "mem-dir-msg", badgeId: "mem-dir-badge" },
-      path,
-    );
-  }
-});
-
-$("graph-dir").addEventListener("change", (e) =>
-  void salvarPastaCompartilhada(
-    { campo: "graphDir", inputId: "graph-dir", msgId: "graph-dir-msg", badgeId: "graph-dir-badge" },
-    e.target.value,
-  ),
-);
-$("btn-graph-dir-pick").addEventListener("click", async () => {
-  const path = await window.nexo.pickFolder();
-  if (path) {
-    void salvarPastaCompartilhada(
-      { campo: "graphDir", inputId: "graph-dir", msgId: "graph-dir-msg", badgeId: "graph-dir-badge" },
-      path,
-    );
-  }
-});
-
-$("tarefas-dir").addEventListener("change", (e) =>
-  void salvarPastaCompartilhada(
-    { campo: "tarefasDir", inputId: "tarefas-dir", msgId: "tarefas-dir-msg", badgeId: "tarefas-dir-badge" },
-    e.target.value,
-  ),
-);
-$("btn-tarefas-dir-pick").addEventListener("click", async () => {
-  const path = await window.nexo.pickFolder();
-  if (path) {
-    void salvarPastaCompartilhada(
-      { campo: "tarefasDir", inputId: "tarefas-dir", msgId: "tarefas-dir-msg", badgeId: "tarefas-dir-badge" },
       path,
     );
   }
