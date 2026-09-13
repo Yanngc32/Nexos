@@ -25,7 +25,7 @@ import {
   normPath,
   samePath,
 } from "./format.js";
-import { portaDaUrl, safeUrl, urlDoCelular } from "./url.js";
+import { portaDaUrl, safeUrl, urlDoApk, urlDoCelular } from "./url.js";
 import { qrSvg } from "./qr.js";
 import { celAlcance, celAviso } from "./celular.js";
 import { extrairMencoes } from "./mention.js";
@@ -4508,6 +4508,17 @@ let celPar = null;
 /** O que `GET /v1/escuta` devolveu: onde o daemon está de fato escutando. */
 let celEscuta = null;
 
+/**
+ * `https`, quando `GET /v1/escuta` devolve um: certificado de verdade
+ * (`tailscale cert`) pro host que a tela está mostrando. Só entra no QR
+ * quando o host do certificado é o MESMO que `melhor` — o daemon só emite
+ * HTTPS pro host de túnel específico, então um certificado de um host
+ * diferente do que a tela mostra não serve pra nada aqui.
+ */
+function httpsSeAplica(escuta) {
+  return escuta?.https?.host === escuta?.melhor ? escuta.https : null;
+}
+
 function celMostrar(par) {
   if (celTimer) clearInterval(celTimer);
   celPar = par ?? null;
@@ -4523,7 +4534,7 @@ function celMostrar(par) {
    * com o endereço errado manda o telefone pra um lugar onde não há ninguém, e
    * ele falha calado.
    */
-  const url = urlDoCelular(celEscuta?.melhor, celEscuta?.port, par.codigo);
+  const url = urlDoCelular(celEscuta?.melhor, celEscuta?.port, par.codigo, httpsSeAplica(celEscuta));
   $("cel-qr").classList.remove("hidden");
   // innerHTML com SVG que este módulo acabou de gerar a partir de um endereço e
   // 6 caracteres — nada aqui vem de fora, e SVG inline não carrega nem executa nada
@@ -4564,6 +4575,7 @@ async function celPintar() {
   $("cel-alcance").textContent = celAlcance(celEscuta);
   $("cel-aviso").textContent = celAviso(celEscuta);
   if (celPar) celMostrar(celPar);
+  if (apkAberto) apkMostrar(apkAberto);
 }
 
 /** O campo avançado: só o que foi escrito à mão, que é acréscimo e não escolha única. */
@@ -4575,6 +4587,114 @@ function celPintarUrl(cfg) {
 }
 
 $("btn-cel-codigo").addEventListener("click", () => void celPedirCodigo());
+
+/**
+ * QR de download do APK, visto do desktop — MESMA ideia do de pareamento
+ * (código curto, TTL, uso único), mas estado e QR completamente separados: um
+ * nunca fecha o outro, e o link de um nunca carrega o código do outro.
+ *
+ * Enquanto o build não existir (Fase 2 do plano), o código já vale e já
+ * protege — só que a página que o celular abre (`GET /apk`) avisa que ainda
+ * não há artefato, em vez de servir um `.apk`.
+ */
+let apkTimer = 0;
+let apkAberto = null;
+
+function apkMostrar(par) {
+  if (apkTimer) clearInterval(apkTimer);
+  apkAberto = par ?? null;
+  if (!par) {
+    $("apk-qr").classList.add("hidden");
+    $("apk-qr-img").textContent = "";
+    $("btn-apk-codigo").textContent = "Gerar QR de download";
+    return;
+  }
+  const url = urlDoApk(celEscuta?.melhor, celEscuta?.port, par.codigo, httpsSeAplica(celEscuta));
+  $("apk-qr").classList.remove("hidden");
+  // mesma garantia do QR de pareamento: SVG inline gerado aqui, nada externo
+  $("apk-qr-img").innerHTML = qrSvg(url);
+  const tique = () => {
+    const resta = Math.max(0, Math.round((par.expiraEm - Date.now()) / 1000));
+    if (!resta) return apkMostrar(null);
+    $("apk-codigo").textContent = par.codigo;
+    $("btn-apk-codigo").textContent = `expira em ${resta}s`;
+  };
+  tique();
+  apkTimer = setInterval(tique, 1000);
+}
+
+async function apkPedirCodigo() {
+  try {
+    await celPintar();
+    apkMostrar(await req("/v1/apk", { method: "POST" }));
+  } catch (e) {
+    $("cel-aviso").textContent = e.message || "Não deu pra gerar o QR de download.";
+  }
+}
+
+$("btn-apk-codigo").addEventListener("click", () => void apkPedirCodigo());
+
+/**
+ * Build do APK (Fase 2) — dispara e faz polling do status enquanto
+ * `"construindo"`. Precisa de HTTPS de pé (a rota recusa sem isso) e do SDK
+ * do Android na máquina; qualquer falta vira mensagem clara aqui, não erro
+ * genérico.
+ */
+let apkBuildTimer = 0;
+
+function apkBuildPintar(e) {
+  const status = $("apk-build-status");
+  const btn = $("btn-apk-build");
+  if (!e || e.fase === "ocioso") {
+    status.textContent = "";
+    btn.disabled = false;
+    btn.textContent = "Gerar APK";
+    return;
+  }
+  if (e.fase === "construindo") {
+    status.textContent = `Construindo: ${e.etapa}…`;
+    btn.disabled = true;
+    btn.textContent = "Construindo…";
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent = "Gerar de novo";
+  status.textContent =
+    e.fase === "pronto" ? `Pronto — versão ${e.versao}, sha256 ${e.sha256.slice(0, 12)}…` : e.motivo;
+}
+
+function apkBuildPararPolling() {
+  if (apkBuildTimer) clearInterval(apkBuildTimer);
+  apkBuildTimer = 0;
+}
+
+async function apkBuildChecar() {
+  try {
+    const e = await req("/v1/apk/build");
+    apkBuildPintar(e);
+    if (e?.fase === "construindo") {
+      if (!apkBuildTimer) apkBuildTimer = setInterval(() => void apkBuildChecar(), 1500);
+    } else {
+      apkBuildPararPolling();
+    }
+  } catch {
+    apkBuildPararPolling();
+  }
+}
+
+async function apkBuildIniciar() {
+  try {
+    apkBuildPintar(await req("/v1/apk/build", { method: "POST" }));
+    apkBuildPararPolling();
+    apkBuildTimer = setInterval(() => void apkBuildChecar(), 1500);
+  } catch (e) {
+    $("apk-build-status").textContent = e.message || "Não deu pra iniciar o build.";
+  }
+}
+
+$("btn-apk-build").addEventListener("click", () => void apkBuildIniciar());
+// mostra o estado assim que o painel carrega — inclusive um build de uma sessão anterior
+void apkBuildChecar();
 
 /**
  * Desconecta todos os celulares de uma vez.

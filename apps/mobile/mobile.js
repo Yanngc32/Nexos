@@ -212,6 +212,7 @@ function repintarAgora() {
   pintarRun(faixa);
   pintarContas(contas);
   $("agora-vazio").classList.toggle("hidden", Boolean(faixa) || trabalhando.length > 0 || contas.length > 0);
+  syncPet($("motor").dataset.on === "1", trabalhando.length > 0);
 }
 
 function comecarRelogio() {
@@ -301,7 +302,7 @@ function abrirFolha(el) {
   el.classList.remove("hidden");
 }
 
-for (const folha of [$("folha-nova"), $("folha-ajustes")]) {
+for (const folha of [$("folha-nova"), $("folha-ajustes"), $("folha-trocar")]) {
   folha.querySelector("[data-fechar]").addEventListener("click", () => fecharFolha(folha));
 }
 
@@ -403,15 +404,221 @@ async function ajustarPerfil(patch) {
 }
 
 $("btn-ajustes").addEventListener("click", () => void abrirFolhaAjustes());
-$("ajuste-modelo").addEventListener("change", () => void ajustarPerfil({ model: $("ajuste-modelo").value }));
+$("ajuste-modelo").addEventListener("change", async () => {
+  await ajustarPerfil({ model: $("ajuste-modelo").value });
+  void refrescarChips();
+});
 $("ajuste-esforco").addEventListener("input", () => {
   const idx = Number($("ajuste-esforco").value);
   $("ajuste-esforco-label").textContent = EFFORT_NAMES[idx];
 });
-$("ajuste-esforco").addEventListener("change", () => {
+$("ajuste-esforco").addEventListener("change", async () => {
   const idx = Number($("ajuste-esforco").value);
-  void ajustarPerfil({ effort: EFFORT_STEPS[idx] });
+  await ajustarPerfil({ effort: EFFORT_STEPS[idx] });
+  void refrescarChips();
 });
+
+/**
+ * Chips de conta/modelo, visíveis acima da caixa (não escondidos atrás do `⚙`)
+ * — igual à barra do desktop. Conta é clicável e troca de verdade a conta da
+ * conversa (mesma rota que o desktop usa, `POST /v1/threads/:id/switch`); o
+ * chip de modelo mostra também o esforço e abre a mesma folha que já reúne
+ * os dois — não há chip separado de esforço, ele mora dentro do seletor de
+ * modelo, igual à referência.
+ */
+async function refrescarChips() {
+  if (!threadProfileId) {
+    $("chip-conta").classList.add("hidden");
+    $("chip-modelo").classList.add("hidden");
+    return;
+  }
+  $("chip-conta").classList.remove("hidden");
+  $("chip-conta").textContent = threadProfileId;
+  try {
+    mencoes.profiles = await req("/v1/profiles");
+  } catch {
+    $("chip-modelo").classList.add("hidden");
+    return;
+  }
+  const p = perfilAtual();
+  const podeAjustar = Boolean(p && p.engine === "claude");
+  $("chip-modelo").classList.toggle("hidden", !podeAjustar);
+  if (podeAjustar) {
+    const idx = Math.max(0, EFFORT_STEPS.indexOf(p.effort || ""));
+    $("chip-modelo").textContent = `${p.model || "modelo padrão"} · ${EFFORT_NAMES[idx]}`;
+  }
+}
+
+async function abrirFolhaTrocar() {
+  if (!threadProfileId) return;
+  const ul = $("folha-trocar-lista");
+  ul.replaceChildren();
+  abrirFolha($("folha-trocar"));
+  let profiles = [];
+  try {
+    profiles = await req("/v1/profiles");
+  } catch {
+    /* folha abre vazia; painel de contas do computador é que resolve */
+  }
+  mencoes.profiles = profiles;
+  const opcoes = profiles.filter((p) => p.status === "ready" && p.id !== threadProfileId);
+  $("folha-trocar-vazio").classList.toggle("hidden", opcoes.length > 0);
+  for (const p of opcoes) {
+    const desc = p.engine === "claude" ? p.model || "modelo padrão" : p.engine;
+    ul.append(linhaDeOpcao(p.id, desc, () => void trocarConta(p.id)));
+  }
+}
+
+async function trocarConta(profileId) {
+  fecharFolha($("folha-trocar"));
+  try {
+    const res = await req(`/v1/threads/${threadId}/switch`, {
+      method: "POST",
+      body: JSON.stringify({ profileId, confirmed: true, reason: "user" }),
+    });
+    threadProfileId = profileId;
+    bolha("sys", `— trocou pra ${profileId} —`);
+    rolarPraBaixo();
+    await refrescarChips();
+    // `resumed`: a conta nova já está respondendo o turno que ficou pendente.
+    if (res?.resumed) syncPet(true, true);
+  } catch (e) {
+    bolha("erro", e.message);
+    rolarPraBaixo();
+  }
+}
+
+$("chip-conta").addEventListener("click", () => void abrirFolhaTrocar());
+$("chip-modelo").addEventListener("click", () => void abrirFolhaAjustes());
+
+/* ---------- pet: maguinho no canto do compositor, igual ao desktop ----------
+ * Mesma ideia do `apps/desktop/renderer.js`, resumida: só idle/off/work (o
+ * celular não tem "wake" — a conversa já abre com o motor respondendo ou não).
+ * A gema na ponta do chapéu é pintada com `--accent` em runtime, então segue a
+ * cor da marca sem precisar de um PNG por tema.
+ */
+const PET_BASE = "./pets/nexo/mago/";
+const PET_REST = "idle";
+const PET_FRAMES = {
+  off: ["off", "off-z1", "off-z2", "off-z1"],
+  idle: [PET_REST, PET_REST, "idle-blink", PET_REST],
+  work: ["work", "work-tap-a", "work-on", "work-tap-b", "work-dim", "work-blink", "work"],
+};
+const PET_FRAME_MS = { off: 700, idle: 400, work: 120 };
+const HEX_ACCENT = /^#[0-9a-f]{6}$/i;
+
+const petState = { name: "", timer: 0, frame: 0, reduceMotion: false };
+const petImgs = new Map();
+
+function petSrc(frame) {
+  return `${PET_BASE}${frame}.png`;
+}
+
+function petImg(frame) {
+  let img = petImgs.get(frame);
+  if (img) return img;
+  img = new Image();
+  img.src = petSrc(frame);
+  petImgs.set(frame, img);
+  return img;
+}
+
+function accentRgb() {
+  let hex = (getComputedStyle(document.documentElement).getPropertyValue("--accent") || "").trim();
+  if (!HEX_ACCENT.test(hex)) hex = "#7c5cbf";
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** Só a gema na ponta do chapéu troca de cor; o resto do sprite fica igual. */
+function tintPetGem(ctx, w, h) {
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  let top = h;
+  for (let i = 3; i < d.length; i += 4) {
+    if (d[i] < 160) continue;
+    const y = Math.floor(i / 4 / w);
+    if (y < top) top = y;
+  }
+  if (top >= h) return;
+  const y1 = Math.min(h, top + 14);
+  const [ar, ag, ab] = accentRgb();
+  for (let y = top; y < y1; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      if (d[i + 3] < 80) continue;
+      const r = d[i];
+      const g = d[i + 1];
+      const b = d[i + 2];
+      const blue = b - Math.max(r, g);
+      if (blue < 10) continue;
+      const t = Math.min(1, blue / 45);
+      d[i] = Math.round(r + (ar - r) * t);
+      d[i + 1] = Math.round(g + (ag - g) * t);
+      d[i + 2] = Math.round(b + (ab - b) * t);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+function paintPetFrame() {
+  const sprite = $("pet-sprite");
+  if (!sprite) return;
+  const frames = PET_FRAMES[petState.name] || PET_FRAMES.off;
+  const frame = frames[petState.frame % frames.length];
+  const img = petImg(frame);
+  if (!img.complete || img.naturalWidth === 0) {
+    img.onload = () => paintPetFrame();
+    return;
+  }
+  sprite.width = img.naturalWidth;
+  sprite.height = img.naturalHeight;
+  const ctx = sprite.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, sprite.width, sprite.height);
+  ctx.drawImage(img, 0, 0);
+  tintPetGem(ctx, sprite.width, sprite.height);
+  $("pet-stage").dataset.state = petState.name;
+}
+
+function petTick() {
+  clearTimeout(petState.timer);
+  petState.timer = 0;
+  const frames = PET_FRAMES[petState.name] || PET_FRAMES.off;
+  petState.frame = (petState.frame + 1) % frames.length;
+  paintPetFrame();
+  const ms = petState.reduceMotion ? 0 : PET_FRAME_MS[petState.name] || 400;
+  if (ms > 0) petState.timer = setTimeout(petTick, ms);
+}
+
+function setPet(name) {
+  if (!$("pet-stage") || petState.name === name) return;
+  clearTimeout(petState.timer);
+  petState.timer = 0;
+  petState.name = name;
+  petState.frame = 0;
+  paintPetFrame();
+  const ms = petState.reduceMotion ? 0 : PET_FRAME_MS[name] || 400;
+  if (ms > 0) petState.timer = setTimeout(petTick, ms);
+}
+
+/** Motor desligado = maguinho dorme; ligado sem resposta em voo = idle; respondendo = work. */
+function syncPet(ligado, trabalhando) {
+  setPet(!ligado ? "off" : trabalhando ? "work" : "idle");
+}
+
+/** Some da tela junto com a aba de chat: sem isso a animação roda escondida à toa. */
+function pausePet() {
+  clearTimeout(petState.timer);
+  petState.timer = 0;
+  petState.name = "";
+}
+
+function initPet() {
+  if (!$("pet-stage")) return;
+  petState.reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+  setPet("off");
+}
 
 /* ---------- chat ---------- */
 
@@ -450,8 +657,15 @@ async function abrirChat(id, titulo, profileId = "") {
     if (ev.type === "user" || ev.type === "assistant") bolha(ev.type, ev.text);
     else if (ev.type === "error") bolha("erro", ev.message);
     else if (ev.type === "cleared") bolha("sys", "— contexto cortado —");
+    else if (ev.type === "switched") {
+      threadProfileId = ev.toProfileId;
+      bolha("sys", `— trocou pra ${ev.toProfileId} —`);
+    }
   }
+  $("btn-ajustes").hidden = !threadProfileId;
   rolarPraBaixo();
+  syncPet(true, false);
+  void refrescarChips();
   ouvirChat();
 }
 
@@ -478,11 +692,13 @@ function ouvirChat() {
           if (!atual) atual = bolha("assistant", "");
           renderMd(atual, buf);
           rolarPraBaixo();
+          syncPet(true, true);
           return;
         }
         if (ev.type === "done") {
           atual = null;
           buf = "";
+          syncPet(true, false);
           return;
         }
         if (ev.type === "error" || ev.type === "auth") {
@@ -490,10 +706,18 @@ function ouvirChat() {
           atual = null;
           buf = "";
           rolarPraBaixo();
+          syncPet(true, false);
+          return;
+        }
+        if (ev.type === "switched") {
+          threadProfileId = ev.toProfileId;
+          bolha("sys", `— trocou pra ${ev.toProfileId} —`);
+          rolarPraBaixo();
+          void refrescarChips();
           return;
         }
         if (ev.type === "quota") {
-          bolha("erro", "A quota da conta acabou. Troque de conta no computador.");
+          bolha("erro", "A quota da conta acabou. Toque no chip da conta pra trocar.");
           rolarPraBaixo();
         }
       }),
@@ -514,11 +738,13 @@ $("form-msg").addEventListener("submit", async (e) => {
   bolha("user", texto);
   rolarPraBaixo();
   void dispararMencoes(texto);
+  syncPet(true, true);
   try {
     await req(`/v1/threads/${threadId}/messages`, { method: "POST", body: JSON.stringify({ text: texto }) });
   } catch (err) {
     bolha("erro", err.message);
     rolarPraBaixo();
+    syncPet(true, false);
   }
 });
 
@@ -773,6 +999,7 @@ $("tabs").addEventListener("click", (e) => {
   const aba = e.target?.dataset?.aba;
   if (!aba) return;
   abortStream?.abort();
+  pausePet();
   if (aba === "agora") void abrirAgora();
   else {
     pararRelogio();
@@ -782,6 +1009,7 @@ $("tabs").addEventListener("click", (e) => {
 
 $("btn-voltar").addEventListener("click", () => {
   abortStream?.abort();
+  pausePet();
   fecharSlash();
   threadId = "";
   threadProfileId = "";
@@ -791,11 +1019,16 @@ $("btn-voltar").addEventListener("click", () => {
 /*
  * Celular suspende a aba quando sai da frente: o relógio pararia sem parar, e
  * voltaria mostrando número velho. Parar e repuxar ao voltar é mais honesto —
- * e economiza bateria.
+ * e economiza bateria. O maguinho segue a mesma regra.
  */
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) return pararRelogio();
-  if (cred && !$("aba-agora").classList.contains("hidden")) void abrirAgora();
+  if (document.hidden) {
+    pararRelogio();
+    return pausePet();
+  }
+  if (!cred) return;
+  if (!$("aba-agora").classList.contains("hidden")) return void abrirAgora();
+  if (!$("aba-chat").classList.contains("hidden")) syncPet(true, false);
 });
 
 /**
@@ -829,6 +1062,7 @@ window.addEventListener("hashchange", () => {
   if (c && !cred) void tentarParear(gastarCodigoPendente());
 });
 
+initPet();
 pegarCodigoDaUrl();
 
 const guardada = credencialGuardada();

@@ -148,13 +148,16 @@ fila e `@menção` de graça.
 ## API HTTP
 
 Toda rota `/v1/*` exige `Authorization: Bearer <token>`, com o token lido de `~/.nexo/daemon.token`.
-Exceções: `/health`, `/v1/health`, `/pair` (pareamento do celular, com suas próprias travas — ver
-Limites de acesso).
+Exceções: `/health`, `/v1/health`, `/pair`, `/apk` (pareamento e download de APK do celular, cada
+um com suas próprias travas, estados separados — ver Limites de acesso) e
+`/.well-known/assetlinks.json` (público por natureza — é o Android que busca sozinho, sem
+credencial nenhuma).
 
 | grupo | rotas |
 | --- | --- |
 | saúde | `GET /health`, `GET /v1/health` |
 | pareamento do celular | `POST/GET/DELETE /v1/pair`, `POST /pair`, `GET /v1/escuta`, `POST /v1/token/rotate` |
+| download de APK | `POST/GET/DELETE /v1/apk`, `POST/GET /v1/apk/build`, `GET /apk`, `GET /.well-known/assetlinks.json` |
 | interface mobile | `GET /app`, `GET /app/*` |
 | perfis | `GET/POST /v1/profiles`, `GET/PATCH /v1/profiles/:id`, `POST /v1/profiles/:id/import`, `POST /v1/profiles/:id/login` |
 | login interativo | `POST /v1/profiles/:id/login/start` \| `/code` \| `/cancel`, `GET .../login/status` |
@@ -248,14 +251,71 @@ contas, lista de conversas do projeto aberto, e permite conversar com stream de 
 6 caracteres (nunca QR do token), com trava de tempo/tentativa/uso único.
 
 "+ Nova" abre uma folha (bottom sheet) com conta pronta (`status: "ready"`) ou agente
-personalizado; tocar cria a thread (`POST /v1/threads`) e já abre o chat. Dentro de uma conversa
-de conta `claude`, um botão de ajustes (⚙) abre outra folha com modelo e effort — mesma rota
-`PATCH /v1/profiles/:id` do desktop; conta de outro motor ou agente sem conta própria não mostra
-o botão. O compositor tem o mesmo menu de autocomplete do desktop: `/skill` (mensagem inteira,
+personalizado; tocar cria a thread (`POST /v1/threads`) e já abre o chat. O compositor é um
+cartão único (caixa + barra de baixo), com o maguinho em pé sobre ele — mesmo bicho do desktop,
+gema tingida em runtime por `--accent`, estados `off`/`idle`/`work` sincronizados com a conexão
+do motor e o streaming da conversa. Dentro do cartão, dois chips: conta (abre uma folha que troca
+a conta da conversa em andamento, `POST /v1/threads/:id/switch` — mesma rota do desktop) e
+modelo+effort juntos (ex.: "sonnet · médio", abre outra folha com os dois controles, mesma rota
+`PATCH /v1/profiles/:id` do desktop); conta de outro motor ou agente sem conta própria não mostra
+o segundo. O compositor tem o mesmo menu de autocomplete do desktop: `/skill` (mensagem inteira,
 `GET /v1/skills`) e `@agente`/`@time` (em qualquer ponto, `GET /v1/agents/defs` + `GET
 /v1/teams`), com `@menção` disparando `POST /v1/runs` em paralelo ao turno de chat — reaproveita
 `extrairMencoes` de `mention.js` do desktop, servido via `./comum/` (lista branca do daemon em
 `web.ts`).
+
+#### Download de APK Android (`GET /apk`)
+
+Infra do QR (ver [spec](docs/superpowers/specs/2026-09-13-mobile-apk-spike.md)). No desktop,
+painel Celular → "Gerar QR de download": abre um código de 6 caracteres
+(`apps/daemon/src/apk-share.ts`), TTL de 5 minutos, uso único, teto de erros — mesmo modelo de
+ameaça do pareamento, mas estado **inteiramente separado**: o QR carrega só host+porta+código
+(nunca a URL do artefato com o hash embutido — o gerador de QR do desktop satura em ~213 bytes), e
+é o celular que troca o código pela informação de verdade ao abrir `GET /apk?c=CODIGO`. Com build
+pronto, essa rota serve o `.apk` DIRETO (`content-type` correto, hash no header
+`X-Nexo-Sha256`); sem build, devolve uma página HTML solta explicando.
+
+**Build (Fase 2, `apps/daemon/src/apk-build.ts`)**: botão "Gerar APK" no painel Celular dispara em
+segundo plano (`POST /v1/apk/build`, `GET` só consulta status) — TWA (Trusted Web Activity) via
+`@bubblewrap/core`, direto (sem a CLI interativa). Exige HTTPS de pé (recusa com 400 sem isso — TWA
+não valida Digital Asset Links em cima de IP) e SDK do Android na máquina (`JAVA_HOME` +
+`ANDROID_HOME`/`ANDROID_SDK_ROOT`); sem qualquer um dos dois, falha com mensagem clara antes de
+gastar tempo. Retenção de 2 builds (`apps/daemon/apk/builds/`), estado persistido em
+`apk/atual.json` (sobrevive a reiniciar o daemon).
+
+**Keystore** (`apps/daemon/src/apk-keystore.ts`): gerado UMA vez, em `~/.nexo/apk/keystore.jks`
+(`0600`, mesmo padrão do `daemon.token`) — nunca regenerado depois de existir, porque trocar a
+chave quebraria atualização de quem já instalou. Usa o `KeyTool` do próprio `@bubblewrap/core`.
+
+**Digital Asset Links** (`GET /.well-known/assetlinks.json`, não-autenticada): declara pro Android
+que o APK (identificado pelo fingerprint SHA-256 do keystore acima) tem permissão de abrir o
+hostname em tela cheia — sem isto o TWA cai pro Chrome com a barra de endereço à mostra. Gerado por
+`gerarAssetLinks` (mesmo arquivo), junto com o keystore; devolve `[]` enquanto nenhum dos dois
+existir ainda.
+
+**O que não foi validado de ponta a ponta**: o ambiente onde isto foi escrito não tem acesso ao SDK
+do Android (host de download bloqueado por política de rede), então a compilação Gradle e a
+assinatura do `.apk` seguem a mesma sequência do comando `bubblewrap build` (lida do código-fonte
+da `@bubblewrap/cli`) mas nunca rodaram de ponta a ponta aqui, e a verificação de Digital Asset
+Links nunca foi confirmada num celular de verdade. O que FOI validado com ferramentas reais:
+geração de keystore e de `assetlinks.json` com `keytool` de verdade, e geração do projeto Android
+(`TwaGenerator.createTwaProject`) baixando um ícone de um servidor HTTP real.
+
+Side-load de um `.apk` sempre vai exigir "fontes desconhecidas" habilitado no Android.
+
+#### HTTPS (`tailscale cert`)
+
+Achado da spike (daemon sem HTTPS trava PWA instalável de verdade e TWA ao mesmo tempo) —
+resolvido, ver [design](docs/superpowers/specs/2026-09-13-https-tailscale-cert-design.md). Quando
+a máquina tem Tailscale com HTTPS habilitado no tailnet, o daemon pede um certificado real (Let's
+Encrypt) pro hostname MagicDNS (`apps/daemon/src/tls-tailscale.ts`) e sobe um **segundo** socket,
+só nesse host, numa porta própria (`apps/daemon/src/escuta.ts`, `manterHttpsEmDia`) — loopback e
+LAN continuam só em HTTP, porque IP privado não recebe certificado público. `GET /v1/escuta`
+expõe `https: { host, hostname, port } | null`; o QR (`urlDoCelular`/`urlDoApk`) usa
+`https://hostname:porta` quando existe, `http://ip:porta` quando não. Melhor-esforço em toda
+parte: sem o binário `tailscale`, sem HTTPS no tailnet, ou qualquer erro no meio, o daemon segue
+só em HTTP exatamente como antes — nunca atrasa a subida nem derruba nada. Ainda sem aviso de
+expiração de certificado na tela.
 
 ## CLI
 

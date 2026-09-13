@@ -43,13 +43,38 @@ export function hostNaUrl(host) {
  * O código vai no **fragmento**, não na query: fragmento não é enviado ao
  * servidor, então não entra em log de acesso nem em `Referer`.
  */
-export function urlDoCelular(host, porta, codigo) {
-  const h = String(host || "127.0.0.1").trim();
-  const alvo = hostNaUrl(h);
+/**
+ * `https`, quando informado (`{ hostname, port }`, de `GET /v1/escuta`), troca
+ * o endereço inteiro pelo certificado de verdade emitido via `tailscale cert`
+ * — nunca `https://` num IP, que nenhuma CA pública assina. Sem ele, cai no
+ * `http://host:porta` de sempre. Ver
+ * `docs/superpowers/specs/2026-09-13-https-tailscale-cert-design.md`.
+ */
+function enderecoBase(host, porta, https) {
+  if (https?.hostname && https.port) return `https://${https.hostname}:${https.port}`;
+  const alvo = hostNaUrl(String(host || "127.0.0.1").trim());
+  return `http://${alvo}:${porta || 7432}`;
+}
+
+export function urlDoCelular(host, porta, codigo, https) {
   // só um código no formato exato entra no fragmento; qualquer outra coisa fica
   // de fora em vez de entrar torta e virar um QR que leva a erro
   const frag = /^[0-9A-HJKMNP-TV-Z]{6}$/.test(String(codigo ?? "")) ? `#c=${codigo}` : "";
-  return `http://${alvo}:${porta || 7432}/app/${frag}`;
+  return `${enderecoBase(host, porta, https)}/app/${frag}`;
+}
+
+/**
+ * O endereço que o QR de download de APK carrega — SEMPRE separado do de
+ * pareamento, e nunca com `#c=` misturado no mesmo link.
+ *
+ * O código vai na QUERY, não no fragmento: `GET /apk` roda no daemon, e
+ * fragmento nunca chega ao servidor — só o `#c=` do pareamento pode ficar lá,
+ * porque quem lê aquele é o JS da SPA, já carregada. Aqui não há SPA
+ * nenhuma antes: o celular ainda pode nem ter o Nexo aberto.
+ */
+export function urlDoApk(host, porta, codigo, https) {
+  const q = /^[0-9A-HJKMNP-TV-Z]{6}$/.test(String(codigo ?? "")) ? `?c=${codigo}` : "";
+  return `${enderecoBase(host, porta, https)}/apk${q}`;
 }
 
 export function portaDaUrl(href) {

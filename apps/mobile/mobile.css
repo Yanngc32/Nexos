@@ -12,7 +12,7 @@
   --line: #2b2b31;
   --text: #e8e8ea;
   --muted: #8b8b95;
-  --accent: #4d9cd6;
+  --accent: #7c5cbf;
   --ok: #4bb96f;
   --warn: #d8a13a;
   --bad: #d65c5c;
@@ -173,28 +173,120 @@ button {
 .msg pre { overflow-x: auto; padding: 8px; border-radius: 8px; background: #101014; font-size: 13px; }
 .msg code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 13px; }
 
-.compositor {
-  display: flex;
-  gap: 8px;
-  padding: 10px 12px max(10px, env(safe-area-inset-bottom));
-  border-top: 1px solid var(--line);
+/* ---------- compositor: um cartão só (caixa + barra), igual à referência ----------
+ * Textarea e a barra de baixo (conta/modelo/esforço + enviar) moram dentro da
+ * MESMA borda arredondada — não são duas formas soltas lado a lado. Acima do
+ * cartão, só o maguinho em pé, com o pé encostado no topo do cartão.
+ */
+
+.compositor-wrap {
+  position: relative;
 }
 
-#txt {
-  flex: 1;
-  min-height: var(--toque);
-  max-height: 40vh;
-  padding: 11px 12px;
+.compositor-topo {
+  display: flex;
+  justify-content: flex-end;
+  height: 38px;
+  padding: 0 16px;
+}
+
+.pet-stage {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 38px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.pet-sprite {
+  display: block;
+  width: 30px;
+  height: auto;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pet-sprite { transition: none !important; }
+}
+
+.compositor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 12px max(10px, env(safe-area-inset-bottom));
+  padding: 10px 12px 8px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 20px;
   background: var(--cartao);
+}
+
+.compositor:focus-within { border-color: var(--accent); }
+
+#txt {
+  min-height: 24px;
+  max-height: 40vh;
+  padding: 2px;
+  border: none;
+  background: transparent;
   color: var(--text);
   /* 16px é o mínimo que o Safari aceita sem dar zoom no foco */
   font: 16px/1.4 inherit;
   resize: none;
 }
 
-#btn-enviar { flex: 0 0 var(--toque); width: var(--toque); font-size: 20px; }
+#txt:focus { outline: none; }
+
+.compositor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.compositor-chips-scroll {
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.compositor-spacer { flex: 1; min-width: 6px; }
+
+#btn-enviar {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-size: 18px;
+  padding: 0;
+}
+
+/* ---------- chips de conta/modelo/esforço: mesma pílula, acima ou dentro do cartão ----------
+ * Nome próprio, e não `.chip`: essa classe já existe (botão "+ Nova") com outro
+ * visual (fundo `--accent`); reusar o nome sobrescreveria a cor dela.
+ */
+.compositor-chip {
+  flex: 0 0 auto;
+  max-width: 28vw;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--cartao);
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* dentro do cartão o fundo do próprio chip já teria que competir com o do
+   cartão — um tom mais claro que a borda dá contraste sem duplicar borda */
+.compositor-toolbar .compositor-chip { border-color: transparent; background: color-mix(in srgb, var(--line) 70%, transparent); }
+
+.compositor-chip:active { background: color-mix(in srgb, var(--accent) 20%, var(--cartao)); color: var(--text); }
 
 /* ---------- abas ---------- */
 

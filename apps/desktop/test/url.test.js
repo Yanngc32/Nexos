@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hostNaUrl, portaDaUrl, safeUrl, urlDoCelular } from "../url.js";
+import { hostNaUrl, portaDaUrl, safeUrl, urlDoApk, urlDoCelular } from "../url.js";
 
 /*
  * `safeUrl` decide o que o iframe do preview carrega. O CSP da janela deixa
@@ -122,5 +122,44 @@ describe("urlDoCelular", () => {
   it("cai no padrão quando host ou porta faltam", () => {
     expect(urlDoCelular("", 0)).toBe("http://127.0.0.1:7432/app/");
     expect(urlDoCelular(undefined, undefined)).toBe("http://127.0.0.1:7432/app/");
+  });
+
+  it("com https disponível, troca host:porta pelo hostname do certificado", () => {
+    // nunca `https://` num IP — nenhuma CA pública assina isso; só o hostname
+    // MagicDNS que o `tailscale cert` emitiu
+    expect(urlDoCelular("100.101.102.103", 7432, "AB3K9Z", { hostname: "maquina.tail1234.ts.net", port: 7433 })).toBe(
+      "https://maquina.tail1234.ts.net:7433/app/#c=AB3K9Z",
+    );
+  });
+
+  it("https incompleto (sem hostname ou sem port) não muda nada", () => {
+    expect(urlDoCelular("192.168.0.42", 7432, "", { hostname: "", port: 7433 })).toBe("http://192.168.0.42:7432/app/");
+    expect(urlDoCelular("192.168.0.42", 7432, "", { hostname: "maquina.tail1234.ts.net" })).toBe(
+      "http://192.168.0.42:7432/app/",
+    );
+  });
+});
+
+describe("urlDoApk", () => {
+  it("monta o endereço que GET /apk espera, com o código na QUERY (não no fragmento)", () => {
+    // fragmento nunca chega ao servidor — só o JS da SPA já carregada o lê, e
+    // aqui o celular pode nem ter o Nexo aberto ainda
+    expect(urlDoApk("192.168.0.42", 7432, "AB3K9Z")).toBe("http://192.168.0.42:7432/apk?c=AB3K9Z");
+    expect(urlDoApk("192.168.0.42", 7432)).toBe("http://192.168.0.42:7432/apk");
+  });
+
+  it("mesmo código inválido/ausente do urlDoCelular: não entra torto na query", () => {
+    expect(urlDoApk("192.168.0.42", 7432, "curto")).toBe("http://192.168.0.42:7432/apk");
+  });
+
+  it("com https disponível, troca host:porta pelo hostname do certificado", () => {
+    expect(urlDoApk("100.101.102.103", 7432, "AB3K9Z", { hostname: "maquina.tail1234.ts.net", port: 7433 })).toBe(
+      "https://maquina.tail1234.ts.net:7433/apk?c=AB3K9Z",
+    );
+  });
+
+  it("QR de download nunca leva o `#c=` do pareamento — são funções e parâmetros separados", () => {
+    const download = urlDoApk("192.168.0.42", 7432, "AB3K9Z");
+    expect(download).not.toContain("#");
   });
 });

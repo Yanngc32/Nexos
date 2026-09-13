@@ -88,10 +88,24 @@
         <section class="aba hidden" id="aba-chat">
           <div class="msgs" id="msgs"></div>
           <div class="slash-menu hidden" id="slash-menu"></div>
-          <form class="compositor" id="form-msg">
-            <textarea id="txt" rows="1" placeholder="Pergunta, pede mudança, /skill, @agente…" aria-label="Mensagem"></textarea>
-            <button type="submit" class="primary" id="btn-enviar">↑</button>
-          </form>
+          <div class="compositor-wrap">
+            <div class="compositor-topo">
+              <div id="pet-stage" class="pet-stage" data-state="off">
+                <canvas id="pet-sprite" class="pet-sprite" width="70" height="96"></canvas>
+              </div>
+            </div>
+            <form class="compositor" id="form-msg">
+              <textarea id="txt" rows="1" placeholder="Pergunta, pede mudança, /skill, @agente…" aria-label="Mensagem"></textarea>
+              <div class="compositor-toolbar">
+                <div class="compositor-chips-scroll">
+                  <button type="button" class="compositor-chip hidden" id="chip-conta" aria-label="Trocar conta"></button>
+                  <button type="button" class="compositor-chip hidden" id="chip-modelo" aria-label="Modelo e esforço"></button>
+                </div>
+                <span class="compositor-spacer"></span>
+                <button type="submit" class="primary" id="btn-enviar">↑</button>
+              </div>
+            </form>
+          </div>
         </section>
       </main>
 
@@ -108,6 +122,16 @@
         <h3>Nova conversa</h3>
         <p class="sub" id="folha-nova-vazio">Nenhuma conta pronta. Faça login no computador.</p>
         <ul class="lista lista-folha" id="folha-nova-lista"></ul>
+      </div>
+    </div>
+
+    <!-- Folha: trocar a conta desta conversa (mesma troca do desktop, POST /v1/threads/:id/switch) -->
+    <div class="folha hidden" id="folha-trocar">
+      <div class="folha-fundo" data-fechar></div>
+      <div class="folha-painel">
+        <h3>Trocar conta</h3>
+        <p class="sub" id="folha-trocar-vazio">Nenhuma outra conta pronta.</p>
+        <ul class="lista lista-folha" id="folha-trocar-lista"></ul>
       </div>
     </div>
 

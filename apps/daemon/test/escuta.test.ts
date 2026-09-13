@@ -79,7 +79,7 @@ describe("religar", () => {
 
 describe("melhorHost", () => {
   it("prefere o túnel, porque é o único por onde o celular chega", () => {
-    expect(melhorHost({ hosts: ["127.0.0.1", "100.101.102.103"], falhas: [], port: 1 })).toBe("100.101.102.103");
+    expect(melhorHost({ hosts: ["127.0.0.1", "100.101.102.103"], falhas: [], port: 1, https: null })).toBe("100.101.102.103");
   });
 
   it("prefere IPv4 mesmo quando o IPv6 veio primeiro na escuta", () => {
@@ -89,16 +89,17 @@ describe("melhorHost", () => {
         hosts: ["127.0.0.1", "fd7a:115c:a1e0::1", "100.101.102.103"],
         falhas: [],
         port: 1,
+        https: null,
       }),
     ).toBe("100.101.102.103");
   });
 
   it("sem túnel, devolve o que há", () => {
-    expect(melhorHost({ hosts: ["127.0.0.1"], falhas: [], port: 1 })).toBe("127.0.0.1");
+    expect(melhorHost({ hosts: ["127.0.0.1"], falhas: [], port: 1, https: null })).toBe("127.0.0.1");
   });
 
   it("sem nada ligado, não devolve vazio pra tela montar URL torta", () => {
-    expect(melhorHost({ hosts: [], falhas: [], port: 0 })).toBe("127.0.0.1");
+    expect(melhorHost({ hosts: [], falhas: [], port: 0, https: null })).toBe("127.0.0.1");
   });
 });
 
@@ -107,7 +108,7 @@ describe("fecharTudo", () => {
     const e = await ligar();
     expect(await alcanca(e.port)).toBe(true);
     fecharTudo();
-    expect(estadoAtual()).toEqual({ hosts: [], falhas: [], port: 0 });
+    expect(estadoAtual()).toEqual({ hosts: [], falhas: [], port: 0, https: null });
     expect(await alcanca(e.port)).toBe(false);
   });
 });

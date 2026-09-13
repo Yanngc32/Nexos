@@ -1185,6 +1185,42 @@
               <p class="set-aviso" id="cel-aviso"></p>
               <div class="set-row">
                 <div class="set-txt">
+                  <h4>Build do APK Android</h4>
+                  <p>
+                    Compila localmente, uma vez — precisa de HTTPS de pé (veja acima) e do SDK do
+                    Android instalado nesta máquina (<code>JAVA_HOME</code> e
+                    <code>ANDROID_HOME</code>). A chave de assinatura é gerada uma vez em
+                    <code>~/.nexo/apk/</code> e reusada sempre: trocar quebraria atualização de
+                    quem já instalou.
+                  </p>
+                  <p class="set-err" id="apk-build-status"></p>
+                </div>
+                <div class="set-ctl">
+                  <button type="button" class="primary" id="btn-apk-build">Gerar APK</button>
+                </div>
+              </div>
+              <div class="set-row">
+                <div class="set-txt">
+                  <h4>Baixar o APK Android</h4>
+                  <p>
+                    QR <b>separado</b> do de pareamento — este só entrega o instalável, nunca o
+                    código de conectar. Vale poucos minutos e serve uma vez. Sem build pronto, o
+                    código já funciona, mas a página do celular avisa que falta o APK.
+                  </p>
+                </div>
+                <div class="set-ctl">
+                  <button type="button" class="primary" id="btn-apk-codigo">Gerar QR de download</button>
+                </div>
+              </div>
+              <div class="cel-qr hidden" id="apk-qr">
+                <div class="cel-qr-img" id="apk-qr-img"></div>
+                <div class="cel-qr-lado">
+                  <span class="cel-codigo" id="apk-codigo"></span>
+                  <span class="cel-qr-sub">para digitar à mão</span>
+                </div>
+              </div>
+              <div class="set-row">
+                <div class="set-txt">
                   <h4>Onde o celular alcança o Nexo</h4>
                   <p id="cel-alcance">…</p>
                 </div>

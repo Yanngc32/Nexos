@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { SwitchReason } from "@nexo/shared";
@@ -97,6 +97,10 @@ import { desligarRepoMapResumos, gerarResumosSobDemanda, sincronizarRepoMapResum
 import { statusDaMemoria } from "./memoria.ts";
 import { estadoAtual, melhorHost } from "./escuta.ts";
 import { abrirPareamento, fecharPareamento, pareamentoAberto, resgatar } from "./pair.ts";
+import { abrirDownload, downloadAberto, fecharDownload, resgatarDownload } from "./apk-share.ts";
+import { paginaApk } from "./apk-pagina.ts";
+import { construirApk, estadoAtualBuild } from "./apk-build.ts";
+import { assetLinksPath } from "./apk-keystore.ts";
 import { servirWeb } from "./web.ts";
 import {
   autostartServices,
@@ -172,6 +176,49 @@ export function createApp(home: string, token: string): Hono {
   });
 
   /*
+   * `GET /apk` é do CELULAR e também NÃO é autenticada, pela mesma razão do
+   * `/pair` logo acima: quem chega aqui ainda não tem o app instalado, então
+   * não pode ter o token. A trava está em `apk-share.ts` (TTL curto, uso
+   * único, erro demais queima o código) — mesma classe de risco do `/pair`,
+   * mesma rigidez. NUNCA vira `/v1/*`: o middleware ali embaixo bloquearia
+   * exatamente o celular que esta rota existe pra atender.
+   *
+   * Com build pronto, serve o `.apk` DIRETO (o código já é de uso único —
+   * outra rodada de "clique aqui pra baixar" não protegeria nada a mais).
+   * Sem build, devolve HTML solto explicando (não a SPA de `/app/`).
+   */
+  app.get("/apk", (c) => {
+    const r = resgatarDownload(c.req.query("c"));
+    if (!r.ok) return c.html(paginaApk({ tipo: "erro", motivo: r.motivo }), 403);
+    const build = estadoAtualBuild(home);
+    if (build.fase === "pronto") {
+      const bytes = readFileSync(build.caminho);
+      return c.body(new Uint8Array(bytes), 200, {
+        "content-type": "application/vnd.android.package-archive",
+        "content-disposition": 'attachment; filename="nexo.apk"',
+        "x-nexo-sha256": build.sha256,
+        "cache-control": "no-store",
+      });
+    }
+    return c.html(paginaApk({ tipo: "sem-build" }));
+  });
+
+  /*
+   * Digital Asset Links: o Android busca isto SOZINHO (sem cookie, sem
+   * token, de qualquer origem) pra decidir se confia que o APK do TWA tem
+   * permissão de abrir o site em tela cheia. Não é segredo — todo site
+   * verificado por TWA publica o dele assim, de propósito — só declara
+   * "este app com este fingerprint pode representar este site", o que só
+   * importa se alguém já tem as duas coisas (o app instalado e o hostname).
+   * Sem keystore/build ainda, devolve lista vazia: nenhum app autorizado.
+   */
+  app.get("/.well-known/assetlinks.json", (c) => {
+    const arq = assetLinksPath(home);
+    const corpo = existsSync(arq) ? readFileSync(arq, "utf8") : "[]";
+    return c.body(corpo, 200, { "content-type": "application/json" });
+  });
+
+  /*
    * A interface web, servida sem autenticação: a página tem que carregar ANTES
    * de existir token, porque é nela que se digita o código de pareamento. Sem
    * token ela não faz nada — todo `/v1/*` abaixo continua exigindo o bearer.
@@ -223,6 +270,35 @@ export function createApp(home: string, token: string): Hono {
     fecharPareamento();
     return c.json({ ok: true });
   });
+
+  /**
+   * Download de APK visto do DESKTOP: abre um código pra mostrar num QR
+   * SEPARADO do de pareamento (nunca `#c=` misturado no mesmo link) — estado
+   * próprio em `apk-share.ts`, então abrir um não fecha o outro.
+   */
+  app.post("/v1/apk", (c) => c.json(abrirDownload()));
+
+  app.get("/v1/apk", (c) => c.json(downloadAberto() ?? null));
+
+  app.delete("/v1/apk", (c) => {
+    fecharDownload();
+    return c.json({ ok: true });
+  });
+
+  /**
+   * Build do APK (Fase 2) — visto do desktop. Autenticada, e precisa de HTTPS
+   * de verdade já de pé (TWA não builda em cima de IP/HTTP puro — ver
+   * `apk-build.ts`). Dispara em segundo plano; `GET` é só consulta de status,
+   * pro painel Celular fazer polling enquanto `fase` for `"construindo"`.
+   */
+  app.post("/v1/apk/build", (c) => {
+    const https = estadoAtual().https;
+    if (!https) return c.json({ error: "HTTPS ainda não está disponível — sem ele, o TWA não builda" }, 400);
+    construirApk(home, https);
+    return c.json(estadoAtualBuild(home), 202);
+  });
+
+  app.get("/v1/apk/build", (c) => c.json(estadoAtualBuild(home)));
 
   /*
    * Onde o daemon escuta AGORA, descoberto e mantido em dia pelo `escuta.ts` —
