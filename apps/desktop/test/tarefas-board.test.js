@@ -1,13 +1,27 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi } from "vitest";
-import { createTarefasBoard, moverNaLista, ordenarPorOrdem, filtrarPorMarco } from "../tarefas-board.js";
+import {
+  createTarefasBoard,
+  moverNaLista,
+  ordenarPorOrdem,
+  filtrarPorMarco,
+  filtrarTabela,
+  tarefasPorDia,
+  escalaDaTimeline,
+  posicaoNaTimeline,
+} from "../tarefas-board.js";
 
 const HTML = `
   <select id="tk-filtro-marco"></select>
+  <button id="tab-tk-kanban" data-on="1"></button>
+  <button id="tab-tk-lista" data-on="0"></button>
+  <button id="tab-tk-calendario" data-on="0"></button>
+  <button id="tab-tk-timeline" data-on="0"></button>
   <button id="btn-tk-marcos"></button>
   <div id="tk-marcos-painel" class="hidden">
     <ul id="tk-marcos-lista"></ul>
     <input id="tk-marco-nome" />
+    <input id="tk-marco-inicio" />
     <input id="tk-marco-prazo" />
     <button id="btn-tk-marco-add"></button>
   </div>
@@ -21,6 +35,37 @@ const HTML = `
   <input id="tk-nova-coluna-nome" />
   <button id="btn-tk-nova-coluna-add"></button>
   <div id="tk-board"></div>
+  <div id="tk-lista" class="hidden">
+    <select id="tk-lf-coluna"><option value="">Todas as colunas</option></select>
+    <select id="tk-lf-tipo">
+      <option value="">Todos os tipos</option>
+      <option value="bug">Bug</option>
+      <option value="feature">Feature</option>
+      <option value="chore">Chore</option>
+      <option value="spike">Spike</option>
+    </select>
+    <select id="tk-lf-prioridade">
+      <option value="">Todas as prioridades</option>
+      <option value="baixa">Baixa</option>
+      <option value="media">Média</option>
+      <option value="alta">Alta</option>
+      <option value="urgente">Urgente</option>
+    </select>
+    <select id="tk-lf-etiqueta"><option value="">Todas as etiquetas</option></select>
+    <input type="search" id="tk-lf-busca" />
+    <tbody id="tk-lista-corpo"></tbody>
+    <p id="tk-lista-vazio" class="hidden"></p>
+  </div>
+  <div id="tk-calendario" class="hidden">
+    <button id="btn-tk-cal-anterior"></button>
+    <span id="tk-cal-titulo"></span>
+    <button id="btn-tk-cal-seguinte"></button>
+    <div id="tk-cal-grade"></div>
+  </div>
+  <div id="tk-timeline" class="hidden">
+    <div id="tk-timeline-corpo"></div>
+    <p id="tk-timeline-vazio" class="hidden"></p>
+  </div>
   <div id="tarefa-modal" class="hidden">
     <h2 id="tk-modal-title"></h2>
     <input id="tk-f-titulo" />
@@ -205,6 +250,90 @@ describe("ordenarPorOrdem / filtrarPorMarco (puras)", () => {
   });
 });
 
+describe("filtrarTabela (pura)", () => {
+  const t1 = { id: "1", titulo: "revisar PR", descricao: "olhar os testes", colunaId: "c1", tipo: "bug", prioridade: "alta", etiquetaIds: ["e1"] };
+  const t2 = { id: "2", titulo: "escrever docs", descricao: "", colunaId: "c2", tipo: "chore", prioridade: "baixa", etiquetaIds: [] };
+
+  it("sem filtro nenhum devolve tudo", () => {
+    expect(filtrarTabela([t1, t2], {})).toEqual([t1, t2]);
+    expect(filtrarTabela([t1, t2])).toEqual([t1, t2]);
+  });
+
+  it("cada filtro isolado", () => {
+    expect(filtrarTabela([t1, t2], { colunaId: "c1" })).toEqual([t1]);
+    expect(filtrarTabela([t1, t2], { tipo: "chore" })).toEqual([t2]);
+    expect(filtrarTabela([t1, t2], { prioridade: "alta" })).toEqual([t1]);
+    expect(filtrarTabela([t1, t2], { etiquetaId: "e1" })).toEqual([t1]);
+  });
+
+  it("busca de texto casa título OU descrição, sem diferenciar maiúscula/minúscula", () => {
+    expect(filtrarTabela([t1, t2], { busca: "REVISAR" })).toEqual([t1]);
+    expect(filtrarTabela([t1, t2], { busca: "testes" })).toEqual([t1]);
+    expect(filtrarTabela([t1, t2], { busca: "docs" })).toEqual([t2]);
+  });
+
+  it("filtros combinam em E lógico", () => {
+    expect(filtrarTabela([t1, t2], { tipo: "bug", prioridade: "baixa" })).toEqual([]);
+    expect(filtrarTabela([t1, t2], { tipo: "bug", prioridade: "alta" })).toEqual([t1]);
+  });
+});
+
+describe("tarefasPorDia (pura)", () => {
+  it("agrupa por dia do prazo", () => {
+    const tarefas = [
+      { id: "1", prazo: "2026-03-05" },
+      { id: "2", prazo: "2026-03-05" },
+      { id: "3", prazo: "2026-03-06" },
+    ];
+    const mapa = tarefasPorDia(tarefas, 2026, 2); // março = mês 2 (0-indexado)
+    expect(mapa.get("2026-03-05")).toHaveLength(2);
+    expect(mapa.get("2026-03-06")).toHaveLength(1);
+  });
+
+  it("tarefa sem prazo não entra em nenhum dia", () => {
+    const mapa = tarefasPorDia([{ id: "1" }], 2026, 2);
+    expect(mapa.size).toBe(0);
+  });
+
+  it("mês diferente do pedido não entra", () => {
+    const mapa = tarefasPorDia([{ id: "1", prazo: "2026-04-05" }], 2026, 2);
+    expect(mapa.size).toBe(0);
+  });
+});
+
+describe("escalaDaTimeline / posicaoNaTimeline (puras)", () => {
+  it("sem marco nenhum com data, escala é null", () => {
+    expect(escalaDaTimeline([{ id: "1", nome: "x" }])).toBeNull();
+  });
+
+  it("marco só com prazo vira ponto (width 0)", () => {
+    const marcos = [{ id: "1", prazo: "2026-06-01" }];
+    const escala = escalaDaTimeline(marcos);
+    expect(escala).not.toBeNull();
+    const pos = posicaoNaTimeline(marcos[0], escala);
+    expect(pos.width).toBe(0);
+    expect(pos.left).toBeGreaterThanOrEqual(0);
+    expect(pos.left).toBeLessThanOrEqual(100);
+  });
+
+  it("marco com início e prazo vira barra proporcional (width > 0)", () => {
+    const marcos = [
+      { id: "1", inicio: "2026-01-01", prazo: "2026-12-01" },
+      { id: "2", prazo: "2026-06-01" },
+    ];
+    const escala = escalaDaTimeline(marcos);
+    const pos = posicaoNaTimeline(marcos[0], escala);
+    expect(pos.width).toBeGreaterThan(0);
+  });
+
+  it("marco sem nenhuma data não entra no cálculo da escala nem tem posição", () => {
+    const marcos = [{ id: "1", nome: "sem data" }, { id: "2", prazo: "2026-06-01" }];
+    const escala = escalaDaTimeline(marcos);
+    expect(posicaoNaTimeline(marcos[0], escala)).toBeNull();
+    expect(posicaoNaTimeline(marcos[1], escala)).not.toBeNull();
+  });
+});
+
 describe("render do quadro", () => {
   it("desenha uma coluna por coluna do quadro e um cartão por tarefa", async () => {
     const { board, $ } = montar({ tarefas: [tarefaFixture({ id: "t1" }), tarefaFixture({ id: "t2", colunaId: COL_B })] });
@@ -364,6 +493,93 @@ describe("modal de tarefa", () => {
     expect(opcao.dataset.on).toBe("1");
     opcao.querySelector("input").click();
     expect(opcao.dataset.on).toBe("0");
+  });
+});
+
+describe("visualizações novas (lista/calendário/timeline)", () => {
+  it("trocar de aba mostra o contêiner certo e esconde os outros três", async () => {
+    const { board, $ } = montar({ tarefas: [] });
+    await board.abrir();
+    $("tab-tk-lista").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect($("tk-lista").classList.contains("hidden")).toBe(false);
+    expect($("tk-board").classList.contains("hidden")).toBe(true);
+    expect($("tk-calendario").classList.contains("hidden")).toBe(true);
+    expect($("tk-timeline").classList.contains("hidden")).toBe(true);
+    expect($("tab-tk-lista").dataset.on).toBe("1");
+    expect($("tab-tk-kanban").dataset.on).toBe("0");
+
+    $("tab-tk-calendario").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect($("tk-calendario").classList.contains("hidden")).toBe(false);
+    expect($("tk-lista").classList.contains("hidden")).toBe(true);
+
+    $("tab-tk-timeline").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect($("tk-timeline").classList.contains("hidden")).toBe(false);
+    expect($("tk-calendario").classList.contains("hidden")).toBe(true);
+
+    $("tab-tk-kanban").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect($("tk-board").classList.contains("hidden")).toBe(false);
+    expect($("tk-timeline").classList.contains("hidden")).toBe(true);
+  });
+
+  it("lista: clique numa linha abre o modal com os dados da tarefa", async () => {
+    const { board, $ } = montar({ tarefas: [tarefaFixture({ id: "t1", titulo: "revisar PR" })] });
+    await board.abrir();
+    $("tab-tk-lista").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const linha = $("tk-lista-corpo").querySelector("tr");
+    expect(linha.textContent).toContain("revisar PR");
+    linha.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect($("tk-f-titulo").value).toBe("revisar PR");
+  });
+
+  it("lista: filtro por tipo esconde quem não bate", async () => {
+    const tarefas = [
+      tarefaFixture({ id: "t1", titulo: "bug aqui", tipo: "bug" }),
+      tarefaFixture({ id: "t2", titulo: "feature aqui", tipo: "feature" }),
+    ];
+    const { board, $ } = montar({ tarefas });
+    await board.abrir();
+    $("tab-tk-lista").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect($("tk-lista-corpo").children.length).toBe(2);
+    $("tk-lf-tipo").value = "bug";
+    $("tk-lf-tipo").dispatchEvent(new Event("change"));
+    expect($("tk-lista-corpo").children.length).toBe(1);
+    expect($("tk-lista-corpo").textContent).toContain("bug aqui");
+  });
+
+  it("calendário: chip do dia com prazo abre o modal", async () => {
+    const hoje = new Date();
+    const prazo = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-${String(hoje.getDate()).padStart(2, "0")}`;
+    const { board, $ } = montar({ tarefas: [tarefaFixture({ id: "t1", titulo: "com prazo hoje", prazo })] });
+    await board.abrir();
+    $("tab-tk-calendario").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const chip = $("tk-cal-grade").querySelector(".tk-cal-chip");
+    expect(chip.textContent).toBe("com prazo hoje");
+    chip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect($("tk-f-titulo").value).toBe("com prazo hoje");
+  });
+
+  it("timeline: sem marco com data nenhuma, mostra aviso de vazio", async () => {
+    const quadro = quadroFixture({ marcos: [{ id: "m1", nome: "sem data" }] });
+    const { board, $ } = montar({ quadro, tarefas: [] });
+    await board.abrir();
+    $("tab-tk-timeline").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect($("tk-timeline-vazio").classList.contains("hidden")).toBe(false);
+    expect($("tk-timeline-corpo").children.length).toBe(0);
+  });
+
+  it("timeline: clique na barra expande a lista de tarefas do marco, clique numa tarefa abre o modal", async () => {
+    const quadro = quadroFixture({ marcos: [{ id: "m1", nome: "v1.0", prazo: "2026-06-01" }] });
+    const tarefas = [tarefaFixture({ id: "t1", titulo: "da v1", marcoId: "m1" })];
+    const { board, $ } = montar({ quadro, tarefas });
+    await board.abrir();
+    $("tab-tk-timeline").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const barra = $("tk-timeline-corpo").querySelector(".tk-tl-barra");
+    const lista = $("tk-timeline-corpo").querySelector(".tk-tl-tarefas");
+    expect(lista.classList.contains("hidden")).toBe(true);
+    barra.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(lista.classList.contains("hidden")).toBe(false);
+    lista.querySelector("li").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect($("tk-f-titulo").value).toBe("da v1");
   });
 });
 

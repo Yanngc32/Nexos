@@ -31,6 +31,83 @@ export function filtrarPorMarco(tarefas, marcoId) {
   return tarefas.filter((t) => t.marcoId === marcoId);
 }
 
+/**
+ * Filtro combinado da visualização em tabela — todos os campos em E lógico; campo vazio/ausente
+ * em `filtros` não restringe nada. Função pura — testável sem montar a tabela de verdade.
+ */
+export function filtrarTabela(tarefas, filtros = {}) {
+  const { colunaId, tipo, prioridade, etiquetaId, busca } = filtros;
+  const buscaNorm = (busca ?? "").trim().toLowerCase();
+  return tarefas.filter((t) => {
+    if (colunaId && t.colunaId !== colunaId) return false;
+    if (tipo && t.tipo !== tipo) return false;
+    if (prioridade && t.prioridade !== prioridade) return false;
+    if (etiquetaId && !(t.etiquetaIds ?? []).includes(etiquetaId)) return false;
+    if (buscaNorm) {
+      const alvo = `${t.titulo ?? ""} ${t.descricao ?? ""}`.toLowerCase();
+      if (!alvo.includes(buscaNorm)) return false;
+    }
+    return true;
+  });
+}
+
+/** `AAAA-MM-DD` local (não `toISOString`, que vira UTC e pode cair no dia errado perto da meia-noite). */
+function isoLocal(data) {
+  const y = data.getFullYear();
+  const m = String(data.getMonth() + 1).padStart(2, "0");
+  const d = String(data.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Agrupa tarefas por dia do prazo, só do mês pedido (`mes` 0-indexado, igual `Date`). Tarefa sem
+ * `prazo` não entra em nenhum grupo — não tem onde plotar no calendário. Função pura.
+ */
+export function tarefasPorDia(tarefas, ano, mes) {
+  const porDia = new Map();
+  for (const t of tarefas) {
+    if (!t.prazo) continue;
+    const [y, m] = t.prazo.split("-").map(Number);
+    if (y !== ano || m - 1 !== mes) continue;
+    if (!porDia.has(t.prazo)) porDia.set(t.prazo, []);
+    porDia.get(t.prazo).push(t);
+  }
+  return porDia;
+}
+
+/**
+ * Intervalo total da timeline (com folga proporcional nas pontas) a partir das datas de TODOS os
+ * marcos com pelo menos uma data — marco sem `inicio` nem `prazo` não entra na conta (não tem
+ * onde plotar). `null` se nenhum marco tem data nenhuma (timeline vazia). Função pura.
+ */
+export function escalaDaTimeline(marcos) {
+  const datas = marcos.flatMap((m) => [m.inicio, m.prazo].filter(Boolean));
+  if (!datas.length) return null;
+  const ms = datas.map((d) => new Date(`${d}T00:00:00`).getTime());
+  const minMs = Math.min(...ms);
+  const maxMs = Math.max(...ms);
+  const folga = Math.max((maxMs - minMs) * 0.05, 24 * 3600 * 1000); // ao menos 1 dia de folga, mesmo com um só marco
+  return { inicio: new Date(minMs - folga), fim: new Date(maxMs + folga) };
+}
+
+/**
+ * Posição (0–100) de UM marco dentro da `escala` já calculada — barra proporcional quando tem
+ * início e prazo, ou marcador de largura zero (ponto) quando só tem uma das duas datas. `null`
+ * se o marco não tem data nenhuma (não entra na timeline). Função pura.
+ */
+export function posicaoNaTimeline(marco, escala) {
+  if (!escala || (!marco.inicio && !marco.prazo)) return null;
+  const total = escala.fim.getTime() - escala.inicio.getTime();
+  const paraPct = (iso) => ((new Date(`${iso}T00:00:00`).getTime() - escala.inicio.getTime()) / total) * 100;
+  const dataUnica = marco.inicio ?? marco.prazo;
+  if (!marco.inicio || !marco.prazo) {
+    const p = paraPct(dataUnica);
+    return { left: p, width: 0 };
+  }
+  const left = paraPct(marco.inicio);
+  return { left, width: Math.max(paraPct(marco.prazo) - left, 0.5) };
+}
+
 const ROTULO_PRIORIDADE = { baixa: "⌄ baixa", media: "≡ média", alta: "⌃ alta", urgente: "⚠ urgente" };
 const ROTULO_TIPO = { bug: "🐛 bug", feature: "✨ feature", chore: "🔧 chore", spike: "🔬 spike" };
 
@@ -49,6 +126,10 @@ export function createTarefasBoard({
   let editando = null;
   let colunaDaNova = "";
   let arrastando = null;
+  /** "kanban" | "lista" | "calendario" | "timeline" — só em memória, volta pro Kanban ao reabrir. */
+  let modo = "kanban";
+  /** Mês exibido no calendário — só ano/mês importam, dia fica sempre 1. */
+  let mesCalendario = new Date();
 
   function qs() {
     return `projectPath=${encodeURIComponent(getProjectPath())}`;
@@ -288,7 +369,8 @@ export function createTarefasBoard({
       const li = document.createElement("li");
       li.className = "tk-marco-item";
       const nome = document.createElement("span");
-      nome.textContent = m.prazo ? `${m.nome} — prazo ${m.prazo}` : m.nome;
+      const datas = [m.inicio ? `início ${m.inicio}` : "", m.prazo ? `prazo ${m.prazo}` : ""].filter(Boolean).join(" — ");
+      nome.textContent = datas ? `${m.nome} — ${datas}` : m.nome;
       const del = document.createElement("button");
       del.type = "button";
       del.className = "ghost";
@@ -368,15 +450,178 @@ export function createTarefasBoard({
     await carregar();
   }
 
+  const MODOS = ["kanban", "lista", "calendario", "timeline"];
+
+  /** Troca de aba: só alterna qual contêiner aparece e (re)desenha o modo ativo — sem recarregar dados. */
+  function mudarModo(novo) {
+    modo = novo;
+    for (const m of MODOS) {
+      el(`tab-tk-${m}`).dataset.on = m === modo ? "1" : "0";
+      const container = m === "kanban" ? el("tk-board") : el(`tk-${m}`);
+      container.classList.toggle("hidden", m !== modo);
+    }
+    renderModoAtivo();
+  }
+
+  function renderModoAtivo() {
+    if (modo === "lista") renderLista();
+    else if (modo === "calendario") renderCalendario();
+    else if (modo === "timeline") renderTimeline();
+    // "kanban" já é redesenhado dentro de render() — não precisa de passo extra aqui.
+  }
+
+  /** Selects de filtro da lista (coluna/etiqueta) — preservando o valor atual quando ainda existir. */
+  function preencherFiltrosDaLista() {
+    const selColuna = el("tk-lf-coluna");
+    const atualColuna = selColuna.value;
+    selColuna.replaceChildren(opcao("Todas as colunas", ""));
+    for (const c of quadro.colunas) selColuna.append(opcao(c.nome, c.id));
+    if ([...selColuna.options].some((o) => o.value === atualColuna)) selColuna.value = atualColuna;
+
+    const selEtq = el("tk-lf-etiqueta");
+    const atualEtq = selEtq.value;
+    selEtq.replaceChildren(opcao("Todas as etiquetas", ""));
+    for (const et of quadro.etiquetas) selEtq.append(opcao(et.nome, et.id));
+    if ([...selEtq.options].some((o) => o.value === atualEtq)) selEtq.value = atualEtq;
+  }
+
+  function renderLista() {
+    const filtros = {
+      colunaId: el("tk-lf-coluna").value,
+      tipo: el("tk-lf-tipo").value,
+      prioridade: el("tk-lf-prioridade").value,
+      etiquetaId: el("tk-lf-etiqueta").value,
+      busca: el("tk-lf-busca").value,
+    };
+    const filtradas = ordenarPorOrdem(filtrarTabela(tarefas, filtros));
+    const corpo = el("tk-lista-corpo");
+    corpo.replaceChildren();
+    for (const t of filtradas) {
+      const tr = document.createElement("tr");
+      tr.dataset.id = t.id;
+      tr.addEventListener("click", () => abrirModal(t.id));
+      const coluna = quadro.colunas.find((c) => c.id === t.colunaId)?.nome ?? "";
+      const marco = t.marcoId ? (quadro.marcos.find((m) => m.id === t.marcoId)?.nome ?? "") : "";
+      const etiquetas = (t.etiquetaIds ?? [])
+        .map((id) => quadro.etiquetas.find((e) => e.id === id)?.nome)
+        .filter(Boolean)
+        .join(", ");
+      const valores = [
+        t.titulo,
+        coluna,
+        t.tipo ? (ROTULO_TIPO[t.tipo] ?? t.tipo) : "",
+        t.prioridade ? (ROTULO_PRIORIDADE[t.prioridade] ?? t.prioridade) : "",
+        marco,
+        t.prazo ?? "",
+        etiquetas,
+      ];
+      for (const v of valores) {
+        const td = document.createElement("td");
+        td.textContent = v;
+        tr.append(td);
+      }
+      corpo.append(tr);
+    }
+    el("tk-lista-vazio").classList.toggle("hidden", filtradas.length > 0);
+  }
+
+  const DIAS_SEMANA = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+  const MESES = [
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+  ];
+
+  function renderCalendario() {
+    const ano = mesCalendario.getFullYear();
+    const mes = mesCalendario.getMonth();
+    el("tk-cal-titulo").textContent = `${MESES[mes]} ${ano}`;
+    const porDia = tarefasPorDia(tarefas, ano, mes);
+    const grade = el("tk-cal-grade");
+    grade.replaceChildren();
+    for (const nomeDia of DIAS_SEMANA) {
+      const cab = document.createElement("div");
+      cab.className = "tk-cal-dia-num";
+      cab.textContent = nomeDia;
+      grade.append(cab);
+    }
+    const primeiroDia = new Date(ano, mes, 1);
+    const inicioGrade = new Date(primeiroDia);
+    inicioGrade.setDate(primeiroDia.getDate() - primeiroDia.getDay());
+    for (let i = 0; i < 42; i++) {
+      const dia = new Date(inicioGrade);
+      dia.setDate(inicioGrade.getDate() + i);
+      const div = document.createElement("div");
+      div.className = "tk-cal-dia";
+      div.dataset.fora = dia.getMonth() === mes ? "0" : "1";
+      const num = document.createElement("div");
+      num.className = "tk-cal-dia-num";
+      num.textContent = String(dia.getDate());
+      div.append(num);
+      for (const t of porDia.get(isoLocal(dia)) ?? []) {
+        const chip = document.createElement("div");
+        chip.className = "tk-cal-chip";
+        chip.textContent = t.titulo;
+        chip.title = t.titulo;
+        chip.addEventListener("click", () => abrirModal(t.id));
+        div.append(chip);
+      }
+      grade.append(div);
+    }
+  }
+
+  function renderTimeline() {
+    const corpo = el("tk-timeline-corpo");
+    corpo.replaceChildren();
+    const escala = escalaDaTimeline(quadro.marcos);
+    el("tk-timeline-vazio").classList.toggle("hidden", Boolean(escala));
+    if (!escala) return;
+    for (const m of quadro.marcos) {
+      const pos = posicaoNaTimeline(m, escala);
+      if (!pos) continue;
+      const wrap = document.createElement("div");
+      wrap.className = "tk-tl-marco";
+      const nome = document.createElement("p");
+      nome.className = "kanban-card-title";
+      nome.textContent = m.inicio || m.prazo ? `${m.nome} (${[m.inicio, m.prazo].filter(Boolean).join(" → ")})` : m.nome;
+      const trilha = document.createElement("div");
+      trilha.className = "tk-tl-trilha";
+      const barra = document.createElement("div");
+      barra.className = "tk-tl-barra";
+      barra.style.left = `${pos.left}%`;
+      barra.style.width = `${Math.max(pos.width, 1.5)}%`;
+      const tarefasDoMarco = filtrarPorMarco(tarefas, m.id);
+      const lista = document.createElement("ul");
+      lista.className = "tk-tl-tarefas hidden";
+      if (tarefasDoMarco.length) {
+        for (const t of tarefasDoMarco) {
+          const li = document.createElement("li");
+          li.textContent = t.titulo;
+          li.addEventListener("click", () => abrirModal(t.id));
+          lista.append(li);
+        }
+      } else {
+        const li = document.createElement("li");
+        li.textContent = "Nenhuma tarefa neste marco.";
+        lista.append(li);
+      }
+      barra.addEventListener("click", () => lista.classList.toggle("hidden"));
+      trilha.append(barra);
+      wrap.append(nome, trilha, lista);
+      corpo.append(wrap);
+    }
+  }
+
   function render() {
     renderToolbar();
     renderMarcosLista();
     renderEtiquetasLista();
+    preencherFiltrosDaLista();
     const board = el("tk-board");
     board.replaceChildren();
     for (const c of ordenarPorOrdem(quadro.colunas.map((c, i) => ({ ...c, ordem: c.ordem ?? i })))) {
       board.append(colEl(c));
     }
+    renderModoAtivo();
   }
 
   // ---------- modal de uma tarefa ----------
@@ -718,16 +963,21 @@ export function createTarefasBoard({
 
   async function novoMarcoUi() {
     const nomeEl = el("tk-marco-nome");
+    const inicioEl = el("tk-marco-inicio");
     const prazoEl = el("tk-marco-prazo");
     const nome = nomeEl.value.trim();
     if (!nome) return;
     try {
-      await req(`/v1/tarefas/marcos?${qs()}`, { method: "POST", body: JSON.stringify({ nome, prazo: prazoEl.value || null }) });
+      await req(`/v1/tarefas/marcos?${qs()}`, {
+        method: "POST",
+        body: JSON.stringify({ nome, inicio: inicioEl.value || null, prazo: prazoEl.value || null }),
+      });
     } catch (e) {
       await avisar(e.message || "Não deu pra criar o marco.");
       return;
     }
     nomeEl.value = "";
+    inicioEl.value = "";
     prazoEl.value = "";
     await carregar();
   }
@@ -736,6 +986,21 @@ export function createTarefasBoard({
     el("tk-filtro-marco").addEventListener("change", () => {
       filtroMarco = el("tk-filtro-marco").value;
       render();
+    });
+    for (const m of MODOS) {
+      el(`tab-tk-${m}`).addEventListener("click", () => mudarModo(m));
+    }
+    for (const id of ["tk-lf-coluna", "tk-lf-tipo", "tk-lf-prioridade", "tk-lf-etiqueta"]) {
+      el(id).addEventListener("change", renderLista);
+    }
+    el("tk-lf-busca").addEventListener("input", renderLista);
+    el("btn-tk-cal-anterior").addEventListener("click", () => {
+      mesCalendario = new Date(mesCalendario.getFullYear(), mesCalendario.getMonth() - 1, 1);
+      renderCalendario();
+    });
+    el("btn-tk-cal-seguinte").addEventListener("click", () => {
+      mesCalendario = new Date(mesCalendario.getFullYear(), mesCalendario.getMonth() + 1, 1);
+      renderCalendario();
     });
     el("btn-tk-marcos").addEventListener("click", () => el("tk-marcos-painel").classList.toggle("hidden"));
     el("btn-tk-etiquetas").addEventListener("click", () => el("tk-etiquetas-painel").classList.toggle("hidden"));

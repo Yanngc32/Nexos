@@ -549,11 +549,18 @@
           </div>
           <button type="button" id="btn-close-tarefas" class="ghost mod-close" title="Fechar (volta só pro chat)">✕</button>
         </header>
+        <div class="ax-tabs" role="tablist">
+          <button type="button" id="tab-tk-kanban" class="ax-tab" role="tab" data-on="1">Kanban</button>
+          <button type="button" id="tab-tk-lista" class="ax-tab" role="tab" data-on="0">Lista</button>
+          <button type="button" id="tab-tk-calendario" class="ax-tab" role="tab" data-on="0">Calendário</button>
+          <button type="button" id="tab-tk-timeline" class="ax-tab" role="tab" data-on="0">Timeline</button>
+        </div>
         <div id="tk-marcos-painel" class="tk-marcos-painel hidden">
           <ul id="tk-marcos-lista" class="tk-marcos-lista"></ul>
           <div class="tk-marco-novo">
             <input type="text" id="tk-marco-nome" placeholder="Nome do marco" />
-            <input type="date" id="tk-marco-prazo" />
+            <input type="date" id="tk-marco-inicio" title="Início (opcional)" />
+            <input type="date" id="tk-marco-prazo" title="Prazo" />
             <button type="button" id="btn-tk-marco-add" class="ghost">Adicionar marco</button>
           </div>
         </div>
@@ -566,6 +573,48 @@
           </div>
         </div>
         <div id="tk-board" class="kanban-board"></div>
+        <div id="tk-lista" class="tk-lista hidden">
+          <div class="tk-lista-filtros">
+            <select id="tk-lf-coluna" aria-label="Filtrar por coluna"><option value="">Todas as colunas</option></select>
+            <select id="tk-lf-tipo" aria-label="Filtrar por tipo">
+              <option value="">Todos os tipos</option>
+              <option value="bug">Bug</option>
+              <option value="feature">Feature</option>
+              <option value="chore">Chore</option>
+              <option value="spike">Spike</option>
+            </select>
+            <select id="tk-lf-prioridade" aria-label="Filtrar por prioridade">
+              <option value="">Todas as prioridades</option>
+              <option value="baixa">Baixa</option>
+              <option value="media">Média</option>
+              <option value="alta">Alta</option>
+              <option value="urgente">Urgente</option>
+            </select>
+            <select id="tk-lf-etiqueta" aria-label="Filtrar por etiqueta"><option value="">Todas as etiquetas</option></select>
+            <input type="search" id="tk-lf-busca" placeholder="Buscar título/descrição…" aria-label="Buscar tarefa" />
+          </div>
+          <table class="tk-tabela">
+            <thead>
+              <tr>
+                <th>Título</th><th>Coluna</th><th>Tipo</th><th>Prioridade</th><th>Marco</th><th>Prazo</th><th>Etiquetas</th>
+              </tr>
+            </thead>
+            <tbody id="tk-lista-corpo"></tbody>
+          </table>
+          <p id="tk-lista-vazio" class="tk-hint hidden">Nenhuma tarefa bate com o filtro.</p>
+        </div>
+        <div id="tk-calendario" class="tk-calendario hidden">
+          <div class="tk-calendario-nav">
+            <button type="button" id="btn-tk-cal-anterior" class="ghost">◀</button>
+            <span id="tk-cal-titulo"></span>
+            <button type="button" id="btn-tk-cal-seguinte" class="ghost">▶</button>
+          </div>
+          <div id="tk-cal-grade" class="tk-cal-grade"></div>
+        </div>
+        <div id="tk-timeline" class="tk-timeline hidden">
+          <div id="tk-timeline-corpo"></div>
+          <p id="tk-timeline-vazio" class="tk-hint hidden">Nenhum marco com data ainda — defina início ou prazo em "Marcos".</p>
+        </div>
       </section>
       <section class="pane hidden" id="pane-chat">
         <div id="split-chat" class="splitter" role="separator" aria-orientation="vertical" title="Arraste pra redimensionar"></div>

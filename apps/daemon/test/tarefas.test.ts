@@ -140,6 +140,38 @@ describe("salvarMarco / apagarMarco", () => {
     salvarTarefa({ projectPath: P1, titulo: "t", colunaId: q.colunas[0]!.id, marcoId: m.id }, home);
     expect(() => apagarMarco(P1, m.id, home)).toThrow(/1 tarefa/);
   });
+
+  it("aceita início opcional, com prazo, só início, ou nenhum dos dois", () => {
+    const home = tempHome();
+    const comOsDois = salvarMarco(P1, { nome: "v1.0", inicio: "2026-01-01", prazo: "2026-12-01" }, home);
+    expect(comOsDois.inicio).toBe("2026-01-01");
+    expect(comOsDois.prazo).toBe("2026-12-01");
+    const soInicio = salvarMarco(P1, { nome: "v2.0", inicio: "2026-02-01" }, home);
+    expect(soInicio.inicio).toBe("2026-02-01");
+    expect(soInicio.prazo).toBeUndefined();
+    const nenhum = salvarMarco(P1, { nome: "v3.0" }, home);
+    expect(nenhum.inicio).toBeUndefined();
+  });
+
+  it("recusa início depois do prazo", () => {
+    const home = tempHome();
+    expect(() =>
+      salvarMarco(P1, { nome: "v1.0", inicio: "2026-12-01", prazo: "2026-01-01" }, home),
+    ).toThrow(/início não pode ser depois do prazo/);
+  });
+
+  it("editar só o prazo (início já gravado) ainda valida a ordem dos dois", () => {
+    const home = tempHome();
+    const m = salvarMarco(P1, { nome: "v1.0", inicio: "2026-06-01" }, home);
+    expect(() => salvarMarco(P1, { id: m.id, prazo: "2026-01-01" }, home)).toThrow(/início não pode ser depois do prazo/);
+  });
+
+  it("consegue LIMPAR o início mandando null", () => {
+    const home = tempHome();
+    const m = salvarMarco(P1, { nome: "v1.0", inicio: "2026-01-01" }, home);
+    const editado = salvarMarco(P1, { id: m.id, inicio: null }, home);
+    expect(editado.inicio).toBeUndefined();
+  });
 });
 
 describe("salvarEtiqueta / apagarEtiqueta", () => {

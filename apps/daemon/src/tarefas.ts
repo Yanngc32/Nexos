@@ -25,7 +25,7 @@ import { projectDir, projectDirSemCriar } from "./projeto-dir.ts";
  */
 
 export type Coluna = { id: string; nome: string; ordem: number };
-export type Marco = { id: string; nome: string; prazo?: string };
+export type Marco = { id: string; nome: string; inicio?: string; prazo?: string };
 export type Etiqueta = { id: string; nome: string; cor: string };
 export type Quadro = { projectPath: string; colunas: Coluna[]; marcos: Marco[]; etiquetas: Etiqueta[] };
 
@@ -174,7 +174,11 @@ function corpoDoQuadro(q: Quadro): string {
   const linhas = ["# Quadro de tarefas", "", "## Colunas"];
   linhas.push(...(q.colunas.length ? q.colunas.map((c) => `- ${c.nome}`) : ["- nenhuma"]));
   linhas.push("", "## Marcos");
-  linhas.push(...(q.marcos.length ? q.marcos.map((m) => `- ${m.nome}${m.prazo ? ` (prazo ${m.prazo})` : ""}`) : ["- nenhum"]));
+  linhas.push(
+    ...(q.marcos.length
+      ? q.marcos.map((m) => `- ${m.nome}${m.inicio ? ` (início ${m.inicio})` : ""}${m.prazo ? ` (prazo ${m.prazo})` : ""}`)
+      : ["- nenhum"]),
+  );
   linhas.push("", "## Etiquetas");
   linhas.push(...(q.etiquetas.length ? q.etiquetas.map((e) => `- ${e.nome} (${e.cor})`) : ["- nenhuma"]));
   return `${linhas.join("\n")}\n`;
@@ -361,7 +365,12 @@ export function apagarColuna(projectPath: string, id: string, home: string): voi
   escreverQuadro({ ...quadro, colunas: quadro.colunas.filter((c) => c.id !== id) }, home);
 }
 
-export type MarcoInput = { id?: string; nome?: string; prazo?: string | null };
+export type MarcoInput = { id?: string; nome?: string; inicio?: string | null; prazo?: string | null };
+
+/** `inicio` (quando os dois estão presentes) não pode ser depois de `prazo` — barra não pode nascer invertida. */
+function checarOrdemDoMarco(inicio: string | undefined, prazo: string | undefined): void {
+  if (inicio && prazo && inicio > prazo) throw badRequest("início não pode ser depois do prazo");
+}
 
 export function salvarMarco(projectPath: string, input: MarcoInput, home: string): Marco {
   const quadro = getQuadro(projectPath, home);
@@ -369,16 +378,21 @@ export function salvarMarco(projectPath: string, input: MarcoInput, home: string
     const atual = quadro.marcos.find((m) => m.id === input.id);
     if (!atual) throw notFound(`marco não existe: ${input.id}`);
     const nome = input.nome === undefined ? atual.nome : limparNome(input.nome, "nome do marco", NOME_MARCO_MAX);
+    const inicio = input.inicio === undefined ? atual.inicio : (limparData(input.inicio, "início") ?? undefined);
     const prazo = input.prazo === undefined ? atual.prazo : (limparData(input.prazo, "prazo") ?? undefined);
-    const editado: Marco = { ...atual, nome, ...(prazo ? { prazo } : {}) };
+    checarOrdemDoMarco(inicio, prazo);
+    const editado: Marco = { ...atual, nome, ...(inicio ? { inicio } : {}), ...(prazo ? { prazo } : {}) };
+    if (!inicio) delete editado.inicio;
     if (!prazo) delete editado.prazo;
     escreverQuadro({ ...quadro, marcos: quadro.marcos.map((m) => (m.id === editado.id ? editado : m)) }, home);
     return editado;
   }
   if (quadro.marcos.length >= MARCOS_MAX) throw badRequest(`limite de ${MARCOS_MAX} marcos por projeto`);
   const nome = limparNome(input.nome, "nome do marco", NOME_MARCO_MAX);
+  const inicio = limparData(input.inicio, "início");
   const prazo = limparData(input.prazo, "prazo");
-  const marco: Marco = { id: newMarcoId(), nome, ...(prazo ? { prazo } : {}) };
+  checarOrdemDoMarco(inicio, prazo);
+  const marco: Marco = { id: newMarcoId(), nome, ...(inicio ? { inicio } : {}), ...(prazo ? { prazo } : {}) };
   escreverQuadro({ ...quadro, marcos: [...quadro.marcos, marco] }, home);
   return marco;
 }
