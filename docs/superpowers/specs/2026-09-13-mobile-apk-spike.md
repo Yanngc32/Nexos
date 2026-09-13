@@ -111,13 +111,24 @@ daemon, sem a CLI interativa:
   vez de sempre cair na página "sem build".
 - `POST/GET /v1/apk/build` (autenticadas) — desktop dispara e faz polling; painel Celular ganhou
   um botão "Gerar APK" com status ao vivo.
+- `apps/daemon/src/apk-keystore.ts` — `gerarAssetLinks`: extrai o fingerprint SHA-256 do keystore
+  (`KeyTool.keyInfo`) e monta o `assetlinks.json` (`DigitalAssetLinks.generateAssetLinks`) que
+  `GET /.well-known/assetlinks.json` (não-autenticada, igual `/apk` e `/pair`) passa a servir.
+  **Sem isto o TWA não abre em tela cheia** — o Android não confirma o Digital Asset Link e cai
+  pro Chrome com a barra de endereço à mostra; achado depois do primeiro corte desta fase, e
+  fechado na mesma sessão. Testado com `keytool` de verdade
+  (`apps/daemon/test/apk-assetlinks.test.ts`): fingerprint real, formato correto
+  (32 pares hex), e regenerar com `applicationId` diferente muda só o `package_name`, nunca o
+  fingerprint (é o mesmo keystore).
 
-**Validado com ferramentas reais nesta sessão**: geração de keystore (`keytool` de verdade) e
-geração do projeto Android (`TwaGenerator.createTwaProject`, baixando um ícone de um servidor HTTP
-real, com um teste que confere o hostname e o `packageId` no `AndroidManifest.xml`/`strings.xml`
-gerados). **Não validado**: a compilação Gradle e a assinatura em si — o ambiente onde isto foi
-escrito não tem acesso ao SDK do Android (o host de download, `dl.google.com`, está bloqueado pela
-política de rede da sessão) e não pôde compilar um `.apk` de verdade. A sequência de chamadas segue
+**Validado com ferramentas reais nesta sessão**: geração de keystore (`keytool` de verdade),
+geração de `assetlinks.json` com fingerprint real, e geração do projeto Android
+(`TwaGenerator.createTwaProject`, baixando um ícone de um servidor HTTP real, com um teste que
+confere o hostname e o `packageId` no `AndroidManifest.xml`/`strings.xml` gerados). **Não
+validado**: a compilação Gradle e a assinatura em si — o ambiente onde isto foi escrito não tem
+acesso ao SDK do Android (o host de download, `dl.google.com`, está bloqueado pela política de
+rede da sessão) e não pôde compilar um `.apk` de verdade, nem instalar o resultado num celular pra
+confirmar que a verificação de Digital Asset Links passa na prática. A sequência de chamadas segue
 fielmente o que a `@bubblewrap/cli` faz, mas só roda de ponta a ponta numa máquina com o SDK
 instalado.
 

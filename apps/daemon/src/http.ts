@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { SwitchReason } from "@nexo/shared";
@@ -100,6 +100,7 @@ import { abrirPareamento, fecharPareamento, pareamentoAberto, resgatar } from ".
 import { abrirDownload, downloadAberto, fecharDownload, resgatarDownload } from "./apk-share.ts";
 import { paginaApk } from "./apk-pagina.ts";
 import { construirApk, estadoAtualBuild } from "./apk-build.ts";
+import { assetLinksPath } from "./apk-keystore.ts";
 import { servirWeb } from "./web.ts";
 import {
   autostartServices,
@@ -200,6 +201,21 @@ export function createApp(home: string, token: string): Hono {
       });
     }
     return c.html(paginaApk({ tipo: "sem-build" }));
+  });
+
+  /*
+   * Digital Asset Links: o Android busca isto SOZINHO (sem cookie, sem
+   * token, de qualquer origem) pra decidir se confia que o APK do TWA tem
+   * permissão de abrir o site em tela cheia. Não é segredo — todo site
+   * verificado por TWA publica o dele assim, de propósito — só declara
+   * "este app com este fingerprint pode representar este site", o que só
+   * importa se alguém já tem as duas coisas (o app instalado e o hostname).
+   * Sem keystore/build ainda, devolve lista vazia: nenhum app autorizado.
+   */
+  app.get("/.well-known/assetlinks.json", (c) => {
+    const arq = assetLinksPath(home);
+    const corpo = existsSync(arq) ? readFileSync(arq, "utf8") : "[]";
+    return c.body(corpo, 200, { "content-type": "application/json" });
   });
 
   /*

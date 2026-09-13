@@ -148,14 +148,16 @@ fila e `@menção` de graça.
 ## API HTTP
 
 Toda rota `/v1/*` exige `Authorization: Bearer <token>`, com o token lido de `~/.nexo/daemon.token`.
-Exceções: `/health`, `/v1/health`, `/pair` e `/apk` (pareamento e download de APK do celular, cada
-um com suas próprias travas, estados separados — ver Limites de acesso).
+Exceções: `/health`, `/v1/health`, `/pair`, `/apk` (pareamento e download de APK do celular, cada
+um com suas próprias travas, estados separados — ver Limites de acesso) e
+`/.well-known/assetlinks.json` (público por natureza — é o Android que busca sozinho, sem
+credencial nenhuma).
 
 | grupo | rotas |
 | --- | --- |
 | saúde | `GET /health`, `GET /v1/health` |
 | pareamento do celular | `POST/GET/DELETE /v1/pair`, `POST /pair`, `GET /v1/escuta`, `POST /v1/token/rotate` |
-| download de APK | `POST/GET/DELETE /v1/apk`, `POST/GET /v1/apk/build`, `GET /apk` |
+| download de APK | `POST/GET/DELETE /v1/apk`, `POST/GET /v1/apk/build`, `GET /apk`, `GET /.well-known/assetlinks.json` |
 | interface mobile | `GET /app`, `GET /app/*` |
 | perfis | `GET/POST /v1/profiles`, `GET/PATCH /v1/profiles/:id`, `POST /v1/profiles/:id/import`, `POST /v1/profiles/:id/login` |
 | login interativo | `POST /v1/profiles/:id/login/start` \| `/code` \| `/cancel`, `GET .../login/status` |
@@ -285,11 +287,18 @@ gastar tempo. Retenção de 2 builds (`apps/daemon/apk/builds/`), estado persist
 (`0600`, mesmo padrão do `daemon.token`) — nunca regenerado depois de existir, porque trocar a
 chave quebraria atualização de quem já instalou. Usa o `KeyTool` do próprio `@bubblewrap/core`.
 
+**Digital Asset Links** (`GET /.well-known/assetlinks.json`, não-autenticada): declara pro Android
+que o APK (identificado pelo fingerprint SHA-256 do keystore acima) tem permissão de abrir o
+hostname em tela cheia — sem isto o TWA cai pro Chrome com a barra de endereço à mostra. Gerado por
+`gerarAssetLinks` (mesmo arquivo), junto com o keystore; devolve `[]` enquanto nenhum dos dois
+existir ainda.
+
 **O que não foi validado de ponta a ponta**: o ambiente onde isto foi escrito não tem acesso ao SDK
 do Android (host de download bloqueado por política de rede), então a compilação Gradle e a
 assinatura do `.apk` seguem a mesma sequência do comando `bubblewrap build` (lida do código-fonte
-da `@bubblewrap/cli`) mas nunca rodaram de ponta a ponta aqui. O que FOI validado com ferramentas
-reais: geração de keystore com `keytool` de verdade, e geração do projeto Android
+da `@bubblewrap/cli`) mas nunca rodaram de ponta a ponta aqui, e a verificação de Digital Asset
+Links nunca foi confirmada num celular de verdade. O que FOI validado com ferramentas reais:
+geração de keystore e de `assetlinks.json` com `keytool` de verdade, e geração do projeto Android
 (`TwaGenerator.createTwaProject`) baixando um ícone de um servidor HTTP real.
 
 Side-load de um `.apk` sempre vai exigir "fontes desconhecidas" habilitado no Android.

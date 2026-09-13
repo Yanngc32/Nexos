@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AndroidSdkTools, Config, ConsoleLog, GradleWrapper, JdkHelper, TwaGenerator, TwaManifest } from "@bubblewrap/core";
 import type { TwaManifestJson } from "@bubblewrap/core/dist/lib/TwaManifest.js";
-import { garantirKeystore } from "./apk-keystore.ts";
+import { garantirKeystore, gerarAssetLinks } from "./apk-keystore.ts";
 
 /**
  * Build do TWA (Trusted Web Activity) que embrulha a PWA do celular — Fase 2 do
@@ -135,6 +135,13 @@ async function rodar(home: string, https: { hostname: string; port: number }): P
 
   estado = { fase: "construindo", etapa: "gerando chave de assinatura" };
   const keystore = await garantirKeystore(home, sdk.jdkPath);
+
+  estado = { fase: "construindo", etapa: "gerando assetlinks.json (Digital Asset Links)" };
+  // Sem isto o app instala e abre, mas o Android não confia que ele
+  // representa o site — cai pro Chrome com barra de endereço em vez de tela
+  // cheia. Só depende do keystore (acima) + do applicationId, não do build
+  // em si, então falhar aqui não deveria acontecer se o keystore existe.
+  await gerarAssetLinks(home, sdk.jdkPath, APLICACAO_ID);
 
   estado = { fase: "construindo", etapa: "gerando projeto Android" };
   const versao = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14); // AAAAMMDDHHMMSS

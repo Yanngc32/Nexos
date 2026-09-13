@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Config, JdkHelper, KeyTool } from "@bubblewrap/core";
+import { Config, DigitalAssetLinks, JdkHelper, KeyTool } from "@bubblewrap/core";
 
 /**
  * Keystore de assinatura do APK — gerado UMA VEZ e reusado pra sempre depois.
@@ -68,4 +68,37 @@ export async function garantirKeystore(home: string, jdkPath: string): Promise<K
   const meta: Meta = { alias, senha };
   writeFileSync(arqMeta, JSON.stringify(meta), { mode: 0o600 });
   return { path: arqKeystore, alias, senha };
+}
+
+export function assetLinksPath(home: string): string {
+  return join(apkDir(home), "assetlinks.json");
+}
+
+/**
+ * Gera `assetlinks.json` — o arquivo que `GET /.well-known/assetlinks.json`
+ * serve pro Android verificar Digital Asset Links. Sem ele (ou com o
+ * fingerprint errado), o TWA nunca abre em tela cheia: o Android não confia
+ * que o app tem permissão de representar o site, e cai pro Chrome com a
+ * barra de endereço à mostra — o app instala e funciona, só não parece um
+ * app.
+ *
+ * Depende só do keystore (nunca muda depois de criado) e do `applicationId`
+ * (fixo) — não do hostname nem de HTTPS, então pode ser gerado assim que o
+ * keystore existir, sem esperar o build completo.
+ */
+export async function gerarAssetLinks(home: string, jdkPath: string, applicationId: string): Promise<string> {
+  const info = await garantirKeystore(home, jdkPath);
+  const jdkHelper = new JdkHelper(process, new Config(jdkPath, ""));
+  const keyTool = new KeyTool(jdkHelper);
+  const { fingerprints } = await keyTool.keyInfo({
+    path: info.path,
+    alias: info.alias,
+    password: info.senha,
+    keypassword: info.senha,
+  });
+  const sha256 = fingerprints.get("SHA256");
+  if (!sha256) throw new Error("não consegui ler o fingerprint SHA-256 do keystore");
+  const conteudo = DigitalAssetLinks.generateAssetLinks(applicationId, sha256);
+  writeFileSync(assetLinksPath(home), conteudo, "utf8");
+  return conteudo;
 }
