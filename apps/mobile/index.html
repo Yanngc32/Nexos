@@ -89,18 +89,21 @@
           <div class="msgs" id="msgs"></div>
           <div class="slash-menu hidden" id="slash-menu"></div>
           <div class="compositor-wrap">
-            <div id="pet-stage" class="pet-stage" data-state="off">
-              <canvas id="pet-sprite" class="pet-sprite" width="70" height="96"></canvas>
+            <div class="compositor-topo">
+              <div class="compositor-contexto hidden" id="compositor-contexto">
+                <button type="button" class="compositor-chip" id="chip-conta" aria-label="Trocar conta"></button>
+              </div>
+              <div id="pet-stage" class="pet-stage" data-state="off">
+                <canvas id="pet-sprite" class="pet-sprite" width="70" height="96"></canvas>
+              </div>
             </div>
             <form class="compositor" id="form-msg">
-              <div class="compositor-linha">
-                <textarea id="txt" rows="1" placeholder="Pergunta, pede mudança, /skill, @agente…" aria-label="Mensagem"></textarea>
-                <button type="submit" class="primary" id="btn-enviar">↑</button>
-              </div>
-              <div class="compositor-chips hidden" id="compositor-chips">
-                <button type="button" class="compositor-chip" id="chip-conta" aria-label="Trocar conta"></button>
+              <textarea id="txt" rows="1" placeholder="Pergunta, pede mudança, /skill, @agente…" aria-label="Mensagem"></textarea>
+              <div class="compositor-toolbar">
                 <button type="button" class="compositor-chip hidden" id="chip-modelo" aria-label="Modelo"></button>
                 <button type="button" class="compositor-chip hidden" id="chip-esforco" aria-label="Esforço"></button>
+                <span class="compositor-spacer"></span>
+                <button type="submit" class="primary" id="btn-enviar">↑</button>
               </div>
             </form>
           </div>

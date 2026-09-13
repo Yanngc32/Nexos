@@ -426,10 +426,10 @@ $("ajuste-esforco").addEventListener("change", async () => {
  */
 async function refrescarChips() {
   if (!threadProfileId) {
-    $("compositor-chips").classList.add("hidden");
+    $("compositor-contexto").classList.add("hidden");
     return;
   }
-  $("compositor-chips").classList.remove("hidden");
+  $("compositor-contexto").classList.remove("hidden");
   $("chip-conta").textContent = threadProfileId;
   try {
     mencoes.profiles = await req("/v1/profiles");

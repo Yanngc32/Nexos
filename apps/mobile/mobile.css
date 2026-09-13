@@ -173,21 +173,37 @@ button {
 .msg pre { overflow-x: auto; padding: 8px; border-radius: 8px; background: #101014; font-size: 13px; }
 .msg code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 13px; }
 
-/* ---------- compositor: magrinho no canto acima da caixa, igual ao desktop ---------- */
+/* ---------- compositor: um cartão só (caixa + barra), igual à referência ----------
+ * Textarea e a barra de baixo (modelo/esforço + enviar) moram dentro da MESMA
+ * borda arredondada — não são duas formas soltas lado a lado. Em cima do
+ * cartão, uma faixa com o chip de conta (esquerda) e o maguinho em pé
+ * (direita), os dois com o pé encostado no topo do cartão — igual aos chips
+ * de contexto (ambiente/repo) que ficam acima da caixa na referência.
+ */
 
 .compositor-wrap {
   position: relative;
-  /* SEM borda aqui: a linha vive em `.compositor`, bem no topo da caixa de
-     texto — senão ela corta os pés do maguinho e ele parece flutuar dentro
-     da lista de mensagens, em vez de em pé sobre a caixa (igual ao desktop). */
-  padding-top: 38px;
+}
+
+.compositor-topo {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  height: 38px;
+  padding: 0 16px;
+}
+
+.compositor-contexto {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  min-width: 0;
 }
 
 .pet-stage {
-  position: absolute;
-  right: 12px;
-  top: 0;
-  z-index: 1;
+  flex: 0 0 auto;
   width: 34px;
   height: 38px;
   display: flex;
@@ -211,59 +227,54 @@ button {
 .compositor {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 0 12px max(10px, env(safe-area-inset-bottom));
-  /* pé do maguinho encosta bem aqui: ele fica em pé sobre a caixa, não solto acima dela */
-  border-top: 1px solid var(--line);
+  gap: 4px;
+  margin: 0 12px max(10px, env(safe-area-inset-bottom));
+  padding: 10px 12px 8px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--cartao);
 }
 
-.compositor-linha {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-}
+.compositor:focus-within { border-color: var(--accent); }
 
 #txt {
-  flex: 1;
-  min-height: var(--toque);
+  min-height: 24px;
   max-height: 40vh;
-  padding: 11px 16px;
-  border: 1px solid var(--line);
-  /* pílula fina de uma linha; 22px = metade da altura mínima, então continua
-     arredondado (sem virar estádio esticado) quando a caixa cresce com o texto */
-  border-radius: 22px;
-  background: var(--cartao);
+  padding: 2px;
+  border: none;
+  background: transparent;
   color: var(--text);
   /* 16px é o mínimo que o Safari aceita sem dar zoom no foco */
   font: 16px/1.4 inherit;
   resize: none;
 }
 
-#txt:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+#txt:focus { outline: none; }
+
+.compositor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.compositor-spacer { flex: 1; min-width: 0; }
 
 #btn-enviar {
-  flex: 0 0 var(--toque);
-  width: var(--toque);
-  height: var(--toque);
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   font-size: 18px;
   padding: 0;
 }
 
-/* ---------- chips de conta/modelo/esforço, abaixo da caixa ---------- */
-
-.compositor-chips {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-
-/* nome próprio, e não `.chip`: essa classe já existe (botão "+ Nova") com outro
-   visual (fundo `--accent`); reusar o nome sobrescreveria a cor dela. */
+/* ---------- chips de conta/modelo/esforço: mesma pílula, acima ou dentro do cartão ----------
+ * Nome próprio, e não `.chip`: essa classe já existe (botão "+ Nova") com outro
+ * visual (fundo `--accent`); reusar o nome sobrescreveria a cor dela.
+ */
 .compositor-chip {
   flex: 0 0 auto;
-  max-width: 42vw;
+  max-width: 40vw;
   height: 26px;
   padding: 0 10px;
   border: 1px solid var(--line);
@@ -275,6 +286,10 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* dentro do cartão o fundo do próprio chip já teria que competir com o do
+   cartão — um tom mais claro que a borda dá contraste sem duplicar borda */
+.compositor-toolbar .compositor-chip { border-color: transparent; background: color-mix(in srgb, var(--line) 70%, transparent); }
 
 .compositor-chip:active { background: color-mix(in srgb, var(--accent) 20%, var(--cartao)); color: var(--text); }
 
