@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { SwitchReason } from "@nexo/shared";
@@ -99,6 +99,7 @@ import { estadoAtual, melhorHost } from "./escuta.ts";
 import { abrirPareamento, fecharPareamento, pareamentoAberto, resgatar } from "./pair.ts";
 import { abrirDownload, downloadAberto, fecharDownload, resgatarDownload } from "./apk-share.ts";
 import { paginaApk } from "./apk-pagina.ts";
+import { construirApk, estadoAtualBuild } from "./apk-build.ts";
 import { servirWeb } from "./web.ts";
 import {
   autostartServices,
@@ -181,13 +182,23 @@ export function createApp(home: string, token: string): Hono {
    * mesma rigidez. NUNCA vira `/v1/*`: o middleware ali embaixo bloquearia
    * exatamente o celular que esta rota existe pra atender.
    *
-   * Devolve HTML solto (não a SPA de `/app/`), e nunca um `.apk`: o path do
-   * artefato de verdade (quando existir, na Fase 2) é gated por si só — esta
-   * rota só decide se o código serve, não substitui aquele gate.
+   * Com build pronto, serve o `.apk` DIRETO (o código já é de uso único —
+   * outra rodada de "clique aqui pra baixar" não protegeria nada a mais).
+   * Sem build, devolve HTML solto explicando (não a SPA de `/app/`).
    */
   app.get("/apk", (c) => {
     const r = resgatarDownload(c.req.query("c"));
     if (!r.ok) return c.html(paginaApk({ tipo: "erro", motivo: r.motivo }), 403);
+    const build = estadoAtualBuild(home);
+    if (build.fase === "pronto") {
+      const bytes = readFileSync(build.caminho);
+      return c.body(new Uint8Array(bytes), 200, {
+        "content-type": "application/vnd.android.package-archive",
+        "content-disposition": 'attachment; filename="nexo.apk"',
+        "x-nexo-sha256": build.sha256,
+        "cache-control": "no-store",
+      });
+    }
     return c.html(paginaApk({ tipo: "sem-build" }));
   });
 
@@ -257,6 +268,21 @@ export function createApp(home: string, token: string): Hono {
     fecharDownload();
     return c.json({ ok: true });
   });
+
+  /**
+   * Build do APK (Fase 2) — visto do desktop. Autenticada, e precisa de HTTPS
+   * de verdade já de pé (TWA não builda em cima de IP/HTTP puro — ver
+   * `apk-build.ts`). Dispara em segundo plano; `GET` é só consulta de status,
+   * pro painel Celular fazer polling enquanto `fase` for `"construindo"`.
+   */
+  app.post("/v1/apk/build", (c) => {
+    const https = estadoAtual().https;
+    if (!https) return c.json({ error: "HTTPS ainda não está disponível — sem ele, o TWA não builda" }, 400);
+    construirApk(home, https);
+    return c.json(estadoAtualBuild(home), 202);
+  });
+
+  app.get("/v1/apk/build", (c) => c.json(estadoAtualBuild(home)));
 
   /*
    * Onde o daemon escuta AGORA, descoberto e mantido em dia pelo `escuta.ts` —

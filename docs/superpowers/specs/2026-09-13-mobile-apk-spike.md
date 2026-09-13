@@ -1,8 +1,11 @@
-# Nexo Mobile — QR de download de APK Android (spike + Fase 1)
+# Nexo Mobile — QR de download de APK Android (spike + Fases 1 e 2)
 
 Data: 2026-09-13
-Status: Fase 0 (spike) concluída, Fase 1 (infra do QR) implementada. Fase 2 (build do APK)
-NÃO começou — depende do go/no-go desta spike.
+Status: Fase 0 (spike) concluída. Fase 1 (infra do QR) e Fase 2 (build TWA via
+`@bubblewrap/core`) implementadas — decisão: **build local por usuário** (exige SDK do Android na
+máquina), não um APK genérico com hostname em runtime. Ver
+[`apps/daemon/src/apk-build.ts`](../../../apps/daemon/src/apk-build.ts) e a seção "Fase 2" mais
+abaixo pro que foi construído e o que não pôde ser validado de ponta a ponta neste ambiente.
 
 Ordem combinada com o usuário, e não reaberta aqui: **PWA (Add to Home) → TWA/Bubblewrap →
 Capacitor**, na ordem do menor esforço que resolva o problema. Pair (`#c=` → `POST /pair` →
@@ -80,23 +83,55 @@ autenticação do daemon, e corrigidos aqui:
   timer **completamente separados** dos de pareamento (`apkAberto`/`apkTimer` própria,
   nunca `celPar`/`celTimer`).
 
-### O que NÃO existe ainda (Fase 2, gated pelo go/no-go acima)
+## Fase 2 — build do TWA (implementada)
 
-- Build do APK (TWA/Bubblewrap ou WebView mínimo — decisão pendente do go/no-go de TLS).
-- Keystore em `~/.nexo` e assinatura.
-- Servir o artefato de verdade (hoje `GET /apk` sempre responde "sem build").
-- Retenção de builds (não há builds pra reter ainda).
+Decisão do usuário: **build local por usuário**, não um APK genérico com hostname configurável em
+runtime (a outra opção levantada). Isso mantém a promessa original do plano — keystore em
+`~/.nexo`, build disparado do painel Celular — mas exige que a máquina tenha o **SDK do Android**
+instalado (`ANDROID_HOME`/`ANDROID_SDK_ROOT`) além de um JDK (`JAVA_HOME`); a imensa maioria de
+quem só usa o app de desktop não vai ter isso por padrão. Trade-off aceito explicitamente, não
+descoberto depois.
+
+Construído com `@bubblewrap/core` (a biblioteca por trás do `bubblewrap` CLI) chamada direto do
+daemon, sem a CLI interativa:
+
+- `apps/daemon/src/apk-keystore.ts` — `garantirKeystore`: gera UMA vez (via `KeyTool` do próprio
+  `@bubblewrap/core`), nunca regenera depois — regenerar quebraria atualização de quem já
+  instalou. Testado com `keytool` de verdade (`apps/daemon/test/apk-keystore.test.ts`).
+- `apps/daemon/src/apk-build.ts` — `construirApk`/`estadoAtualBuild`: monta o `TwaManifest` (host =
+  hostname MagicDNS do certificado HTTPS — TWA não builda em cima de IP), gera o projeto Android
+  (`TwaGenerator.createTwaProject`), compila (`GradleWrapper.assembleRelease`), confere alinhamento
+  e assina (`AndroidSdkTools.apksigner`) — mesma sequência do comando `bubblewrap build`, lida do
+  código-fonte da `@bubblewrap/cli` pra reproduzir fielmente. Falha rápido e com mensagem clara sem
+  `JAVA_HOME`/`ANDROID_HOME`, antes de gerar keystore ou projeto nenhum. Retenção de 2 builds em
+  `apk/builds/`, estado persistido em `apk/atual.json` (sobrevive a reiniciar o daemon).
+- `apps/mobile/icone-512.png` — PNG novo: o `icone.svg` existente não serve pro pipeline de ícones
+  do Android (usa Jimp, que não decodifica SVG).
+- `GET /apk` agora serve o `.apk` de verdade (bytes + `X-Nexo-Sha256`) quando há build pronto, em
+  vez de sempre cair na página "sem build".
+- `POST/GET /v1/apk/build` (autenticadas) — desktop dispara e faz polling; painel Celular ganhou
+  um botão "Gerar APK" com status ao vivo.
+
+**Validado com ferramentas reais nesta sessão**: geração de keystore (`keytool` de verdade) e
+geração do projeto Android (`TwaGenerator.createTwaProject`, baixando um ícone de um servidor HTTP
+real, com um teste que confere o hostname e o `packageId` no `AndroidManifest.xml`/`strings.xml`
+gerados). **Não validado**: a compilação Gradle e a assinatura em si — o ambiente onde isto foi
+escrito não tem acesso ao SDK do Android (o host de download, `dl.google.com`, está bloqueado pela
+política de rede da sessão) e não pôde compilar um `.apk` de verdade. A sequência de chamadas segue
+fielmente o que a `@bubblewrap/cli` faz, mas só roda de ponta a ponta numa máquina com o SDK
+instalado.
 
 ## Critérios de aceite (do plano original) — status
 
 - [x] Pair `#c=` / `POST /pair` / Bearer sem mudança de contrato.
 - [x] QR de download ≠ QR de pair (módulos, estado e rotas inteiramente separados).
-- [x] Nenhum `.apk` público em `/app/` sem gate (não existe `.apk` nenhum ainda; a rota que
-      um dia vai servir o artefato real fica sob o mesmo gate de código curto).
-- [ ] Keystore local `0600` sob `~/.nexo` — Fase 2, ainda não começou.
+- [x] Nenhum `.apk` público em `/app/` sem gate — o `.apk` de verdade é servido só via `GET /apk`
+      com código de uso único, nunca estático em `/app/`.
+- [x] Keystore local `0600` sob `~/.nexo` — `apps/daemon/src/apk-keystore.ts`, testado com `keytool`
+      de verdade.
 - [x] QR inclui código verificável (host + porta + código; URL + sha256 do artefato viram
       responsabilidade da página `/apk`, não do QR, pelo motivo de capacidade acima).
-- [ ] Retenção de builds limitada — Fase 2.
+- [x] Retenção de builds limitada — 2 builds, `apps/daemon/src/apk-build.ts`.
 - [x] Spike PWA documentado antes de Capacitor/TWA full (esta seção).
 - [x] TWA só com hostname+HTTPS verificáveis, senão WebView mínimo explícito — e a spike
       mostrou que HTTPS falta pros DOIS caminhos, não só pro TWA.

@@ -155,7 +155,7 @@ um com suas próprias travas, estados separados — ver Limites de acesso).
 | --- | --- |
 | saúde | `GET /health`, `GET /v1/health` |
 | pareamento do celular | `POST/GET/DELETE /v1/pair`, `POST /pair`, `GET /v1/escuta`, `POST /v1/token/rotate` |
-| download de APK | `POST/GET/DELETE /v1/apk`, `GET /apk` |
+| download de APK | `POST/GET/DELETE /v1/apk`, `POST/GET /v1/apk/build`, `GET /apk` |
 | interface mobile | `GET /app`, `GET /app/*` |
 | perfis | `GET/POST /v1/profiles`, `GET/PATCH /v1/profiles/:id`, `POST /v1/profiles/:id/import`, `POST /v1/profiles/:id/login` |
 | login interativo | `POST /v1/profiles/:id/login/start` \| `/code` \| `/cancel`, `GET .../login/status` |
@@ -264,17 +264,33 @@ o segundo. O compositor tem o mesmo menu de autocomplete do desktop: `/skill` (m
 
 #### Download de APK Android (`GET /apk`)
 
-Infra do QR, sem build ainda (ver
-[spec](docs/superpowers/specs/2026-09-13-mobile-apk-spike.md)). No desktop, painel Celular →
-"Gerar QR de download": abre um código de 6 caracteres (`apps/daemon/src/apk-share.ts`), TTL de 5
-minutos, uso único, teto de erros — mesmo modelo de ameaça do pareamento, mas estado
-**inteiramente separado**: o QR carrega só host+porta+código (nunca a URL do artefato com o hash
-embutido — o gerador de QR do desktop satura em ~213 bytes), e é o celular que troca o código pela
-informação de verdade ao abrir `GET /apk?c=CODIGO`. Hoje essa rota sempre devolve uma página HTML
-solta dizendo que ainda não há build.
+Infra do QR (ver [spec](docs/superpowers/specs/2026-09-13-mobile-apk-spike.md)). No desktop,
+painel Celular → "Gerar QR de download": abre um código de 6 caracteres
+(`apps/daemon/src/apk-share.ts`), TTL de 5 minutos, uso único, teto de erros — mesmo modelo de
+ameaça do pareamento, mas estado **inteiramente separado**: o QR carrega só host+porta+código
+(nunca a URL do artefato com o hash embutido — o gerador de QR do desktop satura em ~213 bytes), e
+é o celular que troca o código pela informação de verdade ao abrir `GET /apk?c=CODIGO`. Com build
+pronto, essa rota serve o `.apk` DIRETO (`content-type` correto, hash no header
+`X-Nexo-Sha256`); sem build, devolve uma página HTML solta explicando.
 
-**Keystore**: não existe ainda — só entra quando a Fase 2 (pipeline de build) começar; vai morar em
-`~/.nexo`, modo `0600`, mesmo padrão do `daemon.token`.
+**Build (Fase 2, `apps/daemon/src/apk-build.ts`)**: botão "Gerar APK" no painel Celular dispara em
+segundo plano (`POST /v1/apk/build`, `GET` só consulta status) — TWA (Trusted Web Activity) via
+`@bubblewrap/core`, direto (sem a CLI interativa). Exige HTTPS de pé (recusa com 400 sem isso — TWA
+não valida Digital Asset Links em cima de IP) e SDK do Android na máquina (`JAVA_HOME` +
+`ANDROID_HOME`/`ANDROID_SDK_ROOT`); sem qualquer um dos dois, falha com mensagem clara antes de
+gastar tempo. Retenção de 2 builds (`apps/daemon/apk/builds/`), estado persistido em
+`apk/atual.json` (sobrevive a reiniciar o daemon).
+
+**Keystore** (`apps/daemon/src/apk-keystore.ts`): gerado UMA vez, em `~/.nexo/apk/keystore.jks`
+(`0600`, mesmo padrão do `daemon.token`) — nunca regenerado depois de existir, porque trocar a
+chave quebraria atualização de quem já instalou. Usa o `KeyTool` do próprio `@bubblewrap/core`.
+
+**O que não foi validado de ponta a ponta**: o ambiente onde isto foi escrito não tem acesso ao SDK
+do Android (host de download bloqueado por política de rede), então a compilação Gradle e a
+assinatura do `.apk` seguem a mesma sequência do comando `bubblewrap build` (lida do código-fonte
+da `@bubblewrap/cli`) mas nunca rodaram de ponta a ponta aqui. O que FOI validado com ferramentas
+reais: geração de keystore com `keytool` de verdade, e geração do projeto Android
+(`TwaGenerator.createTwaProject`) baixando um ícone de um servidor HTTP real.
 
 Side-load de um `.apk` sempre vai exigir "fontes desconhecidas" habilitado no Android.
 

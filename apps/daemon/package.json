@@ -15,6 +15,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@bubblewrap/core": "^1.25.0",
     "@hono/node-server": "^1.13.7",
     "@nexo/shared": "workspace:*",
     "hono": "^4.6.14",

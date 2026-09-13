@@ -4635,6 +4635,68 @@ async function apkPedirCodigo() {
 $("btn-apk-codigo").addEventListener("click", () => void apkPedirCodigo());
 
 /**
+ * Build do APK (Fase 2) — dispara e faz polling do status enquanto
+ * `"construindo"`. Precisa de HTTPS de pé (a rota recusa sem isso) e do SDK
+ * do Android na máquina; qualquer falta vira mensagem clara aqui, não erro
+ * genérico.
+ */
+let apkBuildTimer = 0;
+
+function apkBuildPintar(e) {
+  const status = $("apk-build-status");
+  const btn = $("btn-apk-build");
+  if (!e || e.fase === "ocioso") {
+    status.textContent = "";
+    btn.disabled = false;
+    btn.textContent = "Gerar APK";
+    return;
+  }
+  if (e.fase === "construindo") {
+    status.textContent = `Construindo: ${e.etapa}…`;
+    btn.disabled = true;
+    btn.textContent = "Construindo…";
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent = "Gerar de novo";
+  status.textContent =
+    e.fase === "pronto" ? `Pronto — versão ${e.versao}, sha256 ${e.sha256.slice(0, 12)}…` : e.motivo;
+}
+
+function apkBuildPararPolling() {
+  if (apkBuildTimer) clearInterval(apkBuildTimer);
+  apkBuildTimer = 0;
+}
+
+async function apkBuildChecar() {
+  try {
+    const e = await req("/v1/apk/build");
+    apkBuildPintar(e);
+    if (e?.fase === "construindo") {
+      if (!apkBuildTimer) apkBuildTimer = setInterval(() => void apkBuildChecar(), 1500);
+    } else {
+      apkBuildPararPolling();
+    }
+  } catch {
+    apkBuildPararPolling();
+  }
+}
+
+async function apkBuildIniciar() {
+  try {
+    apkBuildPintar(await req("/v1/apk/build", { method: "POST" }));
+    apkBuildPararPolling();
+    apkBuildTimer = setInterval(() => void apkBuildChecar(), 1500);
+  } catch (e) {
+    $("apk-build-status").textContent = e.message || "Não deu pra iniciar o build.";
+  }
+}
+
+$("btn-apk-build").addEventListener("click", () => void apkBuildIniciar());
+// mostra o estado assim que o painel carrega — inclusive um build de uma sessão anterior
+void apkBuildChecar();
+
+/**
  * Desconecta todos os celulares de uma vez.
  *
  * O token passou a sobreviver às subidas do daemon, então a revogação deixou de
