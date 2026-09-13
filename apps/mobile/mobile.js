@@ -419,16 +419,17 @@ $("ajuste-esforco").addEventListener("change", async () => {
 });
 
 /**
- * Chips de conta/modelo/esforço, visíveis acima da caixa (não escondidos atrás do
- * `⚙`) — igual à barra do desktop. Conta é clicável e troca de verdade a conta da
- * conversa (mesma rota que o desktop usa, `POST /v1/threads/:id/switch`); modelo e
- * esforço abrem a folha que já existe.
+ * Chips de conta/modelo, visíveis acima da caixa (não escondidos atrás do `⚙`)
+ * — igual à barra do desktop. Conta é clicável e troca de verdade a conta da
+ * conversa (mesma rota que o desktop usa, `POST /v1/threads/:id/switch`); o
+ * chip de modelo mostra também o esforço e abre a mesma folha que já reúne
+ * os dois — não há chip separado de esforço, ele mora dentro do seletor de
+ * modelo, igual à referência.
  */
 async function refrescarChips() {
   if (!threadProfileId) {
     $("chip-conta").classList.add("hidden");
     $("chip-modelo").classList.add("hidden");
-    $("chip-esforco").classList.add("hidden");
     return;
   }
   $("chip-conta").classList.remove("hidden");
@@ -437,17 +438,14 @@ async function refrescarChips() {
     mencoes.profiles = await req("/v1/profiles");
   } catch {
     $("chip-modelo").classList.add("hidden");
-    $("chip-esforco").classList.add("hidden");
     return;
   }
   const p = perfilAtual();
   const podeAjustar = Boolean(p && p.engine === "claude");
   $("chip-modelo").classList.toggle("hidden", !podeAjustar);
-  $("chip-esforco").classList.toggle("hidden", !podeAjustar);
   if (podeAjustar) {
-    $("chip-modelo").textContent = p.model || "modelo padrão";
     const idx = Math.max(0, EFFORT_STEPS.indexOf(p.effort || ""));
-    $("chip-esforco").textContent = `esforço ${EFFORT_NAMES[idx]}`;
+    $("chip-modelo").textContent = `${p.model || "modelo padrão"} · ${EFFORT_NAMES[idx]}`;
   }
 }
 
@@ -492,7 +490,6 @@ async function trocarConta(profileId) {
 
 $("chip-conta").addEventListener("click", () => void abrirFolhaTrocar());
 $("chip-modelo").addEventListener("click", () => void abrirFolhaAjustes());
-$("chip-esforco").addEventListener("click", () => void abrirFolhaAjustes());
 
 /* ---------- pet: maguinho no canto do compositor, igual ao desktop ----------
  * Mesma ideia do `apps/desktop/renderer.js`, resumida: só idle/off/work (o
