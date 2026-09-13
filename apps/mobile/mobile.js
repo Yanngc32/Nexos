@@ -302,7 +302,7 @@ function abrirFolha(el) {
   el.classList.remove("hidden");
 }
 
-for (const folha of [$("folha-nova"), $("folha-ajustes")]) {
+for (const folha of [$("folha-nova"), $("folha-ajustes"), $("folha-trocar")]) {
   folha.querySelector("[data-fechar]").addEventListener("click", () => fecharFolha(folha));
 }
 
@@ -404,15 +404,93 @@ async function ajustarPerfil(patch) {
 }
 
 $("btn-ajustes").addEventListener("click", () => void abrirFolhaAjustes());
-$("ajuste-modelo").addEventListener("change", () => void ajustarPerfil({ model: $("ajuste-modelo").value }));
+$("ajuste-modelo").addEventListener("change", async () => {
+  await ajustarPerfil({ model: $("ajuste-modelo").value });
+  void refrescarChips();
+});
 $("ajuste-esforco").addEventListener("input", () => {
   const idx = Number($("ajuste-esforco").value);
   $("ajuste-esforco-label").textContent = EFFORT_NAMES[idx];
 });
-$("ajuste-esforco").addEventListener("change", () => {
+$("ajuste-esforco").addEventListener("change", async () => {
   const idx = Number($("ajuste-esforco").value);
-  void ajustarPerfil({ effort: EFFORT_STEPS[idx] });
+  await ajustarPerfil({ effort: EFFORT_STEPS[idx] });
+  void refrescarChips();
 });
+
+/**
+ * Chips de conta/modelo/esforço, visíveis acima da caixa (não escondidos atrás do
+ * `⚙`) — igual à barra do desktop. Conta é clicável e troca de verdade a conta da
+ * conversa (mesma rota que o desktop usa, `POST /v1/threads/:id/switch`); modelo e
+ * esforço abrem a folha que já existe.
+ */
+async function refrescarChips() {
+  if (!threadProfileId) {
+    $("compositor-chips").classList.add("hidden");
+    return;
+  }
+  $("compositor-chips").classList.remove("hidden");
+  $("chip-conta").textContent = threadProfileId;
+  try {
+    mencoes.profiles = await req("/v1/profiles");
+  } catch {
+    $("chip-modelo").classList.add("hidden");
+    $("chip-esforco").classList.add("hidden");
+    return;
+  }
+  const p = perfilAtual();
+  const podeAjustar = Boolean(p && p.engine === "claude");
+  $("chip-modelo").classList.toggle("hidden", !podeAjustar);
+  $("chip-esforco").classList.toggle("hidden", !podeAjustar);
+  if (podeAjustar) {
+    $("chip-modelo").textContent = p.model || "modelo padrão";
+    const idx = Math.max(0, EFFORT_STEPS.indexOf(p.effort || ""));
+    $("chip-esforco").textContent = `esforço ${EFFORT_NAMES[idx]}`;
+  }
+}
+
+async function abrirFolhaTrocar() {
+  if (!threadProfileId) return;
+  const ul = $("folha-trocar-lista");
+  ul.replaceChildren();
+  abrirFolha($("folha-trocar"));
+  let profiles = [];
+  try {
+    profiles = await req("/v1/profiles");
+  } catch {
+    /* folha abre vazia; painel de contas do computador é que resolve */
+  }
+  mencoes.profiles = profiles;
+  const opcoes = profiles.filter((p) => p.status === "ready" && p.id !== threadProfileId);
+  $("folha-trocar-vazio").classList.toggle("hidden", opcoes.length > 0);
+  for (const p of opcoes) {
+    const desc = p.engine === "claude" ? p.model || "modelo padrão" : p.engine;
+    ul.append(linhaDeOpcao(p.id, desc, () => void trocarConta(p.id)));
+  }
+}
+
+async function trocarConta(profileId) {
+  fecharFolha($("folha-trocar"));
+  try {
+    const res = await req(`/v1/threads/${threadId}/switch`, {
+      method: "POST",
+      body: JSON.stringify({ profileId, confirmed: true, reason: "user" }),
+    });
+    threadProfileId = profileId;
+    bolha("sys", `— trocou pra ${profileId} —`);
+    rolarPraBaixo();
+    await refrescarChips();
+    // `resumed`: a conta nova já está respondendo o turno que ficou pendente.
+    if (res?.resumed) syncPet(true, true);
+  } catch (e) {
+    bolha("erro", e.message);
+    rolarPraBaixo();
+  }
+}
+
+$("chip-conta").addEventListener("click", () => void abrirFolhaTrocar());
+$("chip-modelo").addEventListener("click", () => void abrirFolhaAjustes());
+$("chip-esforco").addEventListener("click", () => void abrirFolhaAjustes());
 
 /* ---------- pet: maguinho no canto do compositor, igual ao desktop ----------
  * Mesma ideia do `apps/desktop/renderer.js`, resumida: só idle/off/work (o
@@ -580,9 +658,15 @@ async function abrirChat(id, titulo, profileId = "") {
     if (ev.type === "user" || ev.type === "assistant") bolha(ev.type, ev.text);
     else if (ev.type === "error") bolha("erro", ev.message);
     else if (ev.type === "cleared") bolha("sys", "— contexto cortado —");
+    else if (ev.type === "switched") {
+      threadProfileId = ev.toProfileId;
+      bolha("sys", `— trocou pra ${ev.toProfileId} —`);
+    }
   }
+  $("btn-ajustes").hidden = !threadProfileId;
   rolarPraBaixo();
   syncPet(true, false);
+  void refrescarChips();
   ouvirChat();
 }
 
@@ -626,8 +710,15 @@ function ouvirChat() {
           syncPet(true, false);
           return;
         }
+        if (ev.type === "switched") {
+          threadProfileId = ev.toProfileId;
+          bolha("sys", `— trocou pra ${ev.toProfileId} —`);
+          rolarPraBaixo();
+          void refrescarChips();
+          return;
+        }
         if (ev.type === "quota") {
-          bolha("erro", "A quota da conta acabou. Troque de conta no computador.");
+          bolha("erro", "A quota da conta acabou. Toque no chip da conta pra trocar.");
           rolarPraBaixo();
         }
       }),

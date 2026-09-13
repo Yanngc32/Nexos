@@ -177,8 +177,10 @@ button {
 
 .compositor-wrap {
   position: relative;
+  /* SEM borda aqui: a linha vive em `.compositor`, bem no topo da caixa de
+     texto — senão ela corta os pés do maguinho e ele parece flutuar dentro
+     da lista de mensagens, em vez de em pé sobre a caixa (igual ao desktop). */
   padding-top: 38px;
-  border-top: 1px solid var(--line);
 }
 
 .pet-stage {
@@ -208,9 +210,17 @@ button {
 
 .compositor {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 12px max(10px, env(safe-area-inset-bottom));
+  /* pé do maguinho encosta bem aqui: ele fica em pé sobre a caixa, não solto acima dela */
+  border-top: 1px solid var(--line);
+}
+
+.compositor-linha {
+  display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding: 0 12px max(10px, env(safe-area-inset-bottom));
 }
 
 #txt {
@@ -239,6 +249,32 @@ button {
   font-size: 18px;
   padding: 0;
 }
+
+/* ---------- chips de conta/modelo/esforço, abaixo da caixa ---------- */
+
+.compositor-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.chip {
+  flex: 0 0 auto;
+  max-width: 42vw;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--cartao);
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip:active { background: color-mix(in srgb, var(--accent) 20%, var(--cartao)); color: var(--text); }
 
 /* ---------- abas ---------- */
 
