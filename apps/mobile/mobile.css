@@ -174,11 +174,9 @@ button {
 .msg code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 13px; }
 
 /* ---------- compositor: um cartão só (caixa + barra), igual à referência ----------
- * Textarea e a barra de baixo (modelo/esforço + enviar) moram dentro da MESMA
- * borda arredondada — não são duas formas soltas lado a lado. Em cima do
- * cartão, uma faixa com o chip de conta (esquerda) e o maguinho em pé
- * (direita), os dois com o pé encostado no topo do cartão — igual aos chips
- * de contexto (ambiente/repo) que ficam acima da caixa na referência.
+ * Textarea e a barra de baixo (conta/modelo/esforço + enviar) moram dentro da
+ * MESMA borda arredondada — não são duas formas soltas lado a lado. Acima do
+ * cartão, só o maguinho em pé, com o pé encostado no topo do cartão.
  */
 
 .compositor-wrap {
@@ -187,19 +185,9 @@ button {
 
 .compositor-topo {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 8px;
+  justify-content: flex-end;
   height: 38px;
   padding: 0 16px;
-}
-
-.compositor-contexto {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-  min-width: 0;
 }
 
 .pet-stage {
@@ -257,7 +245,14 @@ button {
   gap: 6px;
 }
 
-.compositor-spacer { flex: 1; min-width: 0; }
+.compositor-chips-scroll {
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.compositor-spacer { flex: 1; min-width: 6px; }
 
 #btn-enviar {
   flex: 0 0 40px;
@@ -274,14 +269,14 @@ button {
  */
 .compositor-chip {
   flex: 0 0 auto;
-  max-width: 40vw;
-  height: 26px;
-  padding: 0 10px;
+  max-width: 28vw;
+  height: 20px;
+  padding: 0 8px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--cartao);
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
