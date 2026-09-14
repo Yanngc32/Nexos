@@ -887,6 +887,19 @@ body[data-focus="1"] .work #pane-chat {
   letter-spacing: 0.02em;
 }
 
+.tk-projeto {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--panel-2, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
 /* sempre cola na ponta direita do header, não importa o que mais tem no meio */
 .mod-close {
   margin-left: auto;
@@ -1280,6 +1293,31 @@ body[data-focus="1"] .work #pane-chat {
   background: #2a1c1c;
   color: #e0b4b0;
   font-size: 13px;
+}
+
+/* Fica visível o tempo todo que "Permitir controle do Windows" estiver ligado — de propósito,
+   pra ninguém esquecer que o agente pode mexer em outro app enquanto essa permissão está de pé. */
+.banner-windows-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.banner-windows-control-txt {
+  flex: 1;
+}
+.banner-windows-control .ghost {
+  flex: 0 0 auto;
+  border-color: #e0b4b0;
+  color: #e0b4b0;
+}
+
+/* Linha de config de risco mais alto (controle do Windows) — mesma cor do .banner, pra a
+   Config já avisar antes mesmo de ligar o interruptor. */
+.set-row-perigo {
+  background: #2a1c1c;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 0 -12px;
 }
 
 /* chapéu do chat: "projeto › conversa", pra nunca digitar no repo errado */
@@ -1696,6 +1734,24 @@ li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
 }
 .pergunta-confirmar:disabled { opacity: .35; cursor: default; }
 
+/* Abre o texto livre mesmo quando há botões de opção — resposta nem sempre bate com nenhuma. */
+.pergunta-outro-toggle {
+  display: block;
+  margin-top: 8px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: var(--muted);
+  text-decoration: underline;
+  padding: 2px 0;
+}
+.pergunta-outro-toggle:hover { color: var(--text); }
+.pergunta-outro-toggle.hidden { display: none; }
+.pergunta-form-outro { margin-top: 8px; }
+.pergunta-form-outro.hidden { display: none; }
+
 .pergunta-form { display: flex; gap: 8px; }
 .pergunta-form input {
   flex: 1;
@@ -1718,6 +1774,7 @@ li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
   font-weight: 600;
 }
 .pergunta-form button:disabled { opacity: .45; cursor: default; }
+
 /* Resposta aberta: citação no lugar do form, não uma linha separada dizendo a mesma coisa. */
 .pergunta-resposta {
   font-style: italic;
@@ -3016,6 +3073,28 @@ button:disabled {
   gap: 8px;
   font-size: 13px;
   color: var(--muted);
+}
+
+.field input[type="text"] {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background-color: #222;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  padding: 6px 10px;
+  transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.field input[type="text"]:hover:not(:disabled) {
+  background-color: #2a2a2a;
+  border-color: #4d4d4d;
+}
+
+.field input[type="text"]:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 26%, transparent);
 }
 
 .accent-row {
@@ -4625,6 +4704,13 @@ body[data-compactando="1"] .ctx-dot::after {
   padding: 8px 8px 0;
 }
 
+.kanban-col-handle {
+  flex: 0 0 auto;
+  color: var(--muted);
+  cursor: grab;
+  padding: 0 2px;
+}
+
 .kanban-col-nome {
   flex: 1;
   min-width: 0;
@@ -5210,4 +5296,82 @@ body[data-compactando="1"] .ctx-dot::after {
   30% {
     background: color-mix(in srgb, var(--accent) 25%, transparent);
   }
+}
+
+/* ---------- menu de botão direito (menu-contexto.js) ---------- */
+.ctx-menu {
+  position: fixed;
+  z-index: 300;
+  min-width: 220px;
+  max-width: 320px;
+  padding: 6px;
+  background: var(--elev);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ctx-titulo {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.ctx-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
+}
+
+.ctx-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ctx-item[data-on="1"],
+.ctx-item:hover {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.ctx-item:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.ctx-item[data-perigo="1"] {
+  color: var(--danger);
+}
+
+.ctx-ico {
+  font-size: 13px;
+  line-height: 1;
+  text-align: center;
+  color: var(--muted);
+}
+
+.ctx-rotulo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-atalho {
+  font-size: 11px;
+  color: var(--muted);
 }

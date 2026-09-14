@@ -68,6 +68,36 @@ describe("nexo_perguntar", () => {
     responderPergunta(t.id, "ok");
   });
 
+  it("numero/total só entram no evento quando total > 1", async () => {
+    resetPerguntasForTest();
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    const ferramenta = ferramentaDePerguntar(t.id, home)()[0];
+
+    void ferramenta.executar({ pergunta: "1/2 — a?", numero: 1, total: 2 });
+    await new Promise((r) => setTimeout(r, 10));
+    const pergunta = readThread(t.id, home).find((e) => e.type === "pergunta");
+    expect(pergunta && pergunta.type === "pergunta" ? pergunta.numero : undefined).toBe(1);
+    expect(pergunta && pergunta.type === "pergunta" ? pergunta.total : undefined).toBe(2);
+    responderPergunta(t.id, "ok");
+  });
+
+  it("total 1 (ou ausente) não entra no evento — não é lote de verdade", async () => {
+    resetPerguntasForTest();
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    const ferramenta = ferramentaDePerguntar(t.id, home)()[0];
+
+    void ferramenta.executar({ pergunta: "só essa?", numero: 1, total: 1 });
+    await new Promise((r) => setTimeout(r, 10));
+    const pergunta = readThread(t.id, home).find((e) => e.type === "pergunta");
+    expect(pergunta && pergunta.type === "pergunta" ? pergunta.numero : undefined).toBeUndefined();
+    expect(pergunta && pergunta.type === "pergunta" ? pergunta.total : undefined).toBeUndefined();
+    responderPergunta(t.id, "ok");
+  });
+
   it("responder thread sem pergunta pendente devolve false", () => {
     resetPerguntasForTest();
     expect(responderPergunta("thread-sem-nada", "x")).toBe(false);

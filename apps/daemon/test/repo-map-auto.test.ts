@@ -26,6 +26,7 @@ const modulos = (patch: Partial<{ repoMapResumos: boolean; repoMapProfileId: str
   cavemanNivel: "full" as const,
   repoMapResumos: false,
   repoMapProfileId: "",
+  quadroTarefas: true,
   ...patch,
 });
 

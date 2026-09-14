@@ -26,6 +26,17 @@ rem baixa o electron.exe (approve-builds) -- a pasta existir nao quer dizer
 rem que o app tem como abrir.
 if not exist "apps\daemon\node_modules\tsx" goto install
 if not exist "apps\desktop\node_modules\electron\dist\electron.exe" goto install
+
+rem Esses dois checks acima so pegam "nunca instalou". Se o pnpm-lock.yaml
+rem mudou desde o ultimo install (ex.: git pull trouxe dependencia nova),
+rem os binarios continuam existindo e o script pulava o install sem checar
+rem o lockfile -- compara um hash salvo pra pegar esse caso.
+set "LOCK_MARKER=node_modules\.nexo-lock-hash"
+set "LOCK_HASH="
+for /f "usebackq delims=" %%H in (`certutil -hashfile pnpm-lock.yaml SHA256 2^>nul ^| findstr /v "hash CertUtil"`) do set "LOCK_HASH=%%H"
+if not exist "%LOCK_MARKER%" goto install
+set /p LOCK_SAVED=<"%LOCK_MARKER%"
+if not "%LOCK_HASH%"=="%LOCK_SAVED%" goto install
 goto deps_ok
 
 :install
@@ -47,6 +58,7 @@ if not exist "apps\desktop\node_modules\electron\dist\electron.exe" (
   echo [nexo] aprove "electron" e "esbuild", depois rode run.bat de novo.
   exit /b 1
 )
+for /f "usebackq delims=" %%H in (`certutil -hashfile pnpm-lock.yaml SHA256 2^>nul ^| findstr /v "hash CertUtil"`) do echo %%H > "node_modules\.nexo-lock-hash"
 
 :deps_ok
 if /i "%~1"=="daemon" (

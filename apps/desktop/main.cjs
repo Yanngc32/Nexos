@@ -723,6 +723,20 @@ app.whenReady().then(() => {
     await shell.openExternal(url);
     return { ok: true };
   });
+  /**
+   * Abre uma PASTA no gerenciador de arquivos do SO (menu de botão direito do
+   * repositório). Só diretório que existe: arquivo solto abriria no programa
+   * associado, que é executar conteúdo do disco por caminho vindo do renderer.
+   */
+  handle("shell:reveal", async (_e, raw) => {
+    const alvo = String(raw ?? "");
+    if (!alvo) throw new Error("Caminho vazio");
+    const info = await stat(alvo).catch(() => null);
+    if (!info?.isDirectory()) throw new Error("Pasta inexistente");
+    const erro = await shell.openPath(resolve(alvo));
+    if (erro) throw new Error(erro);
+    return { ok: true };
+  });
   handle("folder:pick", async () => {
     const r = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
     if (r.canceled) return null;

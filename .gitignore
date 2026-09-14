@@ -7,6 +7,10 @@ __pycache__
 *.tsbuildinfo
 apps/desktop/src-tauri/target
 
+# helper nativo (.NET) do controle do Windows — compilado sob demanda, ver windows-control/client.ts
+apps/daemon/src/windows-control/native/bin
+apps/daemon/src/windows-control/native/obj
+
 # lixo de editor e de SO
 .vscode/
 .idea/

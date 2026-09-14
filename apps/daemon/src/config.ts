@@ -61,6 +61,7 @@ export function loadConfig(home: string): NexoConfig {
     slugOverrides: cleanSlugOverrides(raw.slugOverrides),
     ...(isTetoTokens(raw.repoMapTetoTokens) ? { repoMapTetoTokens: raw.repoMapTetoTokens } : {}),
     modulos: cleanModulos(raw.modulos),
+    windowsControlEnabled: Boolean(raw.windowsControlEnabled),
   };
 }
 
@@ -80,6 +81,7 @@ function cleanModulos(value: unknown): NexoConfig["modulos"] {
     cavemanNivel: isCavemanNivel(o.cavemanNivel) ? o.cavemanNivel : DEFAULT_CONFIG.modulos.cavemanNivel,
     repoMapResumos: Boolean(o.repoMapResumos),
     repoMapProfileId: str(o.repoMapProfileId),
+    quadroTarefas: o.quadroTarefas === undefined ? DEFAULT_CONFIG.modulos.quadroTarefas : Boolean(o.quadroTarefas),
   };
 }
 
@@ -185,7 +187,11 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
         patch.modulos?.repoMapProfileId === undefined
           ? current.modulos.repoMapProfileId
           : str(patch.modulos.repoMapProfileId),
+      quadroTarefas:
+        patch.modulos?.quadroTarefas === undefined ? current.modulos.quadroTarefas : Boolean(patch.modulos.quadroTarefas),
     },
+    windowsControlEnabled:
+      patch.windowsControlEnabled === undefined ? current.windowsControlEnabled : Boolean(patch.windowsControlEnabled),
   };
   writeJsonAtomico(configPath(home), next);
   return next;

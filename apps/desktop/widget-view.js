@@ -42,6 +42,24 @@ export function custoDoRun(run) {
 }
 
 /**
+ * Custo acumulado, um ponto por passo — pro sparkline do run em voo.
+ *
+ * Usa o que `custoDoRun` já soma, sem requisição nova: os passos já vêm dentro
+ * do run que o painel pede a cada dois segundos. Ponto 0 é o gasto herdado de
+ * tentativas anteriores, pra a linha não nascer em zero quando o run retoma.
+ */
+export function serieDeCusto(run) {
+  const steps = run?.steps ?? [];
+  let acumulado = run?.gastoAnterior ?? 0;
+  const pontos = [acumulado];
+  for (const s of steps) {
+    acumulado += s?.costUsd ?? 0;
+    pontos.push(acumulado);
+  }
+  return pontos;
+}
+
+/**
  * Linha do run pro painel. `null` quando não há run pra mostrar.
  *
  * Recebe UM run, não a lista: quem escolhe qual é o run do momento é o daemon
@@ -68,10 +86,13 @@ export function faixaDoRun(run, agora = Date.now()) {
     feitos,
     total: steps.length,
     agente: passo?.agentId ?? "",
+    /** O que ele faz NESTE time — o id sozinho não diz se está revisando, escrevendo, etc. */
+    papel: passo?.papel ?? "",
     /** Vazio quando nada abriu ainda: zero seria mentira, não "ainda não". */
     ms: Number.isNaN(inicio) ? 0 : Math.max(0, fim - inicio),
     custoUsd: custoDoRun(run),
     tetoUsd: run.budget?.maxUsd ?? 0,
+    serieCusto: serieDeCusto(run),
   };
 }
 
@@ -146,7 +167,7 @@ export function resumoMini(faixa, emVooAgora = [], aneis = [], outrosProjetos = 
   if (faixa) {
     partes.push(faixa.objetivo || "sem objetivo");
     partes.push(faixa.total ? `${faixa.feitos}/${faixa.total} passos` : "passos ainda não montados");
-    partes.push(faixa.rodando ? faixa.agente || "montando…" : faixa.status);
+    partes.push(faixa.rodando ? (faixa.papel ? `${faixa.agente} — ${faixa.papel}` : faixa.agente || "montando…") : faixa.status);
     if (faixa.custoUsd) {
       partes.push(`US$ ${faixa.custoUsd.toFixed(4)}${faixa.tetoUsd ? ` de US$ ${faixa.tetoUsd}` : ""}`);
     }

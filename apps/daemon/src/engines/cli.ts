@@ -57,8 +57,24 @@ function codexFlags(profile: Profile, over: EngineOverrides = {}): string[] {
   return out;
 }
 
-/** `over` são os ajustes do agente personalizado: vencem os da conta quando existem. */
-function profileFlags(profile: Profile, over: EngineOverrides = {}, extraTools: string[] = []): string[] {
+/**
+ * Prefixo das ferramentas `nexo_windows_*` (controle de QUALQUER app do Windows,
+ * ver `windows-control.ts`) — o único jeito de saber se algo é uma delas sem
+ * importar a lista inteira aqui.
+ */
+const PREFIXO_WINDOWS_CONTROL = "mcp__nexo__nexo_windows_";
+
+/**
+ * `over` são os ajustes do agente personalizado: vencem os da conta quando existem.
+ *
+ * `home` é o único parâmetro que existe SÓ pra checar `windowsControlEnabled` —
+ * é o gate mestre de `nexo_windows_*`, e este é o ÚNICO ponto onde `--allowed-tools`
+ * de fato sai pro CLI. Filtra aqui, incondicionalmente, tanto o que veio de
+ * `extraTools` (calculado por sessão) quanto o que o usuário escreveu à mão no
+ * `allowedTools` do próprio perfil — nenhum dos dois pode religar sozinho o que
+ * esta config desligou.
+ */
+function profileFlags(profile: Profile, home: string, over: EngineOverrides = {}, extraTools: string[] = []): string[] {
   if (profile.engine === "codex") return codexFlags(profile, over);
   if (profile.engine !== "claude") return [];
   const model = over.model ?? profile.model;
@@ -82,7 +98,9 @@ function profileFlags(profile: Profile, over: EngineOverrides = {}, extraTools: 
    * MCP entrariam no lugar das que o perfil declarou (ou o contrário).
    */
   const allowed = [...(profile.allowedTools ?? []).filter((t) => TOOL_PATTERN_RE.test(t)), ...extraTools];
-  if (allowed.length) out.push("--allowed-tools", ...allowed);
+  const podeControlarWindows = loadConfig(home).windowsControlEnabled === true;
+  const allowedFiltrado = podeControlarWindows ? allowed : allowed.filter((t) => !t.startsWith(PREFIXO_WINDOWS_CONTROL));
+  if (allowedFiltrado.length) out.push("--allowed-tools", ...allowedFiltrado);
   return out;
 }
 
@@ -177,7 +195,7 @@ export class CliEngine implements Engine {
     const profile = getProfile(this.profileId, this.home);
     const over: EngineOverrides = agentOverrides(this.agentId, this.home);
     const mcp = this.mcpFlags(profile?.engine);
-    this.args = profile ? [...this.baseArgs, ...profileFlags(profile, over, mcp.tools)] : [...this.baseArgs];
+    this.args = profile ? [...this.baseArgs, ...profileFlags(profile, this.home, over, mcp.tools)] : [...this.baseArgs];
     this.args.push(...this.attachmentFlags(profile?.engine));
     this.args.push(...mcp.flags);
     this.lastArgs = this.args;

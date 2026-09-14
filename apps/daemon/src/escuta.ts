@@ -212,7 +212,10 @@ export async function tentarHttps(fetchHandler: Fetch, port: number, home: strin
     if (!par) return fecharHttps();
 
     if (ligadoHttps) fechar(ligadoHttps);
-    const aberto = await abrirHttps(fetchHandler, tunel.host, httpsPort || port + 1, par.certPem, par.keyPem);
+    // 443 fixo: o manifest do TWA (bubblewrap) monta a URL como `https://${host}${startUrl}`,
+    // sem campo de porta — porta implícita é sempre 443. Servir noutra porta faz o app
+    // do celular bater em "conexão recusada" contra a 443, que ninguém escuta.
+    const aberto = await abrirHttps(fetchHandler, tunel.host, httpsPort || 443, par.certPem, par.keyPem);
     httpsPort = aberto.port;
     ligadoHttps = { host: tunel.host, server: aberto.server };
     httpsInfo = { host: tunel.host, hostname, port: httpsPort };

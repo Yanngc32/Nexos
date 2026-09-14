@@ -25,7 +25,7 @@ import { saveAgent } from "../src/agents.ts";
 import { memoriaPath } from "../src/memoria.ts";
 import { construirIndice } from "../src/repo-map-indice.ts";
 import { deadCred, liveCred, tempHome } from "./helpers.ts";
-import { saveConfig } from "../src/config.ts";
+import { loadConfig, saveConfig } from "../src/config.ts";
 
 describe("session", () => {
   it("grava user antes da resposta e não vaza key", () => {
@@ -417,7 +417,14 @@ describe("session", () => {
     const home = tempHome();
     addProfile({ id: "p1", engine: "stub" }, home);
     saveConfig(home, {
-      modulos: { rtk: false, caveman: true, cavemanNivel: "ultra", repoMapResumos: false, repoMapProfileId: "" },
+      modulos: {
+        rtk: false,
+        caveman: true,
+        cavemanNivel: "ultra",
+        repoMapResumos: false,
+        repoMapProfileId: "",
+        quadroTarefas: true,
+      },
     });
     saveAgent({ id: "rev", name: "Revisor", profileId: "p1", instructions: "só português" }, home);
     const t = createThread({ projectPath: "/proj-caveman", profileId: "p1", agentId: "rev" }, home);
@@ -435,6 +442,25 @@ describe("session", () => {
     await postMessage(t.id, "oi", home);
     const engine = getLive(t.id)?.engine as StubEngine;
     expect(engine.lastStart?.contextPack).not.toContain("Caveman");
+  });
+
+  it("quadro de tarefas ligado por padrão injeta o bloco", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj-quadro", profileId: "p1" }, home);
+    await postMessage(t.id, "oi", home);
+    const engine = getLive(t.id)?.engine as StubEngine;
+    expect(engine.lastStart?.contextPack).toContain("# Quadro de tarefas");
+  });
+
+  it("quadro de tarefas desligado não injeta o bloco", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    saveConfig(home, { modulos: { ...loadConfig(home).modulos, quadroTarefas: false } });
+    const t = createThread({ projectPath: "/proj-sem-quadro", profileId: "p1" }, home);
+    await postMessage(t.id, "oi", home);
+    const engine = getLive(t.id)?.engine as StubEngine;
+    expect(engine.lastStart?.contextPack).not.toContain("# Quadro de tarefas");
   });
 
   it("índice do repo map construído: injeta a árvore e o lembrete de usar nexo_mapa_simbolos", async () => {

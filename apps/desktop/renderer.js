@@ -5,8 +5,10 @@ import { aplicarNoRetrato } from "./agent-events.js";
 import { createAgentStudio } from "./agent-studio.js";
 import { createTeamStudio } from "./team-studio.js";
 import { createHooksStudio } from "./hooks-studio.js";
+import { createAutomacaoModal } from "./automacao-modal.js";
 import { createTarefasBoard } from "./tarefas-board.js";
 import { createDialogo } from "./dialogo.js";
+import { criarMenuContexto } from "./menu-contexto.js";
 import { lerEventos } from "./sse.js";
 import { initCombobox } from "./combobox.js";
 import { aplicarEventoDeRun, rotuloDoPasso, duracaoDoPasso, larguraDosPassos } from "./run-view.js";
@@ -2460,6 +2462,66 @@ const REPO_ICO_HTML =
   '<svg class="ico-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
   '<path d="M3 19V5a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v2" /><path d="M3 19l2.4-7.3A1 1 0 0 1 6.3 11H21l-2.4 7.3a1 1 0 0 1-.95.7H4a1 1 0 0 1-1-1Z" /></svg>';
 
+/** Troca o projeto ativo (se preciso) e abre um módulo da paleta nele. */
+async function abrirModuloEmRepo(path, id) {
+  if (!samePath(state.projectPath, path)) await bindProject(path);
+  setView(id);
+}
+
+async function copiarTexto(texto, oque) {
+  try {
+    await navigator.clipboard.writeText(texto);
+    appendEvent({ type: "sys", message: `${oque} copiado: ${texto}` });
+  } catch (e) {
+    appendEvent({ type: "error", message: `Não copiou: ${e.message}` });
+  }
+}
+
+/**
+ * Botão direito num repositório da árvore: as mesmas telas da paleta, mas já
+ * apontadas pra ESTE repositório — sem ter que ativar o projeto antes.
+ */
+function menuDoRepo(e, path) {
+  menuContexto.abrir(e, [
+    { titulo: folderName(path) },
+    { rotulo: "Nova conversa", ico: "+", onSelect: () => void criarConversaEmRepo(path) },
+    { separador: true },
+    { titulo: "Telas" },
+    ...MODULES.map((m) => ({
+      rotulo: m.name,
+      ico: m.ico,
+      atalho: m.keys,
+      onSelect: () => void abrirModuloEmRepo(path, m.id),
+    })),
+    { separador: true },
+    { rotulo: "Paleta", ico: "⌘", atalho: "Ctrl+P", onSelect: () => handleMod("palette") },
+    { rotulo: "Copiar caminho", ico: "⧉", onSelect: () => void copiarTexto(path, "Caminho") },
+    { rotulo: "Abrir a pasta no sistema", ico: "↗", onSelect: () => void abrirPastaNoSistema(path) },
+    { separador: true },
+    { rotulo: "Tirar da lista", ico: "×", perigo: true, onSelect: () => void removeRepo(path) },
+  ]);
+}
+
+async function abrirPastaNoSistema(path) {
+  try {
+    await window.nexo.revealPath(path);
+  } catch (err) {
+    appendEvent({ type: "error", message: `Não abriu a pasta: ${err.message}` });
+  }
+}
+
+/** Botão direito numa conversa da árvore. */
+function menuDaConversa(e, path, t) {
+  menuContexto.abrir(e, [
+    { titulo: clip(t.preview || "Conversa nova", 40) },
+    { rotulo: "Abrir conversa", ico: "▸", onSelect: () => void openThreadInRepo(path, t.id) },
+    { rotulo: "Nova conversa neste repositório", ico: "+", onSelect: () => void criarConversaEmRepo(path) },
+    { rotulo: "Copiar ID", ico: "⧉", onSelect: () => void copiarTexto(t.id, "ID da conversa") },
+    { separador: true },
+    { rotulo: "Apagar conversa", ico: "×", perigo: true, onSelect: () => void deleteThread(t.id) },
+  ]);
+}
+
 function renderRepoTree() {
   const tree = $("repo-tree");
   if (!tree) return;
@@ -2503,6 +2565,7 @@ function renderRepoTree() {
     });
     sum.append(ico, name, forget);
     sum.insertBefore(add, forget);
+    sum.addEventListener("contextmenu", (e) => menuDoRepo(e, path));
     det.addEventListener("toggle", () => {
       if (det.open) state.reposOpen.add(normPath(path));
       else state.reposOpen.delete(normPath(path));
@@ -2561,6 +2624,7 @@ function renderRepoTree() {
         li.prepend(dot);
       }
       li.addEventListener("click", () => void openThreadInRepo(path, t.id));
+      li.addEventListener("contextmenu", (e) => menuDaConversa(e, path, t));
       return li;
     };
 
@@ -2893,21 +2957,27 @@ function appendEvent(ev, scroll = true) {
     return;
   } else if (ev.type === "pergunta") {
     // Anima só quando chega ao vivo — reabrir a conversa não deve fazer toda pergunta antiga
-    // piscar de novo na tela.
+    // piscar de novo na tela. Interativa direto na bolha: opções (single/multi) e "Outro…" com
+    // texto livre em toda pergunta com opções; sem opções, o form já É o texto livre.
     li.className = scroll ? "pergunta pergunta-viva" : "pergunta";
     li.dataset.perguntaId = ev.id;
     li.dataset.threadId = ev.threadId ?? state.threadId;
     if (ev.multiSelect) li.dataset.multi = "1";
     const opcoes = ev.opcoes ?? [];
+    const outro =
+      `<button type="button" class="pergunta-outro-toggle">Outro…</button>` +
+      `<form class="pergunta-form pergunta-form-outro hidden"><input type="text" placeholder="outro — escreva sua resposta..." autocomplete="off" /><button type="submit">Enviar</button></form>`;
     const corpo = opcoes.length
       ? `<div class="pergunta-opcoes">${opcoes
           .map((o) => `<button type="button" class="pergunta-opcao" data-valor="${escapeHtml(o)}">${escapeHtml(o)}</button>`)
           .join("")}</div>` +
-        (ev.multiSelect ? `<button type="button" class="pergunta-confirmar" disabled>Confirmar</button>` : "")
+        (ev.multiSelect ? `<button type="button" class="pergunta-confirmar" disabled>Confirmar</button>` : "") +
+        outro
       : `<form class="pergunta-form"><input type="text" placeholder="responder..." autocomplete="off" /><button type="submit">Enviar</button></form>`;
+    const contagem = ev.total > 1 ? `${ev.numero}/${ev.total}` : "";
     li.innerHTML =
-      `<div class="who pergunta-who">Pergunta</div>` +
-      `<div class="pergunta-texto">${escapeHtml(ev.texto)}</div>${corpo}`;
+      `<div class="who pergunta-who">Pergunta${contagem ? ` ${contagem}` : ""}</div>` +
+      `<div class="pergunta-texto">${escapeHtml(ev.texto ?? "")}</div>${corpo}`;
   } else if (ev.type === "pergunta_resposta") {
     const alvo = log.querySelector(`li.pergunta[data-pergunta-id="${CSS.escape(ev.id ?? "")}"]`);
     pintarRespostaDaPergunta(alvo, ev.resposta);
@@ -2960,6 +3030,7 @@ function appendEvent(ev, scroll = true) {
 }
 
 
+
 /* markdown no streaming: no máximo um render por frame, e um final no done */
 let streamPending = null;
 let streamRaf = 0;
@@ -3007,6 +3078,15 @@ $("log").addEventListener("click", (e) => {
     void responderPergunta(li, opcao.dataset.valor);
     return;
   }
+  const outroToggle = e.target.closest(".pergunta-outro-toggle");
+  if (outroToggle) {
+    const form = outroToggle.closest("li.pergunta")?.querySelector(".pergunta-form-outro");
+    if (!form) return;
+    form.classList.remove("hidden");
+    outroToggle.classList.add("hidden");
+    form.querySelector("input")?.focus();
+    return;
+  }
   const linha = e.target.closest(".tool-line");
   if (!linha) return;
   const li = linha.closest("li.tool");
@@ -3029,9 +3109,10 @@ $("log").addEventListener("submit", (e) => {
 
 /**
  * Pinta a resposta final na bolha: opção(ões) escolhida(s) viram a própria resposta (sem linha
- * repetida dizendo a mesma coisa embaixo); resposta aberta substitui o form por uma citação do
- * que foi dito. Chamado pelo eco do servidor (`pergunta_resposta`, SSE) — é a MESMA pintura pra
- * uma pergunta respondida agora e pra uma reaberta do histórico.
+ * repetida dizendo a mesma coisa embaixo); resposta livre (via "Outro…" ou pergunta sem opções)
+ * substitui o form por uma citação do que foi dito. Chamado pelo eco do servidor
+ * (`pergunta_resposta`, SSE) — é a MESMA pintura pra uma pergunta respondida agora e pra uma
+ * reaberta do histórico.
  */
 function pintarRespostaDaPergunta(li, resposta) {
   if (!li || li.dataset.respondida === "1") return;
@@ -3042,14 +3123,18 @@ function pintarRespostaDaPergunta(li, resposta) {
   // cada botão batido, em vez de procurar um botão só com o texto inteiro.
   const escolhidas = li.dataset.multi === "1" ? resposta.split("; ") : [resposta];
   const marcadas = opcoes.filter((b) => escolhidas.includes(b.dataset.valor));
-  if (marcadas.length) {
+  li.querySelectorAll("button, input").forEach((el) => (el.disabled = true));
+  if (marcadas.length && marcadas.length === escolhidas.length) {
     marcadas.forEach((b) => b.classList.add("selecionada"));
-    opcoes.forEach((b) => (b.disabled = true));
-    const confirmar = li.querySelector(".pergunta-confirmar");
-    if (confirmar) confirmar.remove();
+    li.querySelector(".pergunta-confirmar")?.remove();
+    li.querySelector(".pergunta-outro-toggle")?.remove();
+    li.querySelector(".pergunta-form-outro")?.remove();
     return;
   }
-  li.querySelectorAll("button, input").forEach((el) => (el.disabled = true));
+  // Resposta livre: bateu com "Outro…" (opções presentes) ou é pergunta sem opções.
+  li.querySelector(".pergunta-opcoes")?.remove();
+  li.querySelector(".pergunta-confirmar")?.remove();
+  li.querySelector(".pergunta-outro-toggle")?.remove();
   const form = li.querySelector(".pergunta-form");
   const resp = document.createElement("div");
   resp.className = "pergunta-resposta";
@@ -3078,6 +3163,9 @@ async function responderPergunta(li, resposta) {
 async function openThread(id) {
   // Imagem no composer é da conversa onde foi colada: não segue pra outra.
   if (state.threadId !== id) clearPending();
+  // Aborta o SSE da conversa velha JÁ — senão ele continua despejando eventos
+  // no log até o listenSse() lá embaixo, e o texto cai na conversa errada.
+  state.abortSse?.abort();
   state.threadId = id;
   localStorage.setItem("nexo.thread", id);
   const events = await req(`/v1/threads/${id}`);
@@ -3240,7 +3328,16 @@ function onLive(ev) {
     return;
   }
   if (ev.type === "pergunta") {
-    appendEvent({ type: "pergunta", id: ev.id, texto: ev.texto, opcoes: ev.opcoes, threadId: ev.threadId });
+    appendEvent({
+      type: "pergunta",
+      id: ev.id,
+      texto: ev.texto,
+      opcoes: ev.opcoes,
+      multiSelect: ev.multiSelect,
+      numero: ev.numero,
+      total: ev.total,
+      threadId: ev.threadId,
+    });
     return;
   }
   if (ev.type === "pergunta_resposta") {
@@ -3631,8 +3728,10 @@ function rotuloDoEscopo(regra) {
 function paintHookRules() {
   const ul = $("hook-list");
   ul.replaceChildren();
-  $("hook-empty").classList.toggle("hidden", state.hookRules.length > 0);
-  for (const r of state.hookRules) {
+  // tarefa.mudou-coluna não aparece aqui — se cria e edita só no modal de Automação da tela de Tarefas.
+  const lista = state.hookRules.filter((r) => r.evento !== "tarefa.mudou-coluna");
+  $("hook-empty").classList.toggle("hidden", lista.length > 0);
+  for (const r of lista) {
     const li = document.createElement("li");
     li.className = "agent-card";
     const nome = document.createElement("strong");
@@ -3668,6 +3767,13 @@ async function abrirHook(def) {
   if (!state.agents.defs.length) await loadAgentDefs();
   if (!state.teams.length) await loadTeams();
   hooksStudio.abrir(def);
+}
+
+/** Botão "Automação" da tela de Tarefas — modal escopado ao projeto aberto. */
+async function abrirAutomacao() {
+  if (!state.agents.defs.length) await loadAgentDefs();
+  if (!state.teams.length) await loadTeams();
+  await automacaoModal.abrir();
 }
 
 /* ---------- Repo map ---------- */
@@ -3865,7 +3971,18 @@ const hooksStudio = createHooksStudio({
   },
 });
 
+const automacaoModal = createAutomacaoModal({
+  req,
+  el: $,
+  getProjectPath: () => state.projectPath,
+  getAgents: () => state.agents.defs,
+  getTeams: () => state.teams,
+  aoSalvar: () => loadHookRules(),
+});
+
 const dialogo = createDialogo({ el: $ });
+
+const menuContexto = criarMenuContexto({ doc: document });
 
 const tarefasBoard = createTarefasBoard({
   req,
@@ -5698,6 +5815,14 @@ async function renderModulos() {
   $("mod-rtk").checked = Boolean(cfg.modulos?.rtk);
   $("mod-caveman").checked = Boolean(cfg.modulos?.caveman);
   $("mod-caveman-nivel").value = cfg.modulos?.cavemanNivel || "full";
+  $("mod-quadro-tarefas").checked = cfg.modulos?.quadroTarefas !== false;
+  $("mod-windows-control").checked = Boolean(cfg.windowsControlEnabled);
+  atualizarBannerWindowsControl(Boolean(cfg.windowsControlEnabled));
+}
+
+/** Fica visível o tempo todo que a permissão estiver ligada — não só na aba Configurações. */
+function atualizarBannerWindowsControl(ligado) {
+  $("windows-control-banner").classList.toggle("hidden", !ligado);
 }
 
 /** Erro: volta os campos pro que já estava salvo (via `renderModulos`), em vez de mentir na tela. */
@@ -5716,6 +5841,26 @@ $("mod-caveman").addEventListener("change", (e) => void salvarModulo("caveman", 
 $("mod-caveman-nivel").addEventListener("change", (e) =>
   void salvarModulo("cavemanNivel", e.target.value, "mod-caveman-err"),
 );
+$("mod-quadro-tarefas").addEventListener("change", (e) =>
+  void salvarModulo("quadroTarefas", e.target.checked, "mod-quadro-tarefas-err"),
+);
+
+/** Fora de `modulos`: é chave de topo do config (ver NexoConfig), não um módulo externo comum. */
+async function salvarControleDoWindows(valor) {
+  $("mod-windows-control-err").textContent = "";
+  try {
+    await req("/v1/config", { method: "PUT", body: JSON.stringify({ windowsControlEnabled: valor }) });
+    atualizarBannerWindowsControl(valor);
+  } catch (err) {
+    $("mod-windows-control-err").textContent = err.message || "Não gravou.";
+    await renderModulos();
+  }
+}
+$("mod-windows-control").addEventListener("change", (e) => void salvarControleDoWindows(e.target.checked));
+$("btn-windows-control-desativar").addEventListener("click", () => {
+  $("mod-windows-control").checked = false;
+  void salvarControleDoWindows(false);
+});
 
 $("switch-mode").addEventListener("change", async (e) => {
   const mode = e.target.value;
@@ -6022,6 +6167,8 @@ hooksStudio.ligar();
 $("btn-close-tarefas").addEventListener("click", closeModule);
 tarefasBoard.ligar();
 dialogo.ligar();
+automacaoModal.ligar();
+$("btn-tk-automacao").addEventListener("click", () => void abrirAutomacao());
 
 $("btn-palette").addEventListener("click", () => handleMod("palette"));
 $("btn-palette-close").addEventListener("click", () => closePalette());

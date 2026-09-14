@@ -506,13 +506,10 @@
                       <option value="git.post-push">git.post-push — depois de cada push</option>
                       <option value="git.pre-push">git.pre-push — antes do push (pode barrar)</option>
                       <option value="nexo.projeto-novo">nexo.projeto-novo — 1ª vez que o projeto abre no Nexo</option>
-                      <option value="tarefa.mudou-coluna">tarefa.mudou-coluna — uma tarefa entrou numa coluna</option>
                     </select></label>
                 </div>
                 <label class="ag-f" id="hk-branch-wrap"><span>Branch (opcional — vazio casa qualquer uma)</span>
                   <input id="hk-branch" type="text" maxlength="200" placeholder="main" /></label>
-                <label class="ag-f" id="hk-coluna-wrap"><span>Coluna (opcional — vazio casa qualquer uma; só disponível com escopo de projeto)</span>
-                  <select id="hk-coluna"><option value="">qualquer coluna</option></select></label>
                 <label class="ag-check" id="hk-bloqueante-wrap">
                   <input id="hk-bloqueante" type="checkbox" />
                   <span>Bloqueante — reprova o push se o agente não aprovar (ou não decidir)</span>
@@ -538,10 +535,12 @@
       <section class="pane hidden" id="pane-tarefas">
         <header class="mod-head">
           <h1>Tarefas</h1>
+          <span id="tk-projeto" class="tk-projeto" title=""></span>
           <div class="tk-toolbar">
             <select id="tk-filtro-marco" aria-label="Filtrar por marco"></select>
             <button type="button" id="btn-tk-marcos" class="ghost">Marcos</button>
             <button type="button" id="btn-tk-etiquetas" class="ghost">Etiquetas</button>
+            <button type="button" id="btn-tk-automacao" class="ghost">Automação</button>
             <div class="tk-nova-coluna">
               <input type="text" id="tk-nova-coluna-nome" placeholder="Nova coluna…" />
               <button type="button" id="btn-tk-nova-coluna-add" class="ghost">+ Coluna</button>
@@ -628,6 +627,13 @@
           <span class="crumb-thread" id="crumb-thread">Nenhuma conversa</span>
         </header>
         <div id="banner" class="banner hidden">Motor desligado. Liga pra conversar.</div>
+        <div id="windows-control-banner" class="banner banner-windows-control hidden" role="status" aria-live="polite">
+          <span aria-hidden="true">⚠</span>
+          <span class="banner-windows-control-txt">
+            <strong>Controle do Windows ativo</strong> — o agente pode ver e controlar outros aplicativos deste computador.
+          </span>
+          <button type="button" id="btn-windows-control-desativar" class="ghost">Desativar agora</button>
+        </div>
         <div id="log-wrap" class="log-wrap">
           <ol id="log" class="log"></ol>
           <div id="chat-history-rail" class="chat-history-rail hidden" aria-label="Histórico de mensagens enviadas"></div>
@@ -966,6 +972,50 @@
           <button type="button" id="btn-tk-abrir-conversa" class="ghost hidden">Abrir conversa</button>
           <button type="button" id="btn-tk-salvar" class="primary">Salvar</button>
           <button type="button" id="btn-tk-apagar" class="ghost danger hidden">Apagar</button>
+        </div>
+      </div>
+    </div>
+    <div id="automacao-modal" class="settings hidden" role="dialog" aria-labelledby="am-title">
+      <div class="settings-card">
+        <div class="settings-head">
+          <h2 id="am-title">Automação da tela de Tarefas</h2>
+          <button type="button" id="btn-am-fechar" class="ghost">Fechar</button>
+        </div>
+        <p class="mod-meta">Dispara um agente ou time sozinho quando uma tarefa entra numa coluna deste projeto.</p>
+        <ul id="am-lista" class="agents-list"></ul>
+        <p id="am-vazio" class="agents-empty">Nenhuma automação criada ainda neste projeto.</p>
+        <button type="button" class="ghost" id="btn-am-nova">+ Nova automação</button>
+        <label class="field">
+          <span>Nome</span>
+          <input id="am-nome" type="text" maxlength="60" placeholder="Avisar quando terminar" />
+        </label>
+        <label class="field">
+          <span>Descrição</span>
+          <input id="am-descricao" type="text" maxlength="200" />
+        </label>
+        <label class="field">
+          <span>Coluna (opcional — vazio casa qualquer uma)</span>
+          <select id="am-coluna"><option value="">qualquer coluna</option></select>
+        </label>
+        <label class="field">
+          <span>Quem roda</span>
+          <select id="am-alvo-tipo">
+            <option value="agente">Um agente (a solo)</option>
+            <option value="time">Um time já montado</option>
+          </select>
+        </label>
+        <label class="field" id="am-agent-wrap">
+          <span>Agente</span>
+          <select id="am-agent"></select>
+        </label>
+        <label class="field hidden" id="am-team-wrap">
+          <span>Time</span>
+          <select id="am-team"></select>
+        </label>
+        <p id="am-err" class="login-msg hidden"></p>
+        <div class="accent-row">
+          <button type="button" id="btn-am-salvar" class="primary">Salvar</button>
+          <button type="button" id="btn-am-excluir" class="ghost danger hidden">Excluir</button>
         </div>
       </div>
     </div>
@@ -1329,6 +1379,34 @@
                     <option value="wenyan-full">Wenyan · full</option>
                     <option value="wenyan-ultra">Wenyan · ultra</option>
                   </select>
+                </div>
+              </div>
+              <div class="set-row">
+                <div class="set-txt">
+                  <h4>Quadro de tarefas</h4>
+                  <p>
+                    Antes de agir, o agente confere o quadro de tarefas do projeto e move o card
+                    conforme o trabalho avança — cria card pra pedido novo, atualiza escopo, fecha
+                    ao concluir. Ligado por padrão.
+                  </p>
+                  <p id="mod-quadro-tarefas-err" class="set-err"></p>
+                </div>
+                <div class="set-ctl">
+                  <input id="mod-quadro-tarefas" type="checkbox" aria-label="Ligar módulo Quadro de tarefas" />
+                </div>
+              </div>
+              <div class="set-row set-row-perigo">
+                <div class="set-txt">
+                  <h4>Permitir controle do Windows</h4>
+                  <p>
+                    Dá ao agente ferramentas pra ver janelas e controlar mouse e teclado em
+                    <strong>outros aplicativos</strong> — não só o Nexo. Permissão independente e mais
+                    perigosa que as demais; enquanto ligada, um aviso fica sempre visível no app.
+                  </p>
+                  <p id="mod-windows-control-err" class="set-err"></p>
+                </div>
+                <div class="set-ctl">
+                  <input id="mod-windows-control" type="checkbox" aria-label="Permitir controle do Windows" />
                 </div>
               </div>
             </section>

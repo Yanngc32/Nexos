@@ -15,6 +15,7 @@ import { MCP_TOOLS_VEREDITO } from "./veredito.ts";
 import { MCP_TOOLS_PERGUNTAR } from "./perguntas.ts";
 import { MCP_TOOLS_DELEGAR, resetContadorDeDelegacao } from "./delegar.ts";
 import { MCP_TOOLS_NAVEGADOR } from "./navegador.ts";
+import { MCP_TOOLS_WINDOWS_CONTROL } from "./windows-control.ts";
 import { ApiEngine } from "./engines/api.ts";
 import { claudeEngine, codexEngine } from "./engines/cli.ts";
 import { contextWindowOf } from "./engines/parse-claude.ts";
@@ -281,6 +282,19 @@ function withInstructions(agentId: string | undefined, projectPath: string, pack
       "`nexo_perguntar` uma de cada vez (a próxima só depois da resposta da anterior) — nunca junte " +
       "todas numa lista de texto só esperando uma resposta que cubra tudo.",
   );
+  // Vale em toda conversa com projeto, igual "Perguntar com opções" — quadro de tarefas só serve
+  // pra coordenar times/humano se ele reflete trabalho real, não só o que foi planejado no início.
+  // Toggle em Configurações → Módulos (`modulos.quadroTarefas`), ligado por padrão.
+  if (modulos.quadroTarefas) {
+    blocos.push(
+      "# Quadro de tarefas\nAntes de começar qualquer trabalho neste projeto, chame `nexo_tarefa_listar` " +
+        "e mova o card da tarefa que você vai atacar pra coluna de andamento (`nexo_tarefa_salvar` com o " +
+        "mesmo `id`, só trocando `colunaId`). Se o pedido não tem card ainda, crie um antes de agir. " +
+        "Durante o trabalho, se o escopo mudar, atualize a tarefa (descrição, checklist, comentário) na " +
+        "hora — não deixe pra depois. Ao concluir, mova o card pra coluna final. Chegou pedido novo que " +
+        "ainda não virou tarefa? Crie a tarefa primeiro, antes de responder ou agir.",
+    );
+  }
   if (instrucoes) blocos.push(`# Agente: ${def?.name ?? agentId}\n${instrucoes}`);
   if (memoria) blocos.push(`# Memória do projeto\n${memoria}`);
   // Repo map — Camada 1 (índice, texto fixo, sem custo de LLM) + o nudge da Camada 2 (ferramenta
@@ -482,6 +496,10 @@ function mcpDaConversa(
     ...(!meta.runId && perfil.delegacaoModo && perfil.delegacaoModo !== "negado" ? MCP_TOOLS_DELEGAR : []),
     // Só em conversa NORMAL — não existe <webview> num run headless (ver navegador.ts).
     ...(!meta.runId && perfil.navegadorModo && perfil.navegadorModo !== "negado" ? MCP_TOOLS_NAVEGADOR : []),
+    // Gate GLOBAL, não por conta (ver windows-control.ts): mexe em QUALQUER app da máquina, não
+    // só o Nexo. `profileFlags` em engines/cli.ts filtra de novo, incondicional — esta linha só
+    // evita listar a ferramenta quando já se sabe de antemão que a chamada vai ser barrada.
+    ...(!meta.runId && loadConfig(home).windowsControlEnabled ? MCP_TOOLS_WINDOWS_CONTROL : []),
   ];
   return { mcpConfig: arquivo, mcpTools: tools };
 }

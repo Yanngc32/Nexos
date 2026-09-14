@@ -105,14 +105,43 @@ function pintarProjetos(grupos) {
   mostrar("bl-outros", grupos.length > 0);
 }
 
+/**
+ * Sparkline do custo acumulado do run — um ponto por passo. Precisa de ao menos
+ * dois pontos com custo diferente de zero pra virar linha; run recém-começado
+ * ou sem custo nenhum não desenha nada em vez de uma reta achatada no chão.
+ */
+function pintarGrafico(pontos) {
+  const lista = Array.isArray(pontos) ? pontos : [];
+  const visivel = lista.length > 1 && Math.max(...lista) > 0;
+  mostrar("run-grafico-wrap", visivel);
+  if (!visivel) return;
+  const w = 100;
+  const h = 24;
+  const max = Math.max(...lista);
+  const passoX = w / (lista.length - 1);
+  const d = lista
+    .map((v, i) => `${i === 0 ? "M" : "L"} ${(i * passoX).toFixed(2)} ${(h - (v / max) * h).toFixed(2)}`)
+    .join(" ");
+  el("run-grafico-path").setAttribute("d", d);
+}
+
 function pintarRun(faixa) {
   mostrar("bl-run", Boolean(faixa));
-  if (!faixa) return;
+  if (!faixa) {
+    mostrar("run-grafico-wrap", false);
+    return;
+  }
   el("run-obj").textContent = faixa.objetivo || "sem objetivo";
   el("run-obj").title = faixa.objetivo;
   el("run-dot").dataset.on = faixa.rodando ? "1" : "0";
   el("run-dot").dataset.erro = faixa.status === "error" ? "1" : "0";
-  el("run-quem").textContent = faixa.rodando ? faixa.agente || "montando…" : faixa.status;
+  const quem = faixa.rodando
+    ? faixa.papel
+      ? `${faixa.agente} — ${faixa.papel}`
+      : faixa.agente || "montando…"
+    : faixa.status;
+  el("run-quem").textContent = quem;
+  el("run-quem").title = quem;
   el("run-passos").textContent = faixa.total ? `${faixa.feitos}/${faixa.total}` : "";
   el("run-ms").textContent = faixa.ms ? fmtDuracao(faixa.ms) : "";
   const pct = faixa.total ? Math.round((faixa.feitos / faixa.total) * 100) : 0;
@@ -121,6 +150,7 @@ function pintarRun(faixa) {
   const teto = faixa.tetoUsd ? ` de US$ ${faixa.tetoUsd}` : "";
   el("run-custo").textContent = custo ? `${custo}${teto}` : "";
   mostrar("run-custo", Boolean(custo));
+  pintarGrafico(faixa.serieCusto);
 }
 
 /**

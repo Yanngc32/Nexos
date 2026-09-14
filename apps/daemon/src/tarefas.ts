@@ -60,7 +60,10 @@ export type Tarefa = {
   tipo?: TipoTarefa;
   /** Tarefa-mãe, se esta for uma subtarefa. Precisa existir no MESMO projeto (ver `salvarTarefa`). */
   parentId?: string;
-  /** Ids de tarefas que bloqueiam esta — só informativo, não impede mover de coluna. */
+  /**
+   * Ids de tarefas que bloqueiam esta. Informativo pra qualquer coluna, EXCETO a última do
+   * quadro (maior `ordem`): mover pra lá com dependência ainda fora dela é recusado.
+   */
   dependeDe?: string[];
   createdAt: string;
   updatedAt: string;
@@ -337,16 +340,17 @@ function limparPrioridade(v: unknown): Prioridade | undefined {
   return v as Prioridade;
 }
 
-export type ColunaInput = { id?: string; nome?: string };
+export type ColunaInput = { id?: string; nome?: string; ordem?: number };
 
-/** Cria (sem `id`) ou renomeia (com `id`) uma coluna. Reordenar é responsabilidade da UI, arrastando. */
+/** Cria (sem `id`) ou renomeia/reordena (com `id`) uma coluna — `ordem` vem da UI, arrastando o cabeçalho. */
 export function salvarColuna(projectPath: string, input: ColunaInput, home: string): Coluna {
   const quadro = getQuadro(projectPath, home);
   if (input.id) {
     const atual = quadro.colunas.find((c) => c.id === input.id);
     if (!atual) throw notFound(`coluna não existe: ${input.id}`);
     const nome = input.nome === undefined ? atual.nome : limparNome(input.nome, "nome da coluna", NOME_COLUNA_MAX);
-    const editada: Coluna = { ...atual, nome };
+    const ordem = typeof input.ordem === "number" ? input.ordem : atual.ordem;
+    const editada: Coluna = { ...atual, nome, ordem };
     escreverQuadro({ ...quadro, colunas: quadro.colunas.map((c) => (c.id === editada.id ? editada : c)) }, home);
     return editada;
   }
@@ -536,7 +540,18 @@ function limparParentId(v: unknown, projectPath: string, home: string, idAtual?:
   return v;
 }
 
-/** Ids de tarefas que bloqueiam esta — cada um precisa existir no mesmo projeto; sem duplicado, sem o próprio id. */
+/** Coluna de maior `ordem` do quadro — convenção usada pra saber se uma tarefa está "feita". */
+function colunaFinalId(quadro: Quadro): string | undefined {
+  if (!quadro.colunas.length) return undefined;
+  return quadro.colunas.reduce((max, c) => (c.ordem > max.ordem ? c : max), quadro.colunas[0]).id;
+}
+
+/**
+ * Ids de tarefas que bloqueiam esta — cada um precisa existir no mesmo projeto; sem duplicado,
+ * sem o próprio id. Depender de uma tarefa já feita é permitido (fica satisfeita na hora — é o
+ * cliente/UI que evita oferecer tarefas feitas como bloqueadora NOVA, ver `preencherParentEDependencias`
+ * em `tarefas-board.js`); o backend só recusa o que não existe.
+ */
 function limparDependeDe(v: unknown, projectPath: string, home: string, idAtual?: string): string[] {
   if (v === undefined) return [];
   if (!Array.isArray(v) || !v.every((x) => typeof x === "string")) throw badRequest("dependeDe inválido");
@@ -600,6 +615,18 @@ export function salvarTarefa(input: TarefaInput, home: string, criadoPor?: "agen
     input.parentId === undefined ? atual?.parentId : limparParentId(input.parentId, projectPath, home, atual?.id);
   const dependeDe =
     input.dependeDe === undefined ? (atual?.dependeDe ?? []) : limparDependeDe(input.dependeDe, projectPath, home, atual?.id);
+
+  // Mover pra coluna final (maior `ordem`) com dependência ainda não concluída (fora da coluna
+  // final) é bloqueado — dependeDe deixa de ser só informativo nesse um caso.
+  const finalId = colunaFinalId(quadro);
+  if (colunaId === finalId && colunaId !== atual?.colunaId && dependeDe.length) {
+    const pendentes = dependeDe
+      .map((id) => lerTarefaDoDisco(projectPath, home, id))
+      .filter((t): t is Tarefa => !!t && t.colunaId !== finalId);
+    if (pendentes.length) {
+      throw badRequest(`bloqueada por: ${pendentes.map((t) => t.titulo).join(", ")}`);
+    }
+  }
 
   if (!atual && listarTarefas(projectPath, home).length >= TAREFAS_MAX_POR_PROJETO) {
     throw badRequest(`limite de ${TAREFAS_MAX_POR_PROJETO} tarefas por projeto`);
@@ -792,7 +819,8 @@ export function ferramentasDeTarefas(projectPath: string, home: string): Conjunt
             dependeDe: {
               type: "array",
               items: { type: "string" },
-              description: "ids de tarefas que bloqueiam esta (só informativo, não impede mover de coluna)",
+              description:
+                "ids de tarefas que bloqueiam esta — impede mover pra coluna FINAL do quadro se alguma ainda não estiver lá",
             },
           },
           additionalProperties: false,

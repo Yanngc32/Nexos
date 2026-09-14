@@ -187,6 +187,27 @@ body {
   font-size: 11px;
 }
 
+/* Custo acumulado do run, passo a passo — a forma da curva diz "acelerando ou
+   estabilizando?", que um número só (US$ total) não responde. */
+.grafico-wrap {
+  height: 24px;
+  margin-top: 6px;
+}
+
+.grafico-wrap svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.grafico-wrap path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 /*
  * Uma conta por linha. Lado a lado, dois anéis dividiam os 264px da janela e o
  * id da segunda conta chegava cortado ("claude-outlo…") — um identificador pela

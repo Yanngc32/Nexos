@@ -111,6 +111,13 @@ export function posicaoNaTimeline(marco, escala) {
 const ROTULO_PRIORIDADE = { baixa: "⌄ baixa", media: "≡ média", alta: "⌃ alta", urgente: "⚠ urgente" };
 const ROTULO_TIPO = { bug: "🐛 bug", feature: "✨ feature", chore: "🔧 chore", spike: "🔬 spike" };
 
+/** Nome curto (última pasta) de um caminho de projeto — `null`/"" vira "Nenhum projeto". */
+function nomeDoProjeto(path) {
+  if (!path) return "Nenhum projeto";
+  const partes = path.split(/[/\\]/).filter(Boolean);
+  return partes.at(-1) || path;
+}
+
 export function createTarefasBoard({
   req,
   el,
@@ -126,6 +133,8 @@ export function createTarefasBoard({
   let editando = null;
   let colunaDaNova = "";
   let arrastando = null;
+  /** id da coluna sendo arrastada pra reordenar — `null` quando não tem drag de coluna em curso. */
+  let colArrastando = null;
   /** "kanban" | "lista" | "calendario" | "timeline" — só em memória, volta pro Kanban ao reabrir. */
   let modo = "kanban";
   /** Mês exibido no calendário — só ano/mês importam, dia fica sempre 1. */
@@ -231,9 +240,26 @@ export function createTarefasBoard({
     const col = document.createElement("div");
     col.className = "kanban-col";
     col.dataset.colunaId = coluna.id;
+    col.draggable = true;
+    col.addEventListener("dragstart", (e) => {
+      if (e.target.closest("input, button, .kanban-card")) {
+        e.preventDefault();
+        return;
+      }
+      colArrastando = coluna.id;
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", coluna.id);
+    });
+    col.addEventListener("dragend", () => {
+      colArrastando = null;
+    });
 
     const head = document.createElement("div");
     head.className = "kanban-col-head";
+    const handle = document.createElement("span");
+    handle.className = "kanban-col-handle";
+    handle.textContent = "⠿";
+    handle.title = "Arrastar pra reordenar";
     const nome = document.createElement("input");
     nome.type = "text";
     nome.className = "kanban-col-nome";
@@ -252,7 +278,7 @@ export function createTarefasBoard({
     del.title = "Apagar coluna";
     del.textContent = "✕";
     del.addEventListener("click", () => void apagarColunaUi(coluna));
-    head.append(nome, count, del);
+    head.append(handle, nome, count, del);
 
     const cards = document.createElement("div");
     cards.className = "kanban-col-cards";
@@ -292,6 +318,30 @@ export function createTarefasBoard({
     return cartoes.length;
   }
 
+  /** Posição de inserção olhando o meio horizontal de cada coluna já renderizada no quadro. */
+  function indiceDeDropColuna(container, clientX) {
+    const cols = [...container.querySelectorAll(".kanban-col")].filter((c) => c.dataset.colunaId !== colArrastando);
+    for (let i = 0; i < cols.length; i++) {
+      const r = cols[i].getBoundingClientRect();
+      if (clientX < r.left + r.width / 2) return i;
+    }
+    return cols.length;
+  }
+
+  async function moverColuna(colunaId, indice) {
+    const ids = ordenarPorOrdem(quadro.colunas).map((c) => c.id);
+    const novaOrdem = moverNaLista(ids, colunaId, indice);
+    const porId = new Map(quadro.colunas.map((c) => [c.id, c]));
+    await Promise.all(
+      novaOrdem.map((id, idx) => {
+        const c = porId.get(id);
+        if (c.ordem === idx) return null;
+        return req(`/v1/tarefas/colunas/${id}?${qs()}`, { method: "PUT", body: JSON.stringify({ ordem: idx }) }).catch(() => {});
+      }),
+    );
+    await carregar();
+  }
+
   async function moverTarefa(tarefaId, colunaDestinoId, indice) {
     const movida = tarefas.find((t) => t.id === tarefaId);
     if (!movida) return;
@@ -299,16 +349,23 @@ export function createTarefasBoard({
     const ids = irmas.map((t) => t.id);
     const novaOrdem = moverNaLista(ids, tarefaId, indice);
     const porId = new Map([...irmas, movida].map((t) => [t.id, t]));
+    // A troca de coluna em si pode ser recusada pelo servidor (ex.: dependência ainda não
+    // concluída) — nesse caso o card volta pro lugar (`carregar` busca o estado real), mas quem
+    // arrastou precisa saber por quê em vez de ver o card simplesmente "voltar sozinho".
+    let erroMove = null;
     await Promise.all(
       novaOrdem.map((id, idx) => {
         const t = porId.get(id);
         const mudouColuna = id === tarefaId && t.colunaId !== colunaDestinoId;
         if (t.ordem === idx && !mudouColuna) return null;
         const body = mudouColuna ? { colunaId: colunaDestinoId, ordem: idx } : { ordem: idx };
-        return req(`/v1/tarefas/${id}?${qs()}`, { method: "PUT", body: JSON.stringify(body) }).catch(() => {});
+        return req(`/v1/tarefas/${id}?${qs()}`, { method: "PUT", body: JSON.stringify(body) }).catch((e) => {
+          if (mudouColuna) erroMove = e;
+        });
       }),
     );
     await carregar();
+    if (erroMove) await avisar(erroMove.message || "Não deu pra mover.");
   }
 
   async function renomearColuna(coluna, input) {
@@ -612,6 +669,12 @@ export function createTarefasBoard({
   }
 
   function render() {
+    const projLabel = el("tk-projeto");
+    if (projLabel) {
+      const path = getProjectPath();
+      projLabel.textContent = nomeDoProjeto(path);
+      projLabel.title = path || "";
+    }
     renderToolbar();
     renderMarcosLista();
     renderEtiquetasLista();
@@ -655,12 +718,21 @@ export function createTarefasBoard({
    * montar um ciclo óbvio já na hora de escolher; ciclo mais profundo o servidor ainda recusa,
    * ver `limparParentId`). Mesmo idioma de `preencherEtiquetasDoModal`: recebe a seleção atual
    * em vez de tentar preservar estado de uma renderização anterior.
+   *
+   * "Depende de" some tarefas já na coluna final (feitas): bloqueador que já terminou não faz
+   * sentido virar dependência nova — mesma noção de "coluna final" que o backend usa em
+   * `limparDependeDe`/checagem de bloqueio (`tarefas.ts`, coluna de maior `ordem`).
    */
   function opcao(texto, valor) {
     const o = document.createElement("option");
     o.value = valor;
     o.textContent = texto;
     return o;
+  }
+
+  function colunaFinalId() {
+    if (!quadro.colunas.length) return undefined;
+    return quadro.colunas.reduce((max, c) => (c.ordem > max.ordem ? c : max), quadro.colunas[0]).id;
   }
 
   function preencherParentEDependencias(id, parentIdAtual, dependeDeAtual) {
@@ -674,9 +746,13 @@ export function createTarefasBoard({
     }
     selParent.value = parentIdAtual ?? "";
 
+    const finalId = colunaFinalId();
     const selDep = el("tk-f-depende-de");
     selDep.replaceChildren();
-    for (const t of outras) selDep.append(opcao(t.titulo, t.id));
+    for (const t of outras) {
+      if (t.colunaId === finalId) continue; // já feita — não vira bloqueadora nova
+      selDep.append(opcao(t.titulo, t.id));
+    }
     const marcadas = new Set(dependeDeAtual ?? []);
     for (const o of selDep.options) o.selected = marcadas.has(o.value);
   }
@@ -983,6 +1059,17 @@ export function createTarefasBoard({
   }
 
   function ligar() {
+    const board = el("tk-board");
+    board.addEventListener("dragover", (e) => {
+      if (!colArrastando) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    });
+    board.addEventListener("drop", (e) => {
+      if (!colArrastando) return;
+      e.preventDefault();
+      void moverColuna(colArrastando, indiceDeDropColuna(board, e.clientX));
+    });
     el("tk-filtro-marco").addEventListener("change", () => {
       filtroMarco = el("tk-filtro-marco").value;
       render();

@@ -8,6 +8,7 @@ import {
   passoAtual,
   porOutrosProjetos,
   resumoMini,
+  serieDeCusto,
 } from "../widget-view.js";
 
 const T0 = Date.parse("2026-01-01T12:00:00.000Z");
@@ -75,6 +76,36 @@ describe("faixaDoRun", () => {
     // o daemon devolve null quando não há run do momento
     expect(faixaDoRun(null, T0)).toBeNull();
     expect(faixaDoRun(undefined, T0)).toBeNull();
+  });
+
+  it("leva o papel do passo aberto: o id sozinho não diz o que ele faz", () => {
+    const r = run({
+      steps: [{ index: 0, agentId: "a1", papel: "revisar o código", status: "running", startedAt: iso(0) }],
+    });
+    expect(faixaDoRun(r, T0).papel).toBe("revisar o código");
+  });
+
+  it("sem papel no passo, fica vazio em vez de undefined", () => {
+    const r = run({ steps: [{ index: 0, agentId: "a1", status: "running", startedAt: iso(0) }] });
+    expect(faixaDoRun(r, T0).papel).toBe("");
+  });
+});
+
+describe("serieDeCusto", () => {
+  it("um ponto por passo, acumulado", () => {
+    expect(serieDeCusto(run({ steps: [{ costUsd: 0.1 }, { costUsd: 0.25 }] }))).toEqual([0, 0.1, 0.35]);
+  });
+
+  it("começa do gasto anterior, não de zero: retomar não devolve dinheiro", () => {
+    expect(serieDeCusto(run({ gastoAnterior: 1, steps: [{ costUsd: 0.5 }] }))).toEqual([1, 1.5]);
+  });
+
+  it("passo sem custo ainda repete o último valor, não pula o ponto", () => {
+    expect(serieDeCusto(run({ steps: [{ costUsd: 0.2 }, {}] }))).toEqual([0, 0.2, 0.2]);
+  });
+
+  it("sem run, sem pontos", () => {
+    expect(serieDeCusto(null)).toEqual([0]);
   });
 });
 

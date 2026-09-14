@@ -411,7 +411,7 @@ describe("dependências (dependeDe)", () => {
     expect(() => salvarTarefa({ id: t.id, projectPath: P1, dependeDe: [t.id] }, home)).toThrow(/si mesma/);
   });
 
-  it("é só informativo: mover pra outra coluna com dependência aberta não é recusado", () => {
+  it("pra coluna do meio, dependência aberta não trava (só a coluna final trava)", () => {
     const home = tempHome();
     const quadro = getQuadro(P1, home);
     const [c1, c2] = quadro.colunas;
@@ -422,6 +422,33 @@ describe("dependências (dependeDe)", () => {
     );
     const movida = salvarTarefa({ id: bloqueada.id, projectPath: P1, colunaId: c2!.id }, home);
     expect(movida.colunaId).toBe(c2!.id);
+  });
+
+  it("recusa mover pra coluna final com dependência ainda fora dela", () => {
+    const home = tempHome();
+    const quadro = getQuadro(P1, home);
+    const [c1, , c3] = quadro.colunas;
+    const bloqueadora = salvarTarefa({ projectPath: P1, titulo: "bloqueadora", colunaId: c1!.id }, home);
+    const bloqueada = salvarTarefa(
+      { projectPath: P1, titulo: "bloqueada", colunaId: c1!.id, dependeDe: [bloqueadora.id] },
+      home,
+    );
+    expect(() => salvarTarefa({ id: bloqueada.id, projectPath: P1, colunaId: c3!.id }, home)).toThrow(
+      /bloqueada por/,
+    );
+  });
+
+  it("deixa mover pra coluna final quando a dependência já está lá também", () => {
+    const home = tempHome();
+    const quadro = getQuadro(P1, home);
+    const [c1, , c3] = quadro.colunas;
+    const bloqueadora = salvarTarefa({ projectPath: P1, titulo: "bloqueadora", colunaId: c3!.id }, home);
+    const bloqueada = salvarTarefa(
+      { projectPath: P1, titulo: "bloqueada", colunaId: c1!.id, dependeDe: [bloqueadora.id] },
+      home,
+    );
+    const movida = salvarTarefa({ id: bloqueada.id, projectPath: P1, colunaId: c3!.id }, home);
+    expect(movida.colunaId).toBe(c3!.id);
   });
 });
 

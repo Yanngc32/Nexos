@@ -316,7 +316,9 @@ export type NexoConfig = {
    * (ver `modules.ts`). `repoMapResumos` liga um agente + uma regra global de Nexo Hook
    * (`git.post-commit`) que gera/mantém os resumos por IA do repo map sozinho, sem botão manual
    * (ver `repo-map-auto.ts`) — precisa de `repoMapProfileId` (a conta que roda esse agente). O
-   * índice em si (Camada 1) não depende deste módulo: roda sempre, sem LLM.
+   * índice em si (Camada 1) não depende deste módulo: roda sempre, sem LLM. `quadroTarefas` injeta
+   * a instrução de listar/mover cards de tarefa a cada turno (ver `withInstructions` em
+   * `session.ts`) — ligado por padrão pra manter o comportamento atual, mas pode ser desligado.
    */
   modulos: {
     rtk: boolean;
@@ -324,7 +326,21 @@ export type NexoConfig = {
     cavemanNivel: CavemanNivel;
     repoMapResumos: boolean;
     repoMapProfileId: string;
+    quadroTarefas: boolean;
   };
+  /**
+   * Dá ao agente ferramentas `nexo_windows_*`: ver janelas/apps abertos, capturar
+   * estado (screenshot + árvore de UI Automation) e controlar mouse/teclado em
+   * QUALQUER app do Windows — não só o próprio Nexo. Desligado por padrão.
+   *
+   * Gate próprio, deliberadamente FORA de `modulos`: é permissão de risco mais
+   * alto que os módulos externos ali (aqueles não tocam noutro app da máquina),
+   * e o filtro final em `profileFlags` (engines/cli.ts) o aplica de forma
+   * incondicional — mesmo que o perfil declare `mcp__nexo__nexo_windows_*` no
+   * próprio `allowedTools`, esta chave é quem decide se a ferramenta chega a
+   * existir no `--allowed-tools` do CLI.
+   */
+  windowsControlEnabled: boolean;
 };
 
 export const CAVEMAN_NIVEIS = ["lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"] as const;
@@ -347,7 +363,15 @@ export const DEFAULT_CONFIG: NexoConfig = {
   tarefasDir: "",
   projetosDir: "",
   slugOverrides: {},
-  modulos: { rtk: false, caveman: false, cavemanNivel: "full", repoMapResumos: false, repoMapProfileId: "" },
+  modulos: {
+    rtk: false,
+    caveman: false,
+    cavemanNivel: "full",
+    repoMapResumos: false,
+    repoMapProfileId: "",
+    quadroTarefas: true,
+  },
+  windowsControlEnabled: false,
 };
 
 export type ThreadEvent =
@@ -399,6 +423,10 @@ export type ThreadEvent =
       opcoes?: string[];
       /** Marca quantas opções fizerem sentido antes de confirmar; só com `opcoes`. */
       multiSelect?: boolean;
+      /** Posição desta pergunta dentro de um lote (1-based) — só presente junto com `total > 1`. */
+      numero?: number;
+      /** Quantas perguntas tem o lote em que esta entra — omitido quando é pergunta única. */
+      total?: number;
     }
   /** Resposta que destravou a `pergunta` de mesmo `id` — sempre depois dela, nunca sozinha. */
   | { ts: string; type: "pergunta_resposta"; threadId: string; id: string; resposta: string }

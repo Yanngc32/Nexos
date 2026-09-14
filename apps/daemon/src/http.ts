@@ -54,6 +54,7 @@ import { ferramentaDeVeredito } from "./veredito.ts";
 import { ferramentaDePerguntar, responderPergunta } from "./perguntas.ts";
 import { ferramentaDeDelegar, modoDeDelegacaoDaThread } from "./delegar.ts";
 import { ferramentasDeNavegador, modoDeNavegadorDaThread, responderNavegador } from "./navegador.ts";
+import { ferramentasDeControleDoWindows } from "./windows-control.ts";
 import {
   abortarRun,
   criarRun,
@@ -1348,6 +1349,10 @@ export function createApp(home: string, token: string): Hono {
       ...(threadId ? ferramentaDePerguntar(threadId, home)() : []),
       ...(modoDelegacao !== "negado" ? ferramentaDeDelegar(threadId, projectPath, modoDelegacao, home)() : []),
       ...(modoNavegador !== "negado" ? ferramentasDeNavegador(threadId, home, modoNavegador)() : []),
+      // Gate mestre: `--allowed-tools` (engines/cli.ts::profileFlags) já barra a CHAMADA
+      // incondicionalmente se a config estiver desligada; listar aqui também, e não só lá,
+      // é só pra não expor `tools/list` como se a ferramenta existisse quando não pode rodar.
+      ...(!runId && loadConfig(home).windowsControlEnabled ? ferramentasDeControleDoWindows()() : []),
     ];
     return responderMcp(c, conjunto);
   });

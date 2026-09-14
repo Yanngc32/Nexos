@@ -50,7 +50,10 @@ export function ferramentaDePerguntar(threadId: string, home: string): Conjunto 
         "`multiSelect: true` quando mais de uma opção puder fazer sentido ao mesmo tempo (ex.: " +
         '"quais destes pontos se aplicam?") — a resposta chega como as escolhidas juntas, ' +
         'separadas por "; ". Sem resposta dentro do teto do turno (~15min), a chamada estoura ' +
-        "como qualquer ferramenta travada — não fique perguntando o óbvio esperando alguém acordar.",
+        "como qualquer ferramenta travada — não fique perguntando o óbvio esperando alguém acordar. " +
+        "Se for fazer VÁRIAS perguntas em sequência (uma por chamada, já que só uma fica pendente " +
+        "por vez), passe `numero` e `total` em cada chamada (ex.: numero=1, total=3) — a UI mostra " +
+        '"Pergunta 1/3" sozinha, não precisa escrever isso no texto da pergunta.',
       inputSchema: {
         type: "object",
         properties: {
@@ -65,6 +68,16 @@ export function ferramentaDePerguntar(threadId: string, home: string): Conjunto 
             type: "boolean",
             description: "true se dá pra marcar mais de uma opção antes de confirmar (só faz sentido com `opcoes`)",
           },
+          numero: {
+            type: "integer",
+            minimum: 1,
+            description: "opcional: posição desta pergunta dentro de um lote (ex.: 1 de 2). Só faz sentido junto com `total`",
+          },
+          total: {
+            type: "integer",
+            minimum: 1,
+            description: "opcional: quantas perguntas tem o lote em que esta entra — a UI só mostra a contagem quando total > 1",
+          },
         },
         required: ["pergunta"],
         additionalProperties: false,
@@ -78,7 +91,10 @@ export function ferramentaDePerguntar(threadId: string, home: string): Conjunto 
           .filter(Boolean)
           .slice(0, OPCOES_MAX);
         const multiSelect = Boolean(args.multiSelect) && opcoes.length > 0;
-        return perguntar(threadId, home, pergunta, opcoes, multiSelect);
+        const numero = Number.isInteger(args.numero) && (args.numero as number) > 0 ? (args.numero as number) : undefined;
+        const total = Number.isInteger(args.total) && (args.total as number) > 0 ? (args.total as number) : undefined;
+        const lote = numero && total && total > 1 ? { numero, total } : undefined;
+        return perguntar(threadId, home, pergunta, opcoes, multiSelect, lote);
       },
     },
   ];
@@ -95,6 +111,7 @@ export async function perguntar(
   pergunta: string,
   opcoes: string[] = [],
   multiSelect = false,
+  lote?: { numero: number; total: number },
 ): Promise<{ ok: boolean; texto: string }> {
   if (pendentes.has(threadId)) {
     return { ok: false, texto: "já existe uma pergunta pendente nesta conversa — espere a resposta antes de perguntar de novo" };
@@ -109,6 +126,7 @@ export async function perguntar(
     texto: pergunta,
     ...(opcoes.length ? { opcoes: opcoes.slice(0, OPCOES_MAX) } : {}),
     ...(opcoes.length && multiSelect ? { multiSelect: true as const } : {}),
+    ...(lote ? { numero: lote.numero, total: lote.total } : {}),
   };
   appendEvent(perguntaEv, home);
   sessionBus.emit(threadId, perguntaEv);
