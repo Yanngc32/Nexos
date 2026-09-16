@@ -156,7 +156,7 @@ export function ferramentasDeNavegador(threadId: string, home: string, modo: Nav
     },
     {
       name: "nexo_navegador_screenshot",
-      description: "Tira um print (PNG) do que está no painel Browser agora.",
+      description: "Tira um print (JPEG) do que está no painel Browser agora.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       executar: () => comandoNavegador(threadId, { acao: "screenshot" }),
     },

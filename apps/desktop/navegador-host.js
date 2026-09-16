@@ -9,6 +9,33 @@
 import { CANAL_NAVEGADOR, TIMEOUT_NAVEGADOR_MS } from "./navegador-protocolo.js";
 import { hrefDoGuest, mesmoHref } from "./browser-pool.js";
 
+/**
+ * `NativeImage.toJPEG()` no renderer (sem `nodeIntegration`) devolve `Uint8Array`.
+ * `Uint8Array#toString("base64")` IGNORA o encoding e vira `"255,216,…"` — o
+ * cliente MCP recusa o tools/call inteiro (`Invalid Base64 string`).
+ */
+export function jpegParaBase64(buf) {
+  if (buf == null) return "";
+  if (buf instanceof Uint8Array) return bytesParaBase64(buf);
+  if (typeof buf.toString === "function") {
+    const s = buf.toString("base64");
+    if (typeof s === "string" && s.length && !s.includes(",")) return s;
+  }
+  return "";
+}
+
+function bytesParaBase64(bytes) {
+  if (typeof Buffer !== "undefined" && typeof Buffer.from === "function") {
+    return Buffer.from(bytes).toString("base64");
+  }
+  const CHUNK = 0x8000;
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
 export function criarNavegadorHost({ getWebview }) {
   /** Comando local em voo, por thread — mesma regra do daemon (um por conversa). */
   const pendentes = new Map();
@@ -89,10 +116,14 @@ export function criarNavegadorHost({ getWebview }) {
       if (width > LARGURA_MAX_PRINT) {
         imagem = imagem.resize({ width: LARGURA_MAX_PRINT });
       }
+      const dataBase64 = jpegParaBase64(imagem.toJPEG(70));
+      if (!dataBase64) {
+        return { ok: false, texto: "print saiu sem bytes — tenta de novo com o painel Browser visível" };
+      }
       return {
         ok: true,
         texto: "print tirado",
-        imagem: { dataBase64: imagem.toJPEG(70).toString("base64"), mimeType: "image/jpeg" },
+        imagem: { dataBase64, mimeType: "image/jpeg" },
       };
     } catch (e) {
       return { ok: false, texto: e?.message || "falhou ao tirar print" };

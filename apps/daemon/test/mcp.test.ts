@@ -202,6 +202,22 @@ describe("Saida.imagem (bloco de imagem MCP)", () => {
     const res = resultado(r);
     expect(res.content).toEqual([{ type: "text", text: "sem imagem" }]);
   });
+
+  it("bytes no lugar de Base64 NÃO viram bloco image — senão o cliente MCP recusa o tools/call inteiro", async () => {
+    const r = await tratarMcp(
+      { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "fake_screenshot" } },
+      conjuntoDeUmaFerramenta(() => ({
+        ok: true,
+        texto: "print tirado",
+        imagem: { dataBase64: "255,216,255,217", mimeType: "image/jpeg" },
+      })),
+    );
+    const res = resultado(r);
+    const content = res.content as { type: string; text?: string }[];
+    expect(content).toHaveLength(1);
+    expect(content[0].type).toBe("text");
+    expect(content[0].text).toMatch(/encoding inválido/);
+  });
 });
 
 describe("configDeMcp", () => {

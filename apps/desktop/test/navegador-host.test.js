@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { criarNavegadorHost } from "../navegador-host.js";
+import { criarNavegadorHost, jpegParaBase64 } from "../navegador-host.js";
 import { CANAL_NAVEGADOR, TIMEOUT_NAVEGADOR_MS } from "../navegador-protocolo.js";
 
 function criarWebviewFake(over = {}) {
@@ -99,6 +99,25 @@ describe("screenshot", () => {
     expect(r.ok).toBe(false);
     expect(r.imagem).toBeUndefined();
     expect(r.texto).toMatch(/visível/);
+  });
+
+  it("Uint8Array (o que o renderer Electron devolve) vira Base64 de verdade, não lista de bytes", async () => {
+    const jpeg = Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]);
+    const wv = criarWebviewFake({
+      capturePage: vi.fn(() =>
+        Promise.resolve({
+          isEmpty: () => false,
+          getSize: () => ({ width: 800, height: 600 }),
+          toJPEG: () => jpeg,
+        })
+      ),
+    });
+    const { host } = criarHost(wv);
+    const r = await host.screenshot();
+    expect(r.ok).toBe(true);
+    expect(r.imagem.dataBase64).toBe(jpegParaBase64(jpeg));
+    expect(r.imagem.dataBase64).not.toContain(",");
+    expect(r.imagem.dataBase64).toMatch(/^[A-Za-z0-9+/]+=*$/);
   });
 });
 

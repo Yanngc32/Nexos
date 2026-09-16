@@ -154,10 +154,24 @@ export function ferramentasDoSupervisor(fer: Ferramentas): Conjunto {
  * `imagem` soma um content-block `{type:"image"}` do protocolo MCP — usado só por
  * `nexo_navegador_screenshot` (navegador.ts). Ferramentas que nunca passam `imagem` continuam
  * gerando exatamente `{content:[{type:"text",...}]}`, igual antes desta extensão.
+ * MCP (Zod `.base64()`) recusa whitespace, data-URL e o lixo `"255,216,…"`.
  */
+export function ehBase64Mcp(s: string): boolean {
+  if (!s || s.length % 4 !== 0) return false;
+  return /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(s);
+}
+
 function conteudo(texto: string, erro = false, imagem?: { dataBase64: string; mimeType: string }): unknown {
   const content: unknown[] = [{ type: "text", text: texto }];
-  if (imagem) content.push({ type: "image", data: imagem.dataBase64, mimeType: imagem.mimeType });
+  const data = typeof imagem?.dataBase64 === "string" ? imagem.dataBase64.replace(/\s/g, "") : "";
+  if (data && ehBase64Mcp(data)) {
+    content.push({ type: "image", data, mimeType: imagem?.mimeType || "image/jpeg" });
+  } else if (imagem) {
+    content[0] = {
+      type: "text",
+      text: `${texto}\n(print não foi no MCP: encoding inválido — não era Base64)`,
+    };
+  }
   return { content, ...(erro ? { isError: true } : {}) };
 }
 
