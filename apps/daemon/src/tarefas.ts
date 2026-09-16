@@ -754,6 +754,14 @@ function linhaDaTarefa(t: Tarefa, quadro: Quadro): string {
   return `- ${t.id} [${coluna}] ${t.titulo}${extra ? ` (${extra})` : ""}`;
 }
 
+export const MCP_TOOLS_TAREFA = [
+  "mcp__nexo__nexo_tarefa_listar",
+  "mcp__nexo__nexo_tarefa_salvar",
+  "mcp__nexo__nexo_tarefa_checklist",
+  "mcp__nexo__nexo_tarefa_comentar",
+  "mcp__nexo__nexo_tarefa_commits",
+];
+
 /**
  * `nexo_tarefa_*`: o modelo cria, move e edita tarefas do quadro deste projeto — mesma
  * assimetria de `autoria.ts` (agente/time/hook): sem apagar por aqui, só a pessoa apaga na tela.
@@ -771,7 +779,9 @@ export function ferramentasDeTarefas(projectPath: string, home: string): Conjunt
         name: "nexo_tarefa_listar",
         description:
           "Lista o quadro de tarefas deste projeto: colunas (com id), marcos (com id), etiquetas (com id) e " +
-          "cada tarefa com seu estado. CHAME ISTO PRIMEIRO — criar/mover tarefa exige um colunaId que já exista.",
+          "cada tarefa com seu estado. CHAME ISTO PRIMEIRO quando for criar/mover card — criar exige um " +
+          "colunaId que já exista. Mensagem do usuário com MAIS DE UM pedido: liste, crie um card por " +
+          "pedido, depois atualize conforme avança. Pedido único: não chame só por chamar.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
         executar: () => {
           const tarefas = listarTarefas(projectPath, home).sort((a, b) => a.ordem - b.ordem);
@@ -798,7 +808,8 @@ export function ferramentasDeTarefas(projectPath: string, home: string): Conjunt
         description:
           "Cria ou atualiza uma tarefa do quadro deste projeto. Mesmo id = atualiza (mover de coluna " +
           "é só mandar outro colunaId), e campo que você não mandar fica como estava. Não apaga — " +
-          "apagar é só na tela, pela pessoa.",
+          "apagar é só na tela, pela pessoa. Mensagem com VÁRIOS pedidos: um card por pedido, depois " +
+          "vá atualizando o da vez (coluna, checklist, comentário) até mover pra coluna final.",
         inputSchema: {
           type: "object",
           properties: {

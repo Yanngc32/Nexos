@@ -85,3 +85,35 @@ export function portaDaUrl(href) {
     return 0;
   }
 }
+
+/**
+ * Paleta/urlbar: loopback e IP local sem esquema entram como http (servidor de
+ * dev), não https. `safeUrl("localhost:5173")` sozinho prefixava https e a
+ * prévia quebrava.
+ */
+export function urlDePreview(raw) {
+  const t = String(raw || "").trim();
+  if (!t) return "about:blank";
+  // http(s) explícito: não reinterpretar. Loopback SEM esquema vira http — "localhost:5173"
+  // casaria como scheme `localhost:` no URL parser e o safeUrl mandaria pra about:blank.
+  if (/^https?:\/\//i.test(t)) return safeUrl(t);
+  if (ehLoopbackOuIp(t)) return safeUrl("http://" + t);
+  return safeUrl(t);
+}
+
+function ehLoopbackOuIp(t) {
+  const host = t.replace(/\/.*$/, "").replace(/:\d+$/, "");
+  if (/^localhost$/i.test(host) || host === "127.0.0.1" || host === "[::1]" || host === "::1") return true;
+  return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host);
+}
+
+/** Texto da paleta parece URL/endereço de preview, não nome de módulo. */
+export function pareceUrl(q) {
+  const t = String(q || "").trim();
+  if (!t) return false;
+  if (/^https?:\/\//i.test(t)) return true;
+  if (/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i.test(t)) return true;
+  if (/^(?:\d{1,3}\.){3}\d{1,3}(:\d+)?(\/|$)/.test(t)) return true;
+  if (/^[a-z0-9.-]+:\d{2,5}(\/|$)/i.test(t)) return true;
+  return false;
+}

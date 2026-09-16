@@ -188,11 +188,22 @@ export async function tratarMcp(msg: JsonRpc, conjunto: Conjunto): Promise<Respo
 
   if (method === "ping") return ok(id, {});
 
-  if (method === "tools/list") return ok(id, { tools: definicoesDeFerramenta(conjunto()) });
+  if (method === "tools/list") {
+    try {
+      return ok(id, { tools: definicoesDeFerramenta(conjunto()) });
+    } catch (e) {
+      return falha(id, ERRO.interno, (e as Error).message || "tools/list falhou");
+    }
+  }
 
   if (method === "tools/call") {
     const p = (msg.params ?? {}) as { name?: unknown; arguments?: unknown };
-    const achada = conjunto().find((f) => f.name === p.name);
+    let achada: Ferramenta | undefined;
+    try {
+      achada = conjunto().find((f) => f.name === p.name);
+    } catch (e) {
+      return falha(id, ERRO.interno, (e as Error).message || "tools/call falhou ao listar");
+    }
     if (!achada) return falha(id, ERRO.metodo, `ferramenta desconhecida: ${String(p.name)}`);
     const args = (p.arguments ?? {}) as Record<string, unknown>;
     try {

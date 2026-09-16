@@ -27,7 +27,22 @@ import {
   normPath,
   samePath,
 } from "./format.js";
-import { portaDaUrl, safeUrl, urlDoApk, urlDoCelular } from "./url.js";
+import { portaDaUrl, urlDePreview, urlDoApk, urlDoCelular } from "./url.js";
+import {
+  abaAtiva,
+  ativarAba,
+  abrirAba,
+  chaveWork,
+  fecharAba,
+  hidratarRecents,
+  hidratarSessao,
+  indiceSelecionavel,
+  itensDaPaleta,
+  lembrarRecent,
+  rotuloDaAba,
+  setUrlDaAba,
+} from "./work-session.js";
+import { criarBrowserPool } from "./browser-pool.js";
 import { qrSvg } from "./qr.js";
 import { celAlcance, celAviso } from "./celular.js";
 import { extrairMencoes } from "./mention.js";
@@ -51,6 +66,16 @@ const MODULES = [
   { id: "tarefas", name: "Tarefas", keys: "", ico: "🗂" },
   { id: "side-chat", name: "Chat lateral", keys: "Ctrl+Shift+S", ico: "💬" },
 ];
+
+const ABA_ICO = {
+  file: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8Z"/><path d="M14 3v5h5"/></svg>',
+  terminal: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 8 4 4-4 4"/><path d="M13 16h4"/></svg>',
+  browser: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18"/></svg>',
+  canvas: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 4v16"/></svg>',
+  graph: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="12" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="18" cy="17" r="2"/><path d="M8 12h8M16.2 8.5 8.8 11.2M8.8 12.8l7.4 2.7"/></svg>',
+  agentes: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="14" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v2M9 14h.01M15 14h.01"/></svg>',
+  tarefas: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="6" height="14" rx="1"/><rect x="14" y="5" width="6" height="14" rx="1"/></svg>',
+};
 
 const state = {
   ok: false,
@@ -104,6 +129,10 @@ const state = {
   term: null,
   fit: null,
   browserUrl: "about:blank",
+  /** Recents globais da paleta (URLs). Hidrata na 1ª leitura. */
+  workRecents: null,
+  /** Sessões de aba por conversa, cache em memória da hidratação do localStorage. */
+  workByThread: new Map(),
   strokes: [],
   canvasNote: "",
   drawing: null,
@@ -1431,37 +1460,137 @@ function updateChatEmptyState() {
   cta.classList.toggle("hidden", !semRepos);
 }
 
+const WORK_PANES = ["file", "terminal", "browser", "canvas", "graph", "agentes", "tarefas"];
+
+function chaveSessao(threadId = state.threadId) {
+  return chaveWork(threadId, state.projectPath);
+}
+
+function recentsWork() {
+  if (!state.workRecents) {
+    try {
+      state.workRecents = hidratarRecents(JSON.parse(localStorage.getItem("nexo.browserRecents") || "[]"));
+    } catch {
+      state.workRecents = [];
+    }
+  }
+  return state.workRecents;
+}
+
+function persistirRecents() {
+  localStorage.setItem("nexo.browserRecents", JSON.stringify(recentsWork()));
+}
+
+function sessaoWork(threadId = state.threadId) {
+  const k = chaveSessao(threadId);
+  if (!state.workByThread.has(k)) {
+    let raw = null;
+    try {
+      raw = JSON.parse(localStorage.getItem(`nexo.work:${k}`) || "null");
+    } catch {
+      raw = null;
+    }
+    state.workByThread.set(k, hidratarSessao(raw));
+  }
+  return state.workByThread.get(k);
+}
+
+function persistirWork(threadId = state.threadId) {
+  const k = chaveSessao(threadId);
+  localStorage.setItem(`nexo.work:${k}`, JSON.stringify(sessaoWork(threadId)));
+}
+
+function guestVisivel() {
+  return browserPool?.visivel?.() || null;
+}
+
+function podeHistorico(el, metodo) {
+  if (!el || typeof el[metodo] !== "function") return false;
+  try {
+    return Boolean(el[metodo]());
+  } catch {
+    return false;
+  }
+}
+
+function atualizarChromeBrowser() {
+  const http = /^https?:/i.test(state.browserUrl || "");
+  $("btn-browser-popout").disabled = !http;
+  const el = guestVisivel();
+  if (!el || typeof el.canGoBack !== "function") {
+    $("btn-browser-back").disabled = true;
+    $("btn-browser-forward").disabled = true;
+    return;
+  }
+  requestAnimationFrame(() => {
+    if (guestVisivel() !== el) return;
+    $("btn-browser-back").disabled = !podeHistorico(el, "canGoBack");
+    $("btn-browser-forward").disabled = !podeHistorico(el, "canGoForward");
+  });
+}
+
 function applyWorkLayout() {
   const work = $("work");
   const noModule = state.view === "none";
   work.dataset.view = state.view;
   work.dataset.side = state.sideChat ? "1" : "0";
-  $("pane-file").classList.toggle("hidden", state.view !== "file");
-  $("pane-terminal").classList.toggle("hidden", state.view !== "terminal");
-  $("pane-browser").classList.toggle("hidden", state.view !== "browser");
-  $("pane-canvas").classList.toggle("hidden", state.view !== "canvas");
-  $("pane-graph").classList.toggle("hidden", state.view !== "graph");
-  $("pane-agentes").classList.toggle("hidden", state.view !== "agentes");
-  $("pane-tarefas").classList.toggle("hidden", state.view !== "tarefas");
+  for (const id of WORK_PANES) {
+    $(`pane-${id}`).classList.toggle("is-on", state.view === id);
+  }
   // Sem módulo aberto o chat vira o conteúdo principal — não depende de sideChat aqui.
   $("pane-chat").classList.toggle("hidden", !state.sideChat && !noModule);
+  pintarAbas();
 }
 
-/** Fecha o módulo aberto (Arquivos/Terminal/Browser/Canvas): só chat + sidebar ficam. */
-function closeModule() {
-  inspectorHost.desligar();
-  state.view = "none";
-  applyWorkLayout();
-}
-
-function setView(view) {
-  if (view === "side-chat") {
-    state.sideChat = !state.sideChat;
-  } else {
-    state.view = view;
+function pintarAbas() {
+  const list = $("work-tabs-list");
+  const bar = $("work-tabs");
+  if (!list || !bar) return;
+  const s = sessaoWork();
+  const mostrar = state.view !== "none" && s.tabs.length > 0;
+  bar.hidden = !mostrar;
+  bar.classList.toggle("hidden", !mostrar);
+  list.replaceChildren();
+  if (!mostrar) return;
+  for (const tab of s.tabs) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "work-tab";
+    btn.dataset.id = tab.id;
+    btn.setAttribute("role", "tab");
+    btn.setAttribute("aria-selected", tab.id === s.activeId ? "true" : "false");
+    const ico = document.createElement("span");
+    ico.className = "work-tab-lead";
+    ico.innerHTML = ABA_ICO[tab.kind] || ABA_ICO.file;
+    const name = document.createElement("span");
+    name.className = "work-tab-name";
+    name.textContent = rotuloDaAba(tab);
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "work-tab-x";
+    x.title = "Fechar aba";
+    x.setAttribute("aria-label", "Fechar aba");
+    x.textContent = "×";
+    x.addEventListener("click", (e) => {
+      e.stopPropagation();
+      fecharAbaWork(tab.id);
+    });
+    btn.append(ico, name, x);
+    btn.addEventListener("click", () => focarAbaWork(tab.id));
+    btn.addEventListener("auxclick", (e) => {
+      if (e.button === 1) {
+        e.preventDefault();
+        fecharAbaWork(tab.id);
+      }
+    });
+    list.append(btn);
   }
-  applyWorkLayout();
-  if (view === "file") void loadFileTree();
+}
+
+function aoMostrarPainel(view) {
+  if (view === "file") {
+    if (fileTreeProjeto !== state.projectPath) void loadFileTree();
+  }
   if (view === "terminal") {
     ensureTerm();
     requestAnimationFrame(() => state.fit?.fit());
@@ -1469,12 +1598,110 @@ function setView(view) {
   if (view === "canvas") requestAnimationFrame(resizeSketch);
   if (view === "graph") void loadGraphStatus();
   if (view === "agentes") {
-    // Mesmo caminho de abrirTime/abrirEstudio/abrirHook/"Agentes, Times e Hooks →": a tela
-    // cheia assume, o dock (que mostraria a mesma lista menor) fecha.
     toggleAgents(false);
     setAxTab(state.axTab);
   }
   if (view === "tarefas") void tarefasBoard.abrir();
+}
+
+let workGen = 0;
+
+function ligarGuestBrowser(tabId, href) {
+  browserPool.mostrar(chaveSessao(), tabId, href);
+  const r = browserPool.navegar(chaveSessao(), tabId, href);
+  if (r.mudou) {
+    esconderFalhaBrowser();
+    void conferirPreview(href);
+  } else {
+    atualizaDisponibilidadeInspector();
+  }
+  atualizarChromeBrowser();
+}
+
+function aplicarSessaoWork() {
+  const gen = ++workGen;
+  const s = sessaoWork();
+  const tab = abaAtiva(s);
+  if (!tab) {
+    inspectorHost.desligar();
+    state.view = "none";
+    browserPool.esconder();
+    applyWorkLayout();
+    atualizarChromeBrowser();
+    return;
+  }
+  const saiuDoBrowser = state.view === "browser" && tab.kind !== "browser";
+  if (saiuDoBrowser) inspectorHost.desligar();
+  state.view = tab.kind;
+  if (tab.kind === "browser") {
+    state.browserUrl = tab.url || "about:blank";
+    $("browser-url").value = state.browserUrl === "about:blank" ? "" : state.browserUrl;
+  } else {
+    browserPool.esconder();
+  }
+  applyWorkLayout();
+  const kind = tab.kind;
+  const tabId = tab.id;
+  const href = state.browserUrl;
+  requestAnimationFrame(() => {
+    if (workGen !== gen) return;
+    aoMostrarPainel(kind);
+    if (kind === "browser") ligarGuestBrowser(tabId, href);
+    else atualizarChromeBrowser();
+  });
+  if (state.paletteOpen && (state.previewId === "browser" || tab.kind === "browser")) syncPalBrowser();
+}
+
+function focarAbaWork(id) {
+  ativarAba(sessaoWork(), id);
+  persistirWork();
+  aplicarSessaoWork();
+}
+
+function fecharAbaWork(id) {
+  const s = sessaoWork();
+  const tab = s.tabs.find((t) => t.id === id);
+  if (tab?.kind === "browser") {
+    inspectorHost.desligar();
+    browserPool.descartar(chaveSessao(), id);
+  }
+  fecharAba(s, id);
+  persistirWork();
+  aplicarSessaoWork();
+}
+
+function fecharAbaAtual() {
+  const tab = abaAtiva(sessaoWork());
+  if (tab) fecharAbaWork(tab.id);
+  else closeModule();
+}
+
+/** Fecha o módulo aberto: só chat + sidebar ficam. Abas da conversa continuam na memória. */
+function closeModule() {
+  inspectorHost.desligar();
+  const s = sessaoWork();
+  s.tabs = [];
+  s.activeId = "";
+  persistirWork();
+  state.view = "none";
+  browserPool.esconder();
+  applyWorkLayout();
+}
+
+function setView(view, opts = {}) {
+  if (view === "side-chat") {
+    state.sideChat = !state.sideChat;
+    applyWorkLayout();
+    return;
+  }
+  if (view === "none") {
+    closeModule();
+    return;
+  }
+  const s = sessaoWork();
+  abrirAba(s, view, opts);
+  persistirWork();
+  aplicarSessaoWork();
 }
 
 function storeKey(kind) {
@@ -1483,37 +1710,45 @@ function storeKey(kind) {
 
 
 function setBrowserUrl(raw, persist = true) {
-  const href = safeUrl(raw);
-  state.browserUrl = href;
-  $("browser-url").value = href === "about:blank" ? "" : href;
-  const frame = $("browser-frame");
-  if (frame.src !== href) frame.src = href;
-  esconderFalhaBrowser();
-  void conferirPreview(href);
-  if (persist) localStorage.setItem(storeKey("browser"), href);
+  const href = urlDePreview(raw);
+  const s = sessaoWork();
+  let tab = abaAtiva(s);
+  if (tab?.kind !== "browser") tab = abrirAba(s, "browser", { url: href });
+  else setUrlDaAba(s, tab.id, href);
+  state.browserUrl = tab.url || href;
+  $("browser-url").value = state.browserUrl === "about:blank" ? "" : state.browserUrl;
+  browserPool.mostrar(chaveSessao(), tab.id, state.browserUrl);
+  const r = browserPool.navegar(chaveSessao(), tab.id, state.browserUrl);
+  if (r.mudou) {
+    esconderFalhaBrowser();
+    void conferirPreview(state.browserUrl);
+  } else {
+    atualizaDisponibilidadeInspector();
+  }
+  if (persist) {
+    persistirWork();
+    if (state.browserUrl !== "about:blank") {
+      state.workRecents = lembrarRecent(recentsWork(), state.browserUrl);
+      persistirRecents();
+    }
+  }
+  if (state.view !== "browser") {
+    state.view = "browser";
+    applyWorkLayout();
+  } else {
+    pintarAbas();
+  }
   if (state.paletteOpen && state.previewId === "browser") syncPalBrowser();
-}
-
-/**
- * Renavega o iframe pela mesma URL, passando por about:blank primeiro — assim o
- * documento antigo (e o JS dele) morre de verdade, em vez de só recarregar.
- * contentWindow.location.reload() não serve: a página é de outra origem.
- * A segunda atribuição fica no próximo tick porque duas trocas de src no mesmo
- * task se cancelam e o about:blank sobraria na tela.
- */
-function reiniciarFrame(frame, href) {
-  frame.src = "about:blank";
-  setTimeout(() => {
-    frame.src = href;
-  }, 0);
 }
 
 function reiniciarBrowser() {
   const href = state.browserUrl || "about:blank";
-  reiniciarFrame($("browser-frame"), href);
+  const tab = abaAtiva(sessaoWork());
+  if (tab?.kind === "browser") {
+    browserPool.navegar(chaveSessao(), tab.id, href, { force: true });
+  }
   esconderFalhaBrowser();
   void conferirPreview(href);
-  if (state.paletteOpen && state.previewId === "browser") reiniciarFrame($("pal-frame"), href);
 }
 
 /** Mesmo reinício, mas descartando o cache antes — preview velho some. */
@@ -1589,8 +1824,13 @@ async function conferirPreview(href) {
   });
 }
 
-function loadBrowser() {
-  setBrowserUrl(localStorage.getItem(storeKey("browser")) || "about:blank", false);
+function hidratarOuMigrar(seedView) {
+  const s = sessaoWork();
+  if (s.tabs.length) return;
+  const legado = localStorage.getItem(storeKey("browser"));
+  if (legado && legado !== "about:blank") abrirAba(s, "browser", { url: legado });
+  if (seedView && seedView !== "none" && !s.tabs.some((t) => t.kind === seedView)) abrirAba(s, seedView);
+  if (s.tabs.length) persistirWork();
 }
 
 
@@ -1656,11 +1896,12 @@ function renderInspectorBox(fase) {
  * pra virar coordenada local, e limitamos pra caixa não vazar pra fora do stage.
  */
 function posicionarCaixaFlutuante(sel) {
-  const stage = $("browser-frame").closest(".browser-stage");
+  const wv = guestVisivel();
+  const stage = $("browser-pool")?.closest(".browser-stage") || wv?.closest(".browser-stage");
   const caixa = $("inspector-box");
-  if (!stage || !caixa) return;
+  if (!stage || !caixa || !wv) return;
   const rectStage = stage.getBoundingClientRect();
-  const rectWebview = $("browser-frame").getBoundingClientRect();
+  const rectWebview = wv.getBoundingClientRect();
   const larguraCaixa = caixa.offsetWidth || 240;
   const alturaCaixa = caixa.offsetHeight || 160;
   const origemX = rectWebview.left - rectStage.left + sel.x;
@@ -1695,7 +1936,7 @@ function renderInspectorFaixa(fase) {
 }
 
 const inspectorHost = criarInspectorHost({
-  getWebview: () => $("browser-frame"),
+  getWebview: () => guestVisivel(),
   temPreview: temPreviewDisponivel,
   onMudarEstado(estado) {
     const primeiraSelecao = state.inspector.selecionados.length === 0 && estado.selecionados.length === 1;
@@ -1716,7 +1957,46 @@ function toggleInspector() {
   else inspectorHost.desligar();
 }
 
-const navegadorHost = criarNavegadorHost({ getWebview: () => $("browser-frame") });
+function webviewDaThread(threadId) {
+  const tid = threadId || state.threadId;
+  const s = sessaoWork(tid);
+  const tab = s.tabs.find((t) => t.kind === "browser") || abaAtiva(s);
+  if (tab?.kind === "browser") return browserPool.obter(chaveSessao(tid), tab.id);
+  return browserPool.daThread(chaveSessao(tid)) || guestVisivel();
+}
+
+const navegadorHost = criarNavegadorHost({ getWebview: (threadId) => webviewDaThread(threadId) });
+
+const browserPool = criarBrowserPool({
+  stage: $("browser-pool"),
+  podeDescartar: (tid) => tid !== chaveSessao() && !state.agents.list.some((a) => a.threadId === tid && a.busy),
+  onIpc(e, { threadId }) {
+    if (e.channel === "nexo-inspector:selecionado") inspectorHost.receberSelecionado(e.args[0]);
+    else if (e.channel === "nexo-inspector:pronto") inspectorHost.receberPronto();
+    else if (e.channel === "nexo-inspector:esc") inspectorHost.receberEsc();
+    else if (e.channel === "nexo-navegador:lido") navegadorHost.receberLido(e.args[0], threadId);
+    else if (e.channel === "nexo-navegador:acao-resultado") navegadorHost.receberAcaoResultado(e.args[0], threadId);
+  },
+  onDomReady({ threadId }) {
+    if (chaveSessao() === chaveSessao(threadId)) {
+      inspectorHost.aoRecarregarPreview();
+      atualizarChromeBrowser();
+    }
+  },
+  onNavigate({ threadId, tabId, url }) {
+    const s = sessaoWork(threadId);
+    setUrlDaAba(s, tabId, url);
+    persistirWork(threadId);
+    if (chaveSessao() === chaveSessao(threadId) && abaAtiva(s)?.id === tabId) {
+      state.browserUrl = url;
+      $("browser-url").value = url === "about:blank" ? "" : url;
+      pintarAbas();
+      atualizarChromeBrowser();
+      if (state.paletteOpen && state.previewId === "browser") syncPalBrowser();
+    }
+    if (chaveSessao() === chaveSessao(threadId)) inspectorHost.aoRecarregarPreview();
+  },
+});
 
 /**
  * Pausa local do painel — independente do `navegadorModo` da conta (Configurações). Existe pra
@@ -1738,14 +2018,17 @@ $("btn-nav-pause").addEventListener("click", () => {
   pintarBotaoNavPause();
 });
 
-/** Mensagens do preload dentro do preview — ver browser-inspector-preload.cjs. */
-$("browser-frame").addEventListener("ipc-message", (e) => {
-  if (e.channel === "nexo-inspector:selecionado") inspectorHost.receberSelecionado(e.args[0]);
-  else if (e.channel === "nexo-inspector:pronto") inspectorHost.receberPronto();
-  else if (e.channel === "nexo-inspector:esc") inspectorHost.receberEsc();
-  else if (e.channel === "nexo-navegador:lido") navegadorHost.receberLido(e.args[0]);
-  else if (e.channel === "nexo-navegador:acao-resultado") navegadorHost.receberAcaoResultado(e.args[0]);
-});
+/** Garante aba+webview da conversa do comando, sem roubar o foco se for outra thread. */
+function garantirBrowserDaThread(threadId, url) {
+  const s = sessaoWork(threadId);
+  const tab = abrirAba(s, "browser", url ? { url } : {});
+  if (url) setUrlDaAba(s, tab.id, url);
+  persistirWork(threadId);
+  browserPool.obter(chaveSessao(threadId), tab.id);
+  if (url) browserPool.navegar(chaveSessao(threadId), tab.id, urlDePreview(url));
+  if (chaveSessao() === chaveSessao(threadId)) aplicarSessaoWork();
+  return tab;
+}
 
 /**
  * Executa o comando de `nexo_navegador_*` pedido pelo daemon (chegou via SSE, `browser_comando`)
@@ -1758,11 +2041,13 @@ async function tratarComandoNavegador(ev) {
     resultado = { ok: false, texto: "controle do painel Browser está pausado agora — a pessoa pausou manualmente" };
   } else {
     try {
-      if (ev.acao === "abrir") resultado = await navegadorHost.abrir(ev.url);
-      else if (ev.acao === "ler") resultado = await navegadorHost.ler();
-      else if (ev.acao === "screenshot") resultado = await navegadorHost.screenshot();
-      else if (ev.acao === "clicar") resultado = await navegadorHost.clicar(ev.ref);
-      else if (ev.acao === "digitar") resultado = await navegadorHost.digitar(ev.ref, ev.texto);
+      if (ev.acao === "abrir") garantirBrowserDaThread(ev.threadId, ev.url);
+      else garantirBrowserDaThread(ev.threadId);
+      if (ev.acao === "abrir") resultado = await navegadorHost.abrir(ev.url, ev.threadId);
+      else if (ev.acao === "ler") resultado = await navegadorHost.ler(ev.threadId);
+      else if (ev.acao === "screenshot") resultado = await navegadorHost.screenshot(ev.threadId);
+      else if (ev.acao === "clicar") resultado = await navegadorHost.clicar(ev.ref, ev.threadId);
+      else if (ev.acao === "digitar") resultado = await navegadorHost.digitar(ev.ref, ev.texto, ev.threadId);
       else resultado = { ok: false, texto: `ação de navegador desconhecida: ${ev.acao}` };
     } catch (e) {
       resultado = { ok: false, texto: e?.message || "falha ao executar no painel Browser" };
@@ -1777,13 +2062,6 @@ async function tratarComandoNavegador(ev) {
     /* daemon pode já ter desistido (timeout) — nada a fazer, o comando já expirou do lado dele */
   }
 }
-
-/**
- * O preload morre e nasce de novo a cada navegação do `<webview>` — sem isto, um reload
- * do preview com o modo ligado deixava o botão aceso e o preview inerte, em silêncio.
- */
-$("browser-frame").addEventListener("dom-ready", () => inspectorHost.aoRecarregarPreview());
-$("browser-frame").addEventListener("did-navigate", () => inspectorHost.aoRecarregarPreview());
 
 $("btn-browser-inspect").addEventListener("click", toggleInspector);
 
@@ -1814,7 +2092,11 @@ const fileTree = createFileTree({
   treeEl: () => $("file-tree"),
   previewEl: () => $("file-preview"),
 });
-const loadFileTree = () => fileTree.load();
+let fileTreeProjeto = "";
+const loadFileTree = () => {
+  fileTreeProjeto = state.projectPath;
+  return fileTree.load();
+};
 
 let palFilesSeq = 0;
 async function refreshPalFiles() {
@@ -2004,15 +2286,14 @@ function ptFromEvent(e) {
   };
 }
 
-function filteredModules() {
-  const q = state.paletteFilter.trim().toLowerCase();
-  if (!q) return MODULES;
-  return MODULES.filter((m) => `${m.name} ${m.id} ${m.keys}`.toLowerCase().includes(q));
+function filteredPaletteItems() {
+  return itensDaPaleta({ modules: MODULES, recents: recentsWork(), filtro: state.paletteFilter });
 }
 
 function renderPalette(rebuild = false) {
-  const items = filteredModules();
+  const items = filteredPaletteItems();
   if (state.paletteIndex >= items.length) state.paletteIndex = Math.max(0, items.length - 1);
+  state.paletteIndex = indiceSelecionavel(items, state.paletteIndex);
   const key = items.map((m) => m.id).join(",");
   const ul = $("palette-list");
   if (rebuild || state.paletteKey !== key) {
@@ -2021,12 +2302,18 @@ function renderPalette(rebuild = false) {
     items.forEach((m, i) => {
       const li = document.createElement("li");
       li.dataset.id = m.id;
-      li.innerHTML = `<span class="pal-ico">${m.ico}</span><span class="pal-name">${m.name}</span><span class="pal-keys">${m.keys}</span>`;
+      if (m.tipo === "sep") {
+        li.dataset.sep = "1";
+        li.textContent = m.name;
+        ul.append(li);
+        return;
+      }
+      li.innerHTML = `<span class="pal-ico">${m.ico}</span><span class="pal-name">${m.name}</span><span class="pal-keys">${m.keys || ""}</span>`;
       li.addEventListener("mouseenter", () => {
         state.paletteIndex = i;
         renderPalette(false);
       });
-      li.addEventListener("click", () => pickModule(m.id));
+      li.addEventListener("click", () => pickPaletteItem(m));
       ul.append(li);
     });
   }
@@ -2034,10 +2321,17 @@ function renderPalette(rebuild = false) {
     li.dataset.on = i === state.paletteIndex ? "1" : "0";
   });
   const current = items[state.paletteIndex];
-  if (current) void showPalettePreview(current.id);
+  if (current && current.tipo !== "sep") void showPalettePreview(current);
 }
 
-async function showPalettePreview(id) {
+function previewKind(item) {
+  if (!item) return "";
+  if (item.tipo === "recent" || item.tipo === "url") return "browser";
+  return item.id;
+}
+
+async function showPalettePreview(item) {
+  const id = typeof item === "string" ? item : previewKind(item);
   for (const el of $("palette-preview").querySelectorAll(".pal-mod")) {
     el.classList.toggle("hidden", el.dataset.preview !== id);
   }
@@ -2045,16 +2339,38 @@ async function showPalettePreview(id) {
   state.previewId = id;
   if (id === "file" && (changed || !state.fileCache)) await refreshPalFiles();
   if (id === "terminal") updatePalTerm();
-  if (id === "browser") syncPalBrowser();
+  if (id === "browser") syncPalBrowser(typeof item === "object" ? item.url : "");
   if (id === "canvas") paintPalCanvas();
   if (id === "side-chat") renderPalChat();
 }
 
-function syncPalBrowser() {
-  const href = state.browserUrl || "about:blank";
+function syncPalBrowser(hoverUrl) {
+  const s = sessaoWork();
+  const browsers = s.tabs.filter((t) => t.kind === "browser");
+  const href = hoverUrl || abaAtiva(s)?.url || state.browserUrl || "about:blank";
   $("pal-url").textContent = href === "about:blank" ? "Prévia · sem URL" : href;
+  const tabsEl = $("pal-browser-tabs");
+  tabsEl.replaceChildren();
+  for (const tab of browsers) {
+    const span = document.createElement("span");
+    span.className = "pal-tab";
+    span.dataset.on = tab.id === s.activeId ? "1" : "0";
+    span.textContent = rotuloDaAba(tab);
+    tabsEl.append(span);
+  }
+  const recUl = $("pal-recents");
+  recUl.replaceChildren();
+  for (const r of recentsWork().slice(0, 6)) {
+    const li = document.createElement("li");
+    li.textContent = rotuloDaAba({ kind: "browser", url: r.url });
+    recUl.append(li);
+  }
   const frame = $("pal-frame");
-  if (frame.src !== href) frame.src = href;
+  const mini = hoverUrl || href;
+  const jaViva = browsers.some((t) => t.url === mini && t.url !== "about:blank");
+  // iframe da paleta é thumbnail de URL que AINDA não tem webview. URL já viva
+  // não se toca — senão a paleta recarregava o preview a cada hover.
+  if (mini && mini !== "about:blank" && !jaViva && frame.src !== mini) frame.src = mini;
 }
 
 function renderPalChat() {
@@ -2109,7 +2425,22 @@ function closePalette() {
 
 function pickModule(id) {
   closePalette();
+  if (id === "browser") {
+    const ja = sessaoWork().tabs.some((t) => t.kind === "browser");
+    setView("browser", { nova: ja });
+    return;
+  }
   setView(id);
+}
+
+function pickPaletteItem(item) {
+  if (!item || item.tipo === "sep") return;
+  closePalette();
+  if (item.tipo === "recent" || item.tipo === "url") {
+    setView("browser", { url: item.url });
+    return;
+  }
+  pickModule(item.id);
 }
 
 async function refreshDaemon() {
@@ -2744,6 +3075,9 @@ async function deleteThread(id) {
   }
   if (state.threadId === id) {
     state.abortSse?.abort();
+    browserPool.descartarThread(chaveSessao(id));
+    state.workByThread.delete(chaveWork(id, state.projectPath));
+    localStorage.removeItem(`nexo.work:${id}`);
     state.threadId = "";
     localStorage.removeItem("nexo.thread");
     state.events = [];
@@ -3166,6 +3500,8 @@ async function openThread(id) {
   // Aborta o SSE da conversa velha JÁ — senão ele continua despejando eventos
   // no log até o listenSse() lá embaixo, e o texto cai na conversa errada.
   state.abortSse?.abort();
+  persistirWork();
+  inspectorHost.desligar();
   state.threadId = id;
   localStorage.setItem("nexo.thread", id);
   const events = await req(`/v1/threads/${id}`);
@@ -3184,14 +3520,13 @@ async function openThread(id) {
   paintQueue();
   state.fpThreads = "";
   state.fpProfiles = "";
-  if (!state.sideChat) {
-    state.sideChat = true;
-    applyWorkLayout();
-  }
+  if (!state.sideChat) state.sideChat = true;
   await loadThreads();
   await loadProfiles();
   listenSse();
   await refreshMeter();
+  hidratarOuMigrar();
+  aplicarSessaoWork();
 }
 
 function listenSse() {
@@ -3342,12 +3677,6 @@ function onLive(ev) {
   }
   if (ev.type === "pergunta_resposta") {
     appendEvent({ type: "pergunta_resposta", id: ev.id, resposta: ev.resposta });
-    return;
-  }
-  // `browser_comando` (nexo_navegador_*, ver navegador.ts) não é conteúdo de conversa — sinalização
-  // técnica interna, sem appendEvent — ver o comentário no topo de navegador.ts sobre essa escolha.
-  if (ev.type === "browser_comando") {
-    void tratarComandoNavegador(ev);
     return;
   }
   if (ev.type === "delegacao_run") {
@@ -3637,8 +3966,6 @@ const svcPanel = createServicesPanel({
   // o painel não precisa saber o que é aba de browser nem log de chat
   abrirNoBrowser: (url) => {
     setBrowserUrl(url);
-    state.view = "browser";
-    applyWorkLayout();
   },
   aoErro: (message) => appendEvent({ type: "error", message }),
 });
@@ -3692,8 +4019,7 @@ function paintTeams() {
  */
 async function abrirTime(def) {
   toggleAgents(false);
-  state.view = "agentes";
-  applyWorkLayout();
+  setView("agentes");
   setAxTab("times");
   if (!state.agents.defs.length) await loadAgentDefs();
   teamStudio.abrir(def);
@@ -3702,8 +4028,7 @@ async function abrirTime(def) {
 /** Painel lateral fecha e a tela unificada assume, na aba Agentes. */
 function abrirEstudio(def) {
   toggleAgents(false);
-  state.view = "agentes";
-  applyWorkLayout();
+  setView("agentes");
   setAxTab("agentes");
   agentStudio.abrir(def);
 }
@@ -3761,8 +4086,7 @@ function paintHookRules() {
 /** Painel lateral fecha e a tela unificada assume, na aba Hooks. */
 async function abrirHook(def) {
   toggleAgents(false);
-  state.view = "agentes";
-  applyWorkLayout();
+  setView("agentes");
   setAxTab("hooks");
   if (!state.agents.defs.length) await loadAgentDefs();
   if (!state.teams.length) await loadTeams();
@@ -3965,10 +4289,7 @@ const hooksStudio = createHooksStudio({
   getAgents: () => state.agents.defs,
   getTeams: () => state.teams,
   aoSalvar: () => loadHookRules(),
-  aoFechar: () => {
-    state.view = "none";
-    applyWorkLayout();
-  },
+  aoFechar: () => fecharAbaAtual(),
 });
 
 const automacaoModal = createAutomacaoModal({
@@ -4003,10 +4324,7 @@ const teamStudio = createTeamStudio({
   getAgents: () => state.agents.defs,
   lerEventos,
   aoSalvar: () => loadTeams(),
-  aoFechar: () => {
-    state.view = "none";
-    applyWorkLayout();
-  },
+  aoFechar: () => fecharAbaAtual(),
 });
 
 const agentStudio = createAgentStudio({
@@ -4020,10 +4338,7 @@ const agentStudio = createAgentStudio({
   lerEventos,
   renderMd,
   aoSalvar: () => loadAgentDefs(),
-  aoFechar: () => {
-    state.view = "none";
-    applyWorkLayout();
-  },
+  aoFechar: () => fecharAbaAtual(),
 });
 
 const loadServices = () => svcPanel.load();
@@ -4061,6 +4376,10 @@ function agendarRetrato() {
 function applyAgentEvent(ev) {
   const id = ev.threadId;
   if (!id) return;
+  if (ev.type === "browser_comando") {
+    void tratarComandoNavegador(ev);
+    return;
+  }
   // Contagem GLOBAL de perguntas pendentes: vem do bus "*", então soma de QUALQUER conversa —
   // é isso que deixa o badge avisar sem precisar estar olhando a conversa certa.
   if (ev.type === "pergunta") {
@@ -4497,7 +4816,6 @@ async function bindProject(path) {
   state.fileCache = null;
   $("file-preview").textContent = "Escolhe um arquivo na árvore.";
   await window.nexo.setProject?.(path);
-  loadBrowser();
   loadCanvas();
   state.termBuf = "";
   if (state.term) state.term.clear();
@@ -4847,13 +5165,27 @@ $("btn-file-preview").addEventListener("click", () => setFilePreview($("file-spl
 $("btn-browser-retry").addEventListener("click", reiniciarBrowser);
 $("btn-browser-reload").addEventListener("click", reiniciarBrowser);
 $("btn-browser-hard-reload").addEventListener("click", () => void reiniciarBrowserSemCache());
+$("btn-browser-back").addEventListener("click", () => {
+  const el = guestVisivel();
+  if (el && typeof el.goBack === "function") el.goBack();
+});
+$("btn-browser-forward").addEventListener("click", () => {
+  const el = guestVisivel();
+  if (el && typeof el.goForward === "function") el.goForward();
+});
+$("btn-browser-popout").addEventListener("click", () => {
+  const href = state.browserUrl;
+  if (href && /^https?:/i.test(href)) void window.nexo.openExternal?.(href);
+});
 
 /*
  * did-fail-load do subframe: pega o que a sonda não vê — servidor que responde
  * por HTTP mas recusa ser embutido (X-Frame-Options / frame-ancestors).
  */
 window.nexo.onFrameFail?.(({ code, desc, url }) => {
-  if (state.view !== "browser") return;
+  const tab = abaAtiva(sessaoWork());
+  if (tab?.kind !== "browser") return;
+  if (url && tab.url && url !== tab.url && !String(url).startsWith(tab.url)) return;
   const bloqueio = code === -30 || /BLOCKED_BY_RESPONSE|X_FRAME/i.test(desc || "");
   mostrarFalhaBrowser({
     msg: bloqueio
@@ -4885,10 +5217,10 @@ $("btn-svc-create").addEventListener("click", async () => {
 $("btn-svc-refresh").addEventListener("click", () => void loadServices());
 $("btn-svc-log-close").addEventListener("click", fecharLogServico);
 $("btn-svc-trust").addEventListener("click", () => void svcPanel.confiar());
-$("btn-close-file").addEventListener("click", closeModule);
-$("btn-close-terminal").addEventListener("click", closeModule);
-$("btn-close-browser").addEventListener("click", closeModule);
-$("btn-close-canvas").addEventListener("click", closeModule);
+$("btn-close-file").addEventListener("click", fecharAbaAtual);
+$("btn-close-terminal").addEventListener("click", fecharAbaAtual);
+$("btn-close-browser").addEventListener("click", fecharAbaAtual);
+$("btn-close-canvas").addEventListener("click", fecharAbaAtual);
 
 dragSplitter("split-side", (x, fim) => applySideWidth(x, fim));
 dragSplitter("split-chat", (x, fim) => applyChatWidth(window.innerWidth - x, fim));
@@ -6146,8 +6478,7 @@ $("btn-agents").addEventListener("click", () => toggleAgents());
 $("btn-agents-close").addEventListener("click", () => toggleAgents(false));
 $("btn-agents-full").addEventListener("click", () => {
   toggleAgents(false);
-  state.view = "agentes";
-  applyWorkLayout();
+  setView("agentes");
   setAxTab(state.axTab);
 });
 $("tab-ax-agentes").addEventListener("click", () => setAxTab("agentes"));
@@ -6164,13 +6495,14 @@ teamStudio.ligar();
 $("btn-agent-new").addEventListener("click", () => abrirEstudio(null));
 agentStudio.ligar();
 hooksStudio.ligar();
-$("btn-close-tarefas").addEventListener("click", closeModule);
+$("btn-close-tarefas").addEventListener("click", fecharAbaAtual);
 tarefasBoard.ligar();
 dialogo.ligar();
 automacaoModal.ligar();
 $("btn-tk-automacao").addEventListener("click", () => void abrirAutomacao());
 
 $("btn-palette").addEventListener("click", () => handleMod("palette"));
+$("btn-tab-add")?.addEventListener("click", () => openPalette());
 $("btn-palette-close").addEventListener("click", () => closePalette());
 $("palette").addEventListener("click", (e) => {
   if (e.target === $("palette")) closePalette();
@@ -6181,7 +6513,9 @@ $("palette").addEventListener("click", (e) => {
  * caía no vazio (todo `.pal-mod` é pointer-events:none) e a paleta ficava aberta.
  */
 $("palette-preview").addEventListener("click", () => {
-  if (state.previewId) pickModule(state.previewId);
+  const items = filteredPaletteItems();
+  const current = items[state.paletteIndex];
+  if (current) pickPaletteItem(current);
 });
 $("palette-q").addEventListener("input", (e) => {
   state.paletteFilter = e.target.value;
@@ -6189,19 +6523,23 @@ $("palette-q").addEventListener("input", (e) => {
   renderPalette(true);
 });
 $("palette-q").addEventListener("keydown", (e) => {
-  const items = filteredModules();
+  const items = filteredPaletteItems();
   if (e.key === "ArrowDown") {
     e.preventDefault();
-    state.paletteIndex = Math.min(items.length - 1, state.paletteIndex + 1);
+    let i = state.paletteIndex + 1;
+    while (items[i]?.tipo === "sep") i += 1;
+    state.paletteIndex = Math.min(items.length - 1, i);
     renderPalette(false);
   } else if (e.key === "ArrowUp") {
     e.preventDefault();
-    state.paletteIndex = Math.max(0, state.paletteIndex - 1);
+    let i = state.paletteIndex - 1;
+    while (items[i]?.tipo === "sep") i -= 1;
+    state.paletteIndex = Math.max(0, i);
     renderPalette(false);
   } else if (e.key === "Enter") {
     e.preventDefault();
     const m = items[state.paletteIndex];
-    if (m) pickModule(m.id);
+    if (m) pickPaletteItem(m);
   } else if (e.key === "Escape") {
     e.preventDefault();
     closePalette();
@@ -6392,12 +6730,12 @@ hydrateRepos();
 syncApiFields();
 setProjectLabel();
 setComposer(Boolean(state.threadId));
-applyWorkLayout();
+hidratarOuMigrar(state.threadId ? "" : "file");
+aplicarSessaoWork();
 updatePalTerm();
 paintAgents();
 void (async () => {
   if (state.projectPath) await window.nexo.setProject?.(state.projectPath);
-  loadBrowser();
   loadCanvas();
   await loadFileTree();
   await refreshDaemon();
@@ -6408,6 +6746,8 @@ void (async () => {
       state.threadId = "";
       localStorage.removeItem("nexo.thread");
       setComposer(false);
+      hidratarOuMigrar("file");
+      aplicarSessaoWork();
     }
   }
 })();

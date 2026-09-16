@@ -33,8 +33,14 @@ export class StubEngine implements Engine {
     if (this.lastStart) this.lastStart = { ...this.lastStart, contextPack: pack };
   }
 
+  lastResume?: string;
+
   updateMcp(mcp: EngineMcp): void {
     if (this.lastStart) this.lastStart = { ...this.lastStart, ...mcp };
+  }
+
+  updateResume(sessionId?: string): void {
+    this.lastResume = sessionId;
   }
 
   async send(text: string): Promise<void> {
@@ -46,6 +52,12 @@ export class StubEngine implements Engine {
     const roteirizada = this.roteiro.shift();
     if (roteirizada !== undefined) {
       this.handler({ type: "text", text: roteirizada });
+      this.handler({ type: "done" });
+      return;
+    }
+    if (text === "SESSIONID") {
+      this.handler({ type: "session", sessionId: "stub-session-01", contextWindow: 200_000, model: "claude-sonnet-5" });
+      this.handler({ type: "text", text: "ok" });
       this.handler({ type: "done" });
       return;
     }

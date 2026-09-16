@@ -1305,8 +1305,18 @@ export function createApp(home: string, token: string): Hono {
       return c.json(r.corpo, r.status as 200);
     }
     const r = await tratarMcp(msg as JsonRpc, conjunto);
-    // 202 sem corpo é a resposta certa a notificação: o cliente não espera JSON
-    if (r.status === 202) return c.body(null, 202);
+    /*
+     * `c.body(null, 202)` deixa a conexão keep-alive sem Content-Length. O fetch
+     * do CLI (Bun) lê isso como "socket closed unexpectedly" na PRÓXIMA chamada
+     * MCP — visto na prática: `nexo_tarefa_listar` falha, `nexo_mapa_simbolos`
+     * na sequência já passa. Corpo vazio + Content-Length 0 + Connection: close
+     * fecha o HTTP direito.
+     */
+    c.header("Connection", "close");
+    if (r.status === 202) {
+      c.header("Content-Length", "0");
+      return c.body("", 202);
+    }
     return c.json(r.corpo, r.status as 200);
   }
 
@@ -1344,7 +1354,7 @@ export function createApp(home: string, token: string): Hono {
       ...ferramentasDeAutoria(home)(),
       ...(projectPath ? ferramentasDeRepoMap(projectPath, home)() : []),
       ...(projectPath ? ferramentaDeResumo(projectPath, home)() : []),
-      ...(projectPath ? ferramentasDeTarefas(projectPath, home)() : []),
+      ...(projectPath && loadConfig(home).modulos.quadroTarefas ? ferramentasDeTarefas(projectPath, home)() : []),
       ...(runId ? ferramentaDeVeredito(runId)() : []),
       ...(threadId ? ferramentaDePerguntar(threadId, home)() : []),
       ...(modoDelegacao !== "negado" ? ferramentaDeDelegar(threadId, projectPath, modoDelegacao, home)() : []),

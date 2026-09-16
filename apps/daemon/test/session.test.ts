@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import { addProfile, engineEnv, getProfile, markReady, rememberContextWindow } from "../src/profiles.ts";
 import { createThread, readThread, threadUsage } from "../src/threads.ts";
+import { lerSessaoClaude } from "../src/claude-session.ts";
 import {
   abortThread,
   agentSnapshots,
@@ -451,6 +452,9 @@ describe("session", () => {
     await postMessage(t.id, "oi", home);
     const engine = getLive(t.id)?.engine as StubEngine;
     expect(engine.lastStart?.contextPack).toContain("# Quadro de tarefas");
+    expect(engine.lastStart?.contextPack).toContain("MAIS DE UM pedido");
+    expect(engine.lastStart?.contextPack).toContain("UM card por pedido");
+    expect(engine.lastStart?.contextPack).not.toContain("Antes de começar qualquer trabalho");
   });
 
   it("quadro de tarefas desligado não injeta o bloco", async () => {
@@ -461,6 +465,18 @@ describe("session", () => {
     await postMessage(t.id, "oi", home);
     const engine = getLive(t.id)?.engine as StubEngine;
     expect(engine.lastStart?.contextPack).not.toContain("# Quadro de tarefas");
+  });
+
+  it("sessionId do motor grava no live, no disco, e /clear apaga", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj-sessao", profileId: "p1" }, home);
+    await postMessage(t.id, "SESSIONID", home);
+    const engine = getLive(t.id)?.engine as StubEngine;
+    expect(engine.lastResume).toBe("stub-session-01");
+    expect(lerSessaoClaude(t.id, home)).toEqual({ profileId: "p1", sessionId: "stub-session-01" });
+    await clearThread(t.id, home);
+    expect(lerSessaoClaude(t.id, home)).toBeUndefined();
   });
 
   it("índice do repo map construído: injeta a árvore e o lembrete de usar nexo_mapa_simbolos", async () => {

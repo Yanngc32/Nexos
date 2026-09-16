@@ -34,6 +34,7 @@ const HTML = `
   </div>
   <input id="tk-nova-coluna-nome" />
   <button id="btn-tk-nova-coluna-add"></button>
+  <p id="tk-erro" class="hidden"></p>
   <div id="tk-board"></div>
   <div id="tk-lista" class="hidden">
     <select id="tk-lf-coluna"><option value="">Todas as colunas</option></select>
@@ -631,5 +632,38 @@ describe("checklist e comentários (fluxo completo via backend falso)", () => {
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
     expect($("tk-f-comentarios").textContent).toContain("olha isso");
+  });
+});
+
+describe("falha ao carregar", () => {
+  it("mostra o erro em vez de deixar o quadro em branco mudo", async () => {
+    const { board, $ } = montar({
+      reqImpl: vi.fn(async () => {
+        throw new Error("500 ENOSPC: no space left on device");
+      }),
+    });
+    await board.abrir();
+    const erro = $("tk-erro");
+    expect(erro.classList.contains("hidden")).toBe(false);
+    expect(erro.textContent).toContain("ENOSPC");
+    expect($("tk-board").children.length).toBe(0);
+  });
+
+  it("some com o erro quando a carga seguinte dá certo", async () => {
+    let falhar = true;
+    const quadro = quadroFixture();
+    const { board, $ } = montar({
+      reqImpl: vi.fn(async (path) => {
+        if (falhar) throw new Error("caiu");
+        if (path.startsWith("/v1/tarefas/quadro")) return quadro;
+        return [];
+      }),
+    });
+    await board.abrir();
+    expect($("tk-erro").classList.contains("hidden")).toBe(false);
+    falhar = false;
+    await board.abrir();
+    expect($("tk-erro").classList.contains("hidden")).toBe(true);
+    expect($("tk-board").children.length).toBe(quadro.colunas.length);
   });
 });

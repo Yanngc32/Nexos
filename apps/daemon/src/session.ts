@@ -16,6 +16,8 @@ import { MCP_TOOLS_PERGUNTAR } from "./perguntas.ts";
 import { MCP_TOOLS_DELEGAR, resetContadorDeDelegacao } from "./delegar.ts";
 import { MCP_TOOLS_NAVEGADOR } from "./navegador.ts";
 import { MCP_TOOLS_WINDOWS_CONTROL } from "./windows-control.ts";
+import { MCP_TOOLS_TAREFA } from "./tarefas.ts";
+import { apagarSessaoClaude, gravarSessaoClaude, lerSessaoClaude } from "./claude-session.ts";
 import { ApiEngine } from "./engines/api.ts";
 import { claudeEngine, codexEngine } from "./engines/cli.ts";
 import { contextWindowOf } from "./engines/parse-claude.ts";
@@ -287,12 +289,14 @@ function withInstructions(agentId: string | undefined, projectPath: string, pack
   // Toggle em Configurações → Módulos (`modulos.quadroTarefas`), ligado por padrão.
   if (modulos.quadroTarefas) {
     blocos.push(
-      "# Quadro de tarefas\nAntes de começar qualquer trabalho neste projeto, chame `nexo_tarefa_listar` " +
-        "e mova o card da tarefa que você vai atacar pra coluna de andamento (`nexo_tarefa_salvar` com o " +
-        "mesmo `id`, só trocando `colunaId`). Se o pedido não tem card ainda, crie um antes de agir. " +
-        "Durante o trabalho, se o escopo mudar, atualize a tarefa (descrição, checklist, comentário) na " +
-        "hora — não deixe pra depois. Ao concluir, mova o card pra coluna final. Chegou pedido novo que " +
-        "ainda não virou tarefa? Crie a tarefa primeiro, antes de responder ou agir.",
+      "# Quadro de tarefas\nEste projeto tem um quadro (`nexo_tarefa_listar` / `nexo_tarefa_salvar`). " +
+        "Pergunta ou pedido ÚNICO: não liste o quadro — responda/aja direto. " +
+        "**A mensagem tem MAIS DE UM pedido** (duas ou mais coisas distintas pra fazer, numeradas, " +
+        "separadas por 'e depois', 'também', listas, etc.): ANTES de começar o trabalho, chame " +
+        "`nexo_tarefa_listar` e crie UM card por pedido (`nexo_tarefa_salvar`, coluna de andamento " +
+        "no que for atacar agora, as outras na coluna inicial). Não junte vários pedidos num card só. " +
+        "Enquanto trabalha, vá atualizando o card da vez (checklist, comentário, coluna). Ao concluir " +
+        "um pedido, mova o card dele pra coluna final e só então passe pro próximo.",
     );
   }
   if (instrucoes) blocos.push(`# Agente: ${def?.name ?? agentId}\n${instrucoes}`);
@@ -409,6 +413,8 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
     // Mesma razão do updatePack: sem isto, mudar `delegacaoModo`/`allowedTools` só valeria depois
     // de um engine NOVO (troca de conta, /clear, reiniciar o motor) — aqui vale já no próximo envio.
     existing.engine.updateMcp(mcpDaConversa(threadId, meta, p, home));
+    const gravada = lerSessaoClaude(threadId, home);
+    if (gravada?.profileId === p.id) existing.engine.updateResume(gravada.sessionId);
     return existing;
   }
 
@@ -440,6 +446,8 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
     },
     (ev) => onEngineEvent(threadId, home, ev),
   );
+  const gravadaNova = lerSessaoClaude(threadId, home);
+  if (gravadaNova?.profileId === p.id) engine.updateResume(gravadaNova.sessionId);
   return live;
 }
 
@@ -491,6 +499,7 @@ function mcpDaConversa(
     ...(meta.runId ? MCP_TOOLS_VEREDITO : []),
     // Em toda conversa (normal ou passo de Run) — `nexo_perguntar` não depende de run nenhum.
     ...MCP_TOOLS_PERGUNTAR,
+    ...(loadConfig(home).modulos.quadroTarefas ? MCP_TOOLS_TAREFA : []),
     // Só em conversa NORMAL (sem runId) e com a conta liberada: é isso que barra a recursão — o
     // que `nexo_delegar` dispara é sempre um passo de Run, que já nasce com runId.
     ...(!meta.runId && perfil.delegacaoModo && perfil.delegacaoModo !== "negado" ? MCP_TOOLS_DELEGAR : []),
@@ -578,6 +587,16 @@ async function talvezCompactar(threadId: string, home: string): Promise<void> {
   const cfg = loadConfig(home);
   if (!cfg.pack.compactar) return;
   if (compactando.has(threadId) || desistiu.has(threadId)) return;
+
+  /*
+   * Com `--resume`, o CLI `claude` tem sessão longa de verdade — o autocompact
+   * dele passa a valer. Um turno extra nosso de resumo só queima quota.
+   */
+  const live = lives.get(threadId);
+  if (live?.session?.sessionId) {
+    const perfil = getProfile(live.profileId, home);
+    if (perfil?.engine === "claude") return;
+  }
 
   const events = readThread(threadId, home);
   const meta = events.find((e) => e.type === "thread_meta");
@@ -775,6 +794,10 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     const janela = windowByProfile.get(live.profileId);
     live.session = janela ? { ...ev, contextWindow: janela } : ev;
     if (janela && ev.model) rememberContextWindow(live.profileId, home, ev.model, janela);
+    if (ev.sessionId) {
+      live.engine.updateResume(ev.sessionId);
+      gravarSessaoClaude(threadId, live.profileId, ev.sessionId, home);
+    }
     emit(threadId, { ...live.session, threadId });
     return;
   }
@@ -1026,6 +1049,7 @@ async function switchNow(
     await live.engine.abort();
     lives.delete(threadId);
   }
+  apagarSessaoClaude(threadId, home);
   const switched: ThreadEvent = {
     ts: nowIso(),
     type: "switched",
@@ -1053,6 +1077,7 @@ export async function abortThread(threadId: string): Promise<void> {
 export async function dropThread(threadId: string, home: string): Promise<void> {
   await abortThread(threadId);
   lives.delete(threadId);
+  apagarSessaoClaude(threadId, home);
   removeThread(threadId, home);
   removeThreadAttachments(threadId, home);
 }
@@ -1066,6 +1091,7 @@ export async function clearThread(threadId: string, home: string): Promise<void>
   await withLocked(threadId, async () => {
     await abortThread(threadId);
     lives.delete(threadId);
+    apagarSessaoClaude(threadId, home);
     appendEvent({ ts: nowIso(), type: "cleared", threadId }, home);
   });
 }

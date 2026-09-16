@@ -25,12 +25,14 @@ describe("comandoNavegador / responderNavegador", () => {
     const { threadId } = setup();
     const eventos: unknown[] = [];
     sessionBus.on(threadId, (ev) => eventos.push(ev));
+    sessionBus.on("*", (ev) => eventos.push({ via: "*", ...(ev as object) }));
 
     const chamada = comandoNavegador(threadId, { acao: "abrir", url: "https://exemplo.com" });
     await new Promise((r) => setTimeout(r, 10));
 
     expect(eventos).toEqual([
       expect.objectContaining({ type: "browser_comando", threadId, acao: "abrir", url: "https://exemplo.com" }),
+      expect.objectContaining({ via: "*", type: "browser_comando", threadId, acao: "abrir" }),
     ]);
 
     const resolvido = responderNavegador(threadId, { ok: true, texto: "aberto" });

@@ -22,8 +22,9 @@ import { getProfile } from "./profiles.ts";
  * 2. **Não persiste via `appendEvent`** — `pergunta`/`pergunta_resposta` são conteúdo de conversa
  *    que a PESSOA precisa ler no histórico; `browser_comando` é sinalização técnica interna entre
  *    daemon e renderer (podendo carregar HTML/base64 de screenshot), sem valor de leitura humana.
- *    Só `sessionBus.emit(threadId, ev)`, sem gravar no JSONL e sem `emit("*")` (não precisa de
- *    badge global — é sub-segundo, não uma decisão pendente).
+ *    Só no bus, sem gravar no JSONL. Emite no `threadId` E no `"*"`: o desktop precisa ouvir
+ *    comando de conversa que NÃO está em foco (agente em paralelo), e o stream global
+ *    (`GET /v1/agents/events`) só escuta `"*"`. Sem badge — é round-trip técnico.
  */
 
 export type AcaoNavegador = "abrir" | "ler" | "screenshot" | "clicar" | "digitar";
@@ -64,10 +65,12 @@ export function comandoNavegador(threadId: string, args: ArgsNavegador): Promise
   return new Promise<ResultadoNavegador>((resolve) => {
     const timeoutId = setTimeout(() => {
       pendentes.delete(threadId);
-      resolve({ ok: false, texto: "painel Browser não respondeu a tempo — está aberto e nesta conversa?" });
+      resolve({ ok: false, texto: "painel Browser não respondeu a tempo — o preview desta conversa está vivo?" });
     }, COMANDO_TIMEOUT_MS);
     pendentes.set(threadId, { resolve, timeoutId });
-    sessionBus.emit(threadId, { type: "browser_comando", threadId, id, ...args });
+    const ev = { type: "browser_comando", threadId, id, ...args };
+    sessionBus.emit(threadId, ev);
+    sessionBus.emit("*", ev);
   });
 }
 

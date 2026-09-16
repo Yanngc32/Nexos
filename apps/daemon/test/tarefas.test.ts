@@ -596,6 +596,15 @@ describe("ferramentasDeTarefas (MCP)", () => {
     expect(nomes).not.toContain("nexo_tarefa_apagar");
   });
 
+  it("descrições forçam um card por pedido quando a mensagem tem vários", () => {
+    const home = tempHome();
+    const tools = ferramentasDeTarefas(P1, home)();
+    const listar = tools.find((f) => f.name === "nexo_tarefa_listar");
+    const salvar = tools.find((f) => f.name === "nexo_tarefa_salvar");
+    expect(listar?.description).toContain("MAIS DE UM pedido");
+    expect(salvar?.description).toContain("um card por pedido");
+  });
+
   it("nexo_tarefa_listar sem tarefa nenhuma ainda assim mostra as colunas (pro modelo saber que colunaId usar)", async () => {
     const home = tempHome();
     const [listar] = ferramentasDeTarefas(P1, home)();

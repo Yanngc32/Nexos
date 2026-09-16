@@ -16,9 +16,12 @@ import { aResumir, CABECALHO, cobertosPor, escopo, tokensDoHistorico } from "./p
  *
  * **Por que o Nexo precisa fazer isso, e não o CLI.** O CLI do `claude` tem
  * autocompact próprio (o `autocompact_state` do stream traz `enabled` e
- * `threshold`), mas ele nunca dispara aqui: o Nexo faz UM SPAWN POR TURNO com
- * `--print`, e o histórico vai no context pack. Não existe sessão longa pra ele
- * compactar — a memória da conversa é do Nexo, então a compactação também.
+ * `threshold`). Ele só dispara em sessão longa. Sem `--resume`, o Nexo fazia
+ * UM SPAWN POR TURNO com `--print` e o histórico ia no context pack — não
+ * existia sessão pra ele compactar. Com `--resume` (ver `CliEngine.updateResume`)
+ * a sessão volta a existir, o autocompact do CLI passa a valer, e o Nexo NÃO
+ * gasta um turno extra de resumo nessas conversas. Compactação daqui fica
+ * pra motor sem sessão (`codex`/`api`/primeiro turno sem id).
  *
  * **O que isto custa.** Um turno inteiro da sua conta, com o histórico antigo
  * como entrada. É o preço de resumir e não tem como fugir dele. Em troca, todos

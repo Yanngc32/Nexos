@@ -12,6 +12,9 @@ export interface Engine {
    * cada `send` sobe um processo (ou request) novo. Sem reempurrar o pack a cada
    * turno, o motor só veria o retrato de quando o engine subiu, e "esqueceria" a
    * própria resposta anterior e o que rodou de ferramenta desde então.
+   *
+   * Exceção: o CLI `claude` com `--resume` (ver `updateResume`) — aí o pack NÃO
+   * vai no stdin, senão a conversa duplica e a quota explode de novo.
    */
   updatePack(pack: string): void;
   /**
@@ -21,6 +24,14 @@ export interface Engine {
    * só eram lidos uma vez, em `start`.
    */
   updateMcp(mcp: EngineMcp): void;
+  /**
+   * Sessão do CLI `claude` pra o próximo `send` ir com `--resume` e SEM o pack
+   * do histórico. Sem isso cada turno nasce processo novo, reenvia a conversa
+   * inteira no stdin e paga cache-create de novo — bem mais quota que o Claude
+   * Code interativo, que reusa a mesma sessão. `undefined` volta ao pack.
+   * Nos outros motores é no-op: `codex exec` / API não têm `--resume`.
+   */
+  updateResume(sessionId?: string): void;
   send(text: string): Promise<void>;
   abort(): Promise<void>;
 }

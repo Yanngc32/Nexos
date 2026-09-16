@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hostNaUrl, portaDaUrl, safeUrl, urlDoApk, urlDoCelular } from "../url.js";
+import { hostNaUrl, portaDaUrl, pareceUrl, safeUrl, urlDePreview, urlDoApk, urlDoCelular } from "../url.js";
 
 /*
  * `safeUrl` decide o que o iframe do preview carrega. O CSP da janela deixa
@@ -44,6 +44,25 @@ describe("safeUrl", () => {
   it("esquema desconhecido cai em about:blank, não vira https", () => {
     // o prefixo https só entra quando NÃO há esquema; "algo:" já é um
     expect(safeUrl("algumacoisa:payload")).toBe("about:blank");
+  });
+});
+
+describe("urlDePreview / pareceUrl", () => {
+  it("localhost e IP sem esquema entram como http, não https", () => {
+    expect(urlDePreview("localhost:5173")).toBe("http://localhost:5173/");
+    expect(urlDePreview("127.0.0.1:5173")).toBe("http://127.0.0.1:5173/");
+    expect(urlDePreview("localhost:5175/pos-precificacao")).toBe("http://localhost:5175/pos-precificacao");
+  });
+
+  it("domínio sem esquema continua https (safeUrl)", () => {
+    expect(urlDePreview("exemplo.com")).toBe("https://exemplo.com/");
+  });
+
+  it("pareceUrl reconhece localhost, IP e host:porta", () => {
+    expect(pareceUrl("localhost:5173")).toBe(true);
+    expect(pareceUrl("http://127.0.0.1:5173/a")).toBe(true);
+    expect(pareceUrl("Arquivo")).toBe(false);
+    expect(pareceUrl("")).toBe(false);
   });
 });
 

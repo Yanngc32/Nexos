@@ -98,7 +98,25 @@
       <div id="split-side" class="splitter" role="separator" aria-orientation="vertical" title="Arraste pra redimensionar"></div>
     </aside>
     <div class="work" id="work" data-view="file" data-side="0">
-      <section class="pane" id="pane-file">
+      <div id="work-main">
+        <div id="work-tabs" class="work-tabs hidden" hidden>
+          <div id="work-tabs-list" class="work-tabs-list" role="tablist" aria-label="Abas do preview"></div>
+          <button type="button" id="btn-tab-add" class="work-tab-add" title="Nova aba (Ctrl+P)" aria-label="Nova aba">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+          <span class="work-tabs-grow" aria-hidden="true"></span>
+          <button type="button" id="btn-browser-popout" class="work-tab-trail ghost ico-only" title="Abrir no navegador" aria-label="Abrir no navegador">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M14 5h5v5" />
+              <path d="M19 5 10 14" />
+              <path d="M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+            </svg>
+          </button>
+        </div>
+        <div id="work-stage">
+      <section class="pane is-on" id="pane-file">
         <header class="mod-head">
           <h1>Arquivos</h1>
           <span id="file-cwd" class="mod-meta"></span>
@@ -110,7 +128,7 @@
           <pre class="file-preview" id="file-preview">Escolhe um arquivo na árvore.</pre>
         </div>
       </section>
-      <section class="pane hidden" id="pane-terminal">
+      <section class="pane" id="pane-terminal">
         <header class="mod-head">
           <h1>Terminal</h1>
           <span id="term-cwd" class="mod-meta"></span>
@@ -125,59 +143,73 @@
           <button type="submit" class="primary">Rodar</button>
         </form>
       </section>
-      <section class="pane hidden" id="pane-browser">
+      <section class="pane" id="pane-browser">
         <header class="mod-head">
           <h1>Browser</h1>
           <button type="button" id="btn-close-browser" class="ghost mod-close" title="Fechar (volta só pro chat)">✕</button>
         </header>
         <form id="browser-form" class="urlbar">
-          <button type="button" id="btn-browser-reload" class="ghost ico-only ico-reload" title="Reiniciar o browser" aria-label="Reiniciar o browser">
-            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-              <path d="M21 3v6h-6" />
-            </svg>
-          </button>
-          <button type="button" id="btn-browser-hard-reload" class="ghost ico-only ico-wipe" title="Reiniciar limpando o cache" aria-label="Reiniciar limpando o cache">
-            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-              <path d="M3 6h18" />
-              <path d="M8 6V4h8v2" />
-              <path d="M6 6l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" />
-              <path d="M10 11v6M14 11v6" />
-            </svg>
-          </button>
-          <input id="browser-url" type="text" inputmode="url" spellcheck="false" placeholder="https://…" />
-          <button
-            type="button"
-            id="btn-nav-pause"
-            class="ghost ico-only ico-nav-pause"
-            title="Pausar o agente no painel Browser"
-            aria-label="Pausar o agente no painel Browser"
-            aria-pressed="false"
-          >
-            <svg class="ico ico-nav-pause-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-              <rect x="6" y="5" width="4" height="14" rx="1" />
-              <rect x="14" y="5" width="4" height="14" rx="1" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            id="btn-browser-inspect"
-            class="ghost ico-only ico-inspect"
-            title="Abra um preview primeiro"
-            aria-label="Abra um preview primeiro"
-            aria-pressed="false"
-            disabled
-          >
-            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-              <path d="M12 3v4M12 17v4M3 12h4M17 12h4" />
-              <circle cx="12" cy="12" r="5" />
-            </svg>
-          </button>
-          <button type="submit" class="primary">Ir</button>
+          <div class="urlbar-nav">
+            <button type="button" id="btn-browser-back" class="ghost ico-only" title="Voltar" aria-label="Voltar" disabled>
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M15 6 9 12l6 6" />
+              </svg>
+            </button>
+            <button type="button" id="btn-browser-forward" class="ghost ico-only" title="Avançar" aria-label="Avançar" disabled>
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="m9 6 6 6-6 6" />
+              </svg>
+            </button>
+            <button type="button" id="btn-browser-reload" class="ghost ico-only ico-reload" title="Recarregar" aria-label="Recarregar">
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                <path d="M21 3v6h-6" />
+              </svg>
+            </button>
+            <button type="button" id="btn-browser-hard-reload" class="ghost ico-only ico-wipe" title="Recarregar sem cache" aria-label="Recarregar sem cache">
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M3 6h18" />
+                <path d="M8 6V4h8v2" />
+                <path d="M6 6l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" />
+                <path d="M10 11v6M14 11v6" />
+              </svg>
+            </button>
+          </div>
+          <input id="browser-url" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Buscar ou colar URL" aria-label="URL" />
+          <div class="urlbar-tools">
+            <button
+              type="button"
+              id="btn-nav-pause"
+              class="ghost ico-only ico-nav-pause"
+              title="Pausar o agente no painel Browser"
+              aria-label="Pausar o agente no painel Browser"
+              aria-pressed="false"
+            >
+              <svg class="ico ico-nav-pause-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <rect x="6" y="5" width="4" height="14" rx="1" />
+                <rect x="14" y="5" width="4" height="14" rx="1" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              id="btn-browser-inspect"
+              class="ghost ico-only ico-inspect"
+              title="Abra um preview primeiro"
+              aria-label="Abra um preview primeiro"
+              aria-pressed="false"
+              disabled
+            >
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M3 12h4M17 12h4M12 3v4M12 17v4" />
+                <rect x="7" y="7" width="10" height="10" rx="1.5" />
+              </svg>
+            </button>
+          </div>
+          <button type="submit" class="sr-only">Ir</button>
         </form>
         <div class="browser-stage">
           <div id="inspector-faixa" class="inspector-faixa hidden" role="status"></div>
-          <webview id="browser-frame" title="Browser" src="about:blank"></webview>
+          <div id="browser-pool"></div>
           <div id="browser-fail" class="browser-fail hidden" role="alert">
             <p id="browser-fail-msg"></p>
             <p id="browser-fail-hint" class="browser-fail-hint"></p>
@@ -200,7 +232,7 @@
           </aside>
         </div>
       </section>
-      <section class="pane hidden" id="pane-canvas">
+      <section class="pane" id="pane-canvas">
         <header class="mod-head">
           <h1>Canvas</h1>
           <div class="canvas-tools">
@@ -213,7 +245,7 @@
         <canvas id="sketch"></canvas>
         <textarea id="canvas-note" rows="3" placeholder="Notas deste projeto…"></textarea>
       </section>
-      <section class="pane hidden" id="pane-graph">
+      <section class="pane" id="pane-graph">
         <header class="mod-head">
           <h1>Memória do Projeto</h1>
           <button type="button" id="btn-close-graph" class="ghost mod-close" title="Fechar (volta só pro chat)">✕</button>
@@ -267,7 +299,7 @@
           </section>
         </div>
       </section>
-      <section class="pane hidden" id="pane-agentes">
+      <section class="pane" id="pane-agentes">
         <header class="mod-head ax-head">
           <div class="ax-tabs" role="tablist">
             <button type="button" id="tab-ax-agentes" class="ax-tab" role="tab" data-on="1">Agentes</button>
@@ -532,7 +564,7 @@
           </div>
         </div>
       </section>
-      <section class="pane hidden" id="pane-tarefas">
+      <section class="pane" id="pane-tarefas">
         <header class="mod-head">
           <h1>Tarefas</h1>
           <span id="tk-projeto" class="tk-projeto" title=""></span>
@@ -571,6 +603,7 @@
             <button type="button" id="btn-tk-etiqueta-add" class="ghost">Adicionar etiqueta</button>
           </div>
         </div>
+        <p id="tk-erro" class="ag-err tk-erro hidden"></p>
         <div id="tk-board" class="kanban-board"></div>
         <div id="tk-lista" class="tk-lista hidden">
           <div class="tk-lista-filtros">
@@ -615,6 +648,8 @@
           <p id="tk-timeline-vazio" class="tk-hint hidden">Nenhum marco com data ainda — defina início ou prazo em "Marcos".</p>
         </div>
       </section>
+        </div>
+      </div>
       <section class="pane hidden" id="pane-chat">
         <div id="split-chat" class="splitter" role="separator" aria-orientation="vertical" title="Arraste pra redimensionar"></div>
         <button type="button" id="btn-focus-exit" class="focus-exit hidden" title="Sair do foco (Esc)">⤡</button>
@@ -830,6 +865,8 @@
             </div>
             <div data-preview="browser" class="pal-mod hidden">
               <header id="pal-url">Prévia · Browser</header>
+              <div id="pal-browser-tabs" class="pal-tabs"></div>
+              <ul id="pal-recents"></ul>
               <iframe id="pal-frame" title="Prévia do browser" src="about:blank" tabindex="-1"></iframe>
             </div>
             <div data-preview="canvas" class="pal-mod hidden">
@@ -1385,9 +1422,9 @@
                 <div class="set-txt">
                   <h4>Quadro de tarefas</h4>
                   <p>
-                    Antes de agir, o agente confere o quadro de tarefas do projeto e move o card
-                    conforme o trabalho avança — cria card pra pedido novo, atualiza escopo, fecha
-                    ao concluir. Ligado por padrão.
+                    Pedido único: o agente não mexe no quadro. Mensagem com vários pedidos: cria
+                    um card por pedido e vai atualizando (coluna, checklist) até fechar cada um.
+                    Ligado por padrão.
                   </p>
                   <p id="mod-quadro-tarefas-err" class="set-err"></p>
                 </div>

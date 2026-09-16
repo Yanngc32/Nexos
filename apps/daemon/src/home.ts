@@ -50,6 +50,15 @@ export function threadPath(id: string, root = nexoHome()): string {
   return join(root, "threads", `${assertSlug(id)}.jsonl`);
 }
 
+/**
+ * Sessão do CLI `claude` desta conversa (`--resume`). Não é JSONL: o id muda
+ * (troca de conta, `/clear`, sessão que o CLI perdeu) e JSONL é append-only.
+ * `listThreads` só lê `.jsonl`, então este arquivo não vira conversa fantasma.
+ */
+export function claudeSessionPath(id: string, root = nexoHome()): string {
+  return join(root, "threads", `${assertSlug(id)}.claude-session`);
+}
+
 export function attachmentsDir(threadId: string, root = nexoHome()): string {
   return join(root, "attachments", assertSlug(threadId));
 }

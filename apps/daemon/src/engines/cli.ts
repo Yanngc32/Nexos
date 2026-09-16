@@ -14,10 +14,15 @@ import { syncGlobalSkills } from "../skills.ts";
 import { syncRtkHook } from "../modules.ts";
 import { isNodeScript, spawnBin } from "../spawn-bin.ts";
 import { ENV_TOKEN_MCP, flagsDeMcpCodex, MCP_TOOLS } from "../mcp.ts";
+import { sessaoIdValido } from "../claude-session.ts";
 import { parseCliLine } from "./parse-claude.ts";
 import { parseCodexLine } from "./parse-codex.ts";
 
 export { parseCliLine };
+
+/** CLI perdeu a sessão que `--resume` apontava — vale um retry com o pack. */
+const SESSAO_PERDIDA =
+  /no conversation found|session.{0,80}(not found|unknown|expired|invalid)|could not (find|load) session/i;
 
 /*
  * Era embrulho manual em `cmd.exe /d /s /c` pra bin que não é script — quebrava com
@@ -140,9 +145,13 @@ export class CliEngine implements Engine {
   private mcpHttp?: { url: string; token: string };
   private aborted = false;
   private finished = false;
+  /** Sessão do CLI `claude` pra `--resume`. Vazio = pack no stdin, como antes. */
+  private resumeSessionId?: string;
   lastEnv: Record<string, string | undefined> = {};
   lastCwd?: string;
   lastArgs: string[] = [];
+  /** O que o binário REAL receberia no stdin (o fixture node só vê `text`). */
+  lastPayload = "";
 
   constructor(opts: CliEngineOpts) {
     this.home = opts.home;
@@ -187,6 +196,10 @@ export class CliEngine implements Engine {
     this.mcpHttp = mcp.mcpHttp;
   }
 
+  updateResume(sessionId?: string): void {
+    this.resumeSessionId = sessionId && sessaoIdValido(sessionId) ? sessionId : undefined;
+  }
+
   /**
    * Relê perfil e agente a cada envio: mudar modelo/esforço na UI — na conta ou
    * no agente personalizado — vale já na próxima mensagem.
@@ -196,6 +209,15 @@ export class CliEngine implements Engine {
     const over: EngineOverrides = agentOverrides(this.agentId, this.home);
     const mcp = this.mcpFlags(profile?.engine);
     this.args = profile ? [...this.baseArgs, ...profileFlags(profile, this.home, over, mcp.tools)] : [...this.baseArgs];
+    /*
+     * `--resume` faz o CLI reabrir a conversa dele em vez de nascer amnésico.
+     * Sem isso o Nexo reenvia o histórico no stdin a cada `--print` e a quota
+     * some 2–5× mais rápido que no Claude Code interativo (cache-create de
+     * system+tools+histórico em todo turno, compactação extra do Nexo, etc.).
+     */
+    if (profile?.engine === "claude" && this.resumeSessionId) {
+      this.args.push("--resume", this.resumeSessionId);
+    }
     this.args.push(...this.attachmentFlags(profile?.engine));
     this.args.push(...mcp.flags);
     this.lastArgs = this.args;
@@ -265,6 +287,15 @@ export class CliEngine implements Engine {
     await this.killChild();
     this.aborted = false;
     this.finished = false;
+    const resumindo = Boolean(this.resumeSessionId);
+    /*
+     * Sem `--resume`, o pack vai no stdin: o CLI não guarda conversa entre
+     * `--print`. Com `--resume`, o pack NÃO vai — senão cada turno duplica o
+     * histórico e a quota explode (é exatamente o que o Claude Code interativo
+     * não faz).
+     */
+    const full = resumindo ? text : [this.pack, text].filter(Boolean).join("\n\n");
+    this.lastPayload = full;
     let suppressClose = false;
     const emit = (ev: EngineEvent) => {
       if (this.finished) return;
@@ -289,6 +320,7 @@ export class CliEngine implements Engine {
     if (child.pid) writeFileSync(enginePidPath(this.threadId, this.home), String(child.pid), "utf8");
     let outRest = "";
     let errRest = "";
+    let stderrBuf = "";
     const flush = (chunk: string, rest: string, stderr: boolean): string => {
       const parts = (rest + chunk).split(/\r?\n/);
       const leftover = parts.pop() ?? "";
@@ -304,17 +336,26 @@ export class CliEngine implements Engine {
       outRest = flush(buf.toString("utf8"), outRest, false);
     });
     child.stderr.on("data", (buf: Buffer) => {
-      errRest = flush(buf.toString("utf8"), errRest, true);
+      const s = buf.toString("utf8");
+      stderrBuf += s;
+      errRest = flush(s, errRest, true);
     });
     child.on("error", (err) => emit({ type: "error", message: err.message }));
     child.on("close", (code) => {
       outRest = flush("\n", outRest, false);
       errRest = flush("\n", errRest, true);
       if (this.aborted || this.finished || suppressClose) return;
-      if (code && code !== 0) emit({ type: "error", message: `exit ${code}` });
+      const stderr = stderrBuf.trim();
+      if (code && code !== 0 && resumindo && SESSAO_PERDIDA.test(stderr)) {
+        // Sessão sumiu: próximo spawn manda o pack de novo, uma vez.
+        this.resumeSessionId = undefined;
+        void this.send(text);
+        return;
+      }
+      if (code && code !== 0) emit({ type: "error", message: stderr || `exit ${code}` });
       else emit({ type: "done" });
     });
-    const payload = isNodeScript(this.bin) ? text : [this.pack, text].filter(Boolean).join("\n\n");
+    const payload = isNodeScript(this.bin) ? text : full;
     child.stdin.write(`${payload}\n`);
     child.stdin.end();
   }

@@ -76,6 +76,76 @@ describe("CliEngine", () => {
   });
 });
 
+describe("CliEngine --resume", () => {
+  it("sem sessão, o payload que o binário real receberia junta pack + mensagem", async () => {
+    const home = tempHome();
+    addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
+    markReady("c1", home);
+    process.env.NEXO_CLAUDE_BIN = fake;
+    try {
+      const engine = claudeEngine(home, "c1");
+      const events: EngineEvent[] = [];
+      await engine.start(
+        { threadId: "t-pack", projectPath: spawnCwd("."), profileId: "c1", contextPack: "pack" },
+        (ev) => events.push(ev),
+      );
+      await engine.send("oi");
+      await waitDone(events);
+      expect(engine.lastPayload).toBe("pack\n\noi");
+      expect(engine.lastArgs).not.toContain("--resume");
+    } finally {
+      delete process.env.NEXO_CLAUDE_BIN;
+    }
+  });
+
+  it("com sessão, --resume entra no argv e o pack NÃO vai no payload", async () => {
+    const home = tempHome();
+    addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
+    markReady("c1", home);
+    process.env.NEXO_CLAUDE_BIN = fake;
+    try {
+      const engine = claudeEngine(home, "c1");
+      const events: EngineEvent[] = [];
+      await engine.start(
+        { threadId: "t-resume", projectPath: spawnCwd("."), profileId: "c1", contextPack: "pack-gigante-do-historico" },
+        (ev) => events.push(ev),
+      );
+      engine.updateResume("sess-abcd-1234");
+      await engine.send("segunda");
+      await waitDone(events);
+      expect(engine.lastArgs).toContain("--resume");
+      expect(engine.lastArgs).toContain("sess-abcd-1234");
+      expect(engine.lastPayload).toBe("segunda");
+    } finally {
+      delete process.env.NEXO_CLAUDE_BIN;
+    }
+  });
+
+  it("sessão morta: tenta de novo sem --resume, uma vez, e fecha com done", async () => {
+    const home = tempHome();
+    addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
+    markReady("c1", home);
+    process.env.NEXO_CLAUDE_BIN = fake;
+    try {
+      const engine = claudeEngine(home, "c1");
+      const events: EngineEvent[] = [];
+      await engine.start(
+        { threadId: "t-dead", projectPath: spawnCwd("."), profileId: "c1", contextPack: "pack" },
+        (ev) => events.push(ev),
+      );
+      engine.updateResume("dead-session");
+      await engine.send("oi");
+      await waitDone(events);
+      expect(engine.lastArgs).not.toContain("--resume");
+      expect(engine.lastPayload).toBe("pack\n\noi");
+      expect(events.some((e) => e.type === "error")).toBe(false);
+      expect(events.some((e) => e.type === "done")).toBe(true);
+    } finally {
+      delete process.env.NEXO_CLAUDE_BIN;
+    }
+  });
+});
+
 describe("CliEngine flags", () => {
   it("modelo e esforço do perfil entram no argv", async () => {
     const home = tempHome();

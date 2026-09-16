@@ -8,6 +8,7 @@ function criarWebviewFake(over = {}) {
     loadURL: vi.fn(() => Promise.resolve()),
     capturePage: vi.fn(() =>
       Promise.resolve({
+        isEmpty: () => false,
         getSize: () => ({ width: 800, height: 600 }),
         toJPEG: () => ({ toString: () => "QUJD" }),
       })
@@ -39,6 +40,15 @@ describe("abrir", () => {
     const r = await host.abrir("https://exemplo.com");
     expect(r.ok).toBe(false);
   });
+
+  it("já está na URL: não chama loadURL de novo (voltar pra conversa não recarrega)", async () => {
+    const wv = criarWebviewFake({ getURL: () => "https://exemplo.com/" });
+    wv.dataset = { href: "https://exemplo.com/" };
+    const host = criarNavegadorHost({ getWebview: () => wv });
+    const r = await host.abrir("https://exemplo.com/");
+    expect(wv.loadURL).not.toHaveBeenCalled();
+    expect(r.ok).toBe(true);
+  });
 });
 
 describe("screenshot", () => {
@@ -53,7 +63,12 @@ describe("screenshot", () => {
     const resize = vi.fn(() => ({ toJPEG: () => ({ toString: () => "cortado" }) }));
     const wv = criarWebviewFake({
       capturePage: vi.fn(() =>
-        Promise.resolve({ getSize: () => ({ width: 3840, height: 2160 }), resize, toJPEG: () => ({ toString: () => "nao deveria usar este" }) })
+        Promise.resolve({
+          isEmpty: () => false,
+          getSize: () => ({ width: 3840, height: 2160 }),
+          resize,
+          toJPEG: () => ({ toString: () => "nao deveria usar este" }),
+        })
       ),
     });
     const { host } = criarHost(wv);
@@ -67,6 +82,23 @@ describe("screenshot", () => {
     await host.screenshot();
     // o fake padrão (800x600) não tem `resize` — se o código tentasse chamar, isto já teria explodido
     expect(wv.capturePage).toHaveBeenCalled();
+  });
+
+  it("<webview> sem área visível (capturePage 0x0): erro claro, não manda base64 vazio pro cliente MCP", async () => {
+    const wv = criarWebviewFake({
+      capturePage: vi.fn(() =>
+        Promise.resolve({
+          isEmpty: () => true,
+          getSize: () => ({ width: 0, height: 0 }),
+          toJPEG: () => ({ toString: () => "" }),
+        })
+      ),
+    });
+    const { host } = criarHost(wv);
+    const r = await host.screenshot();
+    expect(r.ok).toBe(false);
+    expect(r.imagem).toBeUndefined();
+    expect(r.texto).toMatch(/visível/);
   });
 });
 
@@ -120,5 +152,19 @@ describe("clicar / digitar", () => {
     host.receberAcaoResultado({ ok: false, texto: "ref inválido: ref_velho — releia a página" });
     const r = await chamada;
     expect(r.ok).toBe(false);
+  });
+
+  it("duas threads em paralelo: cada uma espera a própria resposta", async () => {
+    const wvA = criarWebviewFake();
+    const wvB = criarWebviewFake();
+    const host = criarNavegadorHost({
+      getWebview: (tid) => (tid === "t-a" ? wvA : wvB),
+    });
+    const a = host.ler("t-a");
+    const b = host.ler("t-b");
+    host.receberLido({ itens: [{ ref: "ref_a", papel: "button", texto: "A" }] }, "t-a");
+    host.receberLido({ itens: [{ ref: "ref_b", papel: "link", texto: "B" }] }, "t-b");
+    expect(await a).toEqual({ ok: true, texto: "ref_a: [button] A" });
+    expect(await b).toEqual({ ok: true, texto: "ref_b: [link] B" });
   });
 });

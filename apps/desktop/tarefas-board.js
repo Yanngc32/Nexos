@@ -150,6 +150,14 @@ export function createTarefasBoard({
     p.classList.toggle("hidden", !msg);
   }
 
+  /** Mostra (ou limpa, com `msg` vazia) o aviso de erro acima do quadro. */
+  function mostrarErro(msg) {
+    const p = el("tk-erro");
+    if (!p) return;
+    p.textContent = msg || "";
+    p.classList.toggle("hidden", !msg);
+  }
+
   async function carregar() {
     const projectPath = getProjectPath();
     if (!projectPath) {
@@ -158,7 +166,16 @@ export function createTarefasBoard({
       render();
       return;
     }
-    [quadro, tarefas] = await Promise.all([req(`/v1/tarefas/quadro?${qs()}`), req(`/v1/tarefas?${qs()}`)]);
+    try {
+      [quadro, tarefas] = await Promise.all([req(`/v1/tarefas/quadro?${qs()}`), req(`/v1/tarefas?${qs()}`)]);
+    } catch (e) {
+      // Sem isso a falha virava tela em branco: o quadro não renderizava e ninguém dizia por quê.
+      quadro = { colunas: [], marcos: [], etiquetas: [] };
+      tarefas = [];
+      render();
+      mostrarErro(`Não deu pra carregar as tarefas deste projeto: ${e?.message || e}`);
+      return;
+    }
     render();
   }
 
@@ -669,6 +686,7 @@ export function createTarefasBoard({
   }
 
   function render() {
+    mostrarErro("");
     const projLabel = el("tk-projeto");
     if (projLabel) {
       const path = getProjectPath();

@@ -317,8 +317,7 @@ export type NexoConfig = {
    * (`git.post-commit`) que gera/mantém os resumos por IA do repo map sozinho, sem botão manual
    * (ver `repo-map-auto.ts`) — precisa de `repoMapProfileId` (a conta que roda esse agente). O
    * índice em si (Camada 1) não depende deste módulo: roda sempre, sem LLM. `quadroTarefas` injeta
-   * a instrução de listar/mover cards de tarefa a cada turno (ver `withInstructions` em
-   * `session.ts`) — ligado por padrão pra manter o comportamento atual, mas pode ser desligado.
+   * o bloco do quadro no pack (ver `withInstructions` em `session.ts`) — ligado por padrão.
    */
   modulos: {
     rtk: boolean;

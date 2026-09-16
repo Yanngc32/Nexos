@@ -8,6 +8,7 @@ import { saveAgent } from "../src/agents.ts";
 import { postMessage } from "../src/session.ts";
 import { construirIndice } from "../src/repo-map-indice.ts";
 import { liveCred, tempHome } from "./helpers.ts";
+import { loadConfig, saveConfig } from "../src/config.ts";
 import { cancelAllLogins } from "../src/login-session.ts";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
@@ -986,6 +987,29 @@ describe("http mcp", () => {
       "nexo_tarefa_comentar",
       "nexo_tarefa_commits",
     ]);
+  });
+
+  it("quadro de tarefas desligado some as nexo_tarefa_* do tools/list", async () => {
+    const home = tempHome();
+    saveConfig(home, { modulos: { ...loadConfig(home).modulos, quadroTarefas: false } });
+    const app = createApp(home, token);
+    const projeto = tempHome();
+    const nomes = await nomesDasFerramentas(app, `/v1/mcp?projectPath=${encodeURIComponent(projeto)}`);
+    expect(nomes.some((n) => n.startsWith("nexo_tarefa_"))).toBe(false);
+  });
+
+  it("notificação initialized: 202 com corpo vazio e Content-Length 0 (senão o fetch do CLI fecha o socket na ferramenta seguinte)", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const res = await app.request("/v1/mcp", {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
+    });
+    expect(res.status).toBe(202);
+    expect(await res.text()).toBe("");
+    expect(res.headers.get("content-length")).toBe("0");
+    expect(res.headers.get("connection")).toBe("close");
   });
 
   it("com índice de repo map construído, soma nexo_mapa_simbolos (Camada 2)", async () => {

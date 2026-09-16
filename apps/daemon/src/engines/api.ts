@@ -38,6 +38,10 @@ export class ApiEngine implements Engine {
     // Chamada de API direta ao provedor, sem cliente MCP — nunca teve ferramenta MCP a atualizar.
   }
 
+  updateResume(_sessionId?: string): void {
+    // Sem sessão de CLI pra retomar.
+  }
+
   async send(text: string): Promise<void> {
     if (this.aborted || !this.handler) return;
     const profile = getProfile(this.profileId, this.home);
