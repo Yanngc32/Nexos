@@ -659,6 +659,20 @@
             Sem projeto
           </button>
           <span class="crumb-sep" aria-hidden="true">›</span>
+          <!--
+            Antes do título de propósito: `.crumb-thread` é `flex:1` e empurraria o botão pra
+            extremidade direita do cabeçalho — bem embaixo do `.meter` (absolute, right:12px,
+            z-index:4, fundo opaco), que o cobriria por inteiro.
+          -->
+          <button type="button" id="btn-roteamento" class="ghost ico-only roteamento-btn hidden" title="Ver decisão de roteamento" aria-label="Ver decisão de roteamento" aria-expanded="false">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <circle cx="5" cy="12" r="2.5" />
+              <circle cx="19" cy="5" r="2.5" />
+              <circle cx="19" cy="19" r="2.5" />
+              <path d="M7.3 10.8 16.7 6.2" />
+              <path d="M7.3 13.2 16.7 17.8" />
+            </svg>
+          </button>
           <span class="crumb-thread" id="crumb-thread">Nenhuma conversa</span>
         </header>
         <div id="banner" class="banner hidden">Motor desligado. Liga pra conversar.</div>
@@ -773,6 +787,7 @@
             <select id="profile-select" aria-label="Conta"></select>
             <select id="model-select" aria-label="Modelo" title="Modelo do motor">
               <option value="">Modelo: padrão</option>
+              <option value="auto">Automático</option>
               <option value="opus">Opus</option>
               <option value="sonnet">Sonnet</option>
               <option value="haiku">Haiku</option>
@@ -795,7 +810,7 @@
               <option value="bypassPermissions" title="Aceita todas as permissões">Ignorar permissões</option>
             </select>
             <label class="effort" title="Esforço de raciocínio (mais esforço = mais token e mais lento)">
-              <input type="range" id="effort-range" min="0" max="5" step="1" value="0" />
+              <input type="range" id="effort-range" min="0" max="6" step="1" value="0" />
               <span id="effort-label" class="effort-label">Esforço: padrão</span>
             </label>
             <button type="button" id="btn-login" class="ghost hidden">Login</button>
@@ -1090,6 +1105,9 @@
           </button>
           <button type="button" class="set-nav-item" data-panel="modulos">
             <span class="set-nav-ico" aria-hidden="true">▣</span>Módulos
+          </button>
+          <button type="button" class="set-nav-item" data-panel="roteamento">
+            <span class="set-nav-ico" aria-hidden="true">⇶</span>Roteamento IA
           </button>
         </nav>
         <div class="set-body">
@@ -1447,9 +1465,80 @@
                 </div>
               </div>
             </section>
+            <section class="set-sec hidden" data-panel="roteamento">
+              <h3>Roteamento IA</h3>
+              <div class="set-row">
+                <div class="set-txt">
+                  <h4>Modo</h4>
+                  <p>
+                    Em conversa que começou sem agente escolhido, avalia <strong>a cada mensagem</strong> — via
+                    <a href="https://typesafe.ai" target="_blank" rel="noopener">typesafe.ai</a>, olhando a mensagem
+                    junto com o que já foi conversado — se algum agente ou time já criado deve assumir dali em
+                    diante. Só troca com convicção: em dúvida, continua quem está. Conversa que você abriu
+                    escolhendo um agente nunca é roteada.
+                  </p>
+                  <p>
+                    <strong>Automático</strong> aplica a troca de agente sozinho; <strong>time nunca aplica
+                    sozinho</strong> em nenhum modo — sempre pede confirmação, porque disparar um run tem efeito
+                    real (escreve código, pode abrir PR). Cada avaliação é uma chamada paga à API.
+                  </p>
+                  <p id="roteamento-modo-err" class="set-err"></p>
+                </div>
+                <div class="set-ctl">
+                  <select id="roteamento-modo" aria-label="Modo de roteamento">
+                    <option value="desligado">Desligado</option>
+                    <option value="automatico">Automático</option>
+                    <option value="perguntar">Perguntar</option>
+                  </select>
+                </div>
+              </div>
+              <div class="set-row col">
+                <div class="set-txt">
+                  <h4>API key</h4>
+                  <p>
+                    Fica guardada no daemon, fora do arquivo de configurações — esta tela nunca mostra a
+                    chave de volta depois de salva.
+                  </p>
+                  <p id="roteamento-key-status" class="set-hint">Não configurada.</p>
+                  <p id="roteamento-key-err" class="set-err"></p>
+                </div>
+                <div class="set-ctl">
+                  <input id="roteamento-key" type="password" spellcheck="false" placeholder="apikey_..." aria-label="API key do typesafe.ai" />
+                  <button type="button" id="btn-roteamento-key-salvar" class="ghost">Salvar</button>
+                  <button type="button" id="btn-roteamento-key-remover" class="ghost">Remover</button>
+                </div>
+              </div>
+              <div class="set-row">
+                <div class="set-txt">
+                  <h4>Uso</h4>
+                  <p>
+                    Tokens somados de todas as decisões de roteamento já feitas. O typesafe.ai não tem
+                    endpoint de saldo/crédito na API — só dá pra ver o que já foi gasto, não o que resta.
+                  </p>
+                </div>
+                <div class="set-ctl">
+                  <span id="roteamento-uso" class="set-hint">—</span>
+                </div>
+              </div>
+            </section>
           </div>
           <p id="set-empty" class="set-empty hidden">Nada encontrado.</p>
         </div>
+      </div>
+    </div>
+    <div id="roteamento-dock" class="agents-dock roteamento-dock hidden" role="dialog" aria-label="Decisão de roteamento">
+      <div class="agents-head">
+        <span class="agents-title">Decisão de roteamento</span>
+        <button type="button" id="btn-roteamento-close" class="ghost" title="Fechar (Esc)" aria-label="Fechar">✕</button>
+      </div>
+      <div class="agents-pane roteamento-pane">
+        <p id="roteamento-tarefa" class="roteamento-tarefa"></p>
+        <div id="roteamento-arvore" class="roteamento-arvore"></div>
+        <p id="roteamento-acao-err" class="set-err"></p>
+      </div>
+      <div id="roteamento-acoes" class="agents-foot roteamento-acoes hidden">
+        <button type="button" class="ghost" id="btn-roteamento-recusar">Recusar</button>
+        <button type="button" class="primary" id="btn-roteamento-aceitar">Aceitar</button>
       </div>
     </div>
     <div id="agents-dock" class="agents-dock hidden" role="dialog" aria-label="Agentes">

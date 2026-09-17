@@ -6,10 +6,12 @@ import {
   AGENT_INSTRUCTIONS_MAX,
   AGENT_NAME_MAX,
   EFFORT_LEVELS,
+  ESFORCO_AUTO,
   MODEL_RE,
   PERMISSION_MODES,
   type AgentDef,
   type EffortLevel,
+  type EsforcoEscolhido,
   type EngineOverrides,
   type PermissionMode,
 } from "@nexo/shared";
@@ -99,7 +101,9 @@ function limparModelo(v: string): string {
   return v;
 }
 
-function limparEffort(v: string): EffortLevel {
+function limparEffort(v: string): EsforcoEscolhido {
+  // "auto" vale aqui também: um agente pode ter o esforço decidido por turno.
+  if (v === ESFORCO_AUTO) return ESFORCO_AUTO;
   if (!(EFFORT_LEVELS as string[]).includes(v)) throw badRequest(`esforço inválido: ${v}`);
   return v as EffortLevel;
 }

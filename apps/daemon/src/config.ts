@@ -1,5 +1,14 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { CAVEMAN_NIVEIS, DEFAULT_CONFIG, SWITCH_MODES, type CavemanNivel, type NexoConfig, type SwitchMode } from "@nexo/shared";
+import {
+  CAVEMAN_NIVEIS,
+  DEFAULT_CONFIG,
+  SWITCH_MODES,
+  TYPESAFE_MODOS,
+  type CavemanNivel,
+  type NexoConfig,
+  type SwitchMode,
+  type TypesafeModo,
+} from "@nexo/shared";
 import { configPath, ensureHome } from "./home.ts";
 
 /**
@@ -62,7 +71,12 @@ export function loadConfig(home: string): NexoConfig {
     ...(isTetoTokens(raw.repoMapTetoTokens) ? { repoMapTetoTokens: raw.repoMapTetoTokens } : {}),
     modulos: cleanModulos(raw.modulos),
     windowsControlEnabled: Boolean(raw.windowsControlEnabled),
+    typesafe: { modo: isTypesafeModo(raw.typesafe?.modo) ? raw.typesafe.modo : DEFAULT_CONFIG.typesafe.modo },
   };
+}
+
+function isTypesafeModo(value: unknown): value is TypesafeModo {
+  return typeof value === "string" && (TYPESAFE_MODOS as string[]).includes(value);
 }
 
 function isTetoTokens(value: unknown): value is number {
@@ -192,6 +206,7 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
     },
     windowsControlEnabled:
       patch.windowsControlEnabled === undefined ? current.windowsControlEnabled : Boolean(patch.windowsControlEnabled),
+    typesafe: { modo: isTypesafeModo(patch.typesafe?.modo) ? patch.typesafe.modo : current.typesafe.modo },
   };
   writeJsonAtomico(configPath(home), next);
   return next;

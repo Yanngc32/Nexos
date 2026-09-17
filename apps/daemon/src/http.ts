@@ -5,6 +5,7 @@ import { cors } from "hono/cors";
 import type { SwitchReason } from "@nexo/shared";
 import { getAgent, listAgents, removeAgent, saveAgent, type AgentInput } from "./agents.ts";
 import { loadConfig, saveConfig } from "./config.ts";
+import { clearTypesafeApiKey, hasTypesafeApiKey, saveTypesafeApiKey, typesafeUsage } from "./typesafe.ts";
 import { projectKey, tokenPath } from "./home.ts";
 import { migrarProjeto, projectSlug } from "./projeto-dir.ts";
 import {
@@ -26,7 +27,16 @@ import { installEngine } from "./install-engine.ts";
 import { listSkills } from "./skills.ts";
 import { cliAuthStatus } from "./auth-status.ts";
 import { cancelLogin, loginStatus, startLogin, submitCode } from "./login-session.ts";
-import { createThread, listThreads, projectsFromThreads, projetosConhecidos, readThread, threadHead } from "./threads.ts";
+import {
+  activeAgentId,
+  appendEvent,
+  createThread,
+  listThreads,
+  projectsFromThreads,
+  projetosConhecidos,
+  readThread,
+  threadHead,
+} from "./threads.ts";
 import {
   abortThread,
   agentSnapshots,
@@ -35,6 +45,7 @@ import {
   clearThread,
   dropThread,
   postMessage,
+  retomarTurnoPendente,
   sessionBus,
   switchThread,
 } from "./session.ts";
@@ -135,7 +146,8 @@ type BodyResponder = (corpo: Buffer | string, status: number, headers?: Record<s
 type McpCtx = {
   req: { json: () => Promise<unknown> };
   json: (corpo: unknown, status: 200) => Response;
-  body: (corpo: null, status: 202) => Response;
+  body: (corpo: string | null, status: 202) => Response;
+  header: (nome: string, valor: string) => void;
 };
 
 export function createApp(home: string, token: string): Hono {
@@ -1460,6 +1472,63 @@ export function createApp(home: string, token: string): Hono {
     if (next.modulos.repoMapResumos) sincronizarRepoMapResumos(home);
     else if (antes) desligarRepoMapResumos(home);
     return c.json(next);
+  });
+
+  // Modo (desligado/automatico/perguntar) fica em /v1/config (não é segredo). A key
+  // fica aqui, separada: GET nunca devolve o valor, só se está configurada.
+  app.get("/v1/typesafe", (c) => c.json({ configured: hasTypesafeApiKey(home), usage: typesafeUsage(home) }));
+  app.put("/v1/typesafe", async (c) => {
+    const body = (await c.req.json()) as { apiKey?: string };
+    if (typeof body.apiKey !== "string") return c.json({ error: "apiKey obrigatório" }, 400);
+    try {
+      if (body.apiKey === "") clearTypesafeApiKey(home);
+      else saveTypesafeApiKey(body.apiKey, home);
+      return c.json({ configured: hasTypesafeApiKey(home), usage: typesafeUsage(home) });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
+  });
+
+  /**
+   * Aceita ou descarta a sugestão pendente do roteamento (`roteamento` com `aplicado: false`) —
+   * agente em modo "perguntar", ou time (que nunca aplica sozinho). Aceitar agente atribui à
+   * thread (`agent_assigned`, vale a partir da próxima mensagem); aceitar time dispara o run em
+   * background, igual `/v1/runs` — o resultado não volta pra esta conversa, fica no run.
+   */
+  app.post("/v1/threads/:id/roteamento", async (c) => {
+    const threadId = c.req.param("id");
+    const body = (await c.req.json()) as { aceitar?: boolean };
+    try {
+      const events = readThread(threadId, home);
+      const pendente = [...events].reverse().find((e) => e.type === "roteamento" && !e.aplicado);
+      if (!pendente || pendente.type !== "roteamento") return c.json({ error: "sem sugestão pendente" }, 404);
+      const jaDecidido = events.some(
+        (e) => e.type === "roteamento_decidido" && events.indexOf(e) > events.indexOf(pendente),
+      );
+      if (jaDecidido) return c.json({ error: "sugestão já decidida" }, 409);
+
+      const ts = new Date().toISOString();
+      // O turno ficou PARADO esperando esta decisão (ver `postMessage`): aceitar time manda o
+      // trabalho pro run e a conversa não responde; qualquer outro caminho retoma o turno aqui.
+      let viraRun = false;
+      if (body.aceitar) {
+        if (pendente.tipo === "agente" && pendente.alvo) {
+          appendEvent({ ts, type: "agent_assigned", threadId, agentId: pendente.alvo, confianca: pendente.confianca }, home);
+        } else if (pendente.tipo === "time" && pendente.alvo) {
+          const meta = events.find((e) => e.type === "thread_meta");
+          const projectPath = meta && meta.type === "thread_meta" ? meta.projectPath : "";
+          const run = criarRun({ teamId: pendente.alvo, projectPath, goal: pendente.tarefa }, home);
+          viraRun = true;
+          void executarRun(run, home);
+        }
+      }
+      appendEvent({ ts, type: "roteamento_decidido", threadId, aceito: Boolean(body.aceitar) }, home);
+      // Fora do await: o turno pode demorar minutos e quem clicou não deve ficar preso na resposta.
+      if (!viraRun) void retomarTurnoPendente(threadId, home);
+      return c.json({ ok: true, retomado: !viraRun });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
   });
 
   return app;

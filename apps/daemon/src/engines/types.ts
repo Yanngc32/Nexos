@@ -1,4 +1,4 @@
-import type { EngineEvent, StartOpts } from "@nexo/shared";
+import type { EngineEvent, EngineOverrides, StartOpts } from "@nexo/shared";
 
 export type EngineHandler = (ev: EngineEvent) => void;
 
@@ -32,6 +32,14 @@ export interface Engine {
    * Nos outros motores é no-op: `codex exec` / API não têm `--resume`.
    */
   updateResume(sessionId?: string): void;
+  /**
+   * Override do TURNO, aplicado por cima do perfil e do agente. Existe pro
+   * modelo "Automático": o modelo é escolhido a cada mensagem, pela complexidade
+   * dela (`escolherModelo` em typesafe.ts), e o motor relê perfil/agente a cada
+   * `send` — sem um canal por turno, essa escolha não teria onde entrar.
+   * `{}` limpa. Nos motores que não montam argv (stub) é no-op.
+   */
+  updateOverrides(over: EngineOverrides): void;
   send(text: string): Promise<void>;
   abort(): Promise<void>;
 }

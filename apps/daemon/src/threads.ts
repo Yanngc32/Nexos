@@ -108,7 +108,7 @@ export function threadHead(id: string, home: string): ThreadHead | undefined {
       meta.title ||
       (firstUser && firstUser.type === "user" ? firstUser.text.replace(/\s+/g, " ").slice(0, 72) : "Conversa nova"),
     updatedAt: last?.ts ?? meta.ts,
-    ...(meta.agentId ? { agentId: meta.agentId } : {}),
+    ...(activeAgentId(events) ? { agentId: activeAgentId(events) } : {}),
     ...(meta.runId ? { runId: meta.runId } : {}),
     ...(meta.runStep === undefined ? {} : { runStep: meta.runStep }),
     ...(meta.runTitle ? { runTitle: meta.runTitle } : {}),
@@ -226,4 +226,19 @@ export function activeProfileId(events: ThreadEvent[]): string {
     if (e?.type === "thread_meta") return e.profileId;
   }
   throw new Error("thread sem profileId");
+}
+
+/**
+ * Agente vigente da conversa. Mesmo padrão de `activeProfileId`: um
+ * `agent_assigned` posterior (atribuído pelo roteamento por typesafe.ai, na
+ * ausência de agente explícito na criação) sobrescreve o `thread_meta` inicial.
+ * `undefined` = conversa sem agente (nasceu sem um e nunca recebeu atribuição).
+ */
+export function activeAgentId(events: ThreadEvent[]): string | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.type === "agent_assigned") return e.agentId;
+    if (e?.type === "thread_meta") return e.agentId;
+  }
+  return undefined;
 }

@@ -1,10 +1,11 @@
-import type { EngineEvent, StartOpts } from "@nexo/shared";
+import type { EngineEvent, EngineOverrides, StartOpts } from "@nexo/shared";
 import type { Engine, EngineHandler, EngineMcp } from "./types.ts";
 
 export class StubEngine implements Engine {
   lastStart?: StartOpts;
   lastSend?: string;
   lastCwd?: string;
+  lastOverrides?: EngineOverrides;
   private handler?: EngineHandler;
   private aborted = false;
   private finished = false;
@@ -41,6 +42,10 @@ export class StubEngine implements Engine {
 
   updateResume(sessionId?: string): void {
     this.lastResume = sessionId;
+  }
+
+  updateOverrides(over: EngineOverrides): void {
+    this.lastOverrides = over;
   }
 
   async send(text: string): Promise<void> {

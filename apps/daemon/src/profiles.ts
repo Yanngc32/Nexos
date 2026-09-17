@@ -28,6 +28,7 @@ import {
   CODEX_SANDBOX_MODES,
   DELEGACAO_MODOS,
   EFFORT_LEVELS,
+  ESFORCO_AUTO,
   MODEL_RE,
   NAVEGADOR_MODOS,
   PERMISSION_MODES,
@@ -149,6 +150,8 @@ export function updateProfile(id: string, home: string, patch: ProfilePatch): Pr
     // `ultra` só existe em modelo do Codex (ver CodexModelInfo); no claude é esforço inválido.
     const permitidos = p.engine === "claude" ? CLAUDE_EFFORT_LEVELS : EFFORT_LEVELS;
     if (!effort) delete next.effort;
+    // "auto" não é nível: é a marca de escolha por turno (ver ESFORCO_AUTO).
+    else if (effort === ESFORCO_AUTO) next.effort = ESFORCO_AUTO;
     else if (!permitidos.includes(effort as EffortLevel)) throw new Error(`esforço inválido: ${effort}`);
     else next.effort = effort as EffortLevel;
   }

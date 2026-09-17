@@ -23,4 +23,9 @@ describe("chrome do preview (tipo Cursor)", () => {
     expect(css).toMatch(/#browser-url\s*\{[^}]*background:\s*transparent/);
     expect(css).not.toMatch(/\.work-tab\[aria-selected="true"\]\s*\{[^}]*box-shadow:\s*inset 0 -2px 0 var\(--accent\)/);
   });
+
+  it("webview stowed e pane inativo usam visibility hidden (opacity pintava tudo e travava a troca)", () => {
+    expect(css).toMatch(/#browser-pool webview\.stowed\s*\{[^}]*visibility:\s*hidden/);
+    expect(css).toMatch(/#work-stage > \.pane\.is-on\s*\{[^}]*visibility:\s*visible/);
+  });
 });

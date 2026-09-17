@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { EngineEvent, EngineKind, Profile, SwitchReason, ThreadEvent } from "@nexo/shared";
-import { TURNO_TETO_MS } from "@nexo/shared";
+import type { EngineEvent, EngineKind, EngineOverrides, Profile, SwitchReason, ThreadEvent } from "@nexo/shared";
+import { ESFORCO_AUTO, MODELO_AUTO, MODELO_AUTO_FALLBACK, TURNO_TETO_MS } from "@nexo/shared";
 import { agentOverrides, getAgent } from "./agents.ts";
 import { readMemoria } from "./memoria.ts";
 import { promptWithAttachments, removeThreadAttachments, saveImages, type IncomingImage } from "./attachments.ts";
@@ -40,7 +40,8 @@ import {
 } from "./compactar.ts";
 import { assertSwitch, suggestFallback } from "./router.ts";
 import { spawnCwd } from "./project-cwd.ts";
-import { activeProfileId, appendEvent, readThread, removeThread, threadUsage } from "./threads.ts";
+import { activeAgentId, activeProfileId, appendEvent, readThread, removeThread, threadUsage } from "./threads.ts";
+import { decidirRoteamento, escolherExecucao } from "./typesafe.ts";
 
 const CONTINUE = "Continue de onde parou.";
 
@@ -84,7 +85,62 @@ export type SessionEvent =
    * `ThreadEvent`): serve só pra tela achar o `runId` e abrir o subchat ao vivo
    * (`GET /v1/runs/:id/events`) na hora certa; o resultado final já chega pelo `tool_result` normal.
    */
-  | { type: "delegacao_run"; threadId: string; runId: string };
+  | { type: "delegacao_run"; threadId: string; runId: string }
+  /**
+   * TODA avaliação do roteador, inclusive a que não muda nada. Vai pelo SSE
+   * porque acontece ANTES do turno, sem ninguém ter pedido: com `aplicado:
+   * false` o turno fica PARADO esperando a pessoa aceitar/recusar.
+   *
+   * O caso `mudou: false` não vira evento no JSONL (seria uma linha por
+   * mensagem, sempre dizendo "segue igual"), mas precisa chegar na tela: sem
+   * ele, uma chamada paga por mensagem ficava 100% invisível, e não havia como
+   * calibrar o limiar sem enxergar os quase-acertos.
+   */
+  | {
+      type: "roteamento";
+      threadId: string;
+      tipo: "agente" | "time" | "automatico";
+      alvo?: string;
+      confianca: number;
+      aplicado: boolean;
+      mudou: boolean;
+      motivo?: "mesmo-agente" | "abaixo-do-limiar" | "nenhum-se-aplica";
+      probabilidades: Record<string, number>;
+    }
+  /**
+   * Modelo do turno, quando a conta está no modelo "Automático". Não vai pro
+   * JSONL: é escolha de execução (como o `--model` que o motor recebeu), não
+   * história da conversa — e seria uma linha por mensagem. `fallback: true`
+   * quer dizer que a escolha não veio (sem key, erro, timeout) e valeu o padrão.
+   */
+  | {
+      type: "modelo_auto";
+      threadId: string;
+      /** O que o motor vai usar de fato. */
+      model: string;
+      confianca: number;
+      fallback: boolean;
+      /**
+       * Por que esse modelo. Separa dois casos que antes viravam o mesmo texto
+       * mentiroso ("escolha indisponível"): não ter escolha nenhuma é bem
+       * diferente de ter uma escolha sem convicção — e nesta segunda o palpite
+       * costuma ser o MESMO modelo do fallback, o que tornava o aviso absurdo.
+       */
+      motivo: "escolhido" | "confianca-baixa" | "indisponivel";
+      /** Palpite do roteador quando ele existiu mas não passou do piso. */
+      sugerido?: string;
+      probabilidades?: Record<string, number>;
+    }
+  /** Esforço do turno, quando o controle de esforço está em "Automático". Mesma lógica do `modelo_auto`. */
+  | {
+      type: "esforco_auto";
+      threadId: string;
+      effort: string;
+      confianca: number;
+      fallback: boolean;
+      motivo: "escolhido" | "confianca-baixa" | "indisponivel";
+      sugerido?: string;
+    };
 
 /** Turno em voo: sobrevive à troca de conta pra a conta nova continuar de onde a antiga parou. */
 type PendingTurn = { text: string; partial: boolean };
@@ -107,6 +163,8 @@ type Live = {
   /** Quando o turno em voo começou (ms). 0 = nenhum turno desde que o motor subiu. */
   startedAt: number;
   usage?: EngineEvent & { type: "usage" };
+  /** Esforço que o daemon de fato passou neste turno — o `usage` não sabe disso sozinho. */
+  esforcoDoTurno?: string;
   limits?: EngineEvent & { type: "limits" };
   session?: EngineEvent & { type: "session" };
   /** Contexto do ÚLTIMO request individual da conversa (não o somado do turno inteiro). */
@@ -373,6 +431,10 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
   const events = readThread(threadId, home);
   const meta = events.find((e) => e.type === "thread_meta");
   if (!meta || meta.type !== "thread_meta") throw new Error("thread sem meta");
+  // Agente pode ter sido atribuído DEPOIS da criação (roteamento por typesafe.ai
+  // — ver postMessage/agent_assigned): `activeAgentId` olha o evento mais
+  // recente, caindo pro `meta.agentId` de sempre quando não há atribuição.
+  const agentId = activeAgentId(events);
   const profileId = profile?.id ?? activeProfileId(events);
   const found = profile ?? getProfile(profileId, home);
   if (!found) throw new Error(`perfil não existe: ${profileId}`);
@@ -393,7 +455,7 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
    * então — foi exatamente esse o bug: conversa "esquecendo" a partir da 2ª
    * mensagem.
    */
-  const packed = pack(events, loadConfig(home).pack, tetoDeToken(janelaDaConta(p, events, meta.agentId, home)));
+  const packed = pack(events, loadConfig(home).pack, tetoDeToken(janelaDaConta(p, events, agentId, home)));
   if (packed.trimmed) {
     appendEvent(
       {
@@ -408,8 +470,8 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
   }
 
   const existing = lives.get(threadId);
-  if (existing && existing.profileId === p.id) {
-    existing.engine.updatePack(withInstructions(meta.agentId, meta.projectPath, packed.text, home));
+  if (existing && existing.profileId === p.id && existing.agentId === agentId) {
+    existing.engine.updatePack(withInstructions(agentId, meta.projectPath, packed.text, home));
     // Mesma razão do updatePack: sem isto, mudar `delegacaoModo`/`allowedTools` só valeria depois
     // de um engine NOVO (troca de conta, /clear, reiniciar o motor) — aqui vale já no próximo envio.
     existing.engine.updateMcp(mcpDaConversa(threadId, meta, p, home));
@@ -422,7 +484,7 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
   const live: Live = {
     engine,
     profileId: p.id,
-    ...(meta.agentId ? { agentId: meta.agentId } : {}),
+    ...(agentId ? { agentId } : {}),
     assistantBuf: "",
     pendingTurn: null,
     retryCount: 0,
@@ -440,8 +502,8 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
       // As instruções do agente e a memória do projeto abrem o pack: é o mais
       // perto de "system prompt" que o motor de CLI aceita (o `api` usa o
       // pack como system de verdade).
-      contextPack: withInstructions(meta.agentId, meta.projectPath, packed.text, home),
-      ...(meta.agentId ? { agentId: meta.agentId } : {}),
+      contextPack: withInstructions(agentId, meta.projectPath, packed.text, home),
+      ...(agentId ? { agentId } : {}),
       ...mcpDaConversa(threadId, meta, p, home),
     },
     (ev) => onEngineEvent(threadId, home, ev),
@@ -603,7 +665,7 @@ async function talvezCompactar(threadId: string, home: string): Promise<void> {
   if (!meta || meta.type !== "thread_meta") return;
   const p = getProfile(meta.profileId, home);
   if (!p || !podeCompactar(p)) return;
-  const cap = tetoDeToken(janelaDaConta(p, events, meta.agentId, home));
+  const cap = tetoDeToken(janelaDaConta(p, events, activeAgentId(events), home));
   const contextTokensReal = threadUsage(threadId, home).contextTokens;
   if (!precisaCompactar(events, cfg.pack, cap, contextTokensReal)) return;
 
@@ -769,6 +831,7 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
         type: "usage",
         threadId,
         ...(live.session?.model ? { model: live.session.model } : {}),
+        ...(live.esforcoDoTurno ? { effort: live.esforcoDoTurno } : {}),
         input: ev.input,
         output: ev.output,
         cacheRead: ev.cacheRead,
@@ -779,7 +842,14 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
       },
       home,
     );
-    emit(threadId, { ...ev, threadId });
+    // Modelo/esforço vão no SSE também: o evento do motor não os carrega, e sem
+    // isso a bolha em voo nunca sabia com o que a resposta foi feita.
+    emit(threadId, {
+      ...ev,
+      threadId,
+      ...(live.session?.model ? { model: live.session.model } : {}),
+      ...(live.esforcoDoTurno ? { effort: live.esforcoDoTurno } : {}),
+    });
     return;
   }
   // limite é da conta, não da thread: memória viva, sem ir pro JSONL.
@@ -899,6 +969,264 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
   }
 }
 
+/**
+ * Confiança mínima pra TROCAR quem está tocando a conversa. Medido nos testes:
+ * pedido claro dá 0.9–1.0, e caso genuinamente ambíguo cai pra 0.30–0.47 — sem
+ * esse piso, meia dúzia de mensagens de meio de conversa faria a thread pular
+ * de agente por ruído. Abaixo disso, fica quem já estava.
+ */
+const LIMIAR_DE_TROCA = 0.7;
+
+/**
+ * Limiar menor pra SAIR de um agente que só lê (`permissionMode: "plan"` — o
+ * explorador, o revisor, o qa-tester...). A histerese existe pra evitar vaivém
+ * entre agentes que dariam conta do trabalho; ela não deve proteger um agente
+ * que está impedido de fazer o que foi pedido.
+ *
+ * Veio de um caso real: com o explorador tocando a conversa, "Vamos resolver
+ * isso ai" deu `implementador` com 0.46 (0.49 × 0.42 — quase empate). Manter o
+ * explorador não era o lado seguro: ele não edita arquivo, então a mensagem
+ * seguinte ia falhar de qualquer jeito — e falhou, com o Edit dando erro.
+ */
+const LIMIAR_SAINDO_DE_SO_LEITURA = 0.4;
+
+/**
+ * Confiança mínima pra confiar na escolha de modelo do turno. Abaixo disso vale
+ * o `MODELO_AUTO_FALLBACK`: a assimetria é o argumento — errar pro modelo barato
+ * custa resposta ruim e retrabalho, errar pro caro custa só tokens.
+ */
+const LIMIAR_DE_MODELO = 0.6;
+
+/** Últimas falas que vão como contexto da decisão. Curto de propósito: o catálogo de candidatos já domina o custo do request. */
+const FALAS_DE_CONTEXTO = 6;
+
+export function historicoPraRoteamento(events: ThreadEvent[]): { quem: "usuario" | "agente"; texto: string }[] {
+  const falas: { quem: "usuario" | "agente"; texto: string }[] = [];
+  for (const e of events) {
+    if (e.type === "user") falas.push({ quem: "usuario", texto: e.text });
+    else if (e.type === "assistant") falas.push({ quem: "agente", texto: e.text });
+  }
+  return falas.slice(-FALAS_DE_CONTEXTO).map((f) => ({ ...f, texto: f.texto.slice(0, 600) }));
+}
+
+/**
+ * Roteamento por typesafe.ai, a cada mensagem de uma conversa que nasceu sem
+ * agente explícito. Decide olhando a mensagem nova COM o histórico ao lado, e
+ * só mexe na conversa quando há motivo:
+ *
+ * - escolha igual a quem já está tocando → não faz nada (nem grava evento, pra
+ *   não encher o JSONL de "continua o mesmo" a cada turno);
+ * - confiança abaixo de `LIMIAR_DE_TROCA` → mantém quem está (histerese);
+ * - "automatico" → mantém quem está; desatribuir agente no meio da conversa
+ *   seria mais confuso que útil, e o caso "ninguém se aplica" já é o padrão de
+ *   quem nunca foi roteado.
+ *
+ * "Time" nunca é aplicado sozinho, nem em modo "automatico": disparar um run
+ * tem efeito real (escreve código, pode abrir PR), então sempre vira sugestão
+ * pendente (`aplicado: false`), igual agente em modo "perguntar".
+ */
+async function talvezRotear(
+  threadId: string,
+  tarefa: string,
+  eventos: ThreadEvent[],
+  home: string,
+): Promise<{ pendente: boolean }> {
+  const agenteAtual = activeAgentId(eventos);
+  const decisao = await decidirRoteamento(
+    { mensagem: tarefa, historico: historicoPraRoteamento(eventos), agenteAtual },
+    home,
+  );
+  if (!decisao) return { pendente: false };
+
+  const alvoBruto = decisao.tipo === "agente" ? decisao.agentId : decisao.tipo === "time" ? decisao.teamId : undefined;
+  /*
+   * Motivos de não mexer na conversa. Todos viram aviso na tela (SSE), nenhum
+   * vira linha no histórico: "continua igual" repetido a cada mensagem seria
+   * ruído, mas silêncio total escondia que a avaliação sequer aconteceu.
+   */
+  /*
+   * Permissão EFETIVA do agente atual, não a que ele declara: se a conta da
+   * pessoa manda (ver `permissaoDoTurno`), o agente não está de fato travado em
+   * leitura, e não faz sentido afrouxar o limiar por causa disso.
+   */
+  const perfilDaThread = getProfile(activeProfileId(eventos), home);
+  const permissaoEfetiva =
+    permissaoDoTurno(eventos, perfilDaThread).permissionMode ?? agentOverrides(agenteAtual, home).permissionMode;
+  const atualSoLe = permissaoEfetiva === "plan";
+  const limiar = atualSoLe ? LIMIAR_SAINDO_DE_SO_LEITURA : LIMIAR_DE_TROCA;
+  const motivo =
+    decisao.tipo === "automatico"
+      ? ("nenhum-se-aplica" as const)
+      : decisao.tipo === "agente" && decisao.agentId === agenteAtual
+        ? ("mesmo-agente" as const)
+        : decisao.confianca < limiar
+          ? ("abaixo-do-limiar" as const)
+          : undefined;
+  if (motivo) {
+    emit(threadId, {
+      type: "roteamento",
+      threadId,
+      tipo: decisao.tipo,
+      ...(alvoBruto ? { alvo: alvoBruto } : {}),
+      confianca: decisao.confianca,
+      aplicado: true,
+      mudou: false,
+      motivo,
+      probabilidades: decisao.probabilidades,
+    });
+    return { pendente: false };
+  }
+
+  const alvo = alvoBruto as string;
+  const aplicaAgora = decisao.tipo === "agente" && loadConfig(home).typesafe.modo === "automatico";
+  appendEvent(
+    {
+      ts: nowIso(),
+      type: "roteamento",
+      threadId,
+      tipo: decisao.tipo,
+      alvo,
+      tarefa,
+      confianca: decisao.confianca,
+      probabilidades: decisao.probabilidades,
+      aplicado: aplicaAgora,
+    },
+    home,
+  );
+  if (aplicaAgora && decisao.tipo === "agente") {
+    appendEvent(
+      { ts: nowIso(), type: "agent_assigned", threadId, agentId: decisao.agentId, confianca: decisao.confianca },
+      home,
+    );
+  }
+  emit(threadId, {
+    type: "roteamento",
+    threadId,
+    tipo: decisao.tipo,
+    alvo,
+    confianca: decisao.confianca,
+    aplicado: aplicaAgora,
+    mudou: true,
+    probabilidades: decisao.probabilidades,
+  });
+  return { pendente: !aplicaAgora };
+}
+
+/**
+ * Agente ESCOLHIDO por você na criação da conversa: aí a config dele vale
+ * inteira, permissão inclusive — você adotou o agente sabendo o que ele é.
+ * Agente atribuído pelo ROTEAMENTO é outra história (ver `permissaoDoTurno`).
+ */
+function agenteFoiEscolhidoPelaPessoa(eventos: ThreadEvent[]): boolean {
+  const meta = eventos.find((e) => e.type === "thread_meta");
+  return Boolean(meta?.type === "thread_meta" && meta.agentId);
+}
+
+/**
+ * Permissão do turno. Agente atribuído pelo roteamento NÃO rebaixa a permissão
+ * que a pessoa escolheu na conta.
+ *
+ * Veio de um caso real: conta em `bypassPermissions` ("Ignorar permissões"), o
+ * roteamento atribuiu sozinho o `implementador` (`acceptEdits`), e o argv saiu
+ * com acceptEdits — que libera edição mas não comando de shell. Resultado: "This
+ * command requires approval" num `--print`, onde não existe canal pra aprovar.
+ * A pessoa escolheu uma permissão e o sistema a trocou por baixo sem avisar.
+ *
+ * Conta sem permissão definida segue usando a do agente: não há escolha da
+ * pessoa pra preservar.
+ */
+function permissaoDoTurno(eventos: ThreadEvent[], perfil: Profile | undefined): EngineOverrides {
+  if (!perfil?.permissionMode) return {};
+  if (agenteFoiEscolhidoPelaPessoa(eventos)) return {};
+  return { permissionMode: perfil.permissionMode };
+}
+
+/**
+ * Overrides do turno, em um lugar só: a permissão (sempre) e o modelo quando a
+ * conta está em "Automático". Entram por cima de conta e agente no `syncArgs`.
+ *
+ * O modelo só é escolhido quando o que valeria é literalmente `MODELO_AUTO` —
+ * agente com modelo próprio manda mais, e aí não há o que escolher. Falha de
+ * qualquer tipo deixa o modelo de fora, e `profileFlags` cai no fallback
+ * (sonnet/medium) em vez de mandar `--model auto` pro CLI.
+ */
+async function aplicarOverridesDoTurno(
+  threadId: string,
+  mensagem: string,
+  eventos: ThreadEvent[],
+  live: Live,
+  home: string,
+): Promise<void> {
+  const perfil = getProfile(live.profileId, home);
+  const permissao = permissaoDoTurno(eventos, perfil);
+  // Agente manda mais que conta nas duas dimensões: onde ele fixou, não há o que escolher.
+  const doAgente = agentOverrides(live.agentId, home);
+  const modeloQueValeria = doAgente.model ?? perfil?.model;
+  const esforcoQueValeria = doAgente.effort ?? perfil?.effort;
+  const querModelo = modeloQueValeria === MODELO_AUTO;
+  const querEsforco = esforcoQueValeria === ESFORCO_AUTO;
+  if (!perfil || (!querModelo && !querEsforco)) {
+    // Nada dinâmico: o esforço do turno é o configurado mesmo (agente > conta).
+    live.esforcoDoTurno = esforcoQueValeria;
+    live.engine.updateOverrides(permissao);
+    return;
+  }
+  const escolha = await escolherExecucao(
+    { mensagem, historico: historicoPraRoteamento(eventos) },
+    home,
+    perfil.engine,
+    { modelo: querModelo, esforco: querEsforco },
+  );
+  /*
+   * Piso de confiança, e não só "usa o que veio": medindo contra a API real, uma
+   * pergunta de depuração empatou e saiu no modelo barato com confiança 0.15 —
+   * moeda girando. Como errar pro barato custa resposta fraca e retrabalho, e
+   * errar pro caro custa só tokens, dúvida vira fallback (o mais capaz).
+   */
+  const modeloOk = Boolean(escolha.model) && escolha.model!.confianca >= LIMIAR_DE_MODELO;
+  /*
+   * Esforço NÃO tem piso: ele vem de um `Score` (escala ordenada), onde
+   * distribuição espalhada já sai como o meio-termo — o número entre níveis é a
+   * resposta, não um empate a descartar. Piso aqui jogaria fora justamente o
+   * caso que o Score existe pra resolver.
+   */
+  const esforcoOk = Boolean(escolha.effort);
+  live.engine.updateOverrides({
+    ...permissao,
+    ...(modeloOk ? { model: escolha.model!.valor } : {}),
+    ...(esforcoOk ? { effort: escolha.effort!.valor } : {}),
+  });
+  // O que o motor vai receber de fato — vira o `effort` do `usage` deste turno.
+  live.esforcoDoTurno = querEsforco
+    ? esforcoOk
+      ? escolha.effort!.valor
+      : MODELO_AUTO_FALLBACK.effort
+    : esforcoQueValeria;
+  if (querModelo) {
+    emit(threadId, {
+      type: "modelo_auto",
+      threadId,
+      model: modeloOk ? escolha.model!.valor : MODELO_AUTO_FALLBACK.model,
+      confianca: escolha.model?.confianca ?? 0,
+      fallback: !modeloOk,
+      motivo: modeloOk ? "escolhido" : escolha.model ? "confianca-baixa" : "indisponivel",
+      ...(escolha.model && !modeloOk ? { sugerido: escolha.model.valor } : {}),
+      ...(escolha.model ? { probabilidades: escolha.model.probabilidades } : {}),
+    });
+  }
+  if (querEsforco) {
+    emit(threadId, {
+      type: "esforco_auto",
+      threadId,
+      effort: esforcoOk ? escolha.effort!.valor : MODELO_AUTO_FALLBACK.effort,
+      confianca: escolha.effort?.confianca ?? 0,
+      fallback: !esforcoOk,
+      motivo: esforcoOk ? "escolhido" : escolha.effort ? "confianca-baixa" : "indisponivel",
+      ...(escolha.effort && !esforcoOk ? { sugerido: escolha.effort.valor } : {}),
+    });
+  }
+}
+
 export async function postMessage(
   threadId: string,
   text: string,
@@ -908,14 +1236,53 @@ export async function postMessage(
   await withLocked(threadId, async () => {
     // Teto de `nexo_delegar` é POR TURNO: mensagem nova reabre a cota.
     resetContadorDeDelegacao(threadId);
+    /*
+     * Roteia a cada mensagem, não só na primeira: uma conversa muda de fase
+     * (mapear → implementar → revisar) e travar na intenção da 1ª mensagem
+     * deixava o resto da thread com o agente errado.
+     *
+     * Só participa conversa que NASCEU sem agente: se a pessoa abriu a conversa
+     * escolhendo um agente (`thread_meta.agentId`), essa escolha é dela e não é
+     * revista sozinha nunca — `activeAgentId` não serve de guarda aqui porque
+     * ele também devolve agente atribuído por roteamento anterior.
+     */
+    const eventosAtuais = readThread(threadId, home);
+    const meta = eventosAtuais.find((e) => e.type === "thread_meta");
+    const nasceuSemAgente = meta?.type === "thread_meta" && !meta.agentId;
+    const roteamento = nasceuSemAgente
+      ? await talvezRotear(threadId, text, eventosAtuais, home)
+      : { pendente: false };
     // Grava antes do turno: se o motor falhar, a imagem não se perde do histórico.
     const attachments = images.length > 0 ? saveImages(threadId, images, home) : [];
     appendEvent(
       { ts: nowIso(), type: "user", threadId, text, ...(attachments.length > 0 ? { attachments } : {}) },
       home,
     );
+    /*
+     * Sugestão pendente PARA o turno aqui: responder já e trocar de agente
+     * depois seria pior que não rotear — a resposta sairia do agente errado, e
+     * aceitar depois não desfaz o que já foi dito (nem o que já foi executado).
+     * Quem retoma é `retomarTurnoPendente`, chamado pelo endpoint de decisão.
+     */
+    if (roteamento.pendente) return;
     const live = await ensureLive(threadId, home);
+    await aplicarOverridesDoTurno(threadId, text, eventosAtuais, live, home);
     await dispatch(threadId, home, live, promptWithAttachments(text, attachments));
+  });
+}
+
+/**
+ * Despacha a mensagem que ficou parada esperando a decisão de roteamento.
+ * Reconstrói o pedido a partir do próprio evento `user` já gravado, então vale
+ * igual pra mensagem com anexo. Sem sugestão pendente, não faz nada.
+ */
+export async function retomarTurnoPendente(threadId: string, home: string): Promise<void> {
+  await withLocked(threadId, async () => {
+    const events = readThread(threadId, home);
+    const ultima = [...events].reverse().find((e) => e.type === "user");
+    if (!ultima || ultima.type !== "user") return;
+    const live = await ensureLive(threadId, home);
+    await dispatch(threadId, home, live, promptWithAttachments(ultima.text, ultima.attachments ?? []));
   });
 }
 
@@ -950,9 +1317,38 @@ async function sendTurn(live: Live, text: string, partial = false): Promise<void
   await live.engine.send(partial ? CONTINUE : text);
 }
 
+/**
+ * `waitTerminal` estourou o teto de turno: o motor nunca fechou (fica vivo,
+ * travado). Sem isso, a rejeição subia crua até o handler HTTP — virava um 400
+ * tratado só no client que fez aquela chamada (outros pontos de entrada, como
+ * `retomarTurnoPendente`, ficavam sem tratamento nenhum), nada era persistido
+ * na thread (o erro sumia no primeiro reload) e o motor travado continuava em
+ * `lives` — o próximo turno reusaria o mesmo processo empacado em vez de um
+ * motor novo. Aborta, tira de `lives` e deixa rastro — igual ao "motor morreu".
+ */
+async function tratarMotorTravado(threadId: string, home: string, live: Live, message: string): Promise<void> {
+  await live.engine.abort().catch(() => {});
+  lives.delete(threadId);
+  appendEvent({ ts: nowIso(), type: "error", threadId, message, profileId: live.profileId }, home);
+  const suggestedProfileId = suggestFallback(live.profileId, home);
+  const suggested = suggestedProfileId ? getProfile(suggestedProfileId, home) : undefined;
+  emit(threadId, {
+    type: "error",
+    message,
+    threadId,
+    suggestedProfileId,
+    chatOnly: suggested?.engine === "api",
+  });
+}
+
 async function dispatch(threadId: string, home: string, live: Live, text: string): Promise<void> {
   await sendTurn(live, text);
-  await waitTerminal(live);
+  try {
+    await waitTerminal(live);
+  } catch (e) {
+    await tratarMotorTravado(threadId, home, live, (e as Error).message || "engine timeout");
+    return;
+  }
   const after = lives.get(threadId);
   if (!after) return;
   if (after.lastTerminal === "quota") {
@@ -966,7 +1362,12 @@ async function dispatch(threadId: string, home: string, live: Live, text: string
     const again = await ensureLive(threadId, home);
     again.retryCount = retries;
     await sendTurn(again, text);
-    await waitTerminal(again);
+    try {
+      await waitTerminal(again);
+    } catch (e) {
+      await tratarMotorTravado(threadId, home, again, (e as Error).message || "engine timeout");
+      return;
+    }
     if (again.lastTerminal === "error") {
       appendEvent(
         { ts: nowIso(), type: "error", threadId, message: "motor morreu", profileId: again.profileId },

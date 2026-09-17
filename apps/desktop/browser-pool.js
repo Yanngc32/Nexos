@@ -8,6 +8,13 @@
  * de trocar de chat isso trava a UI. `hrefDoGuest` lê `dataset.href`.
  */
 
+import {
+  uaChromeAPartirDe,
+  avisarGuestDepoisDoPaint,
+  pedirRelayoutGuest,
+  sincronizarPixels,
+} from "./guest-relayout.js";
+
 export function hrefDoGuest(el) {
   if (!el) return "about:blank";
   return el.dataset?.href || el.src || "about:blank";
@@ -39,10 +46,34 @@ export function criarBrowserPool({
 } = {}) {
   const vivos = new Map();
   let visivelEl = null;
+  let stageRo = null;
 
   function fabricar() {
     if (typeof criarGuest === "function") return criarGuest();
     return document.createElement("webview");
+  }
+
+  function aplicarUaChrome(el) {
+    if (typeof el?.setAttribute !== "function") return;
+    const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+    el.setAttribute("useragent", uaChromeAPartirDe(ua));
+  }
+
+  function ligarStageRo() {
+    if (stageRo || !stage || typeof ResizeObserver !== "function") return;
+    let last = "";
+    stageRo = new ResizeObserver((entries) => {
+      const cr = entries[0]?.contentRect;
+      if (!cr || cr.width < 2 || cr.height < 2) return;
+      const key = `${Math.round(cr.width)}x${Math.round(cr.height)}`;
+      if (key === last) return;
+      last = key;
+      if (!visivelEl || visivelEl.classList.contains("stowed")) return;
+      // só px + resize — jiggle aqui reentra no observer no meio do arraste da janela
+      sincronizarPixels(visivelEl);
+      pedirRelayoutGuest(visivelEl);
+    });
+    stageRo.observe(stage);
   }
 
   function tocar(k, el) {
@@ -64,6 +95,9 @@ export function criarBrowserPool({
     el.classList.add("stowed");
     el.addEventListener("ipc-message", (e) => onIpc?.(e, { threadId, tabId, el }));
     el.addEventListener("dom-ready", () => onDomReady?.({ threadId, tabId, el }));
+    el.addEventListener("did-finish-load", () => {
+      if (!el.classList.contains("stowed")) pedirRelayoutGuest(el);
+    });
     const aoNavegar = (e) => {
       const href = e.url || hrefDoGuest(el);
       el.dataset.href = href;
@@ -81,6 +115,7 @@ export function criarBrowserPool({
       return el;
     }
     el = fabricar();
+    aplicarUaChrome(el);
     if (threadId) el.setAttribute("partition", `persist:nexo-b-${threadId}`);
     anexar(el, threadId, tabId);
     if (!el.getAttribute("src") && !el.src) {
@@ -89,6 +124,7 @@ export function criarBrowserPool({
       el.setAttribute("src", href);
     }
     stage?.append(el);
+    ligarStageRo();
     vivos.set(k, el);
     podar(threadId);
     return el;
@@ -96,14 +132,12 @@ export function criarBrowserPool({
 
   function mostrar(threadId, tabId, url) {
     const alvo = obter(threadId, tabId, url);
-    if (visivelEl === alvo) {
-      alvo.classList.remove("stowed");
-      visivelEl = alvo;
-      return alvo;
-    }
-    stow(visivelEl);
+    const jaVisivel = visivelEl === alvo && !alvo.classList.contains("stowed");
+    if (visivelEl !== alvo) stow(visivelEl);
     alvo.classList.remove("stowed");
     visivelEl = alvo;
+    // só quando ACABOU de aparecer — jiggle/resize no guest já visível trava a troca de chat
+    if (!jaVisivel) avisarGuestDepoisDoPaint(alvo);
     return alvo;
   }
 

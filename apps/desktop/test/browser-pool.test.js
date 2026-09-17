@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { criarBrowserPool, mesmoHref, hrefDoGuest } from "../browser-pool.js";
 
 function montar() {
@@ -114,5 +114,35 @@ describe("pool", () => {
     expect(a.isConnected).toBe(false);
     expect(pool.daThread("t-b")).toBeTruthy();
     expect(pool.daThread("t-c")).toBeTruthy();
+  });
+
+  it("guest novo ganha useragent Chrome sem Electron, antes do src", () => {
+    const { pool } = montar();
+    const el = pool.obter("t1", "tab-a");
+    expect(el.getAttribute("useragent")).toMatch(/Chrome\//);
+    expect(el.getAttribute("useragent")).not.toMatch(/Electron/i);
+  });
+
+  it("mostrar pede relayout no guest (gráfico mede 0 se nasceu escondido)", async () => {
+    document.body.innerHTML = '<div id="stage"></div>';
+    const stage = document.getElementById("stage");
+    const js = vi.fn(() => Promise.resolve());
+    const pool = criarBrowserPool({
+      stage,
+      criarGuest() {
+        const el = document.createElement("div");
+        el.src = "about:blank";
+        el.dataset.href = "about:blank";
+        el.executeJavaScript = js;
+        return el;
+      },
+    });
+    pool.mostrar("t1", "tab-a");
+    await new Promise((r) => requestAnimationFrame(r));
+    expect(js).toHaveBeenCalled();
+    js.mockClear();
+    pool.mostrar("t1", "tab-a");
+    await new Promise((r) => requestAnimationFrame(r));
+    expect(js).not.toHaveBeenCalled();
   });
 });

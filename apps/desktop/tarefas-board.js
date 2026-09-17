@@ -259,10 +259,10 @@ export function createTarefasBoard({
     col.dataset.colunaId = coluna.id;
     col.draggable = true;
     col.addEventListener("dragstart", (e) => {
-      if (e.target.closest("input, button, .kanban-card")) {
-        e.preventDefault();
-        return;
-      }
+      // Não usar preventDefault aqui: o dragstart do próprio cartão borbulha até este listener
+      // (dragstart borbulha por padrão), e cancelar o evento nesta fase cancela o drag do
+      // cartão inteiro, não só o da coluna. Só ignorar — o cartão já cuidou do próprio drag.
+      if (e.target.closest("input, button, .kanban-card")) return;
       colArrastando = coluna.id;
       e.dataTransfer.effectAllowed = "move";
       e.dataTransfer.setData("text/plain", coluna.id);

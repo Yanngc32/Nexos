@@ -67,6 +67,16 @@ export function configPath(root = nexoHome()): string {
   return join(root, "config.json");
 }
 
+/**
+ * API key do typesafe.ai + contador de uso. Fora de `config.json` de propósito:
+ * `GET /v1/config` devolve o config inteiro pra UI, e uma secret ali vazaria
+ * pro renderer a cada carga de tela — mesmo motivo de `keys.json` por perfil
+ * ficar fora de `profile.json` (ver profiles.ts).
+ */
+export function typesafePath(root = nexoHome()): string {
+  return join(root, "typesafe.json");
+}
+
 export function agentsPath(root = nexoHome()): string {
   return join(root, "agents.json");
 }

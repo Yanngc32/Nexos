@@ -554,6 +554,9 @@ body[data-side-mini="1"] .side .ico-only {
   min-width: 20px;
   padding: 0 4px;
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .run-group > summary:hover .run-info {
@@ -867,6 +870,9 @@ body[data-side-mini="1"] .side .ico-only {
 /*
  * Panes empilhados com visibility, nunca display:none: o <webview> do Electron
  * morre (e a página do preview junto) se o ancestral some do layout.
+ * opacity:0 nos panes escondidos pintava os 7 ao mesmo tempo e travava a troca
+ * de conversa — o gráfico que colapsa com visibility é consertado no mostrar()
+ * com um resize DEPOIS do paint, não deixando o guest compositor ligado.
  */
 #work-stage > .pane {
   position: absolute;
@@ -1484,11 +1490,16 @@ body[data-focus="1"] .work #pane-chat {
   height: 100%;
   border: 0;
   background: #111;
+  z-index: 0;
 }
 
 #browser-pool webview.stowed {
   visibility: hidden;
   pointer-events: none;
+}
+
+#browser-pool webview:not(.stowed) {
+  z-index: 1;
 }
 
 #sketch {
@@ -3222,6 +3233,11 @@ button:disabled {
   content: "";
 }
 
+.set-hint {
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
 /* ---- Pastas compartilhadas (memória / repo map) ---- */
 .shared-card {
   padding: 14px 0;
@@ -4314,6 +4330,158 @@ body[data-side-mini="1"] .svc-strip {
   padding: 8px 10px 10px;
   border-top: 1px solid var(--line);
   background: #161616;
+}
+
+/* ---- Roteamento: marcas e sugestão dentro da conversa ---- */
+.roteamento-marca .stamp strong {
+  color: var(--accent);
+}
+
+/* Sugestão pendente: o turno está PARADO aqui, então ela é uma caixa de verdade, não um carimbo. */
+.roteamento-sugestao {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 6px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-size: 12.5px;
+}
+
+.roteamento-sugestao-txt {
+  flex: 1;
+  min-width: 220px;
+}
+
+.roteamento-sugestao-hint {
+  color: var(--muted);
+}
+
+.roteamento-sugestao-acoes {
+  display: flex;
+  gap: 8px;
+}
+
+.roteamento-sugestao[data-decidido="1"] {
+  border-color: var(--line);
+  background: transparent;
+  opacity: 0.6;
+}
+
+/* ---- Árvore de decisão do roteamento por typesafe.ai ---- */
+.roteamento-btn {
+  flex: 0 0 auto;
+  margin-left: 4px;
+}
+
+/* Ancorado perto do cabeçalho da conversa, não no canto (é o agents-dock que mora lá). */
+.roteamento-dock {
+  top: 52px;
+  bottom: auto;
+  right: 16px;
+  left: auto;
+  max-height: min(70vh, 620px);
+}
+
+.roteamento-pane {
+  padding: 10px 12px;
+  gap: 10px;
+}
+
+.roteamento-tarefa {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #1c1c1c;
+  color: var(--text);
+  font-size: 12.5px;
+  font-style: italic;
+}
+
+.roteamento-arvore {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.roteamento-ramo {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.roteamento-ramo.venceu {
+  border-color: var(--accent);
+}
+
+.roteamento-ramo h5 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.roteamento-ramo ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.roteamento-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 80px 34px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.roteamento-item.venceu {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.roteamento-item-nome {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roteamento-item-bar {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: #262626;
+  overflow: hidden;
+}
+
+.roteamento-item-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--muted);
+}
+
+.roteamento-item.venceu .roteamento-item-bar > span {
+  background: var(--accent);
+}
+
+.roteamento-item-pct {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.roteamento-acoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 /* faixa da cor do agente: identifica o cartão de relance */

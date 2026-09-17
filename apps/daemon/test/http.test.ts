@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createApp } from "../src/http.ts";
 import { addProfile, engineEnv, getProfile, updateProfile } from "../src/profiles.ts";
-import { createThread, readThread } from "../src/threads.ts";
+import { appendEvent, createThread, readThread } from "../src/threads.ts";
 import { saveAgent } from "../src/agents.ts";
 import { postMessage } from "../src/session.ts";
 import { construirIndice } from "../src/repo-map-indice.ts";
@@ -1578,5 +1578,109 @@ describe("http hooks", () => {
     const body = (await res.json()) as { aprovado: boolean; motivo: string };
     expect(body.aprovado).toBe(false);
     expect(body.motivo).toMatch(/não declarou veredito/);
+  });
+});
+
+describe("http /v1/typesafe", () => {
+  it("GET começa não configurado; PUT guarda a key sem nunca devolvê-la", async () => {
+    const home = tempHome();
+    const app = createApp(home, "t");
+    const hdr = { authorization: "Bearer t", "content-type": "application/json" };
+
+    const antes = await app.request("/v1/typesafe", { headers: hdr });
+    expect(await antes.json()).toEqual({ configured: false, usage: { inputTokens: 0, outputTokens: 0, calls: 0 } });
+
+    const put = await app.request("/v1/typesafe", { method: "PUT", headers: hdr, body: JSON.stringify({ apiKey: "sk-segredo" }) });
+    const putBody = JSON.stringify(await put.json());
+    expect(putBody).not.toContain("sk-segredo");
+    expect(JSON.parse(putBody)).toEqual({ configured: true, usage: { inputTokens: 0, outputTokens: 0, calls: 0 } });
+
+    const config = await app.request("/v1/config", { headers: hdr });
+    expect(JSON.stringify(await config.json())).not.toContain("sk-segredo");
+  });
+
+  it("PUT com apiKey vazia remove a key", async () => {
+    const home = tempHome();
+    const app = createApp(home, "t");
+    const hdr = { authorization: "Bearer t", "content-type": "application/json" };
+    await app.request("/v1/typesafe", { method: "PUT", headers: hdr, body: JSON.stringify({ apiKey: "sk-1" }) });
+    const res = await app.request("/v1/typesafe", { method: "PUT", headers: hdr, body: JSON.stringify({ apiKey: "" }) });
+    expect((await res.json() as { configured: boolean }).configured).toBe(false);
+  });
+});
+
+describe("http /v1/threads/:id/roteamento", () => {
+  it("404 quando não há sugestão pendente", async () => {
+    const home = tempHome();
+    const app = createApp(home, "t");
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    const res = await app.request(`/v1/threads/${t.id}/roteamento`, {
+      method: "POST",
+      headers: { authorization: "Bearer t", "content-type": "application/json" },
+      body: JSON.stringify({ aceitar: true }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("aceitar sugestão de agente atribui a thread", async () => {
+    const home = tempHome();
+    const app = createApp(home, "t");
+    addProfile({ id: "p1", engine: "stub" }, home);
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "p1" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    appendEvent(
+      { ts: "2026-01-01T00:00:00.000Z", type: "roteamento", threadId: t.id, tipo: "agente", alvo: "revisor", tarefa: "revisa o PR", confianca: 0.8, probabilidades: { revisor: 0.8, automatico: 0.2 }, aplicado: false },
+      home,
+    );
+    const res = await app.request(`/v1/threads/${t.id}/roteamento`, {
+      method: "POST",
+      headers: { authorization: "Bearer t", "content-type": "application/json" },
+      body: JSON.stringify({ aceitar: true }),
+    });
+    expect(res.status).toBe(200);
+    const events = readThread(t.id, home);
+    expect(events.find((e) => e.type === "agent_assigned")).toMatchObject({ agentId: "revisor" });
+    expect(events.find((e) => e.type === "roteamento_decidido")).toMatchObject({ aceito: true });
+  });
+
+  it("recusar sugestão não atribui nada, só marca decidido", async () => {
+    const home = tempHome();
+    const app = createApp(home, "t");
+    addProfile({ id: "p1", engine: "stub" }, home);
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "p1" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    appendEvent(
+      { ts: "2026-01-01T00:00:00.000Z", type: "roteamento", threadId: t.id, tipo: "agente", alvo: "revisor", tarefa: "revisa o PR", confianca: 0.8, probabilidades: { revisor: 0.8, automatico: 0.2 }, aplicado: false },
+      home,
+    );
+    const res = await app.request(`/v1/threads/${t.id}/roteamento`, {
+      method: "POST",
+      headers: { authorization: "Bearer t", "content-type": "application/json" },
+      body: JSON.stringify({ aceitar: false }),
+    });
+    expect(res.status).toBe(200);
+    const events = readThread(t.id, home);
+    expect(events.some((e) => e.type === "agent_assigned")).toBe(false);
+    expect(events.find((e) => e.type === "roteamento_decidido")).toMatchObject({ aceito: false });
+  });
+
+  it("409 quando a sugestão já foi decidida antes", async () => {
+    const home = tempHome();
+    const app = createApp(home, "t");
+    addProfile({ id: "p1", engine: "stub" }, home);
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "p1" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    appendEvent(
+      { ts: "2026-01-01T00:00:00.000Z", type: "roteamento", threadId: t.id, tipo: "agente", alvo: "revisor", tarefa: "revisa o PR", confianca: 0.8, probabilidades: { revisor: 0.8, automatico: 0.2 }, aplicado: false },
+      home,
+    );
+    appendEvent({ ts: "2026-01-01T00:00:01.000Z", type: "roteamento_decidido", threadId: t.id, aceito: false }, home);
+    const res = await app.request(`/v1/threads/${t.id}/roteamento`, {
+      method: "POST",
+      headers: { authorization: "Bearer t", "content-type": "application/json" },
+      body: JSON.stringify({ aceitar: true }),
+    });
+    expect(res.status).toBe(409);
   });
 });

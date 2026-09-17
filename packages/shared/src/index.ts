@@ -49,6 +49,24 @@ export type NavegadorModo = "negado" | "questionar" | "liberado";
 export const NAVEGADOR_MODOS: NavegadorModo[] = ["negado", "questionar", "liberado"];
 /** Aliases que o CLI aceita; nome cheio de modelo também vale. */
 export const MODEL_ALIASES = ["opus", "sonnet", "haiku", "fable"];
+/**
+ * Modelo "Automático": não é um modelo de verdade — é uma marca de que o modelo
+ * do turno é escolhido na hora, pela complexidade da mensagem (typesafe.ai, ver
+ * `escolherModelo` em typesafe.ts). NUNCA pode chegar ao CLI como `--model`;
+ * quem monta os argumentos troca por `MODELO_AUTO_FALLBACK` quando a escolha
+ * dinâmica não veio (roteamento desligado, sem key, erro de rede, timeout).
+ */
+export const MODELO_AUTO = "auto";
+/**
+ * Esforço "Automático": mesma ideia do `MODELO_AUTO`, em controle próprio. Ter
+ * os dois separados é de propósito — dá pra fixar o modelo e deixar só o
+ * esforço decidido na hora (ou o contrário), e ligar um não apaga em silêncio a
+ * escolha feita no outro.
+ */
+export const ESFORCO_AUTO = "auto";
+/** Valor guardado no campo de esforço: um nível de verdade ou a marca "auto". */
+export type EsforcoEscolhido = EffortLevel | typeof ESFORCO_AUTO;
+export const MODELO_AUTO_FALLBACK = { model: "sonnet", effort: "medium" as EffortLevel };
 /** Sem metacaractere: no Windows o motor é spawnado via cmd.exe. */
 export const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 /**
@@ -65,6 +83,15 @@ export type ApiProvider = "anthropic" | "openai" | "gemini";
  */
 export type SwitchMode = "auto" | "manual" | "denied";
 export const SWITCH_MODES: SwitchMode[] = ["auto", "manual", "denied"];
+
+/**
+ * Como o roteamento por typesafe.ai (decidir agente/time/automático pra uma
+ * conversa nova) se comporta. `desligado` não chama a API nenhuma vez.
+ * `automatico` aplica a escolha de agente sozinho; time SEMPRE pede
+ * confirmação nos dois modos (`perguntar` pede confirmação também pra agente).
+ */
+export type TypesafeModo = "desligado" | "automatico" | "perguntar";
+export const TYPESAFE_MODOS: TypesafeModo[] = ["desligado", "automatico", "perguntar"];
 
 /** Imagem colada ou arrastada no chat. Vive no home do nexo, nunca na pasta do projeto. */
 export type Attachment = {
@@ -94,7 +121,7 @@ export type Profile = {
   /** Alias ou nome cheio do modelo; vazio = padrão do CLI. */
   model?: string;
   /** Esforço de raciocínio do CLI; vazio = padrão do CLI. */
-  effort?: EffortLevel;
+  effort?: EsforcoEscolhido;
   /** Modo de permissão do CLI do Claude; vazio = padrão do CLI. */
   permissionMode?: PermissionMode;
   /** Política de sandbox do `codex exec`; vazio = padrão do CLI. Só vale pra engine codex. */
@@ -146,7 +173,7 @@ export type AgentDef = {
   /** Conta usada ao abrir conversa com este agente. */
   profileId: string;
   model?: string;
-  effort?: EffortLevel;
+  effort?: EsforcoEscolhido;
   permissionMode?: PermissionMode;
   sandboxMode?: CodexSandboxMode;
   /** Vai no topo do context pack — é o "system prompt" do agente. */
@@ -168,7 +195,7 @@ export const AGENTS_MAX = 100;
 /** O que um agente sobrepõe no motor da conta. */
 export type EngineOverrides = {
   model?: string;
-  effort?: EffortLevel;
+  effort?: EsforcoEscolhido;
   permissionMode?: PermissionMode;
   sandboxMode?: CodexSandboxMode;
 };
@@ -340,6 +367,8 @@ export type NexoConfig = {
    * existir no `--allowed-tools` do CLI.
    */
   windowsControlEnabled: boolean;
+  /** Roteamento de conversa nova por typesafe.ai. A API key mora fora daqui (typesafe.json), nunca sai em GET /v1/config. */
+  typesafe: { modo: TypesafeModo };
 };
 
 export const CAVEMAN_NIVEIS = ["lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"] as const;
@@ -371,6 +400,7 @@ export const DEFAULT_CONFIG: NexoConfig = {
     quadroTarefas: true,
   },
   windowsControlEnabled: false,
+  typesafe: { modo: "desligado" },
 };
 
 export type ThreadEvent =
@@ -468,7 +498,47 @@ export type ThreadEvent =
   /** Marca de "/clear": o pack ignora tudo antes disso, mas o JSONL guarda pra sempre. */
   | { ts: string; type: "cleared"; threadId: string }
   | { ts: string; type: "error"; threadId: string; message: string; profileId: string }
-  | ({ ts: string; type: "usage"; threadId: string; model?: string } & TokenUsage);
+  /**
+   * `model` e `effort` são o que REALMENTE rodou naquele turno (o modelo que o
+   * CLI reportou e o esforço que o daemon passou), não o que está configurado
+   * agora — com modelo/esforço automáticos, os dois mudam de turno pra turno, e
+   * ler a config atual faria uma conversa antiga mentir sobre o próprio passado.
+   */
+  | ({ ts: string; type: "usage"; threadId: string; model?: string; effort?: string } & TokenUsage)
+  /**
+   * Atribui o agente da conversa DEPOIS da criação (thread nasceu sem `agentId`
+   * no `thread_meta`). Mesmo padrão do `switched` pra `profileId`: o evento mais
+   * recente manda — ver `activeAgentId` em threads.ts. Escrito automaticamente
+   * (roteamento por typesafe.ai em modo "automatico") ou pela confirmação de uma
+   * sugestão (`roteamento` com `aplicado: false`).
+   */
+  | { ts: string; type: "agent_assigned"; threadId: string; agentId: string; confianca?: number }
+  /**
+   * Resultado (1x por thread) da decisão do roteador por typesafe.ai: qual
+   * agente/time trataria a tarefa, ou "automatico" se nenhum se aplica.
+   * `aplicado: true` já vale (agente em modo automático, ou "automatico" que não
+   * exige nada); `aplicado: false` é sugestão pendente — time NUNCA é aplicado
+   * sozinho, sempre pede confirmação (`POST /v1/threads/:id/roteamento`).
+   * Existe só pra não repetir a chamada a cada mensagem da mesma thread.
+   */
+  | {
+      ts: string;
+      type: "roteamento";
+      threadId: string;
+      tipo: "agente" | "time" | "automatico";
+      alvo?: string;
+      /** Texto da mensagem que gerou a decisão — vira `goal` do run se `tipo` for "time" e for aceito. */
+      tarefa: string;
+      confianca: number;
+      aplicado: boolean;
+      /**
+       * Distribuição completa (todo candidato avaliado, chaves cruas do Choice —
+       * agentId, `time:<teamId>` ou "automatico"), pra a tela de árvore de decisão
+       * mostrar os concorrentes, não só o vencedor.
+       */
+      probabilidades: Record<string, number>;
+    }
+  | { ts: string; type: "roteamento_decidido"; threadId: string; aceito: boolean };
 
 /** Painel de conta: só metadado, nunca token. */
 export type AccountInfo = {
@@ -489,7 +559,7 @@ export type AccountInfo = {
   authFailedAt?: string;
   provider?: ApiProvider;
   model?: string;
-  effort?: EffortLevel;
+  effort?: EsforcoEscolhido;
   permissionMode?: PermissionMode;
   sandboxMode?: CodexSandboxMode;
   /** O que o próprio CLI responde em `auth status --json` (só quando pedido). */

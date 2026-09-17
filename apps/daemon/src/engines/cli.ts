@@ -1,6 +1,16 @@
 import type { ChildProcessWithoutNullStreams, SpawnOptions } from "node:child_process";
 import type { EngineEvent, EngineOverrides, Profile, StartOpts } from "@nexo/shared";
-import { CODEX_SANDBOX_MODES, EFFORT_LEVELS, MODEL_RE, PERMISSION_MODES, TOOL_PATTERN_RE } from "@nexo/shared";
+import type { EffortLevel, EsforcoEscolhido } from "@nexo/shared";
+import {
+  CODEX_SANDBOX_MODES,
+  EFFORT_LEVELS,
+  ESFORCO_AUTO,
+  MODELO_AUTO,
+  MODELO_AUTO_FALLBACK,
+  MODEL_RE,
+  PERMISSION_MODES,
+  TOOL_PATTERN_RE,
+} from "@nexo/shared";
 import type { Engine, EngineHandler, EngineMcp } from "./types.ts";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -36,6 +46,16 @@ function spawnEngine(bin: string, args: string[], opts: SpawnOptions): ChildProc
 }
 
 /**
+ * "auto" no esforço é marca de escolha dinâmica, não nível — mesmo papel do
+ * `MODELO_AUTO`. Se a escolha do turno não veio, vale o padrão do fallback em
+ * vez de mandar `--effort auto` (que o CLI recusa).
+ */
+function esforcoEfetivo(effort: EsforcoEscolhido | undefined): EffortLevel | undefined {
+  if (!effort) return undefined;
+  return effort === ESFORCO_AUTO ? MODELO_AUTO_FALLBACK.effort : effort;
+}
+
+/**
  * Flags do `codex exec` pra modelo/esforço/sandbox — medidas contra `codex exec --help`
  * (codex-cli 0.154.0) e um `models_cache.json` real, não chutadas:
  *
@@ -52,8 +72,11 @@ function spawnEngine(bin: string, args: string[], opts: SpawnOptions): ChildProc
  *   sandbox, não por ferramenta.
  */
 function codexFlags(profile: Profile, over: EngineOverrides = {}): string[] {
-  const model = over.model ?? profile.model;
-  const effort = over.effort ?? profile.effort;
+  const escolhido = over.model ?? profile.model;
+  // Mesmo motivo do claude: "auto" é marca de escolha dinâmica, não nome de modelo.
+  const usaFallbackAuto = escolhido === MODELO_AUTO;
+  const model = usaFallbackAuto ? MODELO_AUTO_FALLBACK.model : escolhido;
+  const effort = esforcoEfetivo(usaFallbackAuto ? (over.effort ?? MODELO_AUTO_FALLBACK.effort) : (over.effort ?? profile.effort));
   const sandbox = over.sandboxMode ?? profile.sandboxMode;
   const out: string[] = [];
   if (model && MODEL_RE.test(model)) out.push("-m", model);
@@ -82,8 +105,16 @@ const PREFIXO_WINDOWS_CONTROL = "mcp__nexo__nexo_windows_";
 function profileFlags(profile: Profile, home: string, over: EngineOverrides = {}, extraTools: string[] = []): string[] {
   if (profile.engine === "codex") return codexFlags(profile, over);
   if (profile.engine !== "claude") return [];
-  const model = over.model ?? profile.model;
-  const effort = over.effort ?? profile.effort;
+  const escolhido = over.model ?? profile.model;
+  const efetivo = escolhido ?? "";
+  /*
+   * "auto" não é modelo: é a marca de escolha dinâmica por complexidade. Quando
+   * a escolha do turno não chegou (roteamento desligado, sem key, erro/timeout),
+   * cai no fallback aqui — mandar `--model auto` pro CLI seria erro na cara.
+   */
+  const usaFallbackAuto = efetivo === MODELO_AUTO;
+  const model = usaFallbackAuto ? MODELO_AUTO_FALLBACK.model : escolhido;
+  const effort = esforcoEfetivo(usaFallbackAuto ? (over.effort ?? MODELO_AUTO_FALLBACK.effort) : (over.effort ?? profile.effort));
   const permissionMode = over.permissionMode ?? profile.permissionMode;
   const out: string[] = [];
   if (model && MODEL_RE.test(model)) out.push("--model", model);
@@ -147,6 +178,8 @@ export class CliEngine implements Engine {
   private finished = false;
   /** Sessão do CLI `claude` pra `--resume`. Vazio = pack no stdin, como antes. */
   private resumeSessionId?: string;
+  /** Override só deste turno (modelo escolhido por complexidade). Ver `updateOverrides`. */
+  private overridesDoTurno: EngineOverrides = {};
   lastEnv: Record<string, string | undefined> = {};
   lastCwd?: string;
   lastArgs: string[] = [];
@@ -200,13 +233,18 @@ export class CliEngine implements Engine {
     this.resumeSessionId = sessionId && sessaoIdValido(sessionId) ? sessionId : undefined;
   }
 
+  updateOverrides(over: EngineOverrides): void {
+    this.overridesDoTurno = over;
+  }
+
   /**
    * Relê perfil e agente a cada envio: mudar modelo/esforço na UI — na conta ou
-   * no agente personalizado — vale já na próxima mensagem.
+   * no agente personalizado — vale já na próxima mensagem. O override do turno
+   * (modelo "Automático") entra por último, ganhando de conta e de agente.
    */
   private syncArgs(): void {
     const profile = getProfile(this.profileId, this.home);
-    const over: EngineOverrides = agentOverrides(this.agentId, this.home);
+    const over: EngineOverrides = { ...agentOverrides(this.agentId, this.home), ...this.overridesDoTurno };
     const mcp = this.mcpFlags(profile?.engine);
     this.args = profile ? [...this.baseArgs, ...profileFlags(profile, this.home, over, mcp.tools)] : [...this.baseArgs];
     /*

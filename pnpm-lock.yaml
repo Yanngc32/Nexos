@@ -19,6 +19,9 @@ importers:
       '@nexo/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@typesafe-ai/sdk':
+        specifier: ^0.5.0
+        version: 0.5.7
       hono:
         specifier: ^4.6.14
         version: 4.13.5
@@ -562,8 +565,8 @@ packages:
   '@jridgewell/sourcemap-codec@1.6.0':
     resolution: {integrity: sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw==}
 
-  '@maxim_mazurok/gapi.client.androidpublisher-v3@0.5.20260910':
-    resolution: {integrity: sha512-iImfKtt1kAkDh+FWVLVNSssFgw+C/yh6otjzEk01Dcz341K8suX1nN1NzzbjYGHD+kOKxQdZXueSC83KwZRxYg==}
+  '@maxim_mazurok/gapi.client.androidpublisher-v3@0.5.20260916':
+    resolution: {integrity: sha512-lIwp6F4BzOYM9Joxfv3k4G2AACTV2m6FsZQI60s554MM8EYHgwP8Z6IY16jEWRSxhi7RcVhiq+NyOA6pGXOaCg==}
 
   '@maxim_mazurok/gapi.client.discovery-v1@0.6.20200806':
     resolution: {integrity: sha512-QN6aGmIbLXcJW0SEf8tz9UWCpQTBMy2u4xSuZ04YofzMGknhWwMeUecySLntCZYAEstHzDoSgwxCf5Gb8GqIRQ==}
@@ -861,6 +864,10 @@ packages:
 
   '@types/yauzl@2.10.3':
     resolution: {integrity: sha512-oJoftv0LSuaDZE3Le4DbKX+KS9G36NzOeSap90UIK0yMA/NhKJhqlSGtNDORNRaIbQfzjXDrQa0ytJ6mNRGz/Q==}
+
+  '@typesafe-ai/sdk@0.5.7':
+    resolution: {integrity: sha512-OrbhDXyxDoX9l45/Mcts+TsNuvubCuZQzINQv0BMbi32ztcapzgrCnMmaW9gK5+JkgQAZcnJH1f47lAur+i1hw==}
+    engines: {node: '>=20'}
 
   '@vitest/expect@2.1.9':
     resolution: {integrity: sha512-UJCIkTBenHeKT1TTlKMJWy1laZewsRIzYighyYiJKZreqtdxSos/S1t+ktRMQWu2CKqaarrkeszJx1cgC5tGZw==}
@@ -2476,7 +2483,7 @@ snapshots:
 
   '@jridgewell/sourcemap-codec@1.6.0': {}
 
-  '@maxim_mazurok/gapi.client.androidpublisher-v3@0.5.20260910':
+  '@maxim_mazurok/gapi.client.androidpublisher-v3@0.5.20260916':
     dependencies:
       '@types/gapi.client': 1.0.8
       '@types/gapi.client.discovery-v1': 0.0.4
@@ -2646,7 +2653,7 @@ snapshots:
 
   '@types/gapi.client.androidpublisher@3.0.2':
     dependencies:
-      '@maxim_mazurok/gapi.client.androidpublisher-v3': 0.5.20260910
+      '@maxim_mazurok/gapi.client.androidpublisher-v3': 0.5.20260916
 
   '@types/gapi.client.discovery-v1@0.0.4':
     dependencies:
@@ -2706,6 +2713,8 @@ snapshots:
     dependencies:
       '@types/node': 22.20.1
     optional: true
+
+  '@typesafe-ai/sdk@0.5.7': {}
 
   '@vitest/expect@2.1.9':
     dependencies:

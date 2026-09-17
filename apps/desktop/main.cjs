@@ -15,6 +15,15 @@ const { readdir, readFile, stat } = require("node:fs/promises");
 const { homedir, tmpdir } = require("node:os");
 const { dirname, join, resolve, sep } = require("node:path");
 const { nexoEntry, resolveNodeBin, resolveTsxCli, spawnNexoProcess } = require("../daemon/scripts/resolve-tsx.cjs");
+// guest-relayout.js é ESM (precisa ser, pro <script type="module"> do renderer
+// conseguir importá-lo de volta — ver o comentário no topo daquele arquivo).
+// main.cjs é CJS, então entra por import() dinâmico em vez de require().
+let JS_RELAYOUT_GUEST = "";
+let uaChromeAPartirDe = (ua) => String(ua || "");
+const guestRelayoutReady = import("./guest-relayout.js").then((m) => {
+  JS_RELAYOUT_GUEST = m.JS_RELAYOUT_GUEST;
+  uaChromeAPartirDe = m.uaChromeAPartirDe;
+});
 
 function isEpipe(err) {
   return Boolean(err && (err.code === "EPIPE" || /EPIPE/.test(String(err.message ?? ""))));
@@ -443,10 +452,25 @@ function createWindow() {
    * No <webview>, o preview É a WebContents inteira, e a página carregada dentro dele é o
    * frame principal DELA — por isso aqui é `if (!isMainFrame) return`.
    */
-  win.webContents.on("did-attach-webview", (_e, webContents) => {
+  win.webContents.on("did-attach-webview", async (_e, webContents) => {
+    await guestRelayoutReady;
+    if (webContents.isDestroyed()) return;
+    webContents.setUserAgent(
+      uaChromeAPartirDe(
+        process.platform === "darwin"
+          ? `Macintosh; Intel Mac OS X 10_15_7 Chrome/${process.versions.chrome}`
+          : process.platform === "linux"
+            ? `Linux Chrome/${process.versions.chrome}`
+            : `Windows NT 10.0; Win64; x64 Chrome/${process.versions.chrome}`,
+      ),
+    );
     webContents.on("did-fail-load", (_ev, code, desc, url, isMainFrame) => {
       if (!isMainFrame || win.isDestroyed()) return;
       win.webContents.send("frame:fail", { code, desc, url });
+    });
+    webContents.on("did-finish-load", () => {
+      if (webContents.isDestroyed()) return;
+      webContents.executeJavaScript(JS_RELAYOUT_GUEST).catch(() => {});
     });
   });
 

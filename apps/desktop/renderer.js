@@ -14,6 +14,7 @@ import { initCombobox } from "./combobox.js";
 import { aplicarEventoDeRun, rotuloDoPasso, duracaoDoPasso, larguraDosPassos } from "./run-view.js";
 import { fmtDuracao } from "./agent-trace.js";
 import { agruparConversas } from "./thread-groups.js";
+import { marcarLinhaAtiva } from "./thread-mark.js";
 import { escapeHtml, renderMd } from "./markdown.js";
 import {
   ago,
@@ -101,6 +102,11 @@ const state = {
   paletteKey: "",
   previewId: "",
   events: [],
+  /**
+   * Última avaliação do roteador que NÃO mudou nada (chega só por SSE, não vai
+   * pro histórico). É por conversa: zerada ao trocar de thread.
+   */
+  ultimaAvaliacaoRoteamento: null,
   talking: false,
   think: { on: false, timer: null, start: 0, frame: 0, verb: 0, tokens: 0 },
   login: { id: "", profileId: "", url: "", poll: 0 },
@@ -460,9 +466,12 @@ function persistAccent(hex) {
   }, 250);
 }
 
-const MODEL_OPTION_VALUES = ["", "opus", "sonnet", "haiku", "fable"];
+const MODEL_OPTION_VALUES = ["", "auto", "opus", "sonnet", "haiku", "fable"];
 const CLAUDE_MODEL_ENTRIES = [
   { value: "", label: "Modelo: padrão" },
+  // "auto" não é modelo: o daemon escolhe um a cada turno pela complexidade da
+  // mensagem (ver MODELO_AUTO em shared e `talvezEscolherModelo` em session.ts).
+  { value: "auto", label: "Automático" },
   { value: "opus", label: "Opus" },
   { value: "sonnet", label: "Sonnet" },
   { value: "haiku", label: "Haiku" },
@@ -501,7 +510,7 @@ const CODEX_SANDBOX_LABELS = Object.fromEntries(CODEX_SANDBOX_ENTRIES.filter((e)
 /** Esforço genérico quando o modelo escolhido é custom ou o catálogo ainda não chegou. */
 const CODEX_EFFORT_FALLBACK = ["low", "medium", "high"];
 /** Rótulo de esforço por valor — cobre os dois motores, sem depender da ordem de um array fixo. */
-const EFFORT_LABELS = { low: "baixo", medium: "médio", high: "alto", xhigh: "muito alto", max: "máximo", ultra: "ultra" };
+const EFFORT_LABELS = { auto: "automático", low: "baixo", medium: "médio", high: "alto", xhigh: "muito alto", max: "máximo", ultra: "ultra" };
 function effortLabel(effort) {
   return effort ? EFFORT_LABELS[effort] || effort : "padrão";
 }
@@ -1209,8 +1218,11 @@ function needsLogin(p = selectedProfile()) {
   return Boolean(p && p.status !== "ready" && p.engine !== "stub");
 }
 
-const EFFORT_STEPS = ["", "low", "medium", "high", "xhigh", "max"];
-const EFFORT_NAMES = ["padrão", "baixo", "médio", "alto", "muito alto", "máximo"];
+// "auto" fica logo depois de "padrão": não é um nível, é a marca de escolha por
+// turno (ESFORCO_AUTO no shared). Controle próprio de propósito — ligar o modelo
+// automático não pode apagar em silêncio um esforço que a pessoa definiu.
+const EFFORT_STEPS = ["", "auto", "low", "medium", "high", "xhigh", "max"];
+const EFFORT_NAMES = ["padrão", "automático", "baixo", "médio", "alto", "muito alto", "máximo"];
 
 /** Pinta o trecho preenchido da trilha (0–100%) — CSS lê isso em `--fill` (ver styles.css). */
 function pintarEffortFill(range) {
@@ -1244,7 +1256,8 @@ function codexEffortSteps(p) {
   const models = state.codexModels[p.id];
   const escolhido = (models || []).find((m) => m.slug === (p.model || ""));
   const efforts = escolhido?.efforts?.length ? escolhido.efforts : CODEX_EFFORT_FALLBACK;
-  return ["", ...efforts];
+  // "auto" também vale no codex: a escolha por turno é do daemon, não do catálogo.
+  return ["", "auto", ...efforts];
 }
 
 function syncCodexControls(p, model, modelCustom, range, label, mode) {
@@ -1314,7 +1327,7 @@ function syncEngineControls() {
   setSelectEntries(model, CLAUDE_MODEL_ENTRIES, MODEL_OPTION_VALUES.includes(p.model || "") ? p.model || "" : "");
   mode.title = "Modo de permissão do motor";
   setSelectEntries(mode, CLAUDE_MODE_ENTRIES, MODE_VALUES.includes(p.permissionMode || "") ? p.permissionMode || "" : "");
-  range.max = "5";
+  range.max = String(EFFORT_STEPS.length - 1);
   const idx = Math.max(0, EFFORT_STEPS.indexOf(p.effort || ""));
   range.value = String(idx);
   pintarEffortFill(range);
@@ -1415,6 +1428,7 @@ function setChatHead() {
   if (!state.threadId) {
     th.textContent = "Nenhuma conversa";
     th.title = "";
+    $("btn-roteamento").classList.add("hidden");
     return;
   }
   const primeira = state.events.find((e) => e.type === "user");
@@ -1424,6 +1438,11 @@ function setChatHead() {
   const nome = def?.name || state.agentId;
   th.textContent = nome ? `${nome} · ${titulo}` : titulo;
   th.title = nome ? `Agente ${nome} — ${titulo}` : titulo;
+  // Botão vale tanto pra decisão gravada quanto pra avaliação que não mudou nada
+  // (esta só existe em memória, vinda do SSE).
+  const temRoteamento = state.events.some((e) => e.type === "roteamento") || Boolean(state.ultimaAvaliacaoRoteamento);
+  $("btn-roteamento").classList.toggle("hidden", !temRoteamento);
+  if (!temRoteamento) toggleRoteamentoDock(false);
 }
 
 /** Abre o repositório na árvore e rola até ele. */
@@ -2760,7 +2779,6 @@ async function loadThreads() {
     repos: state.repos,
     packs,
     open: [...state.reposOpen].sort(),
-    thread: state.threadId,
     active: state.projectPath,
   });
   if (fp === state.fpThreads) return;
@@ -2926,6 +2944,7 @@ function renderRepoTree() {
     /** Uma linha de conversa. Serve solta na lista e dentro do grupo de um run. */
     const linhaDeConversa = (t) => {
       const li = document.createElement("li");
+      li.dataset.threadId = t.id;
       li.dataset.on = t.id === state.threadId ? "1" : "0";
       const busy = isBusy(t);
       li.dataset.busy = busy ? "1" : "0";
@@ -2984,7 +3003,12 @@ function renderRepoTree() {
       detalhes.type = "button";
       detalhes.className = "ghost run-info";
       detalhes.title = "Time, topologia e status de cada passo";
-      detalhes.textContent = "ⓘ";
+      detalhes.innerHTML =
+        '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">' +
+        '<circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.4"/>' +
+        '<circle cx="8" cy="4.8" r="1" fill="currentColor"/>' +
+        '<path d="M8 7.2v4.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>' +
+        "</svg>";
       // preventDefault: o <summary> abre/fecha o <details> com qualquer clique,
       // inclusive neste botão — sem isso, ver detalhes também alterna o grupo.
       detalhes.addEventListener("click", (e) => {
@@ -3095,8 +3119,11 @@ function renderEvents(events) {
   const log = $("log");
   for (const url of state.logShotUrls) URL.revokeObjectURL(url);
   state.logShotUrls = [];
+  const prev = log.style.display;
+  log.style.display = "none";
   log.replaceChildren();
   for (const ev of events) appendEvent(ev, false);
+  log.style.display = prev;
   log.scrollTop = log.scrollHeight;
   atualizarHistoricoChat();
   atualizarBotaoDescer();
@@ -3236,6 +3263,23 @@ async function iniciarSubchat(li, runId) {
     .catch(() => {}); // stream cortado (run terminou, ou daemon reiniciou) — a bolha já tem o resultado final pelo tool_result
 }
 
+/**
+ * Detalhe de confiança das marcas de modelo/esforço automáticos. `rotular` traduz
+ * o valor cru quando a tela mostra outro nome (esforço: "xhigh" → "muito alto").
+ */
+function detalheAuto(ev, valor, rotular = (v) => v) {
+  const pct = Math.round((ev.confianca ?? 0) * 100);
+  if (ev.motivo === "confianca-baixa") {
+    // Não é "indisponível": houve palpite, só não deu pra confiar nele. Muitas
+    // vezes o palpite é o MESMO do padrão, e dizer "indisponível" confundia.
+    return ev.sugerido && ev.sugerido !== valor
+      ? `padrão — sem convicção (sugeriu ${escapeHtml(rotular(ev.sugerido))}, ${pct}%)`
+      : `padrão — sem convicção (${pct}%)`;
+  }
+  if (ev.motivo === "indisponivel" || ev.fallback) return "padrão (não consegui escolher)";
+  return `confiança ${pct}%`;
+}
+
 function appendEvent(ev, scroll = true) {
   const log = $("log");
   const li = document.createElement("li");
@@ -3246,7 +3290,7 @@ function appendEvent(ev, scroll = true) {
     if (shots.length) li.append(shotsRow(shots, ev.threadId ?? state.threadId));
   } else if (ev.type === "assistant") {
     li.className = "bot";
-    li.innerHTML = `<div class="who">Conta</div><div class="md"></div>`;
+    li.innerHTML = `<div class="who">${escapeHtml(autorDaResposta(ev))}</div><div class="md"></div>`;
     renderMd(li.querySelector(".md"), ev.text);
   } else if (ev.type === "tool") {
     if (ehRuidoDePerguntar(ev)) return;
@@ -3318,6 +3362,74 @@ function appendEvent(ev, scroll = true) {
     return;
   } else if (ev.type === "switched") {
     li.innerHTML = `<span class="stamp">Trocou ${escapeHtml(ev.fromProfileId)} → ${escapeHtml(ev.toProfileId)}</span>`;
+  } else if (ev.type === "agent_assigned") {
+    // Quem passou a responder, no ponto exato da conversa em que mudou — sem isso a
+    // troca de agente acontecia invisível e as respostas seguintes mudavam de tom do nada.
+    const nome = agentDef(ev.agentId)?.name || ev.agentId;
+    const conf = typeof ev.confianca === "number" ? ` · confiança ${Math.round(ev.confianca * 100)}%` : "";
+    li.className = "roteamento-marca";
+    li.innerHTML = `<span class="stamp">Agente agora é <strong>${escapeHtml(nome)}</strong>${conf}</span>`;
+  } else if (ev.type === "roteamento") {
+    // Aplicado vira marca discreta (o `agent_assigned` logo abaixo já diz quem assumiu);
+    // pendente é o que segura o turno, então precisa de decisão aqui mesmo, na conversa.
+    if (ev.aplicado) return;
+    const ehTime = ev.tipo === "time";
+    const nome = ehTime
+      ? state.teams.find((t) => t.id === ev.alvo)?.name || ev.alvo
+      : agentDef(ev.alvo)?.name || ev.alvo;
+    // Relendo o histórico, uma sugestão já respondida não pode voltar a oferecer botão:
+    // o turno dela não está mais parado, e clicar daria 409 do daemon.
+    const i = state.events.indexOf(ev);
+    const jaDecidida = i >= 0 && state.events.slice(i + 1).some((e) => e.type === "roteamento_decidido");
+    li.className = "roteamento-sugestao";
+    li.dataset.threadId = ev.threadId ?? state.threadId;
+    if (jaDecidida) li.dataset.decidido = "1";
+    li.innerHTML =
+      `<div class="roteamento-sugestao-txt">Sugestão: mandar para ${ehTime ? "o time" : "o agente"} ` +
+      `<strong>${escapeHtml(nome)}</strong> · confiança ${Math.round(ev.confianca * 100)}%` +
+      (ehTime ? ` — aceitar dispara um run do time, e a resposta não volta para esta conversa.` : "") +
+      (jaDecidida
+        ? ""
+        : `<br><span class="roteamento-sugestao-hint">O turno está parado esperando sua decisão.</span>`) +
+      `</div>` +
+      (jaDecidida
+        ? ""
+        : `<div class="roteamento-sugestao-acoes">` +
+          `<button type="button" class="ghost" data-roteamento="recusar">Recusar</button>` +
+          `<button type="button" class="primary" data-roteamento="aceitar">Aceitar</button>` +
+          `</div>`);
+  } else if (ev.type === "roteamento_decidido") {
+    li.className = "roteamento-marca";
+    li.innerHTML = `<span class="stamp">Sugestão ${ev.aceito ? "aceita" : "recusada"}</span>`;
+  } else if (ev.type === "modelo_auto") {
+    // Modelo "Automático": sem isso a pessoa não saberia com que modelo a resposta
+    // foi feita — e é justamente o que ela abriu mão de escolher.
+    li.className = "roteamento-marca";
+    li.dataset.autoExec = "modelo";
+    li.innerHTML =
+      `<span class="stamp">Modelo automático: <strong>${escapeHtml(ev.model)}</strong>` +
+      ` · ${detalheAuto(ev, ev.model)}</span>`;
+  } else if (ev.type === "esforco_auto") {
+    const trecho =
+      `Esforço automático: <strong>${escapeHtml(effortLabel(ev.effort))}</strong>` +
+      ` · ${detalheAuto(ev, ev.effort, effortLabel)}`;
+    /*
+     * Modelo e esforço saem da MESMA chamada (session.ts) e são emitidos em
+     * sequência: quando os dois vêm, viram uma linha só. Duas marcas seguidas
+     * quebravam a leitura da conversa por uma decisão que é uma coisa só.
+     */
+    const anterior = log.lastElementChild;
+    if (anterior?.dataset.autoExec === "modelo") {
+      anterior.dataset.autoExec = "modelo+esforco";
+      anterior.querySelector(".stamp").insertAdjacentHTML("beforeend", ` · ${trecho}`);
+      if (!scroll) return;
+      state.events = [...state.events, ev];
+      log.scrollTop = log.scrollHeight;
+      atualizarBotaoDescer();
+      return;
+    }
+    li.className = "roteamento-marca";
+    li.innerHTML = `<span class="stamp">${trecho}</span>`;
   } else if (ev.type === "error") {
     li.innerHTML = `<div class="err">${escapeHtml(fmtDetail(ev.message) || "erro")}</div>`;
   } else if (ev.type === "quota") {
@@ -3358,7 +3470,8 @@ function appendEvent(ev, scroll = true) {
   }
   if (scroll) state.events = [...state.events, ev];
   log.append(li);
-  if (scroll) log.scrollTop = log.scrollHeight;
+  if (!scroll) return;
+  log.scrollTop = log.scrollHeight;
   if (ev.type === "user") atualizarHistoricoChat();
   atualizarBotaoDescer();
 }
@@ -3502,15 +3615,19 @@ async function openThread(id) {
   state.abortSse?.abort();
   persistirWork();
   inspectorHost.desligar();
+  // Avaliação é da conversa que estava aberta: não pode vazar pra próxima.
+  state.ultimaAvaliacaoRoteamento = null;
   state.threadId = id;
   localStorage.setItem("nexo.thread", id);
   const events = await req(`/v1/threads/${id}`);
   const meta = events.find((e) => e.type === "thread_meta");
   const switched = [...events].reverse().find((e) => e.type === "switched");
   state.profileId = switched?.toProfileId || meta?.profileId || "";
-  state.agentId = meta?.agentId || "";
   setVia();
   renderEvents(events);
+  // Depois de `renderEvents` (que popula `state.events`): o agente pode ter sido
+  // atribuído por roteamento no meio da conversa, e o `thread_meta` não sabe disso.
+  sincronizarAgenteDaConversa();
   setComposer(true);
   // "Falando" é por conversa: com duas contas trabalhando em paralelo, sair de uma
   // em voo não pode deixar a próxima com o indicador aceso e o Parar mirando errado.
@@ -3518,15 +3635,16 @@ async function openThread(id) {
   setChatHead();
   state.queuePaused = false;
   paintQueue();
-  state.fpThreads = "";
-  state.fpProfiles = "";
   if (!state.sideChat) state.sideChat = true;
-  await loadThreads();
-  await loadProfiles();
+  marcarLinhaAtiva($("repo-tree"), id);
   listenSse();
-  await refreshMeter();
   hidratarOuMigrar();
   aplicarSessaoWork();
+  // lista/perfis/quota: não bloqueiam o clique. Forçar fp vazio reconstruía a
+  // árvore inteira a cada troca e travava com dezenas de conversas.
+  void loadThreads();
+  void loadProfiles();
+  void refreshMeter();
 }
 
 function listenSse() {
@@ -3598,7 +3716,7 @@ function onLive(ev) {
       last = document.createElement("li");
       last.className = "bot";
       last.dataset.stream = "1";
-      last.innerHTML = `<div class="who">Conta</div><div class="stream md"></div>`;
+      last.innerHTML = `<div class="who">${escapeHtml(autorDaResposta({ type: "assistant" }))}</div><div class="stream md"></div>`;
       log.append(last);
       state.events = [...state.events, { type: "assistant", text: "" }];
     }
@@ -3624,6 +3742,13 @@ function onLive(ev) {
   }
   if (ev.type === "usage") {
     state.meter.contextTokens = ev.contextTokens || state.meter.contextTokens;
+    // O modelo que REALMENTE rodou só se sabe agora: completa o rótulo da bolha
+    // que estava em voo, que nasceu sem essa parte.
+    if (ev.model || ev.effort) {
+      const bolha = [...$("log").querySelectorAll("li.bot")].at(-1);
+      const who = bolha?.querySelector(".who");
+      if (who) who.textContent = rotuloDeExecucao(agentDef(state.agentId)?.name || state.agentId || "", ev.model, ev.effort);
+    }
     paintContext();
     void refreshMeter();
     return;
@@ -3677,6 +3802,68 @@ function onLive(ev) {
   }
   if (ev.type === "pergunta_resposta") {
     appendEvent({ type: "pergunta_resposta", id: ev.id, resposta: ev.resposta });
+    return;
+  }
+  if (ev.type === "esforco_auto") {
+    appendEvent({
+      type: "esforco_auto",
+      effort: ev.effort,
+      confianca: ev.confianca,
+      fallback: ev.fallback,
+      motivo: ev.motivo,
+      sugerido: ev.sugerido,
+    });
+    return;
+  }
+  if (ev.type === "modelo_auto") {
+    appendEvent({
+      type: "modelo_auto",
+      model: ev.model,
+      confianca: ev.confianca,
+      fallback: ev.fallback,
+      motivo: ev.motivo,
+      sugerido: ev.sugerido,
+    });
+    return;
+  }
+  if (ev.type === "roteamento") {
+    // Avaliação que não mexeu na conversa: não vira linha no histórico, mas fica
+    // guardada pra o painel poder mostrar "o roteador rodou e decidiu manter".
+    // Sem isso, uma chamada paga por mensagem não deixava rastro nenhum na tela.
+    if (!ev.mudou) {
+      state.ultimaAvaliacaoRoteamento = { ...ev, quando: new Date().toISOString() };
+      $("btn-roteamento").classList.remove("hidden");
+      paintRoteamento();
+      return;
+    }
+    // Recarrega os eventos pra pegar o `roteamento` gravado (com a distribuição
+    // inteira, que não vem no SSE) e só então pinta painel, cabeçalho e conversa.
+    void (async () => {
+      try {
+        state.events = await req(`/v1/threads/${state.threadId}`);
+      } catch {
+        return;
+      }
+      sincronizarAgenteDaConversa();
+      setChatHead();
+      if (ev.aplicado) {
+        appendEvent({ type: "agent_assigned", agentId: ev.alvo, confianca: ev.confianca });
+        paintRoteamento();
+      } else {
+        // Pendente = o turno está PARADO esperando resposta: mostra na conversa E
+        // abre o painel, senão a pessoa fica olhando um chat mudo sem saber que
+        // precisa decidir algo.
+        appendEvent({
+          type: "roteamento",
+          tipo: ev.tipo,
+          alvo: ev.alvo,
+          confianca: ev.confianca,
+          aplicado: false,
+          threadId: ev.threadId,
+        });
+        toggleRoteamentoDock(true);
+      }
+    })();
     return;
   }
   if (ev.type === "delegacao_run") {
@@ -4454,6 +4641,205 @@ function toggleAgents(want) {
   }
   paintAgents();
 }
+
+/**
+ * Agrupa a distribuição crua do Choice (chaves: agentId, `time:<id>` ou
+ * "automatico") nos 3 ramos da árvore, cada um ordenado do mais provável ao
+ * menos provável — é a mesma leitura que os scripts de experimento fazem em
+ * texto (ver apps/daemon/scripts/typesafe-route-experiment.ts).
+ */
+function agruparProbabilidadesRoteamento(probabilidades) {
+  const grupos = { agente: [], time: [], automatico: [] };
+  for (const [chave, p] of Object.entries(probabilidades || {})) {
+    if (chave === "automatico") grupos.automatico.push({ id: chave, p });
+    else if (chave.startsWith("time:")) grupos.time.push({ id: chave.slice(5), p });
+    else grupos.agente.push({ id: chave, p });
+  }
+  for (const g of Object.values(grupos)) g.sort((a, b) => b.p - a.p);
+  return grupos;
+}
+
+function nomeDoCandidatoRoteamento(tipo, id) {
+  if (tipo === "automatico") return "Automático";
+  if (tipo === "time") return state.teams.find((t) => t.id === id)?.name || id;
+  return agentDef(id)?.name || id;
+}
+
+function ramoRoteamentoHtml(titulo, tipo, itens, vencedorTipo, vencedorId) {
+  if (!itens.length) return "";
+  const linhas = itens
+    .map(({ id, p }) => {
+      const venceu = tipo === vencedorTipo && (tipo === "automatico" || id === vencedorId);
+      const pct = Math.round(p * 100);
+      return `<li class="roteamento-item${venceu ? " venceu" : ""}">
+        <span class="roteamento-item-nome">${venceu ? "✓ " : ""}${escapeHtml(nomeDoCandidatoRoteamento(tipo, id))}</span>
+        <span class="roteamento-item-bar"><span style="width:${pct}%"></span></span>
+        <span class="roteamento-item-pct">${pct}%</span>
+      </li>`;
+    })
+    .join("");
+  return `<div class="roteamento-ramo${tipo === vencedorTipo ? " venceu" : ""}">
+    <h5>${titulo}</h5>
+    <ul>${linhas}</ul>
+  </div>`;
+}
+
+/**
+ * Quem respondeu, no lugar de um "Conta" genérico: agente (quando há), modelo e
+ * esforço que REALMENTE rodaram. Com agente atribuído por roteamento e
+ * modelo/esforço escolhidos por turno, duas respostas seguidas podem sair de
+ * configurações diferentes — sem isso não dá pra saber de qual.
+ *
+ * Os dois vêm do evento `usage` do MESMO turno (o daemon carimba ali o que
+ * passou pro motor), não da configuração atual: senão uma conversa antiga
+ * mentiria sobre o próprio passado. A conta fica de fora — ela já está fixa no
+ * rodapé do composer, e repetir em toda bolha é ruído.
+ */
+function autorDaResposta(ev) {
+  const i = state.events.indexOf(ev);
+  let agentId = "";
+  let uso = null;
+  if (i >= 0) {
+    for (let j = i - 1; j >= 0 && !agentId; j--) {
+      const e = state.events[j];
+      if (e.type === "agent_assigned") agentId = e.agentId;
+      else if (e.type === "thread_meta") agentId = e.agentId || "";
+    }
+    // `usage` fecha o turno, então vem DEPOIS da resposta.
+    for (let j = i + 1; j < state.events.length && !uso; j++) {
+      const e = state.events[j];
+      if (e.type === "usage") uso = e;
+      else if (e.type === "user") break;
+    }
+  } else {
+    agentId = state.agentId || "";
+  }
+  return rotuloDeExecucao(agentDef(agentId)?.name || agentId, uso?.model, uso?.effort);
+}
+
+/** Junta as partes conhecidas do "quem respondeu". Vazio vira o rótulo genérico de antes. */
+function rotuloDeExecucao(agente, model, effort) {
+  const partes = [agente, model, effort ? `esforço ${effortLabel(effort)}` : ""].filter(Boolean);
+  return partes.length ? partes.join(" · ") : "Conta";
+}
+
+/**
+ * Espelho do `activeAgentId` do daemon (threads.ts): o agente da conversa pode
+ * ter mudado DEPOIS da criação, e `state.agentId` só era lido do `thread_meta`
+ * ao abrir a conversa — o cabeçalho ficava mostrando o agente velho até reabrir.
+ */
+function sincronizarAgenteDaConversa() {
+  for (let i = state.events.length - 1; i >= 0; i--) {
+    const e = state.events[i];
+    if (e.type === "agent_assigned") {
+      state.agentId = e.agentId;
+      return;
+    }
+    if (e.type === "thread_meta") {
+      state.agentId = e.agentId || "";
+      return;
+    }
+  }
+}
+
+/** Última decisão (1x por thread) e se já foi aceita/recusada — usa o que já está em `state.events`. */
+function ultimoRoteamento() {
+  const eventos = state.events;
+  const decisao = [...eventos].reverse().find((e) => e.type === "roteamento");
+  if (!decisao) return null;
+  const iDecisao = eventos.indexOf(decisao);
+  const jaDecidido = eventos.some((e, i) => e.type === "roteamento_decidido" && i > iDecisao);
+  return { decisao, pendente: !decisao.aplicado && !jaDecidido };
+}
+
+const MOTIVO_ROTEAMENTO = {
+  "mesmo-agente": "manteve quem já estava",
+  "abaixo-do-limiar": "confiança abaixo do limiar de troca (70%)",
+  "nenhum-se-aplica": "nenhum especialista se aplica",
+};
+
+function paintRoteamento() {
+  const gravada = ultimoRoteamento();
+  const avaliacao = state.ultimaAvaliacaoRoteamento;
+  // A avaliação que não mudou nada é a mais recente quando existe: ela conta o
+  // que o roteador achou AGORA, enquanto a gravada é a última vez que mexeu.
+  const usarAvaliacao = Boolean(avaliacao) && (!gravada || !gravada.pendente);
+  if (!gravada && !avaliacao) return;
+
+  const fonte = usarAvaliacao ? avaliacao : gravada.decisao;
+  const pendente = !usarAvaliacao && gravada.pendente;
+
+  $("roteamento-tarefa").textContent = usarAvaliacao
+    ? `Última avaliação: ${MOTIVO_ROTEAMENTO[avaliacao.motivo] || "sem mudança"}.`
+    : gravada.decisao.tarefa;
+
+  const grupos = agruparProbabilidadesRoteamento(fonte.probabilidades);
+  const vencedorId = fonte.alvo;
+  $("roteamento-arvore").innerHTML =
+    [
+      ramoRoteamentoHtml("Agente", "agente", grupos.agente, fonte.tipo, vencedorId),
+      ramoRoteamentoHtml("Time", "time", grupos.time, fonte.tipo, vencedorId),
+      ramoRoteamentoHtml("Automático", "automatico", grupos.automatico, fonte.tipo, vencedorId),
+    ].join("") || '<p class="roteamento-tarefa">Sem distribuição registrada.</p>';
+  $("roteamento-acoes").classList.toggle("hidden", !pendente);
+  $("roteamento-acao-err").textContent = "";
+}
+
+function toggleRoteamentoDock(want) {
+  const dock = $("roteamento-dock");
+  const abrir = want === undefined ? dock.classList.contains("hidden") : Boolean(want);
+  dock.classList.toggle("hidden", !abrir);
+  $("btn-roteamento").setAttribute("aria-expanded", abrir ? "true" : "false");
+  if (abrir) {
+    if (!state.agents.defsLoaded) void loadAgentDefs();
+    if (!state.teams.length) void loadTeams().then(paintRoteamento);
+    paintRoteamento();
+  }
+}
+
+async function decidirRoteamentoPendente(aceitar) {
+  $("roteamento-acao-err").textContent = "";
+  try {
+    const r = await req(`/v1/threads/${state.threadId}/roteamento`, {
+      method: "POST",
+      body: JSON.stringify({ aceitar }),
+    });
+    state.events = await req(`/v1/threads/${state.threadId}`);
+    sincronizarAgenteDaConversa();
+    setChatHead();
+    paintRoteamento();
+    // A bolha da sugestão não pode continuar oferecendo botão do que já foi decidido.
+    for (const b of $("log").querySelectorAll(".roteamento-sugestao")) {
+      b.querySelector(".roteamento-sugestao-acoes")?.remove();
+      b.dataset.decidido = "1";
+    }
+    appendEvent({ type: "roteamento_decidido", aceito: aceitar });
+    if (aceitar) {
+      const alvo = state.events.filter((e) => e.type === "agent_assigned").at(-1);
+      if (alvo) appendEvent({ type: "agent_assigned", agentId: alvo.agentId, confianca: alvo.confianca });
+    }
+    // Decidido: o painel já cumpriu o papel e o turno parado volta a andar (ou
+    // virou run de time). Continua alcançável pelo botão do cabeçalho.
+    toggleRoteamentoDock(false);
+    if (r?.retomado) setMotor(true, true);
+  } catch (err) {
+    $("roteamento-acao-err").textContent = err.message || "Não gravou.";
+  }
+}
+
+// Aceitar/recusar direto da bolha da conversa, além do painel.
+$("log").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-roteamento]");
+  if (!btn) return;
+  const bolha = btn.closest(".roteamento-sugestao");
+  if (bolha) bolha.dataset.decidindo = "1";
+  void decidirRoteamentoPendente(btn.dataset.roteamento === "aceitar");
+});
+
+$("btn-roteamento").addEventListener("click", () => toggleRoteamentoDock());
+$("btn-roteamento-close").addEventListener("click", () => toggleRoteamentoDock(false));
+$("btn-roteamento-aceitar").addEventListener("click", () => void decidirRoteamentoPendente(true));
+$("btn-roteamento-recusar").addEventListener("click", () => void decidirRoteamentoPendente(false));
 
 /**
  * Abas da tela unificada (`#pane-agentes`) — Agentes/Times/Hooks. Troca é só visibilidade: nada
@@ -6194,6 +6580,61 @@ $("btn-windows-control-desativar").addEventListener("click", () => {
   void salvarControleDoWindows(false);
 });
 
+async function renderRoteamento() {
+  if (!state.ok) return;
+  try {
+    const cfg = await req("/v1/config");
+    $("roteamento-modo").value = cfg.typesafe?.modo || "desligado";
+  } catch {
+    /* fica no que já estava na tela */
+  }
+  try {
+    const ts = await req("/v1/typesafe");
+    $("roteamento-key-status").textContent = ts.configured ? "Configurada." : "Não configurada.";
+    const u = ts.usage || { inputTokens: 0, outputTokens: 0, calls: 0 };
+    $("roteamento-uso").textContent = `${u.calls} chamada(s) — ${u.inputTokens} tokens de entrada, ${u.outputTokens} de saída`;
+  } catch {
+    /* fica no que já estava na tela */
+  }
+}
+
+$("roteamento-modo").addEventListener("change", async (e) => {
+  $("roteamento-modo-err").textContent = "";
+  try {
+    await req("/v1/config", { method: "PUT", body: JSON.stringify({ typesafe: { modo: e.target.value } }) });
+  } catch (err) {
+    $("roteamento-modo-err").textContent = err.message || "Não gravou.";
+    await renderRoteamento();
+  }
+});
+
+$("btn-roteamento-key-salvar").addEventListener("click", async () => {
+  $("roteamento-key-err").textContent = "";
+  const apiKey = $("roteamento-key").value.trim();
+  if (!apiKey) {
+    $("roteamento-key-err").textContent = "Cole a key antes de salvar.";
+    return;
+  }
+  try {
+    await req("/v1/typesafe", { method: "PUT", body: JSON.stringify({ apiKey }) });
+    $("roteamento-key").value = "";
+    await renderRoteamento();
+  } catch (err) {
+    $("roteamento-key-err").textContent = err.message || "Não gravou.";
+  }
+});
+
+$("btn-roteamento-key-remover").addEventListener("click", async () => {
+  $("roteamento-key-err").textContent = "";
+  try {
+    await req("/v1/typesafe", { method: "PUT", body: JSON.stringify({ apiKey: "" }) });
+    $("roteamento-key").value = "";
+    await renderRoteamento();
+  } catch (err) {
+    $("roteamento-key-err").textContent = err.message || "Não gravou.";
+  }
+});
+
 $("switch-mode").addEventListener("change", async (e) => {
   const mode = e.target.value;
   $("switch-mode-err").textContent = "";
@@ -6271,6 +6712,7 @@ $("btn-settings").addEventListener("click", () => {
   void renderFallback();
   void renderMemoria();
   void renderModulos();
+  void renderRoteamento();
 });
 $("btn-settings-close").addEventListener("click", () => $("settings").classList.add("hidden"));
 $("settings").addEventListener("click", (e) => {

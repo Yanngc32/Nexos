@@ -1,9 +1,10 @@
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, it, expect } from "vitest";
-import { addProfile, engineEnv, getProfile, markReady, rememberContextWindow } from "../src/profiles.ts";
-import { createThread, readThread, threadUsage } from "../src/threads.ts";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { saveTypesafeApiKey } from "../src/typesafe.ts";
+import { addProfile, engineEnv, getProfile, markReady, rememberContextWindow, updateProfile } from "../src/profiles.ts";
+import { activeAgentId, createThread, readThread, threadUsage } from "../src/threads.ts";
 import { lerSessaoClaude } from "../src/claude-session.ts";
 import {
   abortThread,
@@ -14,6 +15,7 @@ import {
   perfilEmUso,
   pingUsoDeTodasAsContas,
   postMessage,
+  retomarTurnoPendente,
   sessionBus,
   switchThread,
 } from "../src/session.ts";
@@ -755,5 +757,540 @@ describe("perfilEmUso", () => {
     await postMessage(t.id, "oi", home);
     expect(perfilEmUso("peu-1")).toBe(true);
     expect(perfilEmUso("outro-perfil-qualquer")).toBe(false);
+  });
+});
+
+describe("postMessage: roteamento por typesafe.ai", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** Esforço vem de um Score (escala ordenada): índice em CLAUDE_EFFORT_LEVELS. */
+  function respostaEsforco(nivel: number, confidence = 0.9) {
+    return new Response(
+      JSON.stringify({
+        model: "jev-1.0",
+        answers: {
+          which_effort: { type: "score", score: nivel, confidence, legend: {}, probabilities: { [nivel]: confidence } },
+        },
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }
+
+  function respostaModeloEsforco(model: string, nivel: number, confidence = 0.9) {
+    return new Response(
+      JSON.stringify({
+        model: "jev-1.0",
+        answers: {
+          which_model: { type: "choice", choice: model, confidence, probabilities: { [model]: confidence } },
+          which_effort: { type: "score", score: nivel, confidence, legend: {}, probabilities: { [nivel]: confidence } },
+        },
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }
+
+  function respostaModelo(choice: string, confidence = 0.9) {
+    return new Response(
+      JSON.stringify({
+        model: "jev-1.0",
+        answers: {
+          which_model: { type: "choice", choice, confidence, probabilities: { [choice]: confidence } },
+        },
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }
+
+  function respostaFake(choice: string, confidence = 0.9) {
+    return new Response(
+      JSON.stringify({
+        model: "jev-1.0",
+        answers: {
+          which_agent: { type: "choice", choice, confidence, probabilities: { [choice]: confidence } },
+        },
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }
+
+  it("modo desligado (padrão): nunca chama a API, thread segue sem agente", async () => {
+    const home = tempHome();
+    addProfile({ id: "rot-1", engine: "stub" }, home);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const t = createThread({ projectPath: "/proj", profileId: "rot-1" }, home);
+    await postMessage(t.id, "revisa esse PR", home);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(readThread(t.id, home).some((e) => e.type === "roteamento")).toBe(false);
+  });
+
+  it("thread com agentId explícito na criação: nunca roteia, mesmo em modo automatico", async () => {
+    const home = tempHome();
+    addProfile({ id: "rot-2", engine: "stub" }, home);
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "rot-2" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const t = createThread({ projectPath: "/proj", profileId: "rot-2", agentId: "revisor" }, home);
+    await postMessage(t.id, "oi", home);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("modo automatico + escolha de agente: atribui e marca aplicado", async () => {
+    const home = tempHome();
+    addProfile({ id: "rot-3", engine: "stub" }, home);
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "rot-3", description: "Revisa PRs" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("revisor")));
+    const t = createThread({ projectPath: "/proj", profileId: "rot-3" }, home);
+    await postMessage(t.id, "revisa esse PR", home);
+
+    const events = readThread(t.id, home);
+    const roteamento = events.find((e) => e.type === "roteamento");
+    expect(roteamento).toMatchObject({ tipo: "agente", alvo: "revisor", aplicado: true });
+    expect(events.find((e) => e.type === "agent_assigned")).toMatchObject({ agentId: "revisor" });
+  });
+
+  it("modo perguntar + escolha de agente: só sugere, não atribui, e SEGURA o turno", async () => {
+    const home = tempHome();
+    addProfile({ id: "rot-4", engine: "stub" }, home);
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "rot-4" }, home);
+    saveConfig(home, { typesafe: { modo: "perguntar" } });
+    saveTypesafeApiKey("k", home);
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("revisor")));
+    const t = createThread({ projectPath: "/proj", profileId: "rot-4" }, home);
+    await postMessage(t.id, "revisa esse PR", home);
+
+    const events = readThread(t.id, home);
+    expect(events.find((e) => e.type === "roteamento")).toMatchObject({ tipo: "agente", aplicado: false });
+    expect(events.some((e) => e.type === "agent_assigned")).toBe(false);
+    // O turno NÃO pode ter rodado: responder antes de decidir sairia do agente errado.
+    expect(events.some((e) => e.type === "assistant")).toBe(false);
+    expect(events.map((e) => e.type)).toEqual(["thread_meta", "roteamento", "user"]);
+  });
+
+  it("retomarTurnoPendente despacha a mensagem que ficou parada", async () => {
+    const home = tempHome();
+    addProfile({ id: "rot-10", engine: "stub" }, home);
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "rot-10" }, home);
+    saveConfig(home, { typesafe: { modo: "perguntar" } });
+    saveTypesafeApiKey("k", home);
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("revisor")));
+    const t = createThread({ projectPath: "/proj", profileId: "rot-10" }, home);
+    await postMessage(t.id, "revisa esse PR", home);
+    expect(readThread(t.id, home).some((e) => e.type === "assistant")).toBe(false);
+
+    await retomarTurnoPendente(t.id, home);
+    expect(readThread(t.id, home).some((e) => e.type === "assistant")).toBe(true);
+  });
+
+  it("modo automatico aplica na hora e NÃO segura o turno", async () => {
+    const home = tempHome();
+    addProfile({ id: "rot-11", engine: "stub" }, home);
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "rot-11" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("revisor", 0.95)));
+    const t = createThread({ projectPath: "/proj", profileId: "rot-11" }, home);
+    await postMessage(t.id, "revisa esse PR", home);
+
+    const events = readThread(t.id, home);
+    expect(events.some((e) => e.type === "agent_assigned")).toBe(true);
+    expect(events.some((e) => e.type === "assistant")).toBe(true);
+  });
+
+  it("escolha de time NUNCA aplica sozinha, mesmo em modo automatico", async () => {
+    const home = tempHome();
+    addProfile({ id: "rot-5", engine: "stub" }, home);
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "rot-5" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("time:time-feature")));
+    const t = createThread({ projectPath: "/proj", profileId: "rot-5" }, home);
+    await postMessage(t.id, "implementa e revisa", home);
+
+    const events = readThread(t.id, home);
+    expect(events.find((e) => e.type === "roteamento")).toMatchObject({ tipo: "time", alvo: "time-feature", aplicado: false });
+    expect(events.some((e) => e.type === "agent_assigned")).toBe(false);
+  });
+
+  it("avalia a cada mensagem, mas não repete atribuição de quem já está tocando", async () => {
+    const home = tempHome();
+    addProfile({ id: "rot-6", engine: "stub" }, home);
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "rot-6" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    const fetchMock = vi.fn(async () => respostaFake("revisor"));
+    vi.stubGlobal("fetch", fetchMock);
+    const t = createThread({ projectPath: "/proj", profileId: "rot-6" }, home);
+    await postMessage(t.id, "revisa esse PR", home);
+    await postMessage(t.id, "mais uma coisa", home);
+
+    // Uma chamada por mensagem (é por prompt agora)...
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // ...mas a 2ª escolheu quem já estava: nada de evento novo.
+    const events = readThread(t.id, home);
+    expect(events.filter((e) => e.type === "agent_assigned")).toHaveLength(1);
+    expect(events.filter((e) => e.type === "roteamento")).toHaveLength(1);
+  });
+
+  it("modelo automático: escolhe por complexidade e injeta como override do turno", async () => {
+    const home = tempHome();
+    addProfile({ id: "auto-1", engine: "stub" }, home);
+    updateProfile("auto-1", home, { model: "auto" });
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "auto-1", model: "haiku" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    // Um agente com modelo próprio e a conta em "auto": a lista de candidatos sai daí.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const body = JSON.parse(init.body);
+        // A pergunta de modelo não leva `agente_atual`; a de roteamento leva.
+        const ehModelo = body.state.agente_atual === undefined;
+        return ehModelo ? respostaModelo("haiku", 0.9) : respostaFake("automatico", 0.9);
+      }),
+    );
+    const t = createThread({ projectPath: "/proj", profileId: "auto-1" }, home);
+    const vistos: { type: string; model?: string; fallback?: boolean }[] = [];
+    const onEv = (ev: { type: string; model?: string }) => vistos.push(ev);
+    sessionBus.on(t.id, onEv);
+    try {
+      await postMessage(t.id, "traduz essa frase", home);
+    } finally {
+      sessionBus.off(t.id, onEv);
+    }
+    expect((getLive(t.id)?.engine as StubEngine).lastOverrides).toEqual({ model: "haiku" });
+    expect(vistos.find((e) => e.type === "modelo_auto")).toMatchObject({ model: "haiku", fallback: false });
+  });
+
+  it("modelo automático com typesafe fora do ar: cai no fallback e avisa", async () => {
+    const home = tempHome();
+    addProfile({ id: "auto-2", engine: "stub" }, home);
+    updateProfile("auto-2", home, { model: "auto" });
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "auto-2", model: "haiku" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("sem rede");
+      }),
+    );
+    const t = createThread({ projectPath: "/proj", profileId: "auto-2" }, home);
+    const vistos: { type: string; model?: string; fallback?: boolean }[] = [];
+    const onEv = (ev: { type: string; model?: string }) => vistos.push(ev);
+    sessionBus.on(t.id, onEv);
+    try {
+      await postMessage(t.id, "qualquer coisa", home);
+    } finally {
+      sessionBus.off(t.id, onEv);
+    }
+    // Override vazio: quem resolve o "auto" vira o fallback lá no profileFlags.
+    expect((getLive(t.id)?.engine as StubEngine).lastOverrides).toEqual({});
+    expect(vistos.find((e) => e.type === "modelo_auto")).toMatchObject({
+      model: "sonnet",
+      fallback: true,
+      motivo: "indisponivel",
+    });
+  });
+
+  it("modelo automático com confiança baixa cai no fallback (dúvida = modelo mais capaz)", async () => {
+    const home = tempHome();
+    addProfile({ id: "auto-4", engine: "stub" }, home);
+    updateProfile("auto-4", home, { model: "auto" });
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "auto-4", model: "haiku" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const body = JSON.parse(init.body);
+        const ehModelo = body.state.agente_atual === undefined;
+        // Empate: escolheu o barato, mas sem convicção nenhuma.
+        return ehModelo ? respostaModelo("haiku", 0.15) : respostaFake("automatico", 0.9);
+      }),
+    );
+    const t = createThread({ projectPath: "/proj", profileId: "auto-4" }, home);
+    const vistos: { type: string; model?: string; fallback?: boolean }[] = [];
+    const onEv = (ev: { type: string; model?: string }) => vistos.push(ev);
+    sessionBus.on(t.id, onEv);
+    try {
+      await postMessage(t.id, "por que isso quebra?", home);
+    } finally {
+      sessionBus.off(t.id, onEv);
+    }
+    expect((getLive(t.id)?.engine as StubEngine).lastOverrides).toEqual({});
+    expect(vistos.find((e) => e.type === "modelo_auto")).toMatchObject({
+      model: "sonnet",
+      fallback: true,
+      motivo: "confianca-baixa",
+      sugerido: "haiku",
+    });
+  });
+
+  it("esforço automático: escolhe e aplica como override, independente do modelo", async () => {
+    const home = tempHome();
+    addProfile({ id: "esf-1", engine: "stub" }, home);
+    // Modelo FIXO, esforço em auto: só a pergunta de esforço deve ser feita.
+    updateProfile("esf-1", home, { model: "sonnet", effort: "auto" });
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "esf-1" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    const corpos: { questions: Record<string, unknown> }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const body = JSON.parse(init.body) as { questions: Record<string, unknown>; state: { agente_atual?: string } };
+        corpos.push(body);
+        if (body.state.agente_atual !== undefined) return respostaFake("automatico", 0.9);
+        return respostaEsforco(2, 0.9); // high
+      }),
+    );
+    const t = createThread({ projectPath: "/proj", profileId: "esf-1" }, home);
+    const vistos: { type: string; effort?: string }[] = [];
+    const onEv = (ev: { type: string; effort?: string }) => vistos.push(ev);
+    sessionBus.on(t.id, onEv);
+    try {
+      await postMessage(t.id, "investiga esse deadlock", home);
+    } finally {
+      sessionBus.off(t.id, onEv);
+    }
+
+    expect((getLive(t.id)?.engine as StubEngine).lastOverrides).toMatchObject({ effort: "high" });
+    expect(vistos.find((e) => e.type === "esforco_auto")).toMatchObject({ effort: "high", fallback: false });
+    // Modelo fixo: a pergunta de modelo não foi feita.
+    const daExecucao = corpos.find((b) => b.questions.which_effort);
+    expect(daExecucao?.questions.which_model).toBeUndefined();
+  });
+
+  it("modelo e esforço em auto vão na MESMA chamada", async () => {
+    const home = tempHome();
+    addProfile({ id: "esf-2", engine: "stub" }, home);
+    updateProfile("esf-2", home, { model: "auto", effort: "auto" });
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "esf-2", model: "haiku" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    const corpos: { questions: Record<string, unknown> }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const body = JSON.parse(init.body) as { questions: Record<string, unknown>; state: { agente_atual?: string } };
+        corpos.push(body);
+        if (body.state.agente_atual !== undefined) return respostaFake("automatico", 0.9);
+        return respostaModeloEsforco("haiku", 0, 0.9); // low
+      }),
+    );
+    const t = createThread({ projectPath: "/proj", profileId: "esf-2" }, home);
+    await postMessage(t.id, "renomeia essa variável", home);
+
+    const daExecucao = corpos.filter((b) => b.questions.which_model || b.questions.which_effort);
+    // Uma chamada só, com as duas perguntas juntas.
+    expect(daExecucao).toHaveLength(1);
+    expect(daExecucao[0].questions.which_model).toBeDefined();
+    expect(daExecucao[0].questions.which_effort).toBeDefined();
+    expect((getLive(t.id)?.engine as StubEngine).lastOverrides).toMatchObject({ model: "haiku", effort: "low" });
+  });
+
+  it("agente atribuído pelo roteamento NÃO rebaixa a permissão escolhida na conta", async () => {
+    const home = tempHome();
+    addProfile({ id: "perm-1", engine: "stub" }, home);
+    updateProfile("perm-1", home, { permissionMode: "bypassPermissions" });
+    // implementador declara acceptEdits — que não libera comando de shell.
+    saveAgent({ id: "implementador", name: "Implementador", profileId: "perm-1", permissionMode: "acceptEdits" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("implementador", 0.95)));
+    const t = createThread({ projectPath: "/proj", profileId: "perm-1" }, home);
+    await postMessage(t.id, "roda o build", home);
+
+    expect(activeAgentId(readThread(t.id, home))).toBe("implementador");
+    // A escolha da pessoa continua valendo, apesar do agente atribuído sozinho.
+    expect((getLive(t.id)?.engine as StubEngine).lastOverrides).toMatchObject({
+      permissionMode: "bypassPermissions",
+    });
+  });
+
+  it("agente ESCOLHIDO na criação mantém a permissão dele (você adotou a config)", async () => {
+    const home = tempHome();
+    addProfile({ id: "perm-2", engine: "stub" }, home);
+    updateProfile("perm-2", home, { permissionMode: "bypassPermissions" });
+    saveAgent({ id: "explorador", name: "Explorador", profileId: "perm-2", permissionMode: "plan" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    const fetchMock = vi.fn(async () => respostaFake("implementador", 0.95));
+    vi.stubGlobal("fetch", fetchMock);
+    const t = createThread({ projectPath: "/proj", profileId: "perm-2", agentId: "explorador" }, home);
+    await postMessage(t.id, "oi", home);
+
+    // Nem roteia (escolha explícita) nem sobrepõe permissão.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((getLive(t.id)?.engine as StubEngine).lastOverrides).toEqual({});
+  });
+
+  it("conta sem permissão definida segue usando a do agente", async () => {
+    const home = tempHome();
+    addProfile({ id: "perm-3", engine: "stub" }, home);
+    saveAgent({ id: "implementador", name: "Implementador", profileId: "perm-3", permissionMode: "acceptEdits" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("implementador", 0.95)));
+    const t = createThread({ projectPath: "/proj", profileId: "perm-3" }, home);
+    await postMessage(t.id, "implementa", home);
+    expect((getLive(t.id)?.engine as StubEngine).lastOverrides).toEqual({});
+  });
+
+  it("conta com modelo fixo não chama escolha de modelo", async () => {
+    const home = tempHome();
+    addProfile({ id: "auto-3", engine: "stub" }, home);
+    updateProfile("auto-3", home, { model: "opus" });
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "auto-3" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    const fetchMock = vi.fn(async () => respostaFake("automatico", 0.9));
+    vi.stubGlobal("fetch", fetchMock);
+    const t = createThread({ projectPath: "/proj", profileId: "auto-3" }, home);
+    await postMessage(t.id, "oi", home);
+    // Só a chamada de roteamento; nenhuma de modelo.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((getLive(t.id)?.engine as StubEngine).lastOverrides).toEqual({});
+  });
+
+  it("avaliação que não muda nada não vira evento, mas AVISA pelo SSE", async () => {
+    const home = tempHome();
+    addProfile({ id: "rot-12", engine: "stub" }, home);
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "rot-12" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    // Confiança abaixo do limiar: decide, mas não troca.
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("revisor", 0.45)));
+    const t = createThread({ projectPath: "/proj", profileId: "rot-12" }, home);
+
+    const vistos: { type: string; mudou?: boolean; motivo?: string }[] = [];
+    const onEv = (ev: { type: string; mudou?: boolean; motivo?: string }) => vistos.push(ev);
+    sessionBus.on(t.id, onEv);
+    try {
+      await postMessage(t.id, "algo ambíguo", home);
+    } finally {
+      sessionBus.off(t.id, onEv);
+    }
+
+    // Nada gravado: histórico não leva uma linha "segue igual" por mensagem...
+    expect(readThread(t.id, home).some((e) => e.type === "roteamento")).toBe(false);
+    // ...mas a tela precisa saber que a avaliação (paga) aconteceu.
+    const aviso = vistos.find((e) => e.type === "roteamento");
+    expect(aviso).toMatchObject({ mudou: false, motivo: "abaixo-do-limiar" });
+  });
+
+  it("histerese: confiança abaixo do limiar não troca o agente", async () => {
+    const home = tempHome();
+    addProfile({ id: "rot-7", engine: "stub" }, home);
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "rot-7" }, home);
+    saveAgent({ id: "explorador", name: "Explorador", profileId: "rot-7" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    const t = createThread({ projectPath: "/proj", profileId: "rot-7" }, home);
+
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("revisor", 0.95)));
+    await postMessage(t.id, "revisa esse PR", home);
+    expect(readThread(t.id, home).find((e) => e.type === "agent_assigned")).toMatchObject({ agentId: "revisor" });
+
+    // Mensagem ambígua: aponta outro agente, mas sem convicção — mantém o atual.
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("explorador", 0.45)));
+    await postMessage(t.id, "não funcionou", home);
+    const events = readThread(t.id, home);
+    expect(events.filter((e) => e.type === "agent_assigned")).toHaveLength(1);
+    expect(activeAgentId(events)).toBe("revisor");
+  });
+
+  it("sai de agente só-leitura com confiança baixa (ficar garantiria falhar)", async () => {
+    const home = tempHome();
+    addProfile({ id: "rot-13", engine: "stub" }, home);
+    // explorador só lê (modo plano); implementador edita.
+    saveAgent({ id: "explorador", name: "Explorador", profileId: "rot-13", permissionMode: "plan" }, home);
+    saveAgent({ id: "implementador", name: "Implementador", profileId: "rot-13" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    const t = createThread({ projectPath: "/proj", profileId: "rot-13" }, home);
+
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("explorador", 0.95)));
+    await postMessage(t.id, "mapeia o código", home);
+    expect(activeAgentId(readThread(t.id, home))).toBe("explorador");
+
+    // 0.46 ficaria abaixo do limiar normal (0.70) — mas sair de quem só lê basta 0.40.
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("implementador", 0.46)));
+    await postMessage(t.id, "vamos resolver isso ai", home);
+    expect(activeAgentId(readThread(t.id, home))).toBe("implementador");
+  });
+
+  it("agente que edita mantém a histerese normal (0.46 não troca)", async () => {
+    const home = tempHome();
+    addProfile({ id: "rot-14", engine: "stub" }, home);
+    saveAgent({ id: "implementador", name: "Implementador", profileId: "rot-14" }, home);
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "rot-14" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    const t = createThread({ projectPath: "/proj", profileId: "rot-14" }, home);
+
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("implementador", 0.95)));
+    await postMessage(t.id, "implementa isso", home);
+    expect(activeAgentId(readThread(t.id, home))).toBe("implementador");
+
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("revisor", 0.46)));
+    await postMessage(t.id, "hmm", home);
+    expect(activeAgentId(readThread(t.id, home))).toBe("implementador");
+  });
+
+  it("troca de agente no meio da conversa quando a confiança é alta", async () => {
+    const home = tempHome();
+    addProfile({ id: "rot-8", engine: "stub" }, home);
+    saveAgent({ id: "explorador", name: "Explorador", profileId: "rot-8" }, home);
+    saveAgent({ id: "implementador", name: "Implementador", profileId: "rot-8" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    const t = createThread({ projectPath: "/proj", profileId: "rot-8" }, home);
+
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("explorador", 0.95)));
+    await postMessage(t.id, "mapeia o código do checkout", home);
+    expect(activeAgentId(readThread(t.id, home))).toBe("explorador");
+
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("implementador", 0.93)));
+    await postMessage(t.id, "agora implementa a correção", home);
+    expect(activeAgentId(readThread(t.id, home))).toBe("implementador");
+  });
+
+  it("manda o histórico e o agente atual como contexto da decisão", async () => {
+    const home = tempHome();
+    addProfile({ id: "rot-9", engine: "stub" }, home);
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "rot-9" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    type EstadoEnviado = {
+      state: { conversa: { quem: string; texto: string }[]; mensagem_nova: string; agente_atual: string };
+    };
+    const corpos: EstadoEnviado[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        corpos.push(JSON.parse(init.body) as EstadoEnviado);
+        return respostaFake("revisor", 0.95);
+      }),
+    );
+    const t = createThread({ projectPath: "/proj", profileId: "rot-9" }, home);
+    await postMessage(t.id, "primeira", home);
+    await postMessage(t.id, "segunda", home);
+
+    // 1ª mensagem: sem histórico e sem agente ainda.
+    expect(corpos[0].state).toMatchObject({ conversa: [], mensagem_nova: "primeira", agente_atual: "nenhum" });
+    // 2ª: já leva o que passou e quem está tocando.
+    expect(corpos[1].state.mensagem_nova).toBe("segunda");
+    expect(corpos[1].state.agente_atual).toBe("revisor");
+    expect(corpos[1].state.conversa.some((f) => f.quem === "usuario" && f.texto === "primeira")).toBe(true);
   });
 });

@@ -1,4 +1,5 @@
-import type { EngineEvent, StartOpts } from "@nexo/shared";
+import type { EngineEvent, EngineOverrides, StartOpts } from "@nexo/shared";
+import { MODELO_AUTO, MODELO_AUTO_FALLBACK } from "@nexo/shared";
 import type { Engine, EngineHandler, EngineMcp } from "./types.ts";
 import { getProfile, readApiKey } from "../profiles.ts";
 
@@ -9,6 +10,8 @@ type ApiEngineOpts = {
 };
 
 export class ApiEngine implements Engine {
+  /** Override do turno (modelo escolhido por complexidade). Ver `updateOverrides`. */
+  private overridesDoTurno: EngineOverrides = {};
   private handler?: EngineHandler;
   private opts?: StartOpts;
   private readonly fetchImpl: typeof fetch;
@@ -42,6 +45,10 @@ export class ApiEngine implements Engine {
     // Sem sessão de CLI pra retomar.
   }
 
+  updateOverrides(over: EngineOverrides): void {
+    this.overridesDoTurno = over;
+  }
+
   async send(text: string): Promise<void> {
     if (this.aborted || !this.handler) return;
     const profile = getProfile(this.profileId, this.home);
@@ -64,7 +71,7 @@ export class ApiEngine implements Engine {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: profile.api.model,
+        model: modeloEfetivo(this.overridesDoTurno.model ?? profile.api.model),
         max_tokens: 1024,
         system: this.opts?.contextPack || undefined,
         messages: [{ role: "user", content: text }],
@@ -104,4 +111,9 @@ function defaultBase(provider: string): string {
   if (provider === "openai") return "https://api.openai.com";
   if (provider === "gemini") return "https://generativelanguage.googleapis.com";
   return "https://api.anthropic.com";
+}
+
+/** "auto" nunca é nome de modelo: sem escolha dinâmica do turno, vale o fallback. */
+function modeloEfetivo(model: string): string {
+  return model === MODELO_AUTO ? MODELO_AUTO_FALLBACK.model : model;
 }

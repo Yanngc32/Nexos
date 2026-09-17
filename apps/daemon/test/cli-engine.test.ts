@@ -178,6 +178,34 @@ describe("CliEngine flags", () => {
     expect(engine.lastArgs).not.toContain("--effort");
     expect(engine.lastArgs).not.toContain("--permission-mode");
   });
+
+  /*
+   * Regressão de um erro que chegou ao usuário: "There's an issue with the
+   * selected model (auto)". "auto" é marca de escolha dinâmica, não modelo — se
+   * a escolha do turno não vier, o argv tem que sair com o fallback.
+   */
+  it("modelo 'auto' nunca vai cru pro CLI: sem escolha do turno, vale o fallback", async () => {
+    const home = tempHome();
+    addProfile({ id: "c-auto", engine: "claude" }, home, { skipBinCheck: true });
+    markReady("c-auto", home);
+    updateProfile("c-auto", home, { model: "auto" });
+    process.env.NEXO_CLAUDE_BIN = fake;
+    const engine = claudeEngine(home, "c-auto");
+    await engine.start(
+      { threadId: "t-auto", projectPath: spawnCwd("."), profileId: "c-auto", contextPack: "pack" },
+      () => {},
+    );
+    const args = semAddDir(engine.lastArgs);
+    expect(args).not.toContain("auto");
+    expect(args[args.indexOf("--model") + 1]).toBe("sonnet");
+    expect(args[args.indexOf("--effort") + 1]).toBe("medium");
+
+    // Com a escolha do turno, é ela que vale — e continua sem "auto" no argv.
+    engine.updateOverrides({ model: "haiku" });
+    await engine.send("oi");
+    expect(engine.lastArgs).not.toContain("auto");
+    expect(engine.lastArgs[engine.lastArgs.indexOf("--model") + 1]).toBe("haiku");
+  });
 });
 
 describe("CliEngine auth", () => {
