@@ -3,7 +3,7 @@
   "short_name": "Nexo",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#16161a",
-  "theme_color": "#16161a",
+  "background_color": "#141417",
+  "theme_color": "#141417",
   "icons": [{ "src": "./icone.svg", "sizes": "any", "type": "image/svg+xml" }]
 }

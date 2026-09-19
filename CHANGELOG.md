@@ -6,6 +6,16 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- Tema da interface em Configurações → Aparência, com dois perfis: **grafite** (padrão, o neutro
+  levemente frio alinhado ao roxo da marca) e **preto** (fundo preto e cinzas, contraste alto e
+  bom em tela OLED). Só a rampa de superfície, traço e texto muda — tipografia, espaçamento, raio
+  e a cor de destaque continuam iguais nos dois, então nenhum componente precisa saber qual tema
+  está no ar. Guardado em `config.json → tema` (e no `localStorage`, pra pintar já no boot sem
+  esperar o daemon): a janela principal nasce na cor certa (`main.cjs` lê o tema antes de criar a
+  BrowserWindow, senão pisca grafite), e o painel flutuante e a interface de celular acompanham
+  pelo `GET /v1/config` — no celular a `<meta name="theme-color">` muda junto, pra barra de
+  status do Android não destoar. Splash e barras do APK (TWA) passam a usar a mesma cor de fundo
+  do tema padrão.
 - Interface de celular ganha o que faltava pra fechar com o desktop: botão "+ Nova" abre uma
   folha pra escolher conta pronta ou agente personalizado e cria a conversa; dentro de uma
   conversa com conta `claude`, um botão de ajustes abre folha de modelo/effort (`PATCH
@@ -359,6 +369,13 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   campos de texto com base comum (nenhum input cai mais no visual nativo) e
   `--accent-text` derivado de `--accent`, pra cor trocada em Configurações continuar valendo em
   texto pequeno. O maguinho continua onde estava, sem mudança de arte nem de animação.
+- Configurações ganham hierarquia: a navegação sai de uma lista de sete itens pra três grupos
+  (**App**, **Motor**, **Fora desta máquina**) e cada painel divide as linhas em grupos rotulados
+  — cartão rebaixado com hairline entre as linhas, rótulo em caixa alta miúda por fora. A busca
+  agora esconde o grupo inteiro junto com o rótulo dele quando nenhuma linha casa, e painel sem
+  `.set-row` (Pastas compartilhadas, que é um `.shared-card`) passa a casar pelo texto da seção —
+  antes sumia em qualquer busca, inclusive pelas palavras escritas nele. O item "Memória" virou
+  "Pastas", que é o título do painel que ele abre.
 - Configurações: os sete itens da navegação e a busca trocam glifo de texto (◧ ☰ ▢ ⇅ ◈ ▣ ⇶ ⌕)
   por ícone SVG, no mesmo traço da barra lateral, e descrição com mais de um parágrafo
   (Roteamento IA, Módulos) ganha respiro entre eles — antes colavam num bloco só de texto.

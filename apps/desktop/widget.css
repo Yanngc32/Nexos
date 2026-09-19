@@ -33,6 +33,15 @@
   color-scheme: dark;
 }
 
+/* Mesmo tema "preto" do app (styles.css): o painel acompanha a janela principal. */
+:root[data-tema="preto"] {
+  --bg: #000000;
+  --surface-2: #17171a;
+  --line: #1e1e21;
+  --text: #ededee;
+  --muted: #9a9aa1;
+}
+
 * {
   box-sizing: border-box;
 }

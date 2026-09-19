@@ -93,6 +93,31 @@
   --ring: 0 0 0 2px var(--bg), 0 0 0 4px color-mix(in srgb, var(--accent) 65%, transparent);
 }
 
+/* -----------------------------------------------------------------------------
+ * Tema "preto": fundo preto e cinzas, pra tela OLED e pra quem quer contraste
+ * alto. Só a rampa de superfície, traço e texto muda — tipografia, espaçamento,
+ * raio e acento são os mesmos do tema padrão, então nenhum componente precisa
+ * saber qual tema está no ar.
+ * -------------------------------------------------------------------------- */
+:root[data-tema="preto"] {
+  --bg: #000000;
+  --side: #070708;
+  --surface: #101011;
+  --surface-2: #17171a;
+  --surface-3: #1f1f22;
+  --elev: #17171a;
+  --line: #1e1e21;
+  --line-2: #2b2b2f;
+  --line-3: #3b3b40;
+  --text: #ededee;
+  --muted: #9a9aa1;
+  --faint: #6d6d74;
+  /* no preto a sombra não separa nada: quem separa é o traço */
+  --sh-1: 0 1px 2px rgba(0, 0, 0, .6);
+  --sh-2: 0 10px 28px -6px rgba(0, 0, 0, .8), 0 0 0 1px rgba(255, 255, 255, .05);
+  --sh-3: 0 22px 60px -12px rgba(0, 0, 0, .9), 0 0 0 1px rgba(255, 255, 255, .06);
+}
+
 * {
   box-sizing: border-box;
   scrollbar-width: thin;
@@ -3331,26 +3356,63 @@ button:disabled {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 4px 18px 18px;
+  padding: var(--s-1) var(--s-7) var(--s-8);
 }
 
 .set-sec h3 {
-  margin: var(--s-7) 0 var(--s-2);
+  margin: var(--s-6) 0 var(--s-2);
   font-size: var(--fs-lg);
   font-weight: 600;
   letter-spacing: var(--ls-title);
   color: var(--text);
 }
 
+/* Grupo: um cartão rebaixado por assunto, com as linhas separadas por hairline
+   por dentro. É o que dá a hierarquia painel > grupo > linha sem empilhar mais
+   um tamanho de fonte — o rótulo do grupo mora FORA do cartão, acima dele. */
+.set-grupo-tit {
+  margin: var(--s-7) 0 var(--s-2);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.set-sec h3 + .set-grupo-tit {
+  margin-top: var(--s-6);
+}
+
+.set-grupo {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.set-grupo + .set-grupo {
+  margin-top: var(--s-5);
+}
+
+.set-sec h3 + .set-grupo {
+  margin-top: var(--s-4);
+}
+
+/* grupo inteiro sem resultado na busca some junto com o rótulo dele */
+.set-grupo[data-hit="0"],
+.set-grupo-tit[data-hit="0"] {
+  display: none;
+}
+
 .set-row {
   display: flex;
   align-items: center;
   gap: var(--s-7);
-  padding: var(--s-5) 0;
+  padding: var(--s-5) var(--s-6);
   border-top: 1px solid var(--line);
 }
 
-.set-sec h3 + .set-row {
+.set-grupo > .set-row:first-child {
   border-top: 0;
 }
 
@@ -3486,6 +3548,114 @@ button:disabled {
 .set-hint {
   color: var(--muted);
   font-size: 0.9em;
+}
+
+/* ---- Escolha de tema: dois cartões com miniatura da paleta ----
+ * A miniatura precisa das cores CRUAS de cada tema (o tema que não está no ar
+ * não tem variável viva), então elas aparecem aqui uma segunda vez. É a única
+ * duplicação intencional dos tokens no arquivo.
+ */
+.temas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: var(--s-4);
+  width: 100%;
+}
+
+.tema-op {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 2px var(--s-4);
+  padding: var(--s-4);
+  text-align: left;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+}
+
+.tema-op:hover {
+  border-color: var(--line-3);
+}
+
+.tema-op[data-on="1"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+}
+
+.tema-mini {
+  grid-row: span 2;
+  position: relative;
+  display: block;
+  width: 46px;
+  height: 34px;
+  border-radius: var(--r-sm);
+  border: 1px solid #00000066;
+  overflow: hidden;
+}
+
+.tema-mini[data-mini="grafite"] {
+  background: #141417;
+}
+
+.tema-mini[data-mini="preto"] {
+  background: #000000;
+}
+
+.tema-mini-side {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 14px;
+}
+
+.tema-mini[data-mini="grafite"] .tema-mini-side {
+  background: #101012;
+}
+
+.tema-mini[data-mini="preto"] .tema-mini-side {
+  background: #070708;
+}
+
+.tema-mini-card {
+  position: absolute;
+  left: 19px;
+  right: 5px;
+  top: 8px;
+  height: 11px;
+  border-radius: 2px;
+}
+
+.tema-mini[data-mini="grafite"] .tema-mini-card {
+  background: #202026;
+}
+
+.tema-mini[data-mini="preto"] .tema-mini-card {
+  background: #17171a;
+}
+
+.tema-mini-dot {
+  position: absolute;
+  left: 19px;
+  top: 23px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.tema-nome {
+  align-self: end;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.tema-desc {
+  align-self: start;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-ui);
+  color: var(--muted);
 }
 
 /* ---- Pastas compartilhadas (memória / repo map) ---- */

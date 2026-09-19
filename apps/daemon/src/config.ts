@@ -3,10 +3,12 @@ import {
   CAVEMAN_NIVEIS,
   DEFAULT_CONFIG,
   SWITCH_MODES,
+  TEMAS,
   TYPESAFE_MODOS,
   type CavemanNivel,
   type NexoConfig,
   type SwitchMode,
+  type Tema,
   type TypesafeModo,
 } from "@nexo/shared";
 import { configPath, ensureHome } from "./home.ts";
@@ -58,6 +60,7 @@ export function loadConfig(home: string): NexoConfig {
       compactar: raw.pack?.compactar ?? DEFAULT_CONFIG.pack.compactar,
     },
     accent: isHex(raw.accent) ? raw.accent : DEFAULT_CONFIG.accent,
+    tema: isTema(raw.tema) ? raw.tema : DEFAULT_CONFIG.tema,
     repos: cleanRepos(raw.repos),
     hiddenRepos: cleanRepos(raw.hiddenRepos),
     lastProject: str(raw.lastProject),
@@ -73,6 +76,10 @@ export function loadConfig(home: string): NexoConfig {
     windowsControlEnabled: Boolean(raw.windowsControlEnabled),
     typesafe: { modo: isTypesafeModo(raw.typesafe?.modo) ? raw.typesafe.modo : DEFAULT_CONFIG.typesafe.modo },
   };
+}
+
+function isTema(value: unknown): value is Tema {
+  return typeof value === "string" && (TEMAS as string[]).includes(value);
 }
 
 function isTypesafeModo(value: unknown): value is TypesafeModo {
@@ -167,6 +174,7 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
     switchMode: isSwitchMode(patch.switchMode) ? patch.switchMode : current.switchMode,
     pack: { ...current.pack, ...patch.pack },
     accent: isHex(patch.accent) ? patch.accent : current.accent,
+    tema: isTema(patch.tema) ? patch.tema : current.tema,
     repos: patch.repos === undefined ? current.repos : cleanRepos(patch.repos),
     hiddenRepos: patch.hiddenRepos === undefined ? current.hiddenRepos : cleanRepos(patch.hiddenRepos),
     lastProject: patch.lastProject === undefined ? current.lastProject : str(patch.lastProject),

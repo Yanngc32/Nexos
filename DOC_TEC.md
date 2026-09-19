@@ -240,8 +240,23 @@ ABERTO, não da máquina inteira.
 
 ### Configurações
 
-Três abas: **Aparência** (tema, cor de destaque), **Contas** (cadastro, login, import, modelo,
-effort, permission mode, limites) e **Fallback** (ordem de tentativa entre contas).
+Navegação em três grupos, e cada painel divide as linhas em grupos rotulados (cartão rebaixado
+com hairline entre as linhas):
+
+- **App** — Aparência (tema, cor de destaque) e Módulos (RTK, Caveman, tarefas, controle do
+  Windows).
+- **Motor** — Contas (cadastro, login, import, modelo, effort, permission mode, limites),
+  Fallback (ordem de tentativa na quota) e Roteamento IA (modo, API key e uso do typesafe.ai).
+- **Fora desta máquina** — Pastas compartilhadas e Celular.
+
+A busca casa por linha e esconde o grupo inteiro (com o rótulo) quando nenhuma linha dele casa.
+
+**Tema** (`config.json → tema`, também no `localStorage` pra pintar no boot sem esperar o
+daemon): `grafite` (padrão, neutro levemente frio) e `preto` (fundo preto e cinzas). Só troca a
+rampa de superfície, traço e texto — tipografia, espaçamento, raio e a cor de destaque (`accent`)
+são os mesmos nos dois, então nenhum componente precisa saber qual tema está no ar. Vale pras
+três telas: o `main.cjs` lê o tema antes de abrir a janela (pra não piscar), o painel flutuante e
+a interface de celular pegam pelo `GET /v1/config`.
 
 ### Interface de celular (`apps/mobile`)
 

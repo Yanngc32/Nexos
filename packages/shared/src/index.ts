@@ -93,6 +93,17 @@ export const SWITCH_MODES: SwitchMode[] = ["auto", "manual", "denied"];
 export type TypesafeModo = "desligado" | "automatico" | "perguntar";
 export const TYPESAFE_MODOS: TypesafeModo[] = ["desligado", "automatico", "perguntar"];
 
+/**
+ * Perfil de cor da interface. Só muda a rampa de superfície, traço e texto — a
+ * cor de acento continua sendo escolhida à parte (`accent`), e tipografia,
+ * espaçamento e raio são os mesmos nos dois.
+ *
+ * `grafite`: neutro levemente frio, alinhado ao roxo da marca.
+ * `preto`: fundo preto com cinzas, pra tela OLED e pra quem quer contraste alto.
+ */
+export type Tema = "grafite" | "preto";
+export const TEMAS: Tema[] = ["grafite", "preto"];
+
 /** Imagem colada ou arrastada no chat. Vive no home do nexo, nunca na pasta do projeto. */
 export type Attachment = {
   /** Nome do arquivo no disco; identidade dentro da thread. */
@@ -276,6 +287,8 @@ export type NexoConfig = {
     compactar: boolean;
   };
   accent: string;
+  /** Perfil de cor da interface. Vale pro app e pro painel flutuante. */
+  tema: Tema;
   /**
    * Pastas abertas no app. Fica aqui, e não no localStorage, porque o
    * localStorage vive no userData do Electron — que muda conforme o app é
@@ -381,6 +394,7 @@ export const DEFAULT_CONFIG: NexoConfig = {
   switchMode: "manual",
   pack: { keepLastMessages: 20, prefixCharBudget: 2000, compactar: true },
   accent: "#4d9cd6",
+  tema: "grafite",
   repos: [],
   hiddenRepos: [],
   lastProject: "",

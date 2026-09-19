@@ -85,6 +85,21 @@ function readPort() {
   }
 }
 
+/**
+ * Cor de fundo da janela ANTES de o renderer pintar. Sem ler o tema aqui, abrir
+ * o app no tema preto pisca um retângulo grafite a cada inicialização.
+ */
+const TEMA_BG = { grafite: "#141417", preto: "#000000" };
+
+function readTema() {
+  try {
+    const raw = JSON.parse(readFileSync(configPath(), "utf8"));
+    return raw.tema in TEMA_BG ? raw.tema : "grafite";
+  } catch {
+    return "grafite";
+  }
+}
+
 function readAccentArg() {
   const argv = process.argv.slice(1);
   for (let i = 0; i < argv.length; i++) {
@@ -385,6 +400,7 @@ async function runShot(target) {
 
 function createWindow() {
   const accent = readAccentArg();
+  const tema = readTema();
   const size = shotSize();
   win = new BrowserWindow({
     show: !SHOT,
@@ -392,7 +408,7 @@ function createWindow() {
     height: size.height,
     minWidth: SHOT ? 0 : 900,
     minHeight: SHOT ? 0 : 560,
-    backgroundColor: "#181818",
+    backgroundColor: TEMA_BG[tema],
     title: "Nexo",
     icon: join(here, "icons", "app.png"),
     webPreferences: {
@@ -420,7 +436,7 @@ function createWindow() {
     webPreferences.contextIsolation = true;
     webPreferences.sandbox = false;
   });
-  const query = HEX.test(accent) ? { accent } : {};
+  const query = { tema, ...(HEX.test(accent) ? { accent } : {}) };
   // NEXO_SHOT_URL (dev): captura uma página local em vez do app — serve pra
   // revisar mockup de UI com o CSS de verdade.
   const shotUrl = process.env.NEXO_SHOT_URL ?? "";

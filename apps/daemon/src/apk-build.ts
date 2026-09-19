@@ -267,9 +267,12 @@ async function rodar(home: string, https: { hostname: string; port: number }): P
     name: "Nexo",
     launcherName: "Nexo",
     display: "standalone",
-    themeColor: "#16161a",
-    navigationColor: "#16161a",
-    backgroundColor: "#16161a",
+    // mesma cor de fundo do tema padrão da interface (apps/desktop/styles.css e
+    // apps/mobile/mobile.css): splash e barras do sistema não podem destoar da
+    // primeira tela que aparece
+    themeColor: "#141417",
+    navigationColor: "#141417",
+    backgroundColor: "#141417",
     enableNotifications: false,
     startUrl: "/app/",
     // PNG, não o icone.svg: o Jimp (usado pelo TwaGenerator pra gerar os

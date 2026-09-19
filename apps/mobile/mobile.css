@@ -82,6 +82,20 @@
   color-scheme: dark;
 }
 
+/* Tema "preto": mesma troca do desktop (styles.css), que chega pelo config do
+   daemon. Só a rampa muda; tipografia, espaçamento e acento continuam. */
+:root[data-tema="preto"] {
+  --bg: #000000;
+  --surface: #101011;
+  --surface-2: #17171a;
+  --surface-3: #1f1f22;
+  --line: #1e1e21;
+  --line-2: #2b2b2f;
+  --text: #ededee;
+  --muted: #9a9aa1;
+  --faint: #6d6d74;
+}
+
 * { box-sizing: border-box; }
 
 html, body {

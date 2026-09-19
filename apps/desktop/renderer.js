@@ -455,6 +455,34 @@ function applyAccent(hex) {
   return true;
 }
 
+/**
+ * Perfil de cor da interface. Só troca a rampa (fundo, traço, texto) via
+ * `data-tema` no <html> — o CSS faz o resto, e o acento escolhido continua
+ * valendo em cima dos dois. Guardado no localStorage pra pintar já no boot,
+ * sem esperar o daemon, e no config do daemon pra o painel flutuante seguir.
+ */
+const TEMAS = ["grafite", "preto"];
+const DEFAULT_TEMA = "grafite";
+
+function applyTema(nome) {
+  const tema = TEMAS.includes(nome) ? nome : DEFAULT_TEMA;
+  document.documentElement.dataset.tema = tema;
+  localStorage.setItem("nexo.tema", tema);
+  for (const btn of document.querySelectorAll("#temas .tema-op")) {
+    const on = btn.dataset.tema === tema;
+    btn.dataset.on = on ? "1" : "0";
+    btn.setAttribute("aria-checked", on ? "true" : "false");
+  }
+  return tema;
+}
+
+function persistTema(nome) {
+  const tema = applyTema(nome);
+  if (state.ok) {
+    void req("/v1/config", { method: "PUT", body: JSON.stringify({ tema }) }).catch(() => {});
+  }
+}
+
 let accentTimer;
 function persistAccent(hex) {
   if (!applyAccent(hex)) return;
@@ -2477,6 +2505,7 @@ async function refreshDaemon() {
   try {
     const cfg = await req("/v1/config");
     if (cfg.accent) applyAccent(cfg.accent);
+    if (cfg.tema) applyTema(cfg.tema);
     void celPintarUrl(cfg);
     // /v1/projects já vem com as pastas do config + as que as conversas revelam
     let fonte = cfg;
@@ -6674,6 +6703,7 @@ function filterSettings() {
   const q = $("set-q").value.trim().toLowerCase();
   if (!q) {
     for (const row of document.querySelectorAll(".set-row")) row.dataset.hit = "1";
+    for (const g of document.querySelectorAll(".set-grupo, .set-grupo-tit")) g.dataset.hit = "1";
     $("set-empty").classList.add("hidden");
     showSetPanel(state.setPanel);
     return;
@@ -6682,11 +6712,25 @@ function filterSettings() {
   for (const sec of document.querySelectorAll(".set-sec")) {
     const title = sec.querySelector("h3")?.textContent || "";
     let hits = 0;
-    for (const row of sec.querySelectorAll(".set-row")) {
-      const hit = `${title} ${row.textContent}`.toLowerCase().includes(q);
-      row.dataset.hit = hit ? "1" : "0";
-      if (hit) hits += 1;
+    for (const grupo of sec.querySelectorAll(".set-grupo")) {
+      let noGrupo = 0;
+      for (const row of grupo.querySelectorAll(".set-row")) {
+        const hit = `${title} ${row.textContent}`.toLowerCase().includes(q);
+        row.dataset.hit = hit ? "1" : "0";
+        if (hit) noGrupo += 1;
+      }
+      // o rótulo mora fora do cartão: some junto, senão fica um título órfão
+      grupo.dataset.hit = noGrupo ? "1" : "0";
+      const rotulo = grupo.previousElementSibling;
+      if (rotulo?.classList.contains("set-grupo-tit")) rotulo.dataset.hit = noGrupo ? "1" : "0";
+      hits += noGrupo;
     }
+    /*
+     * Painel sem nenhuma `.set-row` (Pastas compartilhadas é um `.shared-card`)
+     * nunca casava a busca e sumia em toda pesquisa, inclusive nas palavras que
+     * estão escritas nele. Aqui ele casa pelo texto inteiro da seção.
+     */
+    if (!sec.querySelector(".set-row") && sec.textContent.toLowerCase().includes(q)) hits = 1;
     sec.classList.toggle("hidden", hits === 0);
     if (hits) any = true;
   }
@@ -6907,6 +6951,11 @@ $("btn-nav-save").addEventListener("click", async () => {
   } catch (e) {
     err.textContent = e.message || "não deu pra salvar";
   }
+});
+
+$("temas").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-tema]");
+  if (btn) persistTema(btn.dataset.tema);
 });
 
 $("accent-picker").addEventListener("input", (e) => persistAccent(e.target.value));
@@ -7166,7 +7215,9 @@ function initBarOverflow() {
 initCombobox();
 initBarOverflow();
 
-const bootAccent = new URLSearchParams(location.search).get("accent");
+const bootQuery = new URLSearchParams(location.search);
+const bootAccent = bootQuery.get("accent");
+applyTema(bootQuery.get("tema") || localStorage.getItem("nexo.tema") || DEFAULT_TEMA);
 applyAccent(HEX.test(bootAccent || "") ? bootAccent : localStorage.getItem("nexo.accent") || DEFAULT_ACCENT);
 hydrateRepos();
 syncApiFields();

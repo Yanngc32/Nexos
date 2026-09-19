@@ -25,12 +25,12 @@ function pagina(titulo: string, corpo: string): string {
   * { box-sizing: border-box; }
   body {
     margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    padding: 24px; background: #16161a; color: #e8e8ea;
+    padding: 24px; background: #141417; color: #ececef;
     font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
   }
   .cartao { max-width: 360px; text-align: center; }
   h1 { font-size: 18px; margin: 0 0 8px; }
-  p { margin: 0 0 8px; color: #8b8b95; }
+  p { margin: 0 0 8px; color: #9b9ba4; }
 </style>
 </head>
 <body><div class="cartao">${corpo}</div></body>

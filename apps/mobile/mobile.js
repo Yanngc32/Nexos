@@ -182,6 +182,27 @@ function pintarContas(contas) {
   $("contas").classList.toggle("hidden", contas.length === 0);
 }
 
+const TEMAS = ["grafite", "preto"];
+/**
+ * Mesmo tema escolhido no desktop (Configurações → Aparência), que vem no
+ * config do daemon. Guardado no localStorage pra a próxima abertura já nascer
+ * na cor certa, sem esperar o primeiro poll.
+ */
+function aplicarTema(nome) {
+  const tema = TEMAS.includes(nome) ? nome : localStorage.getItem("nexo.tema") || "grafite";
+  document.documentElement.dataset.tema = tema;
+  // a barra de status do Android segue esta meta: sem atualizar, o topo do
+  // sistema fica grafite com o app preto
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", tema === "preto" ? "#000000" : "#141417");
+  try {
+    localStorage.setItem("nexo.tema", tema);
+  } catch {
+    // modo privado sem storage: o tema continua valendo nesta sessão
+  }
+}
+
+aplicarTema();
+
 async function puxarAgora() {
   try {
     const [run, contas, agentes, cfg] = await Promise.all([
@@ -193,6 +214,7 @@ async function puxarAgora() {
     // o projeto do celular acompanha o último que o desktop abriu: é o mesmo
     // daemon, e escolher projeto no telefone seria uma tela que não paga
     if (cfg?.lastProject) projeto = cfg.lastProject;
+    aplicarTema(cfg?.tema);
     ultimo = { run, contas, agentes };
     $("motor").dataset.on = "1";
     $("motor").textContent = "ligado";

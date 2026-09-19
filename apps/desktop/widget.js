@@ -38,6 +38,12 @@ function aplicarAccent(hex) {
   if (HEX.test(hex)) document.documentElement.style.setProperty("--accent", hex);
 }
 
+const TEMAS = ["grafite", "preto"];
+/** Mesmo tema escolhido na janela principal — o painel é a mesma janela em miniatura. */
+function aplicarTema(nome) {
+  if (TEMAS.includes(nome)) document.documentElement.dataset.tema = nome;
+}
+
 const api = createApiClient({ daemonInfo: () => window.nexo.daemonInfo() });
 
 let timer = 0;
@@ -268,6 +274,7 @@ async function atualizar() {
       api.req("/v1/config").catch(() => null),
     ]);
     if (cfg?.accent) aplicarAccent(cfg.accent);
+    if (cfg?.tema) aplicarTema(cfg.tema);
     ultimo = { run, contas, agentes, projeto };
     // o cabeçalho diz DE QUAL projeto é o que está abaixo: "Nexo" ali não
     // informava nada, e com dois projetos abertos a faixa ficava ambígua
