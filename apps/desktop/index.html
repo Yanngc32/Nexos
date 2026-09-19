@@ -1333,6 +1333,14 @@
                     <button type="button" class="primary" id="btn-cel-codigo">Gerar código</button>
                   </div>
                 </div>
+                <div class="cel-qr hidden" id="cel-qr">
+                  <div class="cel-qr-img" id="cel-qr-img"></div>
+                  <div class="cel-qr-lado">
+                    <span class="cel-codigo" id="cel-codigo"></span>
+                    <span class="cel-qr-sub">para digitar à mão</span>
+                  </div>
+                </div>
+                <p class="set-aviso" id="cel-aviso"></p>
               </div>
               <p class="set-grupo-tit">APK Android</p>
               <div class="set-grupo">
@@ -1365,6 +1373,13 @@
                     <button type="button" class="primary" id="btn-apk-codigo">Gerar QR de download</button>
                   </div>
                 </div>
+                <div class="cel-qr hidden" id="apk-qr">
+                  <div class="cel-qr-img" id="apk-qr-img"></div>
+                  <div class="cel-qr-lado">
+                    <span class="cel-codigo" id="apk-codigo"></span>
+                    <span class="cel-qr-sub">para digitar à mão</span>
+                  </div>
+                </div>
               </div>
               <p class="set-grupo-tit">Rede</p>
               <div class="set-grupo">
@@ -1377,6 +1392,16 @@
                     <button type="button" class="ghost" id="btn-cel-revogar">Desconectar celulares</button>
                   </div>
                 </div>
+                <details class="set-det" id="cel-avancado">
+                  <summary>Endereço de escuta (avançado)</summary>
+                  <p>
+                    O Nexo já escuta sozinho no loopback e em qualquer túnel que a máquina tenha
+                    (Tailscale, WireGuard) — inclusive em túnel que subir depois, sem reiniciar nada.
+                    Só preencha aqui se precisar de um endereço específico. <code>0.0.0.0</code>
+                    publica na rede inteira, e aí o token é a única barreira.
+                  </p>
+                  <input type="text" id="cel-host" spellcheck="false" maxlength="45" placeholder="automático" aria-label="Endereço de escuta" />
+                </details>
               </div>
             </section>
             <section class="set-sec hidden" data-panel="fallback">
