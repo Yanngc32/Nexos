@@ -26,7 +26,7 @@ import { celAlcance, celAviso } from "./celular.js";
 const $ = (id) => document.getElementById(id);
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
-const DEFAULT_ACCENT = "#4d9cd6";
+const DEFAULT_ACCENT = "#7c5cbf";
 
 const MODULES = [
   { id: "file", name: "Arquivo", keys: "Ctrl+G", ico: "📄" },

@@ -226,7 +226,7 @@ export const DEFAULT_CONFIG: NexoConfig = {
   fallbackOrder: [],
   switchMode: "manual",
   pack: { keepLastMessages: 20, prefixCharBudget: 2000, compactar: true },
-  accent: "#4d9cd6",
+  accent: "#7c5cbf",
   repos: [],
   hiddenRepos: [],
   lastProject: "",

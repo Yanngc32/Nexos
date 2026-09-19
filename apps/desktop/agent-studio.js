@@ -44,7 +44,7 @@ export function createAgentStudio({
     return {
       name: "",
       id: "",
-      color: "#4d9cd6",
+      color: "#7c5cbf",
       description: "",
       profileId: "",
       model: "",

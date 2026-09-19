@@ -5,7 +5,7 @@ import { tempHome } from "./helpers.ts";
 describe("config accent", () => {
   it("grava hex válido e ignora lixo", () => {
     const home = tempHome();
-    expect(loadConfig(home).accent).toBe("#4d9cd6");
+    expect(loadConfig(home).accent).toBe("#7c5cbf");
     saveConfig(home, { accent: "#e06c75" });
     expect(loadConfig(home).accent).toBe("#e06c75");
     saveConfig(home, { accent: "red" });
