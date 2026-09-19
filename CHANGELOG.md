@@ -18,6 +18,7 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   - A área segura agora vale também nas laterais: com o celular deitado, num aparelho com recorte, o conteúdo não entra mais embaixo dele.
 - Maguinho com mais animações, no desktop e no celular. Parado, ele respira e olha pros lados. Depois de enviar a mensagem, olha pra cima com três pontinhos até a primeira resposta chegar. No fim do turno, dá um pulinho com brilho em volta da gema. Não comemora quando o turno é parado ou dá erro.
 - Abrir as Configurações leva o maguinho junto: ele entra no chapéu no chat (o chapéu fica lá) e sai do chapéu na borda de cima do cartão das Configurações, à esquerda. Ao fechar, volta pro chat no estado em que o motor estiver (pensando, trabalhando, comemorando ou dormindo). Com o motor desligado ele continua dormindo no chat.
+- Instalar skill de terceiro em Configurações → Skills: colando o markdown, escolhendo um arquivo `.md`, ou pelo endereço do GitHub (`dono/repo`, link da pasta da skill, link do próprio `SKILL.md`, ou raw). Repositório que só junta skills instala todas as que tiver em `skills/`. O escopo é escolhido na hora: **todas as contas** grava em `~/.nexo/skills`, e **só neste projeto** grava no `.claude/skills` do repositório aberto. A lista mostra o que está instalado com o escopo de cada uma, abre o SKILL.md pra leitura antes de confiar, e remove.
 
 ### Corrigido
 

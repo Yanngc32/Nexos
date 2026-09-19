@@ -96,6 +96,39 @@ script/referência que morem na mesma pasta do `SKILL.md`. As duas escrevem no m
 Mesmo `nome` sobrescreve (é UPDATE, igual `nexo_agente_salvar`/`nexo_time_salvar`); por isso ela
 mora ao lado dessas duas, não das ferramentas de execução.
 
+### Instalar skill de terceiro
+
+`apps/daemon/src/skills-install.ts`, exposto em Configurações → Skills. Três origens, uma rota:
+
+| origem | o que aceita |
+| --- | --- |
+| `markdown` | o SKILL.md colado ou lido de um `.md` (nome vem do frontmatter, ou do campo) |
+| `url` | URL de um SKILL.md cru; URL de página do github.com cai no caminho do GitHub |
+| `github` | `dono/repo`, `…/tree/<ref>/<pasta>`, `…/blob/<ref>/SKILL.md`, ou raw |
+
+No GitHub a busca é em três degraus: a pasta apontada tem `SKILL.md` → é a skill; existe
+`skills/` dentro → cada subpasta com `SKILL.md` é uma skill; senão, as subpastas de primeiro
+nível. Baixa pela API de contents (sem `git`, sem dependência nova), com teto de 60 arquivos,
+4 MB e 4 níveis. `GITHUB_TOKEN`/`GH_TOKEN` no ambiente do daemon, quando existe, sobe o limite de
+requisição e alcança repositório privado.
+
+- `POST /v1/skills/install` — `{ origem, escopo: "global" | "projeto", projectPath? }`.
+- `GET /v1/skills/:nome/markdown?escopo=&projectPath=` — o arquivo instalado, pra tela mostrar.
+- `DELETE /v1/skills/:nome?escopo=&projectPath=` — apaga a pasta.
+
+Escopo `global` grava em `~/.nexo/skills` — a pasta que `syncGlobalSkills` copia pra dentro de
+CADA perfil, então **uma instalação vale pra todas as contas**, que é o ponto. Escopo `projeto`
+grava em `<projeto>/.claude/skills`, único lugar de onde o CLI lê skill por projeto: isso mora
+dentro do repositório da pessoa e aparece no `git status` — consequência do formato, e a tela
+avisa.
+
+Duas travas, porque o conteúdo vem de terceiro: o nome vira slug (`slugDaSkill`), então
+`name: ../../.ssh` não escapa da pasta; e todo caminho de arquivo baixado é resolvido contra a
+pasta da skill antes de gravar (`destinoSeguro`). A instalação **só escreve arquivo** — nada do
+que foi baixado roda no momento de instalar. O que ela não protege, e nenhuma trava protegeria, é
+o óbvio: skill é instrução que o modelo vai seguir, então instalar skill de terceiro é o mesmo
+ato de confiança de instalar uma dependência.
+
 ## Agentes, times e autoria
 
 Agente personalizado (`agents.json`) é conta + instructions + modelo/effort/permissão. Time

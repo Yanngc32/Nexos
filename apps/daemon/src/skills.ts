@@ -21,7 +21,7 @@ export type SkillDef = {
  * Frontmatter YAML de SKILL.md é sempre raso (chave: valor, ou bloco `>`/`|`
  * indentado) — não vale puxar uma lib de YAML só pra ler `name`/`description`.
  */
-function parseFrontmatter(raw: string): Record<string, string> {
+export function parseFrontmatter(raw: string): Record<string, string> {
   const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(raw);
   if (!m) return {};
   const lines = m[1].split(/\r?\n/);
