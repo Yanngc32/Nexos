@@ -3367,11 +3367,13 @@ button:disabled {
   color: var(--text);
 }
 
-/* Grupo: um cartão rebaixado por assunto, com as linhas separadas por hairline
-   por dentro. É o que dá a hierarquia painel > grupo > linha sem empilhar mais
-   um tamanho de fonte — o rótulo do grupo mora FORA do cartão, acima dele. */
+/* Grupo por assunto. Sem caixa: o cartão fechado em volta de cada bloco fica
+   pesado numa tela plana, sem sombra pra descolar um nível do outro. O que
+   separa é o rótulo acima e o espaço entre os grupos; dentro do grupo, as
+   linhas seguem coladas por hairline, como sempre foram. */
 .set-grupo-tit {
-  margin: var(--s-7) 0 var(--s-2);
+  margin: var(--s-8) 0 0;
+  padding-bottom: var(--s-2);
   font-size: var(--fs-2xs);
   font-weight: 600;
   letter-spacing: var(--ls-label);
@@ -3380,22 +3382,12 @@ button:disabled {
 }
 
 .set-sec h3 + .set-grupo-tit {
-  margin-top: var(--s-6);
-}
-
-.set-grupo {
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  background: var(--bg);
-  overflow: hidden;
-}
-
-.set-grupo + .set-grupo {
-  margin-top: var(--s-5);
-}
-
-.set-sec h3 + .set-grupo {
   margin-top: var(--s-4);
+}
+
+.set-grupo + .set-grupo,
+.set-grupo + .set-grupo-tit {
+  margin-top: var(--s-6);
 }
 
 /* grupo inteiro sem resultado na busca some junto com o rótulo dele */
@@ -3408,10 +3400,12 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: var(--s-7);
-  padding: var(--s-5) var(--s-6);
+  padding: var(--s-5) 0;
   border-top: 1px solid var(--line);
 }
 
+/* a primeira linha do grupo já tem o rótulo por cima: mais um traço ali seria
+   duas divisões pro mesmo corte */
 .set-grupo > .set-row:first-child {
   border-top: 0;
 }

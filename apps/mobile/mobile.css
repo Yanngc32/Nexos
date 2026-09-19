@@ -130,16 +130,14 @@ code, pre, .mono { font-family: var(--font-mono); }
 }
 
 /* a marca segura a tela sozinha: peso alto, letra fechada, e o resto miúdo */
-/* Pixel art não pode ser suavizada pelo navegador. A gema do chapéu vem azul no
-   sprite e é pintada de acento em runtime (tintPetGem) — aqui, que é <img> e não
-   canvas, o giro de matiz leva o azul pro roxo e não toca no branco do chapéu. */
+/* Pixel art não pode ser suavizada pelo navegador. A gema do chapéu é pintada
+   com o acento em runtime (tintPetGem), igual à do compositor. */
 .par-mago {
   width: 70px;
-  height: 96px;
+  height: auto;
   margin-bottom: var(--s-1);
   image-rendering: pixelated;
   image-rendering: crisp-edges;
-  filter: hue-rotate(45deg);
 }
 
 .tela h1 {

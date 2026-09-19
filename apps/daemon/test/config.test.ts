@@ -10,7 +10,7 @@ describe("config corrompido", () => {
     loadConfig(home); // cria o arquivo
     writeFileSync(configPath(home), "", "utf8"); // simula crash no meio de uma escrita
     expect(() => loadConfig(home)).not.toThrow();
-    expect(loadConfig(home)).toMatchObject({ port: 7432, accent: "#4d9cd6" });
+    expect(loadConfig(home)).toMatchObject({ port: 7432, accent: "#7c5cbf" });
   });
 
   it("config.json com lixo (JSON inválido) também recupera pro padrão", () => {
@@ -25,7 +25,7 @@ describe("config corrompido", () => {
 describe("config accent", () => {
   it("grava hex válido e ignora lixo", () => {
     const home = tempHome();
-    expect(loadConfig(home).accent).toBe("#4d9cd6");
+    expect(loadConfig(home).accent).toBe("#7c5cbf");
     saveConfig(home, { accent: "#e06c75" });
     expect(loadConfig(home).accent).toBe("#e06c75");
     saveConfig(home, { accent: "red" });

@@ -15,8 +15,9 @@
   <body>
     <!-- Pareamento: a primeira e única tela até haver token. -->
     <section class="tela" id="tela-par">
-      <!-- o maguinho abre a porta: mesma arte do compositor, parado -->
-      <img class="par-mago" src="./pets/nexo/mago/idle.png" alt="" width="70" height="96" />
+      <!-- o maguinho abre a porta: mesma arte do compositor, parado. Canvas, e
+           não <img>, porque a gema do chapéu é pintada com o acento em runtime. -->
+      <canvas id="par-mago" class="par-mago" width="70" height="96" aria-hidden="true"></canvas>
       <h1>Nexo</h1>
       <p class="sub">
         No computador, abra <b>Configurações → Celular</b> e peça um código. Ele vale 2 minutos.

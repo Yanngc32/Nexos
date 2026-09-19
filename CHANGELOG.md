@@ -325,6 +325,15 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Corrigido
 
+- Cor de destaque escolhida no desktop passa a valer na interface de celular — incluindo a gema
+  do chapéu do maguinho, que é pintada a partir de `--accent`: o celular nunca lia `accent` do
+  config e ficava preso no roxo padrão. Na tela de pareamento o maguinho virou canvas pintado
+  pelo mesmo `tintPetGem` do compositor; era `<img>` com um giro de matiz no CSS, que aproximava
+  o roxo mas ignorava o acento de verdade.
+- `DEFAULT_CONFIG.accent` era azul (`#4d9cd6`) enquanto o renderer já nascia roxo (`#7c5cbf`):
+  instalação nova abria roxa e virava azul no primeiro poll do config. Os dois agora são o
+  mesmo valor, e o ícone da PWA acompanha.
+
 - Skill `nexo-times` instalava direto em `~/.claude/skills/` (config REAL do Claude Code na
   máquina) em vez de `~/.nexo/skills/` (pasta global do Nexo). Isso furava o isolamento por
   perfil que o resto do sistema usa: a skill vazava pra qualquer sessão Claude Code do usuário —
@@ -371,7 +380,9 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   texto pequeno. O maguinho continua onde estava, sem mudança de arte nem de animação.
 - Configurações ganham hierarquia: a navegação sai de uma lista de sete itens pra três grupos
   (**App**, **Motor**, **Fora desta máquina**) e cada painel divide as linhas em grupos rotulados
-  — cartão rebaixado com hairline entre as linhas, rótulo em caixa alta miúda por fora. A busca
+  — rótulo em caixa alta miúda e espaço entre os grupos, com as linhas de cada grupo separadas
+  por hairline (sem cartão fechado em volta: numa tela plana, sem sombra pra descolar um nível
+  do outro, a caixa por bloco pesa mais do que organiza). A busca
   agora esconde o grupo inteiro junto com o rótulo dele quando nenhuma linha casa, e painel sem
   `.set-row` (Pastas compartilhadas, que é um `.shared-card`) passa a casar pelo texto da seção —
   antes sumia em qualquer busca, inclusive pelas palavras escritas nele. O item "Memória" virou

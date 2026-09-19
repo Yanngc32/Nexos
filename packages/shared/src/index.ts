@@ -393,7 +393,10 @@ export const DEFAULT_CONFIG: NexoConfig = {
   fallbackOrder: [],
   switchMode: "manual",
   pack: { keepLastMessages: 20, prefixCharBudget: 2000, compactar: true },
-  accent: "#4d9cd6",
+  // mesmo padrão do renderer (DEFAULT_ACCENT, apps/desktop/renderer.js): com
+  // dois valores diferentes, instalação nova abria roxa e virava azul no
+  // primeiro poll do config
+  accent: "#7c5cbf",
   tema: "grafite",
   repos: [],
   hiddenRepos: [],

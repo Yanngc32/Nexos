@@ -183,6 +183,24 @@ function pintarContas(contas) {
 }
 
 const TEMAS = ["grafite", "preto"];
+
+/**
+ * Cor de destaque escolhida no desktop (Configurações → Aparência), que vem no
+ * config do daemon. Sem isto o celular ficava preso no roxo padrão — inclusive
+ * a gema do chapéu do maguinho, que é pintada a partir de `--accent`.
+ */
+function aplicarAccent(hex) {
+  const cor = HEX_ACCENT.test(hex || "") ? hex : localStorage.getItem("nexo.accent") || "";
+  if (!HEX_ACCENT.test(cor)) return;
+  document.documentElement.style.setProperty("--accent", cor);
+  try {
+    localStorage.setItem("nexo.accent", cor);
+  } catch {
+    // modo privado sem storage: vale só nesta sessão
+  }
+  paintPetFrame();
+  pintarMagoPareamento();
+}
 /**
  * Mesmo tema escolhido no desktop (Configurações → Aparência), que vem no
  * config do daemon. Guardado no localStorage pra a próxima abertura já nascer
@@ -215,6 +233,7 @@ async function puxarAgora() {
     // daemon, e escolher projeto no telefone seria uma tela que não paga
     if (cfg?.lastProject) projeto = cfg.lastProject;
     aplicarTema(cfg?.tema);
+    aplicarAccent(cfg?.accent);
     ultimo = { run, contas, agentes };
     $("motor").dataset.on = "1";
     $("motor").textContent = "ligado";
@@ -602,6 +621,34 @@ function paintPetFrame() {
   tintPetGem(ctx, sprite.width, sprite.height);
   $("pet-stage").dataset.state = petState.name;
 }
+
+/**
+ * Maguinho parado da tela de pareamento. É a mesma arte e a MESMA pintura de
+ * gema do compositor — por isso canvas, e não <img>: com <img> a gema ficava no
+ * azul do sprite e não seguia o acento.
+ */
+function pintarMagoPareamento() {
+  const c = $("par-mago");
+  if (!c) return;
+  const img = petImg(PET_REST);
+  if (!img.complete || img.naturalWidth === 0) {
+    img.onload = () => pintarMagoPareamento();
+    return;
+  }
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const ctx = c.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.drawImage(img, 0, 0);
+  tintPetGem(ctx, c.width, c.height);
+}
+
+// boot: acento da última sessão, antes de o primeiro poll trazer o config.
+// Aqui e não junto do tema: `aplicarAccent` usa HEX_ACCENT, que só existe
+// depois deste ponto do arquivo.
+aplicarAccent();
+pintarMagoPareamento();
 
 function petTick() {
   clearTimeout(petState.timer);
