@@ -355,8 +355,8 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   flutuante, por exemplo, era azul). Hierarquia de texto passou a ser explícita: chrome em
   13/1.45, prosa da conversa em 14/1.62, e rótulo de seção (Repositórios, Serviços, seções das
   Configurações, autor da mensagem) em caixa alta miúda com respiro entre letras. Um anel de
-  foco só no app inteiro, conversa e item de navegação ativos marcados por um traço de acento
-  na borda esquerda, campos de texto com base comum (nenhum input cai mais no visual nativo) e
+  foco só no app inteiro, conversa e item de navegação ativos marcados pelo fundo mais claro,
+  campos de texto com base comum (nenhum input cai mais no visual nativo) e
   `--accent-text` derivado de `--accent`, pra cor trocada em Configurações continuar valendo em
   texto pequeno. O maguinho continua onde estava, sem mudança de arte nem de animação.
 - Celular: barra de abas com ícone + rótulo e marca de aba ativa, ícones de voltar/ajustes/enviar

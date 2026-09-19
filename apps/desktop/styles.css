@@ -424,7 +424,7 @@ body[data-side-mini="1"] .side .ico-only {
   border: 0;
   border-radius: var(--r-md);
   background: transparent;
-  color: var(--muted);
+  color: var(--text);
   font-size: var(--fs-md);
   text-align: left;
   cursor: pointer;
@@ -784,7 +784,7 @@ body[data-side-mini="1"] .side .ico-only {
   padding: var(--s-2) var(--s-4);
   border-radius: var(--r-sm);
   font-size: var(--fs-md);
-  color: var(--muted);
+  color: var(--text);
   cursor: pointer;
   margin-bottom: 1px;
   transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
@@ -795,12 +795,10 @@ body[data-side-mini="1"] .side .ico-only {
   color: var(--text);
 }
 
-/* Conversa aberta: fundo mais claro e um traço de acento na borda esquerda —
-   dá pra achar onde você está sem varrer a lista. */
+/* Conversa aberta: só o fundo mais claro marca onde você está. */
 .side li[data-on="1"] {
   background: var(--surface-2);
   color: var(--text);
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .thread-del {
@@ -3248,11 +3246,11 @@ button:disabled {
 .set-nav-group {
   margin: var(--s-6) 0 var(--s-1);
   padding: 0 var(--s-3);
-  font-size: var(--fs-2xs);
+  font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: var(--ls-label);
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--muted);
 }
 
 .set-nav-group:first-child {
@@ -3267,7 +3265,7 @@ button:disabled {
   padding: var(--s-2) var(--s-3);
   border-radius: var(--r-md);
   font-size: var(--fs-md);
-  color: var(--muted);
+  color: var(--text);
   text-align: left;
 }
 
@@ -3279,7 +3277,6 @@ button:disabled {
 .set-nav-item[data-on="1"] {
   background: var(--surface-2);
   color: var(--text);
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .set-nav-ico {
@@ -3329,15 +3326,12 @@ button:disabled {
   padding: 4px 18px 18px;
 }
 
-/* Título de seção também vira rótulo: separa os blocos sem acrescentar um
-   terceiro tamanho de fonte à página. */
 .set-sec h3 {
-  margin: var(--s-8) 0 var(--s-2);
-  font-size: var(--fs-2xs);
+  margin: var(--s-7) 0 var(--s-2);
+  font-size: var(--fs-lg);
   font-weight: 600;
-  letter-spacing: var(--ls-label);
-  text-transform: uppercase;
-  color: var(--faint);
+  letter-spacing: var(--ls-title);
+  color: var(--text);
 }
 
 .set-row {
