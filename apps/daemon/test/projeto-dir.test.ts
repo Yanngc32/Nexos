@@ -6,7 +6,7 @@ import { basename, join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { saveConfig } from "../src/config.ts";
 import { projectKey } from "../src/home.ts";
-import { migrarProjeto, projectDir, projectSlug, projetosRoot } from "../src/projeto-dir.ts";
+import { migrarProjeto, migrarRaizLegadaRemovida, projectDir, projectSlug, projetosRoot } from "../src/projeto-dir.ts";
 import { tempHome } from "./helpers.ts";
 
 function tempProjeto(): string {
@@ -157,6 +157,55 @@ describe("migrarProjeto", () => {
     const home = tempHome();
     const projeto = tempProjeto();
     migrarProjeto(projeto, home);
+    expect(existsSync(projetosRoot(home))).toBe(false);
+  });
+});
+
+describe("migrarRaizLegadaRemovida", () => {
+  function hashLegado(projectPath: string): string {
+    return createHash("sha1").update(projectKey(projectPath)).digest("hex");
+  }
+
+  it("traz o conteúdo da raiz que a pessoa apagou do config — `migrarProjeto` sozinho não acha", () => {
+    const home = tempHome();
+    const projeto = tempProjeto();
+    // Raiz escolhida pela pessoa (ex.: uma pasta do Drive), FORA de `~/.nexo`.
+    const raizEscolhida = mkdtempSync(join(tmpdir(), "nexo-drive-"));
+    const antiga = join(raizEscolhida, hashLegado(projeto));
+    mkdirSync(antiga, { recursive: true });
+    writeFileSync(join(antiga, "MEMORIA.md"), "# fatos do drive", "utf8");
+
+    // Pré-condição: com o campo já apagado, `migrarProjeto` não tem como saber dessa raiz.
+    migrarProjeto(projeto, home);
+    expect(existsSync(antiga)).toBe(true);
+
+    migrarRaizLegadaRemovida("memoriaDir", raizEscolhida, [projeto], home);
+
+    expect(readFileSync(join(projectDir(projeto, home), "memoria", "MEMORIA.md"), "utf8")).toBe("# fatos do drive");
+    expect(existsSync(antiga)).toBe(false);
+  });
+
+  it("nunca sobrescreve o que já está no layout novo", () => {
+    const home = tempHome();
+    const projeto = tempProjeto();
+    const raizEscolhida = mkdtempSync(join(tmpdir(), "nexo-drive-"));
+    const antiga = join(raizEscolhida, hashLegado(projeto));
+    mkdirSync(antiga, { recursive: true });
+    writeFileSync(join(antiga, "MEMORIA.md"), "antiga", "utf8");
+    const nova = join(projectDir(projeto, home), "memoria");
+    mkdirSync(nova, { recursive: true });
+    writeFileSync(join(nova, "MEMORIA.md"), "nova", "utf8");
+
+    migrarRaizLegadaRemovida("memoriaDir", raizEscolhida, [projeto], home);
+
+    expect(readFileSync(join(nova, "MEMORIA.md"), "utf8")).toBe("nova");
+    expect(existsSync(antiga)).toBe(true);
+  });
+
+  it("raiz vazia ou campo desconhecido não faz nada", () => {
+    const home = tempHome();
+    const projeto = tempProjeto();
+    migrarRaizLegadaRemovida("memoriaDir", "", [projeto], home);
     expect(existsSync(projetosRoot(home))).toBe(false);
   });
 });

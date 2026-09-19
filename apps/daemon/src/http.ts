@@ -7,7 +7,7 @@ import { getAgent, listAgents, removeAgent, saveAgent, type AgentInput } from ".
 import { loadConfig, saveConfig } from "./config.ts";
 import { clearTypesafeApiKey, hasTypesafeApiKey, saveTypesafeApiKey, typesafeUsage } from "./typesafe.ts";
 import { projectKey, tokenPath } from "./home.ts";
-import { migrarProjeto, projectSlug } from "./projeto-dir.ts";
+import { migrarProjeto, migrarRaizLegadaRemovida, projectSlug } from "./projeto-dir.ts";
 import {
   accountInfo,
   addProfile,
@@ -1462,9 +1462,21 @@ export function createApp(home: string, token: string): Hono {
 
   app.get("/v1/config", (c) => c.json(loadConfig(home)));
   app.put("/v1/config", async (c) => {
-    const antes = loadConfig(home).modulos.repoMapResumos;
+    const cfgAntes = loadConfig(home);
+    const antes = cfgAntes.modulos.repoMapResumos;
     const body = await c.req.json();
     const next = saveConfig(home, body);
+    /*
+     * Apagar `memoriaDir`/`tarefasDir`/`graphDir` troca o layout daquele tipo pro novo (pasta
+     * única por projeto, nome estável entre máquinas). O conteúdo que estava na raiz antiga
+     * precisa vir junto, e só AQUI ainda se sabe qual era ela — depois de gravar, o valor
+     * antigo não existe em lugar nenhum.
+     */
+    for (const campo of ["memoriaDir", "tarefasDir", "graphDir"] as const) {
+      if (cfgAntes[campo] && !next[campo]) {
+        migrarRaizLegadaRemovida(campo, cfgAntes[campo], projetosConhecidos(home), home);
+      }
+    }
     // Efeito colateral do toggle: liga (ou reconfere, se só a conta trocou) o agente + a regra do
     // módulo "Resumos por IA" sem esperar reiniciar o daemon. Só DESLIGA na transição true→false —
     // chamar em toda gravação de config (mesmo trocar a cor) apagaria uma regra que a pessoa

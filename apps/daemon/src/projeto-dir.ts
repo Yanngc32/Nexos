@@ -157,23 +157,52 @@ const TIPOS_MIGRAVEIS: TipoMigravel[] = [
 export function migrarProjeto(projectPath: string, home: string): void {
   const cfg = loadConfig(home);
   for (const tipo of TIPOS_MIGRAVEIS) {
+    if (cfg[tipo.cfgField]) continue;
+    moverLegado(join(home, tipo.raizDefault, hashLegado(projectPath)), projectPath, tipo, home);
+  }
+}
+
+/**
+ * Move UMA pasta do layout legado pro novo. Só quando a antiga existe e a nova ainda não —
+ * nunca sobrescreve. Best-effort: nunca lança, só registra.
+ */
+function moverLegado(antigo: string, projectPath: string, tipo: TipoMigravel, home: string): void {
+  try {
+    if (!existsSync(antigo)) return;
+    const novo = join(projectDir(projectPath, home), tipo.novoSub);
+    if (existsSync(novo)) return;
+    mkdirSync(dirname(novo), { recursive: true });
     try {
-      if (cfg[tipo.cfgField]) continue;
-      const antigo = join(home, tipo.raizDefault, hashLegado(projectPath));
-      if (!existsSync(antigo)) continue;
-      const novo = join(projectDir(projectPath, home), tipo.novoSub);
-      if (existsSync(novo)) continue;
-      mkdirSync(dirname(novo), { recursive: true });
-      try {
-        renameSync(antigo, novo);
-      } catch {
-        // `EXDEV` (raiz nova em outro volume) ou qualquer outra falha de rename: copia e só
-        // apaga a origem depois da cópia ter dado certo — nunca perde dado no meio do caminho.
-        cpSync(antigo, novo, { recursive: true });
-        rmSync(antigo, { recursive: true, force: true });
-      }
-    } catch (e) {
-      console.error(`nexo: falha ao migrar ${tipo.novoSub} de ${projectPath}: ${(e as Error).message}`);
+      renameSync(antigo, novo);
+    } catch {
+      // `EXDEV` (raiz nova em outro volume) ou qualquer outra falha de rename: copia e só
+      // apaga a origem depois da cópia ter dado certo — nunca perde dado no meio do caminho.
+      cpSync(antigo, novo, { recursive: true });
+      rmSync(antigo, { recursive: true, force: true });
     }
+  } catch (e) {
+    console.error(`nexo: falha ao migrar ${tipo.novoSub} de ${projectPath}: ${(e as Error).message}`);
+  }
+}
+
+/**
+ * Alguém acabou de APAGAR `memoriaDir`/`tarefasDir`/`graphDir` do config — o layout de verdade
+ * daquele tipo passa a ser o novo (`projectDir/<sub>`), e o que estava na raiz antiga precisa vir
+ * junto. `migrarProjeto` não dá conta deste caso: ele procura só na raiz PADRÃO (`~/.nexo/<tipo>`)
+ * e, quando roda, o campo já foi apagado — ninguém mais sabe pra onde a pessoa tinha apontado.
+ * Sem isso, tirar o override deixava memória/tarefas/repo map pra trás sem aviso nenhum.
+ *
+ * @param raizAntiga valor que o campo tinha ANTES de ser apagado.
+ */
+export function migrarRaizLegadaRemovida(
+  cfgField: TipoMigravel["cfgField"],
+  raizAntiga: string,
+  projetos: string[],
+  home: string,
+): void {
+  const tipo = TIPOS_MIGRAVEIS.find((t) => t.cfgField === cfgField);
+  if (!tipo || !raizAntiga) return;
+  for (const projectPath of projetos) {
+    moverLegado(join(raizAntiga, hashLegado(projectPath)), projectPath, tipo, home);
   }
 }
