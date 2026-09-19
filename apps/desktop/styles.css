@@ -1872,6 +1872,17 @@ textarea::placeholder {
   color: var(--faint);
 }
 
+/* O seletor de cor é nativo e não herda nada: sem isto ele fica com altura e
+   moldura próprias, ao lado de campos irmãos que já têm as do app. */
+input[type="color"] {
+  height: 32px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--ctl);
+  cursor: pointer;
+}
+
 input:disabled,
 textarea:disabled {
   opacity: 0.5;
@@ -2324,11 +2335,14 @@ button:disabled {
   align-items: center;
 }
 
+/* Amostra nua ao lado do campo hex: sem moldura, mas com o mesmo raio, pra
+   os dois lerem como um controle só. */
 #accent-picker {
   width: 40px;
   height: 32px;
   padding: 0;
   border: 0;
+  border-radius: var(--r-md);
   background: transparent;
   cursor: pointer;
 }
@@ -3159,8 +3173,7 @@ body[data-side-mini="1"] .svc-strip {
 }
 
 .agent-f-color input {
-  padding: 2px;
-  height: 29px;
+  height: 30px;
 }
 
 .agent-form-err {

@@ -240,6 +240,28 @@ async function abrirConversas() {
   $("threads-vazio").classList.toggle("hidden", lista.length > 0);
 }
 
+/**
+ * Torna um `li` acionável de verdade.
+ *
+ * A linha sempre respondeu ao toque, mas era só um `li` com `click`: quem
+ * navega por teclado (bluetooth, varredura) não chegava nela, e o leitor de
+ * tela anunciava um item de lista sem dizer que dá pra abrir. `role="button"`
+ * + `tabindex` + Enter/Espaço é o mínimo que faz um elemento não-nativo se
+ * comportar como botão.
+ */
+function acionavel(el, aoAcionar) {
+  el.setAttribute("role", "button");
+  el.tabIndex = 0;
+  el.addEventListener("click", aoAcionar);
+  el.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    // o Espaço rola a página por padrão; aqui ele aciona
+    e.preventDefault();
+    aoAcionar();
+  });
+  return el;
+}
+
 function linhaDeConversa(t, dentroDeRun = false) {
   const li = document.createElement("li");
   if (dentroDeRun) li.className = "aninhada";
@@ -250,8 +272,7 @@ function linhaDeConversa(t, dentroDeRun = false) {
   quando.className = "quando";
   quando.textContent = t.busy ? "trabalhando…" : ago(t.updatedAt);
   li.append(nome, quando);
-  li.addEventListener("click", () => void abrirChat(t.id, t.preview));
-  return li;
+  return acionavel(li, () => void abrirChat(t.id, t.preview));
 }
 
 /**
@@ -273,10 +294,13 @@ function linhasDeRun(grupo) {
 
   const filhas = grupo.threads.map((t) => linhaDeConversa(t, true));
   for (const f of filhas) f.classList.add("hidden");
-  cab.addEventListener("click", () => {
+  cab.dataset.aberto = "0";
+  cab.setAttribute("aria-expanded", "false");
+  acionavel(cab, () => {
     const fechado = filhas[0]?.classList.contains("hidden");
     for (const f of filhas) f.classList.toggle("hidden", !fechado);
     cab.dataset.aberto = fechado ? "1" : "0";
+    cab.setAttribute("aria-expanded", fechado ? "true" : "false");
   });
   return [cab, ...filhas];
 }
@@ -405,7 +429,9 @@ function mostrar(aba) {
   // desligada.
   const acesa = aba === "chat" ? "conversas" : aba;
   for (const b of $("tabs").querySelectorAll("button")) {
-    b.classList.toggle("on", b.dataset.aba === acesa);
+    const ligada = b.dataset.aba === acesa;
+    b.classList.toggle("on", ligada);
+    b.setAttribute("aria-selected", ligada ? "true" : "false");
   }
   $("btn-voltar").hidden = aba !== "chat";
 }
@@ -418,7 +444,7 @@ async function abrirAgora() {
 }
 
 $("tabs").addEventListener("click", (e) => {
-  const aba = e.target?.dataset?.aba;
+  const aba = e.target?.closest?.("button")?.dataset?.aba;
   if (!aba) return;
   abortStream?.abort();
   if (aba === "agora") void abrirAgora();

@@ -1,22 +1,50 @@
 /*
- * Interface de celular. Duas regras que mandam em tudo aqui:
+ * Interface de celular. Três regras que mandam em tudo aqui:
  *
  * 1. Área segura: iPhone com notch e barra de gestos corta o conteúdo se a
- *    página ignorar `env(safe-area-inset-*)`.
+ *    página ignorar `env(safe-area-inset-*)`. Vale nos QUATRO lados — deitado,
+ *    o recorte vem pela esquerda ou pela direita, não por cima.
  * 2. Alvo de toque de 44px. Botão de 28px funciona no mouse e não no dedo.
+ * 3. Foco visível. Celular também recebe teclado (bluetooth, Android com
+ *    teclado físico, acessibilidade por varredura) e sem anel ninguém sabe
+ *    onde está.
  */
 
 :root {
+  /* superfícies, do poço ao topo */
+  --sunken: #101014; /* poço: código, campo dentro de cartão */
   --bg: #16161a;
   --cartao: #1d1d22;
+  --ctl: #26262c; /* pílula, trilho, chip */
+
   --line: #2b2b31;
+
   --text: #e8e8ea;
-  --muted: #8b8b95;
+  --muted: #8b8b95; /* rótulo, metadado */
+  --faint: #6b6b74; /* só decoração e placeholder */
+
   --accent: #4d9cd6;
+  --accent-ink: #08121a;
   --ok: #4bb96f;
   --warn: #d8a13a;
   --bad: #d65c5c;
+
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* forma: a mesma escala de quatro raios do desktop, um degrau acima —
+     no celular tudo é maior e o raio de 6px sumia */
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 12px;
+  --r-full: 999px;
+
   --toque: 44px;
+  --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+
+  /* margem lateral que respeita o recorte da tela deitada */
+  --gutter-l: max(14px, env(safe-area-inset-left));
+  --gutter-r: max(14px, env(safe-area-inset-right));
+
   color-scheme: dark;
 }
 
@@ -35,6 +63,12 @@ html, body {
 
 .hidden { display: none !important; }
 
+/* Um anel só, pro app inteiro. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* ---------- pareamento ---------- */
 
 .tela {
@@ -43,7 +77,8 @@ html, body {
   justify-content: center;
   gap: 14px;
   min-height: 100%;
-  padding: 24px max(20px, env(safe-area-inset-left)) max(24px, env(safe-area-inset-bottom));
+  padding: 24px max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
 }
 
 .tela h1 { margin: 0; font-size: 30px; letter-spacing: -0.02em; }
@@ -55,29 +90,39 @@ html, body {
 #codigo {
   height: 60px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   background: var(--cartao);
   color: var(--text);
-  font: 600 30px/1 ui-monospace, SFMono-Regular, monospace;
+  font: 600 30px/1 var(--mono);
   letter-spacing: 0.28em;
   text-align: center;
   /* o recuo compensa o letter-spacing, que sobra à direita do último dígito */
   text-indent: 0.28em;
 }
 
-#codigo:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+#codigo::placeholder { color: var(--faint); }
+
+#codigo:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
 
 button {
   min-height: var(--toque);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--r-md);
   background: var(--cartao);
   color: var(--text);
   font: inherit;
   cursor: pointer;
+  /* o dedo não tem hover: o retorno do toque é o :active */
+  transition: opacity 90ms ease;
 }
 
-.primary { border-color: transparent; background: var(--accent); color: #08121a; font-weight: 600; }
+button:active { opacity: 0.65; }
+
+.primary { border-color: transparent; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .ghost { border-color: transparent; background: none; color: var(--muted); }
 
 /* ---------- app ---------- */
@@ -88,7 +133,7 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: max(10px, env(safe-area-inset-top)) 14px 10px;
+  padding: max(10px, env(safe-area-inset-top)) var(--gutter-r) 10px var(--gutter-l);
   border-bottom: 1px solid var(--line);
 }
 
@@ -98,22 +143,22 @@ button {
 .pill {
   flex: 0 0 auto;
   padding: 3px 9px;
-  border-radius: 999px;
-  background: #26262c;
+  border-radius: var(--r-full);
+  background: var(--ctl);
   color: var(--muted);
   font-size: 11px;
 }
 
-.pill[data-on="1"] { background: color-mix(in srgb, var(--ok) 22%, #26262c); color: var(--text); }
+.pill[data-on="1"] { background: color-mix(in srgb, var(--ok) 22%, var(--ctl)); color: var(--text); }
 
 #corpo { flex: 1; min-height: 0; overflow: hidden; display: flex; }
 .aba { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 /* ---------- agora ---------- */
 
-#aba-agora { padding: 12px; gap: 12px; overflow-y: auto; }
+#aba-agora { padding: 12px var(--gutter-r) 12px var(--gutter-l); gap: 12px; overflow-y: auto; }
 
-.cartao { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--cartao); }
+.cartao { padding: 12px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--cartao); }
 .obj { margin: 0 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .linha { display: flex; align-items: center; gap: 8px; }
 .quem { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
@@ -126,13 +171,13 @@ button {
 @keyframes pulsa { 50% { opacity: 0.3; } }
 @media (prefers-reduced-motion: reduce) { .dot[data-on="1"] { animation: none; } }
 
-.barra { height: 4px; margin-top: 8px; border-radius: 2px; background: #26262c; overflow: hidden; }
+.barra { height: 4px; margin-top: 8px; border-radius: 2px; background: var(--ctl); overflow: hidden; }
 .barra > i { display: block; height: 100%; width: 0; border-radius: 2px; background: var(--accent); transition: width 0.25s; }
 
 .aneis { display: flex; flex-wrap: wrap; gap: 14px; }
 .anel { display: flex; align-items: center; gap: 8px; }
 .arco { width: 30px; height: 30px; border-radius: 50%; position: relative;
-  background: conic-gradient(var(--cor) calc(var(--pct) * 1%), #26262c 0); }
+  background: conic-gradient(var(--cor) calc(var(--pct) * 1%), var(--ctl) 0); }
 .arco::after { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: var(--cartao); }
 .anel-txt { display: flex; flex-direction: column; line-height: 1.2; }
 .anel-pct { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -149,20 +194,33 @@ button {
   gap: 10px;
   /* o alvo inteiro é clicável, não só o texto */
   min-height: var(--toque);
-  padding: 10px 14px;
+  padding: 10px var(--gutter-r) 10px var(--gutter-l);
   border-bottom: 1px solid var(--line);
   cursor: pointer;
 }
 
 .lista li:active { background: var(--cartao); }
+
+/* a linha é focável via teclado (role=button no JS): o anel vai por dentro,
+   senão ele sai pela borda da tela e só metade aparece */
+.lista li:focus-visible { outline-offset: -2px; }
+
 .lista .nome { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lista .quando { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
 
 /* ---------- chat ---------- */
 
-.msgs { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.msgs {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px var(--gutter-r) 12px var(--gutter-l);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
-.msg { max-width: 92%; padding: 9px 12px; border-radius: 12px; overflow-wrap: anywhere; }
+.msg { max-width: 92%; padding: 9px 12px; border-radius: var(--r-lg); overflow-wrap: anywhere; }
 .msg[data-de="user"] { align-self: flex-end; background: color-mix(in srgb, var(--accent) 22%, var(--cartao)); }
 .msg[data-de="assistant"] { align-self: flex-start; background: var(--cartao); }
 .msg[data-de="sys"] { align-self: center; background: none; color: var(--muted); font-size: 12px; }
@@ -170,13 +228,13 @@ button {
 
 .msg p:first-child { margin-top: 0; }
 .msg p:last-child { margin-bottom: 0; }
-.msg pre { overflow-x: auto; padding: 8px; border-radius: 8px; background: #101014; font-size: 13px; }
-.msg code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 13px; }
+.msg pre { overflow-x: auto; padding: 8px; border-radius: var(--r-sm); background: var(--sunken); font-size: 13px; }
+.msg code { font-family: var(--mono); font-size: 13px; }
 
 .compositor {
   display: flex;
   gap: 8px;
-  padding: 10px 12px max(10px, env(safe-area-inset-bottom));
+  padding: 10px var(--gutter-r) max(10px, env(safe-area-inset-bottom)) var(--gutter-l);
   border-top: 1px solid var(--line);
 }
 
@@ -186,21 +244,42 @@ button {
   max-height: 40vh;
   padding: 11px 12px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   background: var(--cartao);
   color: var(--text);
-  /* 16px é o mínimo que o Safari aceita sem dar zoom no foco */
-  font: 16px/1.4 inherit;
+  /*
+   * `font: 16px/1.4 inherit` não valia nada: `inherit` não é família válida
+   * dentro do atalho `font`, então a declaração INTEIRA era descartada e o
+   * campo caía no padrão do navegador — monoespaçado, e sem os 16px que
+   * impedem o Safari de dar zoom ao focar. Em propriedades separadas funciona.
+   */
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1.4;
   resize: none;
+}
+
+#txt::placeholder { color: var(--faint); }
+
+#txt:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
 }
 
 #btn-enviar { flex: 0 0 var(--toque); width: var(--toque); font-size: 20px; }
 
 /* ---------- abas ---------- */
 
-.tabs { display: flex; border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+.tabs {
+  display: flex;
+  border-top: 1px solid var(--line);
+  padding: 0 var(--gutter-r) env(safe-area-inset-bottom) var(--gutter-l);
+}
+
 .tabs button { flex: 1; border: 0; border-radius: 0; background: none; color: var(--muted); }
 .tabs button.on { color: var(--text); box-shadow: inset 0 2px 0 var(--accent); }
+.tabs button:focus-visible { outline-offset: -3px; }
 
 /* Linha de run: cabeçalho de grupo que abre e fecha. */
 .lista li.grupo {
