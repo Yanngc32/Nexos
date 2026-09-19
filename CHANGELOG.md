@@ -325,6 +325,20 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Corrigido
 
+- Rodapé da barra lateral em duas linhas (estado + ligar/desligar em cima, ícones de foco,
+  painel e configurações embaixo): numa linha só o grupo de botões não cabia nos 252px e vazava
+  por cima do painel ao lado, em qualquer tela. O fundo em pílula que os agrupava saiu, e Foco e
+  Painel viraram ícone como o resto do app.
+- Aba ativa (Agentes/Times/Hooks, Kanban/Lista/Calendário/Timeline, abas do painel de agentes e
+  da paleta) marcada por fundo em vez de traço embaixo: o `border-bottom` acompanhava o
+  `border-radius` do botão e desenhava um risco curvado sob o rótulo.
+- Cartão da lista de Times e de Hooks não tinha regra de CSS nenhuma — nome, resumo e o botão de
+  abrir saíam em fluxo de texto corrido, grudados. Agora é cartão com título, resumo truncado e
+  ação fixa à direita, igual ao de Agentes.
+- Linha de passo da bancada (Agentes/Times) quebrava em duas quando o painel ficava estreito.
+  A linha agora responde à largura da BANCADA (container query) e vai soltando o que é
+  secundário — tokens, depois o detalhe — em vez de truncar tudo em "ap…".
+
 - Cor de destaque escolhida no desktop passa a valer na interface de celular — incluindo a gema
   do chapéu do maguinho, que é pintada a partir de `--accent`: o celular nunca lia `accent` do
   config e ficava preso no roxo padrão. Na tela de pareamento o maguinho virou canvas pintado
@@ -378,6 +392,12 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   campos de texto com base comum (nenhum input cai mais no visual nativo) e
   `--accent-text` derivado de `--accent`, pra cor trocada em Configurações continuar valendo em
   texto pequeno. O maguinho continua onde estava, sem mudança de arte nem de animação.
+- Telas de Agentes, Times e Hooks no mesmo acabamento do resto: rótulo de seção em caixa alta
+  miúda no lugar de `opacity: .6` (que sobre fundo escuro come contraste e faz tudo parecer
+  desligado), campo de instruções com cara de campo e não de bloco de texto solto, cartões de
+  agente com as ações separadas por um traço, nome do item aberto como título da área, ponto de
+  "não salvo" como bolinha em vez de bullet gigante, e o editor com mais espaço que a bancada
+  (1,2fr contra 0,8fr) — em Hooks, que não tem bancada, o formulário ganha teto de largura.
 - Configurações ganham hierarquia: a navegação sai de uma lista de sete itens pra três grupos
   (**App**, **Motor**, **Fora desta máquina**) e cada painel divide as linhas em grupos rotulados
   — rótulo em caixa alta miúda e espaço entre os grupos, com as linhas de cada grupo separadas

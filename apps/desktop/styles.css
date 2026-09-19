@@ -384,7 +384,7 @@ body[data-side-mini="1"] .repo-head-act {
   }
 }
 
-body[data-side-mini="1"] .side-foot .foot-actions {
+body[data-side-mini="1"] .foot-acoes {
   flex-direction: column;
   gap: 2px;
 }
@@ -871,15 +871,89 @@ body[data-side-mini="1"] .side .ico-only {
   color: var(--muted);
 }
 
+/* Rodapé em duas linhas. Numa linha só, o grupo de botões não cabia nos 252px
+   da barra e vazava por cima do painel ao lado — e o fundo em pílula em volta
+   deles pesava mais que as ações que ele agrupava. */
 .side-foot {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-4) var(--s-4);
   border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: var(--fs-sm);
+}
+
+.foot-linha {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+/* Ligar/desligar é a ação principal daqui: é a única com forma. */
+.foot-motor {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex: 0 0 auto;
+  padding: var(--s-1) var(--s-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.foot-motor .ico {
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
+}
+
+.foot-motor:hover:not(:disabled) {
+  border-color: var(--line-3);
+  background: var(--surface-2);
+}
+
+.foot-motor[data-on="1"] .ico {
+  color: var(--accent-text);
+}
+
+.foot-acoes {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 0;
+}
+
+.foot-acao {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--r-md);
+  color: var(--faint);
+}
+
+.foot-acao .ico {
+  width: 15px;
+  height: 15px;
+}
+
+.foot-acao:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.foot-acao[data-on="1"] {
+  background: var(--surface-2);
+  color: var(--accent-text);
 }
 
 .status {
@@ -903,38 +977,18 @@ body[data-side-mini="1"] .side .ico-only {
   box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 20%, transparent);
 }
 
-.foot-actions {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  padding: 2px;
-  border-radius: var(--r-lg);
-  background: color-mix(in srgb, var(--line) 55%, transparent);
+/* barra estreita: o rótulo do motor sai e ficam só os ícones, centralizados */
+body[data-side-mini="1"] .foot-txt {
+  display: none;
 }
 
-.side-foot .ghost {
-  font-size: var(--fs-sm);
-  padding: 5px 9px;
-  border-radius: var(--r-md);
-  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+body[data-side-mini="1"] .foot-linha,
+body[data-side-mini="1"] .foot-acoes {
+  justify-content: center;
 }
 
-.side-foot .ghost:hover:not(:disabled) {
-  background: var(--elev);
-}
-
-.side-foot .ghost.ico-only {
-  font-size: var(--fs-xl);
-  line-height: 1;
-  padding: 5px 8px;
-}
-
-/* Ligar/Desligar é a ação primária deste rodapé — chama mais atenção que Foco/Painel/Config. */
-.foot-actions #btn-motor {
-  font-weight: 600;
-}
-.foot-actions #btn-motor:hover:not(:disabled) {
-  color: var(--accent);
+body[data-side-mini="1"] .foot-motor {
+  padding: var(--s-1);
 }
 
 /* botões que são só ícone: o svg centraliza no lugar do glifo de texto */
@@ -3965,7 +4019,7 @@ button:disabled {
 
 .pal-tab[data-on="1"] {
   color: var(--text);
-  box-shadow: inset 0 -2px 0 var(--accent);
+  background: var(--surface-2);
 }
 
 #pal-recents {
@@ -4703,24 +4757,29 @@ body[data-side-mini="1"] .svc-strip {
 
 .agents-tabs {
   display: flex;
-  gap: 2px;
-  padding: 6px 8px 0;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-3);
   border-bottom: 1px solid var(--line);
 }
 
 .agents-tab {
-  padding: 6px 12px;
+  padding: var(--s-2) var(--s-5);
   border: 0;
-  border-bottom: 2px solid transparent;
+  border-radius: var(--r-md);
   background: none;
   color: var(--muted);
   font-size: var(--fs-sm);
   cursor: pointer;
 }
 
+.agents-tab:hover:not([data-on="1"]) {
+  color: var(--text);
+  background: var(--surface);
+}
+
 .agents-tab[data-on="1"] {
   color: var(--text);
-  border-bottom-color: var(--accent);
+  background: var(--surface-2);
 }
 
 /* o pane rola; o dock em si não, senão o rodapé de "Novo agente" sairia da tela */
@@ -4995,19 +5054,26 @@ body[data-side-mini="1"] .svc-strip {
 
 .agents-empty {
   margin: 0;
-  padding: 0 12px 14px;
+  padding: 0 var(--s-5) var(--s-5);
   color: var(--muted);
+  line-height: var(--lh-ui);
   font-size: var(--fs-sm);
 }
 
 .agent {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 9px 10px;
+  gap: var(--s-2);
+  padding: var(--s-4) var(--s-5);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   background: var(--surface);
+  transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease);
+}
+
+.agent:hover {
+  border-color: var(--line-3);
+  background: var(--surface-2);
 }
 
 .agent[data-busy="1"] {
@@ -5044,14 +5110,14 @@ body[data-side-mini="1"] .svc-strip {
 }
 
 .agent-acct {
-  padding: 1px 7px;
+  padding: 1px var(--s-3);
   border-radius: var(--r-pill);
-  background: color-mix(in srgb, var(--accent) 22%, var(--surface-3));
+  background: color-mix(in srgb, var(--accent) 20%, var(--surface-3));
   color: var(--text);
 }
 
 .agent-tag {
-  padding: 1px 7px;
+  padding: 1px var(--s-3);
   border-radius: var(--r-pill);
   background: var(--surface-3);
 }
@@ -5075,14 +5141,70 @@ body[data-side-mini="1"] .svc-strip {
   word-break: break-word;
 }
 
+/* ações do cartão: linha própria, separada por um traço — sem isso "Nova
+   conversa" e "Editar" colavam na descrição e pareciam parte do texto */
 .agent-acts {
   display: flex;
-  gap: 6px;
+  gap: var(--s-1);
+  margin: var(--s-1) calc(var(--s-5) * -1) calc(var(--s-4) * -1);
+  padding: var(--s-2) var(--s-3);
+  border-top: 1px solid var(--line);
 }
 
 .agent-acts .ghost {
   font-size: var(--fs-xs);
-  padding: 3px 10px;
+  padding: var(--s-1) var(--s-3);
+}
+
+/* Cartão da lista de Times e de Hooks. Não tinha regra nenhuma: nome, resumo e
+   o botão de abrir saíam em fluxo de texto corrido, um grudado no outro. Grade
+   de duas colunas — texto que encolhe, ação fixa. */
+.agent-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0 var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease);
+}
+
+.agent-card:hover {
+  border-color: var(--line-3);
+  background: var(--surface-2);
+}
+
+.agent-card > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.agent-card-meta {
+  grid-column: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+.agent-card > .ghost {
+  grid-row: span 2;
+  flex: 0 0 auto;
+  padding: var(--s-1) var(--s-3);
+  color: var(--faint);
+}
+
+.agent-card:hover > .ghost {
+  color: var(--text);
 }
 
 /* ---------- permissões por intenção ---------- */
@@ -5149,70 +5271,127 @@ body[data-side-mini="1"] .svc-strip {
 
 /* ---------- estúdio de agente ---------- */
 
-.ag-dirty { color: var(--accent); font-size: var(--fs-3xl); line-height: 1; }
+/* ponto de "tem mudança não salva": bolinha, não um bullet gigante de texto */
+.ag-dirty {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  font-size: 0;
+  line-height: 0;
+}
 
-.ag-split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+/* o editor é onde se trabalha; a bancada acompanha — não são 50/50 */
+.ag-split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr); }
 @media (max-width: 1100px) { .ag-split { grid-template-columns: minmax(0, 1fr); } .ag-bench { display: none; } }
 
-.ag-edit { min-width: 0; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
-.ag-sec { display: flex; flex-direction: column; gap: 8px; }
+.ag-edit { min-width: 0; overflow-y: auto; padding: var(--s-6) var(--s-7) var(--s-8); display: flex; flex-direction: column; gap: var(--s-8); }
+
+/* Hooks não tem bancada ao lado: sem teto, o campo de nome ia de ponta a ponta
+   da janela e a linha de leitura ficava impossível. */
+.ax-edit-area > .ag-edit { max-width: 820px; }
+.ag-sec { display: flex; flex-direction: column; gap: var(--s-4); }
 .ag-sec-grow { flex: 1; min-height: 220px; }
-.ag-sec > h2 { margin: 0; font-size: var(--fs-sm); letter-spacing: .08em; text-transform: uppercase; opacity: .6; }
-.ag-hint { margin: 0; font-size: var(--fs-sm); opacity: .6; line-height: 1.5; }
-.ag-row { display: flex; gap: 10px; flex-wrap: wrap; }
+/* rótulo de seção e dica: cor do token, não opacidade — opacidade sobre fundo
+   escuro come contraste e faz tudo parecer desligado */
+.ag-sec > h2 {
+  margin: 0 0 calc(var(--s-2) * -1);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.ag-hint { margin: 0; font-size: var(--fs-sm); color: var(--muted); line-height: var(--lh-ui); }
+.ag-row { display: flex; gap: var(--s-4); flex-wrap: wrap; }
 /* `.primary` tem `margin-left: auto` pensado pra header (empurra o botão pra ponta direita) —
    dentro de uma fileira de botões comuns isso abre um vão gigante antes dele. Zera aqui. */
 .ag-row > .primary { margin-left: 0; }
-.ag-f { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-sm); }
-.ag-f > span { opacity: .7; }
+.ag-f { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: var(--s-2); font-size: var(--fs-sm); }
+.ag-f > span { color: var(--muted); }
 .ag-narrow { flex: 0 0 130px; min-width: 130px; }
 .ag-color { flex: 0 0 64px; min-width: 64px; }
 .ag-f input, .ag-f select { width: 100%; }
 /* Checkbox + texto lado a lado — `.ag-f` é coluna (título em cima, campo embaixo), não serve pra isto. */
 .ag-check { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); }
 #ag-instructions { flex: 1; min-height: 180px; resize: vertical; font-family: var(--font-mono); font-size: var(--fs-sm); line-height: 1.5; }
-.ag-count { margin: 0; font-size: var(--fs-xs); opacity: .45; text-align: right; }
-.ag-gaps { margin: 0; font-size: var(--fs-sm); color: #d8a657; }
-.ag-err { margin: 0; font-size: var(--fs-sm); color: #e06c75; }
+.ag-count { margin: 0; font-size: var(--fs-xs); color: var(--faint); text-align: right; font-variant-numeric: tabular-nums; }
+.ag-gaps { margin: 0; font-size: var(--fs-sm); color: var(--warn); }
+.ag-err { margin: 0; font-size: var(--fs-sm); color: var(--danger); }
+
+/* a caixa de instruções é um campo, não um bloco de texto solto na página */
+.ag-edit textarea {
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-ui);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+
+.ag-edit textarea:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
 
 #slug-manual { flex: 1; min-width: 0; }
 
-.ag-tpls { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
-.ag-tpl { text-align: left; display: flex; flex-direction: column; gap: 3px; padding: 9px 10px; border-radius: var(--r-md);
-  border: 1px solid var(--line, var(--surface-3)); background: transparent; color: inherit; cursor: pointer; }
-.ag-tpl:hover { border-color: var(--accent); }
-.ag-tpl[data-on="1"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.ag-tpls { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--s-3); }
+.ag-tpl { text-align: left; display: flex; flex-direction: column; gap: var(--s-1); padding: var(--s-4) var(--s-5); border-radius: var(--r-lg);
+  border: 1px solid var(--line); background: var(--surface); color: inherit; cursor: pointer; }
+.ag-tpl:hover { border-color: var(--line-3); background: var(--surface-2); }
+.ag-tpl[data-on="1"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
 .ag-tpl strong { font-size: var(--fs-md); }
-.ag-tpl span { font-size: var(--fs-xs); opacity: .6; line-height: 1.45; }
-.ag-tpl-nota { margin: 0; font-size: var(--fs-xs); opacity: .7; line-height: 1.5; border-left: 2px solid var(--accent); padding-left: 8px; }
+.ag-tpl span { font-size: var(--fs-xs); color: var(--muted); line-height: var(--lh-ui); }
+.ag-tpl-nota { margin: 0; font-size: var(--fs-xs); color: var(--muted); line-height: var(--lh-ui); border-left: 2px solid var(--accent-line); padding-left: var(--s-4); }
 
-.ag-bench { min-width: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line, var(--surface-3)); }
-.ag-bench-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line, var(--surface-3)); }
-.ag-bench-head h2 { margin: 0; font-size: var(--fs-sm); letter-spacing: .08em; text-transform: uppercase; opacity: .6; }
-.ag-tabs { display: flex; gap: 4px; margin-left: auto; }
-.ag-tab { padding: 3px 10px; border-radius: var(--r-pill); border: 1px solid transparent; background: transparent; color: inherit; cursor: pointer; font-size: var(--fs-sm); opacity: .6; }
-.ag-tab[data-on="1"] { opacity: 1; border-color: var(--line, var(--surface-3)); }
-.ag-bench-note { margin: 0; padding: 6px 12px; font-size: var(--fs-xs); opacity: .6; min-height: 16px; }
+/* container: a linha de passo se adapta à LARGURA DA BANCADA, não da janela —
+   ela divide espaço com o editor e pode ficar estreita numa janela larga */
+.ag-bench { container-type: inline-size; min-width: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line); }
+.ag-bench-head { display: flex; align-items: center; gap: var(--s-4); padding: var(--s-3) var(--s-5); border-bottom: 1px solid var(--line); }
+.ag-bench-head h2 { margin: 0; font-size: var(--fs-2xs); font-weight: 600; letter-spacing: var(--ls-label); text-transform: uppercase; color: var(--faint); }
+/* as abas ficam juntas no meio; a ação (Limpar/Parar) encosta na direita, pra
+   não parecer uma terceira aba */
+.ag-tabs { display: flex; gap: var(--s-1); margin-left: auto; padding: 2px; border-radius: var(--r-md); background: var(--surface); }
+.ag-tab { padding: var(--s-1) var(--s-4); border-radius: var(--r-sm); border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: var(--fs-sm); }
+.ag-tab:hover:not([data-on="1"]) { color: var(--text); }
+.ag-tab[data-on="1"] { color: var(--text); background: var(--surface-2); }
+.ag-bench-head > .ghost { margin-left: 0; font-size: var(--fs-sm); }
+.ag-bench-note { margin: 0; padding: var(--s-2) var(--s-5); font-size: var(--fs-xs); color: var(--muted); min-height: 16px; }
 .ag-bench-body { flex: 1; min-height: 0; display: flex; }
 
-.ag-steps { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 4px 12px 12px; list-style: none; display: flex; flex-direction: column; gap: 2px; }
-.ag-step { display: grid; grid-template-columns: 26px 16px minmax(70px, auto) minmax(0, 1fr) 56px 52px auto;
-  align-items: center; gap: 6px; font-size: var(--fs-xs); padding: 3px 0; }
+.ag-steps { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: var(--s-2) var(--s-5) var(--s-5); list-style: none; display: flex; flex-direction: column; gap: 1px; }
+.ag-step { display: grid; grid-template-columns: 18px 16px minmax(0, auto) minmax(0, 1fr) 48px 44px auto;
+  align-items: center; gap: var(--s-2); font-size: var(--fs-xs); padding: var(--s-1) 0; }
+
+/* bancada estreita: cai o que é secundário (tokens, depois o detalhe) em vez de
+   truncar toda coluna em "ap…" */
+@container (max-width: 460px) {
+  .ag-step { grid-template-columns: 18px 16px minmax(0, auto) minmax(0, 1fr) 40px 40px; }
+  .ag-step-tk { display: none; }
+}
+
+@container (max-width: 330px) {
+  .ag-step { grid-template-columns: 18px 16px minmax(0, 1fr) 36px 40px; }
+  .ag-step-det { display: none; }
+}
 .ag-step[data-aberta="1"] { color: var(--accent); }
-.ag-step-n { opacity: .35; font-variant-numeric: tabular-nums; }
-.ag-step-ico { opacity: .6; text-align: center; }
+.ag-step-n { color: var(--faint); font-variant-numeric: tabular-nums; }
+.ag-step-ico { color: var(--muted); text-align: center; }
 .ag-step-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ag-step-det { opacity: .5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ag-step-det { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ag-step-bar { height: 5px; border-radius: var(--r-xs); background: color-mix(in srgb, currentColor 10%, transparent); overflow: hidden; }
 .ag-step-bar i { display: block; height: 100%; background: var(--accent); opacity: .75; }
 .ag-step-ms { text-align: right; font-variant-numeric: tabular-nums; opacity: .8; }
 .ag-step-tk { opacity: .45; font-variant-numeric: tabular-nums; padding-left: 6px; }
-.ag-step[data-tipo="falha"] { color: #e06c75; }
+.ag-step[data-tipo="falha"] { color: var(--danger); }
 .ag-step[data-tipo="falha"] .ag-step-bar { display: none; }
 
 .ag-chat { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 12px 12px; font-size: var(--fs-md); }
-.ag-sum { padding: 6px 12px; border-top: 1px solid var(--line, var(--surface-3)); font-size: var(--fs-xs); opacity: .7; font-variant-numeric: tabular-nums; min-height: 15px; }
-.ag-ask { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line, var(--surface-3)); align-items: flex-end; }
+.ag-sum { padding: var(--s-2) var(--s-5); border-top: 1px solid var(--line); font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; min-height: 15px; }
+.ag-ask { display: flex; gap: var(--s-3); padding: var(--s-4) var(--s-5); border-top: 1px solid var(--line); align-items: flex-end; }
 .ag-ask textarea { flex: 1; resize: none; font-size: var(--fs-md); }
 
 /* ---------- estúdio de time ---------- */
@@ -5439,22 +5618,26 @@ body[data-compactando="1"] .ctx-dot::after {
 .graph-ato-resumo { opacity: .6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Tela única de Agentes/Times/Hooks (#pane-agentes) — topbar de abas + lista/editor lado a lado. */
-.ax-tabs { display: flex; gap: 4px; }
+/* Aba ativa marcada por fundo, não por traço embaixo: o `border-bottom`
+   acompanhava o `border-radius` do botão e desenhava um risco curvado sob o
+   rótulo. Mesma marcação de estado ativo do resto do app. */
+.ax-tabs { display: flex; gap: var(--s-1); }
 .ax-tab {
-  padding: 8px 14px;
+  padding: var(--s-2) var(--s-5);
   border: 0;
-  border-bottom: 2px solid transparent;
+  border-radius: var(--r-md);
   background: none;
   color: var(--muted);
   font-size: var(--fs-md);
   font-weight: 600;
   cursor: pointer;
 }
-.ax-tab[data-on="1"] { color: var(--text); border-bottom-color: var(--accent); }
+.ax-tab:hover:not([data-on="1"]) { color: var(--text); background: var(--surface); }
+.ax-tab[data-on="1"] { color: var(--text); background: var(--surface-2); }
 .ax-body { flex: 1; min-height: 0; display: flex; }
 .ax-body.hidden { display: none !important; }
 .ax-list {
-  flex: 0 0 240px;
+  flex: 0 0 264px;
   min-width: 0;
   border-right: 1px solid var(--line);
   overflow-y: auto;
@@ -5463,28 +5646,47 @@ body[data-compactando="1"] .ctx-dot::after {
 }
 .ax-ativos-sec {
   border-bottom: 1px solid var(--line);
-  padding-bottom: 6px;
-  margin-bottom: 6px;
+  padding-bottom: var(--s-3);
+  margin-bottom: var(--s-2);
 }
+/* mesmo rótulo de seção do resto do app */
 .ax-ativos-title,
 .ax-list-title {
-  margin: 8px 10px 4px;
-  color: var(--muted);
-  font-size: var(--fs-xs);
+  margin: var(--s-5) var(--s-5) var(--s-2);
+  color: var(--faint);
+  font-size: var(--fs-2xs);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: var(--ls-label);
 }
 .ax-edit-area { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .ax-item-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 16px;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-6);
   border-bottom: 1px solid var(--line);
-  min-height: 42px;
+  min-height: 48px;
 }
-.ax-item-head .mod-meta { flex: 1; }
+
+/* nome do item aberto é o título da área, não uma legenda */
+.ax-item-head .mod-meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  letter-spacing: var(--ls-title);
+}
+
+.ax-item-head .primary { margin-left: auto; }
+.ax-item-head .ghost.danger { color: var(--danger); }
+.ax-item-head .ghost.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+}
 
 /* ---------- Tarefas (quadro Kanban) ---------- */
 

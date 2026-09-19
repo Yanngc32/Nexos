@@ -614,7 +614,10 @@ function setFilePreview(on, persist = true) {
 function setFocus(on, persist = true) {
   document.body.dataset.focus = on ? "1" : "0";
   $("btn-focus-exit").classList.toggle("hidden", !on);
-  $("btn-focus").textContent = on ? "Sair do foco" : "Foco";
+  const bf = $("btn-focus");
+  bf.title = on ? "Sair do modo foco (Esc)" : "Modo foco (Ctrl+Shift+F)";
+  bf.setAttribute("aria-label", on ? "Sair do modo foco" : "Modo foco");
+  bf.dataset.on = on ? "1" : "0";
   if (on && !state.sideChat) {
     state.sideChat = true;
     applyWorkLayout();
@@ -1221,8 +1224,8 @@ function setMotor(on, live = false) {
   st.textContent = live ? "Falando" : on ? "Ligado" : "Desligado";
   if (petState.ok) st.classList.add("sr-only");
   syncPet(on, live);
-  const btn = $("btn-motor");
-  btn.textContent = on ? "Desligar" : "Ligar";
+  $("motor-label").textContent = on ? "Desligar" : "Ligar";
+  $("btn-motor").dataset.on = on ? "1" : "0";
   if (on) bannerPadrao();
   $("banner").classList.toggle("hidden", on);
   syncTalking();
