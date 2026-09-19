@@ -359,6 +359,9 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   campos de texto com base comum (nenhum input cai mais no visual nativo) e
   `--accent-text` derivado de `--accent`, pra cor trocada em Configurações continuar valendo em
   texto pequeno. O maguinho continua onde estava, sem mudança de arte nem de animação.
+- Configurações: os sete itens da navegação e a busca trocam glifo de texto (◧ ☰ ▢ ⇅ ◈ ▣ ⇶ ⌕)
+  por ícone SVG, no mesmo traço da barra lateral, e descrição com mais de um parágrafo
+  (Roteamento IA, Módulos) ganha respiro entre eles — antes colavam num bloco só de texto.
 - Celular: barra de abas com ícone + rótulo e marca de aba ativa, ícones de voltar/ajustes/enviar
   em SVG no lugar dos glifos de texto, pílula do motor com ponto de estado, bolha de chat
   ancorada pelo canto do lado de quem falou, folha com alça de arraste, e o maguinho também na

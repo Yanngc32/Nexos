@@ -3224,8 +3224,10 @@ button:disabled {
 }
 
 .set-search-ico {
-  color: var(--muted);
-  font-size: var(--fs-lg);
+  flex: 0 0 15px;
+  width: 15px;
+  height: 15px;
+  color: var(--faint);
 }
 
 #set-q {
@@ -3280,9 +3282,15 @@ button:disabled {
 }
 
 .set-nav-ico {
+  flex: 0 0 16px;
   width: 16px;
+  height: 16px;
   color: var(--faint);
-  text-align: center;
+  transition: color var(--dur) var(--ease);
+}
+
+.set-nav-item:hover .set-nav-ico {
+  color: var(--text);
 }
 
 .set-nav-item[data-on="1"] .set-nav-ico {
@@ -3375,6 +3383,13 @@ button:disabled {
   font-size: var(--fs-sm);
   line-height: var(--lh-ui);
   color: var(--muted);
+}
+
+/* Descrição com mais de um parágrafo (Roteamento IA, Módulos): sem isto os
+   parágrafos colam e viram um bloco só de texto. */
+.set-txt p + p,
+.set-txt p + .set-hint {
+  margin-top: var(--s-2);
 }
 
 .set-ctl {
