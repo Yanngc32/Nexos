@@ -630,7 +630,7 @@ body[data-side-mini="1"] .side .ico-only {
 }
 
 .repo[data-on="1"] > ul {
-  border-left-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  border-left-color: var(--line-3);
 }
 
 .repo-count {
@@ -4960,9 +4960,18 @@ body[data-side-mini="1"] .svc-strip {
   gap: 8px;
 }
 
-/* faixa da cor do agente: identifica o cartão de relance */
-.agent[data-def="1"] {
-  border-left: 3px solid var(--agent-color, var(--accent));
+/* A cor do agente identifica o cartão por um ponto antes do nome, e não por uma
+   faixa na borda esquerda: a faixa corta o canto arredondado e vira um risco
+   colorido em cada item da lista. */
+.agent[data-def="1"] .agent-name::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: var(--s-2);
+  border-radius: 50%;
+  background: var(--agent-color, var(--accent));
+  vertical-align: middle;
 }
 
 .agent-name {
@@ -5177,7 +5186,14 @@ body[data-side-mini="1"] .svc-strip {
   background: var(--surface-2);
 }
 
-.agent-card > strong {
+.card-cab {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  min-width: 0;
+}
+
+.agent-card strong {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5186,24 +5202,73 @@ body[data-side-mini="1"] .svc-strip {
   font-weight: 600;
 }
 
-.agent-card-meta {
+/* como o time trabalha / qual evento dispara o hook: a etiqueta do cartão */
+.card-tag {
+  flex: 0 0 auto;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--faint);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* o caminho: um chip por membro, com a seta entre eles */
+.card-fluxo {
   grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  margin-top: var(--s-2);
+  overflow: hidden;
+  font-size: var(--fs-xs);
+}
+
+/* chip não encolhe junto com os irmãos: com `1 1 auto` três nomes curtos viravam
+   "fr… → revi… → dae…" mesmo cabendo. Só um nome longo de verdade trunca. */
+.card-chip {
+  flex: 0 0 auto;
+  max-width: 10em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px var(--s-3);
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.card-chip-alerta {
+  background: color-mix(in srgb, var(--warn) 22%, var(--surface-3));
+}
+
+.card-seta,
+.card-vazio {
+  flex: 0 0 auto;
+  color: var(--faint);
+}
+
+/* a nota é a primeira a ceder espaço: encolhe com reticências em vez de ser
+   cortada no meio da palavra pela borda do cartão */
+.card-nota {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--muted);
-  font-size: var(--fs-xs);
+  color: var(--faint);
 }
 
-.agent-card > .ghost {
+.card-abrir {
   grid-row: span 2;
   flex: 0 0 auto;
   padding: var(--s-1) var(--s-3);
   color: var(--faint);
 }
 
-.agent-card:hover > .ghost {
+.agent-card:hover .card-abrir {
   color: var(--text);
 }
 
@@ -5345,7 +5410,8 @@ body[data-side-mini="1"] .svc-strip {
 .ag-tpl[data-on="1"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
 .ag-tpl strong { font-size: var(--fs-md); }
 .ag-tpl span { font-size: var(--fs-xs); color: var(--muted); line-height: var(--lh-ui); }
-.ag-tpl-nota { margin: 0; font-size: var(--fs-xs); color: var(--muted); line-height: var(--lh-ui); border-left: 2px solid var(--accent-line); padding-left: var(--s-4); }
+.ag-tpl-nota { margin: 0; padding: var(--s-3) var(--s-4); font-size: var(--fs-xs); color: var(--muted);
+  line-height: var(--lh-ui); background: var(--surface); border-radius: var(--r-md); }
 
 /* container: a linha de passo se adapta à LARGURA DA BANCADA, não da janela —
    ela divide espaço com o editor e pode ficar estreita numa janela larga */
@@ -5368,12 +5434,12 @@ body[data-side-mini="1"] .svc-strip {
 
 /* bancada estreita: cai o que é secundário (tokens, depois o detalhe) em vez de
    truncar toda coluna em "ap…" */
-@container (max-width: 460px) {
+@container (max-width: 430px) {
   .ag-step { grid-template-columns: 18px 16px minmax(0, auto) minmax(0, 1fr) 40px 40px; }
   .ag-step-tk { display: none; }
 }
 
-@container (max-width: 330px) {
+@container (max-width: 300px) {
   .ag-step { grid-template-columns: 18px 16px minmax(0, 1fr) 36px 40px; }
   .ag-step-det { display: none; }
 }
@@ -5637,7 +5703,7 @@ body[data-compactando="1"] .ctx-dot::after {
 .ax-body { flex: 1; min-height: 0; display: flex; }
 .ax-body.hidden { display: none !important; }
 .ax-list {
-  flex: 0 0 264px;
+  flex: 0 0 288px;
   min-width: 0;
   border-right: 1px solid var(--line);
   overflow-y: auto;

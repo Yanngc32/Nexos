@@ -4202,33 +4202,85 @@ async function loadTeams() {
   paintTeams();
 }
 
+const TOPOLOGIA_ROTULO = {
+  pipeline: "em sequência",
+  fanin: "em paralelo",
+  supervisor: "com supervisor",
+};
+
+/**
+ * Cartão de time: nome + como o time trabalha em cima, e o caminho dos membros
+ * embaixo, um chip por agente. O texto corrido de antes ("3 membros · front →
+ * revisor → daemon") era a mesma informação sem nenhuma leitura de relance.
+ */
+function teamCard(t) {
+  const li = document.createElement("li");
+  li.className = "agent-card";
+
+  const topo = document.createElement("span");
+  topo.className = "card-tag";
+  topo.textContent = TOPOLOGIA_ROTULO[t.topology] || t.topology;
+
+  const nome = document.createElement("strong");
+  nome.textContent = t.name;
+
+  const cab = document.createElement("div");
+  cab.className = "card-cab";
+  cab.append(nome, topo);
+
+  const fluxo = document.createElement("div");
+  fluxo.className = "card-fluxo";
+  if (t.members.length) {
+    // a coluna é estreita: mostra os três primeiros e conta o resto, em vez de
+    // truncar todo mundo em "fr… → revi… → dae…"
+    const TETO = 3;
+    const mostrados = t.members.slice(0, TETO);
+    mostrados.forEach((m, i) => {
+      if (i) {
+        const seta = document.createElement("span");
+        seta.className = "card-seta";
+        // em paralelo ninguém espera ninguém: a seta viraria mentira
+        seta.textContent = t.topology === "fanin" ? "+" : "→";
+        fluxo.append(seta);
+      }
+      const chip = document.createElement("span");
+      chip.className = "card-chip";
+      chip.textContent = m.agentId;
+      fluxo.append(chip);
+    });
+    if (t.members.length > TETO) {
+      const mais = document.createElement("span");
+      mais.className = "card-nota";
+      mais.textContent = `+${t.members.length - TETO}`;
+      fluxo.append(mais);
+    }
+  } else {
+    const vazio = document.createElement("span");
+    vazio.className = "card-vazio";
+    vazio.textContent = "sem membros";
+    fluxo.append(vazio);
+  }
+
+  const editar = document.createElement("button");
+  editar.type = "button";
+  editar.className = "ghost card-abrir";
+  editar.textContent = "✎";
+  editar.title = "Abrir";
+  editar.addEventListener("click", () => void abrirTime(t));
+
+  li.append(cab, fluxo, editar);
+  li.addEventListener("click", (e) => {
+    if (e.target === editar) return;
+    void abrirTime(t);
+  });
+  return li;
+}
+
 function paintTeams() {
   const ul = $("team-list");
   ul.replaceChildren();
   $("team-empty").classList.toggle("hidden", state.teams.length > 0);
-  for (const t of state.teams) {
-    const li = document.createElement("li");
-    li.className = "agent-card";
-    const nome = document.createElement("strong");
-    nome.textContent = t.name;
-    const meta = document.createElement("span");
-    meta.className = "agent-card-meta";
-    meta.textContent = `${t.members.length} membro${t.members.length === 1 ? "" : "s"} · ${t.members
-      .map((m) => m.agentId)
-      .join(" → ")}`;
-    const editar = document.createElement("button");
-    editar.type = "button";
-    editar.className = "ghost";
-    editar.textContent = "✎";
-    editar.title = "Abrir";
-    editar.addEventListener("click", () => void abrirTime(t));
-    li.append(nome, meta, editar);
-    li.addEventListener("click", (e) => {
-      if (e.target === editar) return;
-      void abrirTime(t);
-    });
-    ul.append(li);
-  }
+  for (const t of state.teams) ul.append(teamCard(t));
 }
 
 /**
@@ -4278,22 +4330,50 @@ function paintHookRules() {
   for (const r of lista) {
     const li = document.createElement("li");
     li.className = "agent-card";
+
     const nome = document.createElement("strong");
-    nome.textContent = r.nome || `${r.evento} · ${rotuloDoEscopo(r)}`;
-    const meta = document.createElement("span");
-    meta.className = "agent-card-meta";
-    const quem = r.teamId ? `time ${r.teamId}` : r.agentId;
-    const partes = r.nome ? [`${r.evento} · ${rotuloDoEscopo(r)}`, quem] : [quem];
-    if (r.branch) partes.push(`branch ${r.branch}`);
-    if (r.bloqueante) partes.push("bloqueante");
-    meta.textContent = partes.join(" · ");
+    nome.textContent = r.nome || rotuloDoEscopo(r);
+
+    const evento = document.createElement("span");
+    evento.className = "card-tag";
+    evento.textContent = r.evento;
+
+    const cab = document.createElement("div");
+    cab.className = "card-cab";
+    cab.append(nome, evento);
+
+    const fluxo = document.createElement("div");
+    fluxo.className = "card-fluxo";
+    const quem = document.createElement("span");
+    quem.className = "card-chip";
+    quem.textContent = r.teamId ? `time ${r.teamId}` : r.agentId;
+    fluxo.append(quem);
+    /*
+     * A coluna é estreita e o cartão já diz o evento na etiqueta: aqui entra só
+     * o que muda o comportamento da regra. Escopo e branch juntos não cabiam e
+     * o "bloqueante" — o item mais importante da linha — era o que saía cortado.
+     */
+    if (r.bloqueante) {
+      const bl = document.createElement("span");
+      bl.className = "card-chip card-chip-alerta";
+      bl.textContent = "bloqueante";
+      fluxo.append(bl);
+    }
+    const detalhe = r.escopo.tipo === "global" ? "global" : r.branch ? `branch ${r.branch}` : "";
+    if (detalhe) {
+      const nota = document.createElement("span");
+      nota.className = "card-nota";
+      nota.textContent = detalhe;
+      fluxo.append(nota);
+    }
+
     const editar = document.createElement("button");
     editar.type = "button";
-    editar.className = "ghost";
+    editar.className = "ghost card-abrir";
     editar.textContent = "✎";
     editar.title = "Abrir";
     editar.addEventListener("click", () => abrirHook(r));
-    li.append(nome, meta, editar);
+    li.append(cab, fluxo, editar);
     li.addEventListener("click", (e) => {
       if (e.target === editar) return;
       abrirHook(r);

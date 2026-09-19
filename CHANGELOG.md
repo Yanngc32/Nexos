@@ -333,8 +333,15 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   da paleta) marcada por fundo em vez de traço embaixo: o `border-bottom` acompanhava o
   `border-radius` do botão e desenhava um risco curvado sob o rótulo.
 - Cartão da lista de Times e de Hooks não tinha regra de CSS nenhuma — nome, resumo e o botão de
-  abrir saíam em fluxo de texto corrido, grudados. Agora é cartão com título, resumo truncado e
-  ação fixa à direita, igual ao de Agentes.
+  abrir saíam em fluxo de texto corrido, grudados. Foram refeitos: nome e etiqueta (como o time
+  trabalha / que evento dispara a regra) em cima, e embaixo o caminho dos membros em chip com a
+  seta entre eles — `+` quando o time roda em paralelo, porque ali ninguém espera ninguém. Time
+  com mais de três membros mostra os três primeiros e conta o resto; o cartão de hook mostra quem
+  roda, "bloqueante" quando é, e escopo global ou branch.
+- Faixa de cor na borda esquerda do cartão de agente virou um ponto antes do nome: a faixa cortava
+  o canto arredondado e virava um risco colorido em cada item da lista. Saíram também a barra de
+  acento à esquerda da nota do modelo de criação e o trilho roxo das conversas do repositório
+  ativo, que passou a ser neutro.
 - Linha de passo da bancada (Agentes/Times) quebrava em duas quando o painel ficava estreito.
   A linha agora responde à largura da BANCADA (container query) e vai soltando o que é
   secundário — tokens, depois o detalhe — em vez de truncar tudo em "ap…".
