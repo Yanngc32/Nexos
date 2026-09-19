@@ -1102,6 +1102,9 @@
           <button type="button" class="set-nav-item" data-panel="modulos">
             <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6" /><rect x="13.5" y="3.5" width="7" height="7" rx="1.6" /><rect x="3.5" y="13.5" width="7" height="7" rx="1.6" /><rect x="13.5" y="13.5" width="7" height="7" rx="1.6" /></svg>Módulos
           </button>
+          <button type="button" class="set-nav-item" data-panel="skills">
+            <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z" /></svg>Skills
+          </button>
           <p class="set-nav-group">Motor</p>
           <button type="button" class="set-nav-item" data-panel="contas">
             <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M16 19v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 17.5V19" /><circle cx="10" cy="8" r="3.2" /><path d="M20 19v-1.5a3.5 3.5 0 0 0-2.6-3.4" /><path d="M15.5 5.2a3.2 3.2 0 0 1 0 5.6" /></svg>Contas
@@ -1504,6 +1507,100 @@
                   </div>
                   <div class="set-ctl">
                     <input id="mod-windows-control" type="checkbox" aria-label="Permitir controle do Windows" />
+                  </div>
+                </div>
+              </div>
+            </section>
+            <section class="set-sec hidden" data-panel="skills">
+              <h3>Skills</h3>
+              <p class="set-grupo-tit">Instaladas</p>
+              <div class="set-grupo">
+                <div class="set-row col">
+                  <div class="set-txt">
+                    <h4>Skills disponíveis</h4>
+                    <p>
+                      Skill é um markdown com instruções que o motor carrega quando o assunto
+                      aparece, e que vira um comando no menu <b>/</b> do composer. Só o motor
+                      <b>claude</b> lê skill — conta <b>codex</b> ignora.
+                    </p>
+                    <p id="sk-msg" class="set-hint"></p>
+                    <p id="sk-err" class="set-err"></p>
+                  </div>
+                  <div class="set-ctl col">
+                    <ul id="sk-lista" class="sk-lista"></ul>
+                    <p id="sk-vazio" class="sk-vazio hidden">Nenhuma skill instalada ainda.</p>
+                  </div>
+                </div>
+              </div>
+
+              <p class="set-grupo-tit">Instalar</p>
+              <div class="set-grupo">
+                <div class="set-row col">
+                  <div class="set-txt">
+                    <h4>Onde instalar</h4>
+                    <p>
+                      <b>Todas as contas</b> grava em <code>~/.nexo/skills</code>, que o daemon
+                      copia pra dentro da pasta isolada de cada conta antes de cada turno — uma
+                      instalação vale pra todas. <b>Só neste projeto</b> grava no
+                      <code>.claude/skills</code> do repositório aberto: fica junto do código e
+                      aparece no <code>git status</code>.
+                    </p>
+                  </div>
+                  <div class="set-ctl">
+                    <select id="sk-escopo" aria-label="Onde instalar">
+                      <option value="global">Todas as contas</option>
+                      <option value="projeto">Só neste projeto</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="set-row col">
+                  <div class="set-txt">
+                    <h4>Do GitHub</h4>
+                    <p>
+                      Aceita <code>dono/repo</code>, o link da pasta da skill
+                      (<code>…/tree/main/skills/x</code>) ou o link do próprio <code>SKILL.md</code>.
+                      Repositório que só junta skills instala todas as que tiver em
+                      <code>skills/</code>.
+                    </p>
+                  </div>
+                  <div class="set-ctl col">
+                    <div class="sk-linha">
+                      <input id="sk-github" type="text" spellcheck="false" placeholder="dono/repo ou https://github.com/dono/repo/tree/main/skills/x" />
+                      <button type="button" id="btn-sk-github" class="primary">Instalar</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="set-row col">
+                  <div class="set-txt">
+                    <h4>De um markdown</h4>
+                    <p>
+                      Cole o SKILL.md ou escolha o arquivo. O nome vem do
+                      <code>name:</code> do frontmatter; sem frontmatter, use o campo ao lado.
+                    </p>
+                  </div>
+                  <div class="set-ctl col">
+                    <div class="sk-linha">
+                      <input id="sk-nome" type="text" maxlength="60" placeholder="Nome (só se o markdown não tiver)" />
+                      <label class="sk-arquivo">
+                        Escolher .md
+                        <input id="sk-arquivo" type="file" accept=".md,text/markdown" />
+                      </label>
+                    </div>
+                    <textarea id="sk-md" rows="6" spellcheck="false" placeholder="---&#10;name: Revisor de PR&#10;description: Lê o diff antes do push.&#10;---&#10;&#10;# Revisor…"></textarea>
+                    <div class="sk-linha sk-linha-fim">
+                      <button type="button" id="btn-sk-md" class="primary">Instalar</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Antes de instalar</h4>
+                    <p>
+                      Uma skill é instrução que o modelo vai seguir — instalar skill de terceiro é
+                      o mesmo ato de confiança de instalar uma dependência. O Nexo só grava o
+                      arquivo, nunca executa nada no momento da instalação, e a lista acima abre o
+                      conteúdo do que foi instalado.
+                    </p>
                   </div>
                 </div>
               </div>

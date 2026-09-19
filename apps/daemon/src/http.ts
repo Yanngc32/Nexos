@@ -25,6 +25,14 @@ import {
 import { readAttachment, type IncomingImage } from "./attachments.ts";
 import { installEngine } from "./install-engine.ts";
 import { listSkills } from "./skills.ts";
+import {
+  ErroDeSkill,
+  instalarSkills,
+  lerSkillInstalada,
+  removerSkill,
+  type EscopoSkill,
+  type OrigemSkill,
+} from "./skills-install.ts";
 import { cliAuthStatus } from "./auth-status.ts";
 import { cancelLogin, loginStatus, startLogin, submitCode } from "./login-session.ts";
 import {
@@ -566,6 +574,51 @@ export function createApp(home: string, token: string): Hono {
     const projectPath = c.req.query("projectPath") || undefined;
     const profileId = c.req.query("profileId") || undefined;
     return c.json(listSkills(home, profileId, projectPath));
+  });
+
+  /*
+   * Instalar skill de terceiro. `escopo: "global"` grava em `~/.nexo/skills`,
+   * que o daemon sincroniza pra dentro do CLAUDE_CONFIG_DIR de CADA perfil —
+   * é o que faz uma skill instalada uma vez valer pra todas as contas.
+   * `escopo: "projeto"` grava no `.claude/skills` do repositório aberto.
+   */
+  app.post("/v1/skills/install", async (c) => {
+    try {
+      const body = (await c.req.json()) as {
+        origem?: OrigemSkill;
+        escopo?: EscopoSkill;
+        projectPath?: string;
+      };
+      if (!body.origem || typeof body.origem !== "object") return c.json({ error: "origem obrigatória" }, 400);
+      const escopo: EscopoSkill = body.escopo === "projeto" ? "projeto" : "global";
+      const instaladas = await instalarSkills(body.origem, escopo, home, body.projectPath);
+      return c.json({ instaladas });
+    } catch (e) {
+      const err = e as ErroDeSkill;
+      return c.json({ error: err.message || "não deu pra instalar" }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.get("/v1/skills/:nome/markdown", (c) => {
+    try {
+      const escopo: EscopoSkill = c.req.query("escopo") === "projeto" ? "projeto" : "global";
+      const markdown = lerSkillInstalada(c.req.param("nome"), escopo, home, c.req.query("projectPath") || undefined);
+      return c.json({ markdown });
+    } catch (e) {
+      const err = e as ErroDeSkill;
+      return c.json({ error: err.message }, (err.status ?? 404) as 404);
+    }
+  });
+
+  app.delete("/v1/skills/:nome", (c) => {
+    try {
+      const escopo: EscopoSkill = c.req.query("escopo") === "projeto" ? "projeto" : "global";
+      removerSkill(c.req.param("nome"), escopo, home, c.req.query("projectPath") || undefined);
+      return c.json({ ok: true });
+    } catch (e) {
+      const err = e as ErroDeSkill;
+      return c.json({ error: err.message }, (err.status ?? 404) as 404);
+    }
   });
 
   /** Stream global: o "*" do bus recebe o evento de qualquer conversa. */

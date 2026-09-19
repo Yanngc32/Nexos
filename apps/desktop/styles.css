@@ -3706,6 +3706,176 @@ button:disabled {
   color: var(--muted);
 }
 
+/* ---- Configurações → Skills ---- */
+
+.sk-lista {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  width: 100%;
+}
+
+.sk-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+
+.sk-cab {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  min-width: 0;
+}
+
+.sk-nome {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+/* de onde a skill vem decide quem a enxerga: o rótulo é a informação principal
+   deste painel, não um detalhe */
+.sk-escopo {
+  flex: 0 0 auto;
+  padding: 1px var(--s-3);
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+}
+
+.sk-escopo[data-escopo="global"] {
+  background: color-mix(in srgb, var(--accent) 20%, var(--surface-3));
+  color: var(--text);
+}
+
+.sk-desc {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-ui);
+}
+
+.sk-acts {
+  display: flex;
+  gap: var(--s-1);
+  margin: var(--s-1) calc(var(--s-5) * -1) calc(var(--s-4) * -1);
+  padding: var(--s-2) var(--s-3);
+  border-top: 1px solid var(--line);
+}
+
+.sk-acts .ghost {
+  font-size: var(--fs-xs);
+  padding: var(--s-1) var(--s-3);
+}
+
+.sk-acts .danger {
+  margin-left: auto;
+  color: var(--danger);
+}
+
+.sk-acts .danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+}
+
+/* o markdown instalado, aberto dentro do item: é o que deixa ler antes de confiar */
+.sk-md-view {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: var(--s-4);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-ui);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sk-vazio {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+.sk-linha {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  width: 100%;
+  min-width: 0;
+}
+
+.sk-linha-fim {
+  justify-content: flex-end;
+}
+
+.sk-linha input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+
+/* input[type=file] nativo não tem como ser estilizado: o label é o botão */
+.sk-arquivo {
+  flex: 0 0 auto;
+  padding: var(--s-2) var(--s-4);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.sk-arquivo:hover {
+  background: var(--surface-3);
+  border-color: var(--line-3);
+}
+
+.sk-arquivo input {
+  display: none;
+}
+
+#sk-md {
+  width: 100%;
+  min-height: 140px;
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-ui);
+  resize: vertical;
+}
+
+#sk-md:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.set-txt code {
+  padding: 1px var(--s-1);
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: .92em;
+}
+
 /* ---- Pastas compartilhadas (memória / repo map) ---- */
 .shared-card {
   padding: 14px 0;

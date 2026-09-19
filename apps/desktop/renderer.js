@@ -6669,6 +6669,192 @@ $("btn-projetos-dir-pick").addEventListener("click", async () => {
   }
 });
 
+/* ---------- Configurações → Skills: instalar de terceiro ---------- */
+
+const ESCOPO_ROTULO = { global: "todas as contas", projeto: "neste projeto", perfil: "só desta conta" };
+
+/**
+ * Lista TODAS as skills que valem pra esta conversa — as do projeto aberto, as
+ * da conta e as globais. Não reusa `state.skills` do menu "/" de propósito: lá
+ * a lista é cacheada por conta+pasta e pode estar velha logo depois de instalar.
+ */
+async function renderSkills() {
+  if (!state.ok) return;
+  const ul = $("sk-lista");
+  const erro = $("sk-err");
+  let lista = [];
+  try {
+    const qs = new URLSearchParams();
+    if (state.projectPath) qs.set("projectPath", state.projectPath);
+    if (state.profileId) qs.set("profileId", state.profileId);
+    lista = await req(`/v1/skills?${qs}`);
+    erro.textContent = "";
+  } catch (e) {
+    erro.textContent = e.message || "não deu pra listar as skills";
+  }
+  ul.replaceChildren();
+  $("sk-vazio").classList.toggle("hidden", lista.length > 0);
+  for (const skill of lista) ul.append(skillItem(skill));
+  // o menu "/" do composer tem cache próprio: invalida pra refletir o que mudou
+  state.skills.key = "";
+}
+
+function skillItem(skill) {
+  const li = document.createElement("li");
+  li.className = "sk-item";
+
+  const nome = document.createElement("strong");
+  nome.className = "sk-nome";
+  nome.textContent = skill.name;
+
+  const escopo = document.createElement("span");
+  escopo.className = "sk-escopo";
+  escopo.dataset.escopo = skill.scope;
+  escopo.textContent = ESCOPO_ROTULO[skill.scope] || skill.scope;
+
+  const cab = document.createElement("div");
+  cab.className = "sk-cab";
+  cab.append(nome, escopo);
+
+  const desc = document.createElement("p");
+  desc.className = "sk-desc";
+  desc.textContent = skill.description || "sem descrição no frontmatter";
+
+  const acts = document.createElement("div");
+  acts.className = "sk-acts";
+  // skill do perfil vive na pasta isolada da conta, escrita pelo próprio CLI:
+  // o Nexo lista, mas quem instalou por fora é quem remove.
+  if (skill.scope === "global" || skill.scope === "projeto") {
+    const ver = document.createElement("button");
+    ver.type = "button";
+    ver.className = "ghost";
+    ver.textContent = "Ver";
+    ver.addEventListener("click", () => void alternarMarkdown(skill, li, ver));
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "ghost danger";
+    del.textContent = "Remover";
+    del.addEventListener("click", () => void removerSkill(skill));
+    acts.append(ver, del);
+  }
+
+  li.append(cab, desc, acts);
+  return li;
+}
+
+function skillQuery(escopo) {
+  const qs = new URLSearchParams({ escopo });
+  if (escopo === "projeto" && state.projectPath) qs.set("projectPath", state.projectPath);
+  return qs;
+}
+
+/** Abre o SKILL.md dentro do próprio item: é o que deixa conferir antes de confiar. */
+async function alternarMarkdown(skill, li, botao) {
+  const aberto = li.querySelector(".sk-md-view");
+  if (aberto) {
+    aberto.remove();
+    botao.textContent = "Ver";
+    return;
+  }
+  try {
+    const { markdown } = await req(`/v1/skills/${encodeURIComponent(skill.name)}/markdown?${skillQuery(skill.scope)}`);
+    const pre = document.createElement("pre");
+    pre.className = "sk-md-view";
+    pre.textContent = markdown;
+    li.append(pre);
+    botao.textContent = "Fechar";
+  } catch (e) {
+    $("sk-err").textContent = e.message || "não consegui abrir o markdown";
+  }
+}
+
+async function removerSkill(skill) {
+  const ok = await dialogo.confirmar(`Remover a skill "${skill.name}"? O arquivo sai do disco.`);
+  if (!ok) return;
+  $("sk-err").textContent = "";
+  $("sk-msg").textContent = "";
+  try {
+    await req(`/v1/skills/${encodeURIComponent(skill.name)}?${skillQuery(skill.scope)}`, { method: "DELETE" });
+    await renderSkills();
+  } catch (e) {
+    $("sk-err").textContent = e.message || "não deu pra remover";
+  }
+}
+
+/** Escopo escolhido, já recusando "projeto" sem projeto aberto em vez de deixar o daemon recusar. */
+function escopoDeInstalacao() {
+  const escopo = $("sk-escopo").value === "projeto" ? "projeto" : "global";
+  if (escopo === "projeto" && !state.projectPath) {
+    throw new Error("nenhum projeto aberto — escolha uma pasta antes de instalar só neste projeto");
+  }
+  return escopo;
+}
+
+async function instalarSkill(origem, botao) {
+  $("sk-err").textContent = "";
+  $("sk-msg").textContent = "";
+  const antes = botao.textContent;
+  botao.disabled = true;
+  botao.textContent = "Instalando…";
+  try {
+    const escopo = escopoDeInstalacao();
+    const body = { origem, escopo, ...(escopo === "projeto" ? { projectPath: state.projectPath } : {}) };
+    const { instaladas } = await req("/v1/skills/install", { method: "POST", body: JSON.stringify(body) });
+    const nomes = instaladas.map((s) => s.name).join(", ");
+    const onde = escopo === "global" ? "pra todas as contas" : "só neste projeto";
+    $("sk-msg").textContent =
+      instaladas.length === 1
+        ? `"${nomes}" instalada ${onde}.`
+        : `${instaladas.length} skills instaladas ${onde}: ${nomes}.`;
+    await renderSkills();
+    return true;
+  } catch (e) {
+    $("sk-err").textContent = e.message || "não deu pra instalar";
+    return false;
+  } finally {
+    botao.disabled = false;
+    botao.textContent = antes;
+  }
+}
+
+$("btn-sk-github").addEventListener("click", async () => {
+  const alvo = $("sk-github").value.trim();
+  if (!alvo) {
+    $("sk-err").textContent = "cole o endereço do repositório ou da pasta da skill";
+    return;
+  }
+  if (await instalarSkill({ tipo: "github", alvo }, $("btn-sk-github"))) $("sk-github").value = "";
+});
+
+$("btn-sk-md").addEventListener("click", async () => {
+  const conteudo = $("sk-md").value;
+  if (!conteudo.trim()) {
+    $("sk-err").textContent = "cole o markdown da skill ou escolha um arquivo .md";
+    return;
+  }
+  const nome = $("sk-nome").value.trim();
+  const origem = { tipo: "markdown", conteudo, ...(nome ? { nome } : {}) };
+  if (await instalarSkill(origem, $("btn-sk-md"))) {
+    $("sk-md").value = "";
+    $("sk-nome").value = "";
+  }
+});
+
+// arquivo escolhido só preenche a caixa: instalar continua sendo um clique
+// consciente, e dá pra conferir o conteúdo antes.
+$("sk-arquivo").addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  try {
+    $("sk-md").value = await file.text();
+    if (!$("sk-nome").value.trim()) $("sk-nome").value = file.name.replace(/\.md$/i, "");
+    $("sk-err").textContent = "";
+  } catch {
+    $("sk-err").textContent = "não consegui ler o arquivo";
+  }
+  e.target.value = "";
+});
+
 async function renderModulos() {
   if (!state.ok) return;
   let cfg;
@@ -6875,6 +7061,7 @@ $("btn-settings").addEventListener("click", () => {
   void renderMemoria();
   void renderModulos();
   void renderRoteamento();
+  void renderSkills();
 });
 $("btn-settings-close").addEventListener("click", () => $("settings").classList.add("hidden"));
 $("settings").addEventListener("click", (e) => {

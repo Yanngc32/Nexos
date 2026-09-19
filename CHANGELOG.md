@@ -6,6 +6,20 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- Instalar skill de terceiro em Configurações → Skills: colando o markdown, escolhendo um arquivo
+  `.md`, ou pelo endereço do GitHub (`dono/repo`, link da pasta da skill, link do próprio
+  `SKILL.md`, ou raw). Repositório que só junta skills instala todas as que tiver em `skills/`.
+  O escopo é escolhido na hora: **todas as contas** grava em `~/.nexo/skills` — a pasta que o
+  daemon já copiava pra dentro da pasta isolada de cada conta antes de cada turno, então uma
+  instalação passa a valer pra qualquer conta —, e **só neste projeto** grava no
+  `.claude/skills` do repositório aberto, que é de onde o CLI lê skill de projeto (fica junto do
+  código e aparece no `git status`; a tela avisa). A lista mostra o que está instalado com o
+  escopo de cada uma, abre o SKILL.md pra leitura antes de confiar, e remove. Rotas novas:
+  `POST /v1/skills/install`, `GET /v1/skills/:nome/markdown` e `DELETE /v1/skills/:nome`.
+  Download pela API de contents do GitHub (sem `git` e sem dependência nova), com teto de 60
+  arquivos, 4 MB e 4 níveis; nome de skill vira slug e todo caminho baixado é resolvido contra a
+  pasta da skill, então `name: ../../.ssh` ou um arquivo `../../settings.json` não escapam. A
+  instalação só escreve arquivo — nada do que vem de fora roda na hora de instalar.
 - Cartão de agente mostra a que times ele pertence, em chip clicável que abre o time — de
   dentro do agente se chega no time que o usa, sem passar pela aba Times pra descobrir. Agente
   fora de qualquer time não ganha a linha: a ausência já diz isso. A aba Agentes passou a
