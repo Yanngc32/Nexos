@@ -996,7 +996,9 @@ async function abrirAgora() {
 }
 
 $("tabs").addEventListener("click", (e) => {
-  const aba = e.target?.dataset?.aba;
+  // `closest`, e não `e.target`: o botão tem ícone e rótulo dentro, então o alvo
+  // do clique costuma ser o svg/span filho, que não carrega o data-aba.
+  const aba = e.target?.closest?.("[data-aba]")?.dataset.aba;
   if (!aba) return;
   abortStream?.abort();
   pausePet();

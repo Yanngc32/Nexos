@@ -15,6 +15,8 @@
   <body>
     <!-- Pareamento: a primeira e única tela até haver token. -->
     <section class="tela" id="tela-par">
+      <!-- o maguinho abre a porta: mesma arte do compositor, parado -->
+      <img class="par-mago" src="./pets/nexo/mago/idle.png" alt="" width="70" height="96" />
       <h1>Nexo</h1>
       <p class="sub">
         No computador, abra <b>Configurações → Celular</b> e peça um código. Ele vale 2 minutos.
@@ -50,9 +52,13 @@
     <!-- App: só aparece com token. -->
     <div class="app hidden" id="app">
       <header class="topo">
-        <button type="button" class="ghost" id="btn-voltar" hidden aria-label="Voltar">‹</button>
+        <button type="button" class="ghost" id="btn-voltar" hidden aria-label="Voltar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+        </button>
         <span class="titulo" id="titulo">Nexo</span>
-        <button type="button" class="ghost" id="btn-ajustes" hidden aria-label="Modelo e esforço">⚙</button>
+        <button type="button" class="ghost" id="btn-ajustes" hidden aria-label="Modelo e esforço">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" /></svg>
+        </button>
         <span class="pill" id="motor">…</span>
       </header>
 
@@ -102,7 +108,9 @@
                   <button type="button" class="compositor-chip hidden" id="chip-modelo" aria-label="Modelo e esforço"></button>
                 </div>
                 <span class="compositor-spacer"></span>
-                <button type="submit" class="primary" id="btn-enviar">↑</button>
+                <button type="submit" class="primary" id="btn-enviar" aria-label="Enviar">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5" /><path d="m5 12 7-7 7 7" /></svg>
+                </button>
               </div>
             </form>
           </div>
@@ -110,8 +118,14 @@
       </main>
 
       <nav class="tabs" id="tabs">
-        <button type="button" data-aba="agora" class="on">Agora</button>
-        <button type="button" data-aba="conversas">Conversas</button>
+        <button type="button" data-aba="agora" class="on">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3 7 4-14 3 7h4" /></svg>
+          <span>Agora</span>
+        </button>
+        <button type="button" data-aba="conversas">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2Z" /></svg>
+          <span>Conversas</span>
+        </button>
       </nav>
     </div>
 

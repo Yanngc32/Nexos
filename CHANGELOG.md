@@ -348,6 +348,22 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Alterado
 
+- Acabamento visual do desktop e do celular sobre uma camada de tokens única (cor, espaço,
+  tipo, raio, sombra, movimento e anel de foco), declarada no topo de `apps/desktop/styles.css`
+  e espelhada em `apps/mobile/mobile.css` e `apps/desktop/widget.css` — os três lados agora
+  saem da mesma rampa neutra e do mesmo roxo, em vez de cada tela ter o seu cinza (o painel
+  flutuante, por exemplo, era azul). Hierarquia de texto passou a ser explícita: chrome em
+  13/1.45, prosa da conversa em 14/1.62, e rótulo de seção (Repositórios, Serviços, seções das
+  Configurações, autor da mensagem) em caixa alta miúda com respiro entre letras. Um anel de
+  foco só no app inteiro, conversa e item de navegação ativos marcados por um traço de acento
+  na borda esquerda, campos de texto com base comum (nenhum input cai mais no visual nativo) e
+  `--accent-text` derivado de `--accent`, pra cor trocada em Configurações continuar valendo em
+  texto pequeno. O maguinho continua onde estava, sem mudança de arte nem de animação.
+- Celular: barra de abas com ícone + rótulo e marca de aba ativa, ícones de voltar/ajustes/enviar
+  em SVG no lugar dos glifos de texto, pílula do motor com ponto de estado, bolha de chat
+  ancorada pelo canto do lado de quem falou, folha com alça de arraste, e o maguinho também na
+  tela de pareamento. O clique na aba passou a resolver por `closest("[data-aba]")`: com ícone
+  dentro do botão, o alvo do evento é o filho, que não carrega o `data-aba`.
 - `waitTerminal` (session.ts) dorme até o turno fechar em vez de acordar a cada 20 ms — eram ~45
   mil despertares num turno de 15 minutos. `lastTerminal` só é fechado por `setTerminal`, que
   libera quem espera; o teto de 15 min continua virando erro.
