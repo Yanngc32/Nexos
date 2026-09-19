@@ -76,6 +76,11 @@ export class StubEngine implements Engine {
       this.handler({ type: "quota" });
       return;
     }
+    // Conta sem login: turno fecha em `auth` sem nunca passar por `done`.
+    if (text === "AUTH") {
+      this.handler({ type: "auth", detail: "Not logged in · Please run /login" });
+      return;
+    }
     if (text === "CRASH") {
       this.handler({ type: "error", message: "crash" });
       return;

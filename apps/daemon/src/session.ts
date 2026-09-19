@@ -195,9 +195,23 @@ export function allLimits(): Record<string, EngineEvent & { type: "limits" }> {
 
 const lives = new Map<string, Live>();
 
+/**
+ * Turno realmente em voo: o motor foi acionado e ainda não fechou.
+ *
+ * Não basta `pendingTurn !== null` — ele sobrevive de propósito a `quota` e `auth`,
+ * porque é dele que `switchNow`/`retomarTurnoPendente` tiram o texto pra reenviar na
+ * conta nova. Quando não há pra onde trocar (sem fallback, ou a pessoa nunca decide),
+ * o turno fica pendente pra sempre e o indicador de atividade acendia pra sempre junto.
+ * `lastTerminal` é o par certo: `sendTurn` zera ao despachar, `setTerminal` preenche ao
+ * fechar — inclusive em quota/auth/erro. Quem espera decisão aparece por `pendingQuota`.
+ */
+function emVoo(l: Live): boolean {
+  return l.pendingTurn !== null && l.lastTerminal === null;
+}
+
 /** Threads com turno em voo agora: alimenta o indicador de atividade na lista. */
 export function busyThreads(): string[] {
-  return [...lives.entries()].filter(([, l]) => l.pendingTurn !== null).map(([id]) => id);
+  return [...lives.entries()].filter(([, l]) => emVoo(l)).map(([id]) => id);
 }
 
 /** Essa conta tem motor de pé AGORA (conversa aberta com ela), turno em voo ou não. Usado pra o ping de uso pular quem já está sendo usado. */
@@ -230,7 +244,7 @@ export function agentSnapshots(): AgentSnapshot[] {
     threadId,
     profileId: l.profileId,
     ...(l.agentId ? { agentId: l.agentId } : {}),
-    busy: l.pendingTurn !== null,
+    busy: emVoo(l),
     ...(l.session?.model ? { model: l.session.model } : {}),
     startedAt: l.startedAt,
     tail: l.assistantBuf.slice(-TAIL_CHARS),

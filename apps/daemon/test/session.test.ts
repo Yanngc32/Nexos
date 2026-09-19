@@ -9,6 +9,7 @@ import { lerSessaoClaude } from "../src/claude-session.ts";
 import {
   abortThread,
   agentSnapshots,
+  busyThreads,
   clearThread,
   getLive,
   limitsOf,
@@ -371,6 +372,20 @@ describe("session", () => {
     await abortThread(t.id);
     await pending;
     expect(agentSnapshots().find((a) => a.threadId === t.id)?.busy).toBe(false);
+  });
+
+  it("turno que fecha em auth para de contar como ocupado, mas segue retomável", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    await postMessage(t.id, "AUTH", home);
+
+    // O `pendingTurn` sobrevive de propósito — é dele que a troca de conta tira o texto
+    // pra reenviar. Só o indicador de atividade é que não pode ficar aceso por causa dele.
+    expect(getLive(t.id)?.pendingTurn).not.toBeNull();
+    expect(getLive(t.id)?.lastTerminal).toBe("auth");
+    expect(agentSnapshots().find((a) => a.threadId === t.id)?.busy).toBe(false);
+    expect(busyThreads()).not.toContain(t.id);
   });
 
   it("duas conversas trabalham ao mesmo tempo, cada uma na sua conta", async () => {
