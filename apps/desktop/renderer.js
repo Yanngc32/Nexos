@@ -4200,6 +4200,13 @@ async function loadTeams() {
     state.teams = [];
   }
   paintTeams();
+  // o cartão de agente lista os times dele: chegou time novo, a lista muda junto
+  paintAgentDefs();
+}
+
+/** Times que têm este agente como membro, na ordem em que o daemon devolve. */
+function timesDoAgente(agentId) {
+  return state.teams.filter((t) => t.members.some((m) => m.agentId === agentId));
 }
 
 const TOPOLOGIA_ROTULO = {
@@ -4969,7 +4976,8 @@ function setAxTab(tab) {
   }
   // times e hooks listam/escolhem agente (e hooks também time) junto: o seletor precisa deles
   if (state.axTab === "agentes" || state.axTab === "times" || state.axTab === "hooks") void loadAgentDefs();
-  if (state.axTab === "times" || state.axTab === "hooks") void loadTeams();
+  // "agentes" também precisa dos times: cada cartão mostra a que times o agente pertence
+  void loadTeams();
   if (state.axTab === "hooks") void loadHookRules();
   // Entrar na aba "Agentes" não espera o próximo tick do SSE pra mostrar quem já está rodando.
   if (state.axTab === "agentes") paintAgents();
@@ -5039,6 +5047,32 @@ function agentDefCard(d) {
     badges.append(tag);
   }
 
+  /*
+   * A que times este agente pertence. Chip clicável: de dentro do agente se
+   * chega no time que o usa, que é a pergunta que vem logo depois de "quem é
+   * este agente?". Agente fora de qualquer time não ganha linha nenhuma — a
+   * ausência já diz isso, e uma linha "sem time" em cada cartão seria ruído.
+   */
+  const times = timesDoAgente(d.id);
+  let timesEl = null;
+  if (times.length) {
+    timesEl = document.createElement("div");
+    timesEl.className = "agent-times";
+    const rot = document.createElement("span");
+    rot.className = "agent-times-rot";
+    rot.textContent = times.length === 1 ? "time" : "times";
+    timesEl.append(rot);
+    for (const t of times) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "agent-time";
+      chip.textContent = t.name;
+      chip.title = `Abrir o time ${t.name}`;
+      chip.addEventListener("click", () => void abrirTime(t));
+      timesEl.append(chip);
+    }
+  }
+
   const acts = document.createElement("div");
   acts.className = "agent-acts";
   const usar = document.createElement("button");
@@ -5060,6 +5094,7 @@ function agentDefCard(d) {
     p.textContent = d.description;
     li.append(p);
   }
+  if (timesEl) li.append(timesEl);
   li.append(acts);
   return li;
 }

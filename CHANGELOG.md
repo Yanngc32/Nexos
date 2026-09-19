@@ -6,6 +6,10 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- Cartão de agente mostra a que times ele pertence, em chip clicável que abre o time — de
+  dentro do agente se chega no time que o usa, sem passar pela aba Times pra descobrir. Agente
+  fora de qualquer time não ganha a linha: a ausência já diz isso. A aba Agentes passou a
+  carregar os times junto (antes eles só chegavam depois de abrir a aba Times).
 - Tema da interface em Configurações → Aparência, com dois perfis: **grafite** (padrão, o neutro
   levemente frio alinhado ao roxo da marca) e **preto** (fundo preto e cinzas, contraste alto e
   bom em tela OLED). Só a rampa de superfície, traço e texto muda — tipografia, espaçamento, raio

@@ -5150,6 +5150,44 @@ body[data-side-mini="1"] .svc-strip {
   word-break: break-word;
 }
 
+/* A que times o agente pertence. Chip clicável: abre o time, que é a pergunta
+   seguinte a "quem é este agente". */
+.agent-times {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  font-size: var(--fs-xs);
+}
+
+.agent-times-rot {
+  flex: 0 0 auto;
+  color: var(--faint);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+}
+
+.agent-time {
+  flex: 0 1 auto;
+  max-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px var(--s-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+.agent-time:hover {
+  border-color: var(--accent-line);
+  color: var(--text);
+}
+
 /* ações do cartão: linha própria, separada por um traço — sem isso "Nova
    conversa" e "Editar" colavam na descrição e pareciam parte do texto */
 .agent-acts {

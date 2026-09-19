@@ -232,6 +232,12 @@ Uma linha por conversa com motor de pé: conta, motor, modelo, projeto, prévia 
 escrito, nome e cor do agente personalizado. Alimentado pelo SSE global. Abas "Meus agentes" e
 "Times" abrem o Agent Studio / Team Studio.
 
+Na tela cheia (Agentes/Times/Hooks), o cartão de agente traz conta, modelo, esforço, permissão,
+descrição e **os times de que ele é membro** (chip clicável que abre o time — `timesDoAgente`
+cruza `state.teams` com o id do agente, então a aba Agentes carrega os times junto). O cartão de
+time traz a topologia e o caminho dos membros em chip; o de hook, o evento, quem roda, se é
+bloqueante e o escopo global ou a branch.
+
 ### Painel flutuante
 
 Janela própria, sem moldura, sempre por cima — passo do run em andamento, conversas trabalhando,
