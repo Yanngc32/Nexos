@@ -119,6 +119,31 @@ sem ele já ter um time cria (ou reaproveita, idempotente) um time-pipeline-de-1
 `origem: "mencao"`. `listTeams`/`GET /v1/teams` filtram esse campo — some da tela — mas
 `getTeam` não filtra, então o motor de Run enxerga ele igual a qualquer time salvo.
 
+## Git e GitHub
+
+`apps/daemon/src/git.ts` é o único jeito de chamar git no daemon: `git(args, cwd, timeout)`,
+assíncrono, com teto de 30s, saída de stdout+stderr junta e sem lançar nunca (quem chama decide
+pelo `ok`). Enquanto era só leitura pontual, cada módulo ter o seu era barato; a partir do momento
+em que o Nexo mexe no repositório da pessoa, é aqui que mora a regra de nunca usar `--force` e de
+recusar escrita com a árvore suja. Os três `execFileSync` legados (`tarefas-git.ts`,
+`projeto-dir.ts`, `repo-map-indice.ts`) seguem onde estão: são síncronos por dependência de quem
+chama, e convertê-los é escopo próprio.
+
+`GET /v1/git/pr-url?projectPath=` devolve o link do formulário de PR do GitHub (`/compare/<branch>
+?expand=1`) pra branch atual — **sem login nenhum**, porque o navegador da pessoa já está logado.
+Quem abre o navegador é o cliente (`shell.openExternal`, que só aceita https); o daemon nunca
+navega. `githubDoRemote` valida o host: remote do GitLab virando link de github.com é erro mudo,
+que leva a um 404 ou ao repositório de outra pessoa com o mesmo nome. Cada recusa (branch não
+pushada, HEAD desanexado, estar na branch base) existe porque a alternativa é o GitHub abrir
+dizendo "There isn't anything to compare" sem a pessoa saber por quê.
+
+Abrir o PR pela API (título e base escolhidos dentro do Nexo), clonar por link e atualizar
+(fetch + pull fast-forward) são os próximos passos — e são eles que vão precisar de token, por
+OAuth Device Flow (o mesmo desenho de `login-session.ts`: start → abre o browser → poll → status,
+sem servidor de callback). Token do GitHub é da PESSOA, não do motor, então não entra em
+`profiles/<id>/keys.json`: vai num arquivo próprio 0600 fora do `GET /v1/config` (padrão de
+`profiles.ts`, não o de `typesafe.ts`, que escreve sem `mode`).
+
 ## Runs
 
 `POST /v1/runs` cria e dispara um time (`teamId` + `projectPath` + `goal`); progresso sai por SSE

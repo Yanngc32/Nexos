@@ -2876,11 +2876,27 @@ function menuDoRepo(e, path) {
     })),
     { separador: true },
     { rotulo: "Paleta", ico: "⌘", atalho: "Ctrl+P", onSelect: () => handleMod("palette") },
+    { rotulo: "Abrir PR no GitHub", ico: "⑂", onSelect: () => void abrirPrNoGitHub(path) },
     { rotulo: "Copiar caminho", ico: "⧉", onSelect: () => void copiarTexto(path, "Caminho") },
     { rotulo: "Abrir a pasta no sistema", ico: "↗", onSelect: () => void abrirPastaNoSistema(path) },
     { separador: true },
     { rotulo: "Tirar da lista", ico: "×", perigo: true, onSelect: () => void removeRepo(path) },
   ]);
+}
+
+/**
+ * Abre o formulário de PR do GitHub pra branch atual do repositório. O daemon
+ * só devolve a URL (ver `/v1/git/pr-url`) — quem sabe abrir navegador é o
+ * Electron. A recusa dele é específica ("a branch ainda não está no GitHub",
+ * "o HEAD está desanexado") e vale mais que um "não deu" nosso, então repasso.
+ */
+async function abrirPrNoGitHub(path) {
+  try {
+    const { url } = await req(`/v1/git/pr-url?projectPath=${encodeURIComponent(path)}`);
+    await window.nexo.openExternal(url);
+  } catch (err) {
+    appendEvent({ type: "error", message: `PR: ${err.message}` });
+  }
 }
 
 async function abrirPastaNoSistema(path) {

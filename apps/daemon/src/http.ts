@@ -24,6 +24,7 @@ import {
 } from "./profiles.ts";
 import { readAttachment, type IncomingImage } from "./attachments.ts";
 import { installEngine } from "./install-engine.ts";
+import { alvoDePullRequest } from "./git.ts";
 import { listSkills } from "./skills.ts";
 import { cliAuthStatus } from "./auth-status.ts";
 import { cancelLogin, loginStatus, startLogin, submitCode } from "./login-session.ts";
@@ -558,6 +559,20 @@ export function createApp(home: string, token: string): Hono {
     } catch (e) {
       const err = e as Error & { status?: number };
       return c.json({ error: err.message }, (err.status ?? 404) as 404);
+    }
+  });
+
+  /**
+   * Link do formulário de PR do GitHub pra branch atual do projeto. Quem abre o
+   * navegador é o cliente (o desktop tem `shell.openExternal`; o celular abre a
+   * aba), então aqui só sai a URL — e o daemon nunca navega por conta própria.
+   */
+  app.get("/v1/git/pr-url", async (c) => {
+    try {
+      return c.json(await alvoDePullRequest(c.req.query("projectPath") || ""));
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
     }
   });
 

@@ -1,6 +1,6 @@
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { git, type ResultadoGit } from "./git.ts";
 
 /**
  * Isolamento de árvore de trabalho para membros que rodam em paralelo.
@@ -18,19 +18,7 @@ import { resolve } from "node:path";
  * previsível, e quem decide o que fazer com ele é uma pessoa.
  */
 
-export type ResultadoGit = { ok: boolean; saida: string };
-
-/** git assíncrono: `worktree add` copia a árvore e pode levar segundos num repo grande. */
-function git(args: string[], cwd: string): Promise<ResultadoGit> {
-  return new Promise((resolvePromise) => {
-    const child = spawn("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-    let saida = "";
-    child.stdout.on("data", (b: Buffer) => (saida += b.toString("utf8")));
-    child.stderr.on("data", (b: Buffer) => (saida += b.toString("utf8")));
-    child.on("error", (e) => resolvePromise({ ok: false, saida: e.message }));
-    child.on("close", (code) => resolvePromise({ ok: code === 0, saida: saida.trim() }));
-  });
-}
+export type { ResultadoGit };
 
 /**
  * Dá pra isolar aqui? Precisa ser repositório git E ter pelo menos um commit —
@@ -76,7 +64,10 @@ export async function criarWorktree(
   branch: string,
 ): Promise<{ ok: true; wt: Worktree } | { ok: false; motivo: string }> {
   const repo = resolve(projectPath);
-  const r = await git(["worktree", "add", "-b", branch, dir, "HEAD"], repo);
+  // `worktree add` copia a árvore inteira pro disco: num monorepo grande passa
+  // dos 30s padrão de `git()`, e morrer no meio deixaria o passo sem árvore por
+  // um teto que é pra comando de leitura, não pra cópia de repositório.
+  const r = await git(["worktree", "add", "-b", branch, dir, "HEAD"], repo, 10 * 60_000);
   if (!r.ok) return { ok: false, motivo: r.saida || "git worktree add falhou" };
   return { ok: true, wt: { dir, branch } };
 }
