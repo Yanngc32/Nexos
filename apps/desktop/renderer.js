@@ -6,6 +6,7 @@ import { createAgentStudio } from "./agent-studio.js";
 import { createTeamStudio } from "./team-studio.js";
 import { createHooksStudio } from "./hooks-studio.js";
 import { createAutomacaoModal } from "./automacao-modal.js";
+import { createCloneModal } from "./clone-modal.js";
 import { createTarefasBoard } from "./tarefas-board.js";
 import { createDialogo } from "./dialogo.js";
 import { criarMenuContexto } from "./menu-contexto.js";
@@ -2876,7 +2877,9 @@ function menuDoRepo(e, path) {
     })),
     { separador: true },
     { rotulo: "Paleta", ico: "⌘", atalho: "Ctrl+P", onSelect: () => handleMod("palette") },
-    { rotulo: "Abrir PR no GitHub", ico: "⑂", onSelect: () => void abrirPrNoGitHub(path) },
+    { rotulo: "Trocar de branch…", ico: "⑂", onSelect: () => void menuDeBranches(e, path) },
+    { rotulo: "Atualizar do remote", ico: "⟳", onSelect: () => void atualizarRepo(path) },
+    { rotulo: "Abrir PR no GitHub", ico: "↗", onSelect: () => void abrirPrNoGitHub(path) },
     { rotulo: "Copiar caminho", ico: "⧉", onSelect: () => void copiarTexto(path, "Caminho") },
     { rotulo: "Abrir a pasta no sistema", ico: "↗", onSelect: () => void abrirPastaNoSistema(path) },
     { separador: true },
@@ -2890,6 +2893,55 @@ function menuDoRepo(e, path) {
  * Electron. A recusa dele é específica ("a branch ainda não está no GitHub",
  * "o HEAD está desanexado") e vale mais que um "não deu" nosso, então repasso.
  */
+/**
+ * Segundo menu, com as branches locais pra escolher. Dois passos em vez de
+ * submenu porque `menuContexto` não tem submenu — e a lista vem do daemon, que
+ * é quem sabe qual é a atual.
+ */
+async function menuDeBranches(e, path) {
+  let dados;
+  try {
+    dados = await req(`/v1/git/branches?projectPath=${encodeURIComponent(path)}`);
+  } catch (err) {
+    return appendEvent({ type: "error", message: `Branches: ${err.message}` });
+  }
+  if (!dados.locais.length) return appendEvent({ type: "sys", message: "Nenhuma branch neste repositório." });
+  menuContexto.abrir(e, [
+    { titulo: "Trocar de branch" },
+    ...dados.locais.map((b) => ({
+      rotulo: b,
+      ico: b === dados.atual ? "●" : " ",
+      onSelect: () => void trocarDeBranch(path, b),
+    })),
+  ]);
+}
+
+async function trocarDeBranch(path, branch) {
+  try {
+    await req("/v1/git/checkout", { method: "POST", body: JSON.stringify({ projectPath: path, branch }) });
+    appendEvent({ type: "sys", message: `Agora em \`${branch}\`.` });
+    if (samePath(path, state.projectPath)) await bindProject(path);
+  } catch (err) {
+    // a recusa do daemon é específica ("há mudança não commitada") e vale mais que um "não deu"
+    appendEvent({ type: "error", message: `Branch: ${err.message}` });
+  }
+}
+
+async function atualizarRepo(path) {
+  try {
+    const r = await req("/v1/git/pull", { method: "POST", body: JSON.stringify({ projectPath: path }) });
+    appendEvent({
+      type: "sys",
+      message: r.jaEstavaEmDia
+        ? `\`${r.branch}\` já estava em dia.`
+        : `\`${r.branch}\`: ${r.trazidos} commit(s) trazido(s) do remote.`,
+    });
+    if (!r.jaEstavaEmDia && samePath(path, state.projectPath)) await bindProject(path);
+  } catch (err) {
+    appendEvent({ type: "error", message: `Atualizar: ${err.message}` });
+  }
+}
+
 async function abrirPrNoGitHub(path) {
   try {
     const { url } = await req(`/v1/git/pr-url?projectPath=${encodeURIComponent(path)}`);
@@ -4621,6 +4673,17 @@ const automacaoModal = createAutomacaoModal({
   getAgents: () => state.agents.defs,
   getTeams: () => state.teams,
   aoSalvar: () => loadHookRules(),
+});
+
+const cloneModal = createCloneModal({
+  el: $,
+  api,
+  headers,
+  lerEventos,
+  pickFolder: () => window.nexo.pickFolder(),
+  // repositório clonado entra na lista e vira o projeto aberto, como se a
+  // pessoa tivesse apontado a pasta — que é o que ela acabou de fazer
+  aoClonar: (dir) => bindProject(dir),
 });
 
 const dialogo = createDialogo({ el: $ });
@@ -7124,6 +7187,8 @@ $("btn-close-tarefas").addEventListener("click", fecharAbaAtual);
 tarefasBoard.ligar();
 dialogo.ligar();
 automacaoModal.ligar();
+cloneModal.ligar();
+$("btn-clonar").addEventListener("click", () => cloneModal.abrir());
 $("btn-tk-automacao").addEventListener("click", () => void abrirAutomacao());
 
 $("btn-palette").addEventListener("click", () => handleMod("palette"));

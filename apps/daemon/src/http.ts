@@ -24,7 +24,14 @@ import {
 } from "./profiles.ts";
 import { readAttachment, type IncomingImage } from "./attachments.ts";
 import { installEngine } from "./install-engine.ts";
-import { alvoDePullRequest } from "./git.ts";
+import {
+  alvoDePullRequest,
+  atualizar,
+  clonar,
+  estadoDoRepo,
+  listarBranches,
+  trocarBranch,
+} from "./git.ts";
 import { listSkills } from "./skills.ts";
 import { cliAuthStatus } from "./auth-status.ts";
 import { cancelLogin, loginStatus, startLogin, submitCode } from "./login-session.ts";
@@ -142,6 +149,20 @@ function responderWeb(c: { req: { path: string }; body: BodyResponder }, caminho
 }
 
 type BodyResponder = (corpo: Buffer | string, status: number, headers?: Record<string, string>) => Response;
+
+/**
+ * As rotas de git recusam muito, e de propósito (ver git.ts): branch não
+ * pushada, árvore suja, as duas pontas andaram. Tudo isso é 400 com o motivo
+ * em texto — a pessoa lê e resolve. 500 fica pro que é defeito nosso.
+ */
+async function erroDeGit(c: { json: (corpo: unknown, status?: 400) => Response }, f: () => Promise<unknown>) {
+  try {
+    return c.json(await f());
+  } catch (e) {
+    const err = e as Error & { status?: number };
+    return c.json({ error: err.message }, (err.status ?? 400) as 400);
+  }
+}
 
 /** O mínimo do contexto do Hono que o MCP usa. */
 type McpCtx = {
@@ -567,13 +588,42 @@ export function createApp(home: string, token: string): Hono {
    * navegador é o cliente (o desktop tem `shell.openExternal`; o celular abre a
    * aba), então aqui só sai a URL — e o daemon nunca navega por conta própria.
    */
-  app.get("/v1/git/pr-url", async (c) => {
-    try {
-      return c.json(await alvoDePullRequest(c.req.query("projectPath") || ""));
-    } catch (e) {
-      const err = e as Error & { status?: number };
-      return c.json({ error: err.message }, (err.status ?? 400) as 400);
-    }
+  app.get("/v1/git/pr-url", async (c) => erroDeGit(c, () => alvoDePullRequest(c.req.query("projectPath") || "")));
+
+  /** Branch, limpeza da árvore e distância pro upstream — o que a barra do repositório mostra. */
+  app.get("/v1/git/estado", async (c) => erroDeGit(c, () => estadoDoRepo(c.req.query("projectPath") || "")));
+
+  app.get("/v1/git/branches", async (c) => erroDeGit(c, () => listarBranches(c.req.query("projectPath") || "")));
+
+  app.post("/v1/git/checkout", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { projectPath?: string; branch?: string };
+    return erroDeGit(c, () => trocarBranch(body.projectPath ?? "", body.branch ?? ""));
+  });
+
+  app.post("/v1/git/pull", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { projectPath?: string };
+    return erroDeGit(c, () => atualizar(body.projectPath ?? ""));
+  });
+
+  /**
+   * Clone com progresso, por SSE: repositório grande leva minutos, e uma tela
+   * parada durante esse tempo é indistinguível de travamento. O `ok`/`erro`
+   * final vai como evento — o status HTTP já saiu (200) quando o stream abriu,
+   * então é o último evento que diz se deu certo, não o código.
+   */
+  app.post("/v1/git/clone", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { url?: string; destinoPai?: string };
+    return streamSSE(c, async (stream) => {
+      const enviar = (ev: unknown) => stream.writeSSE({ data: JSON.stringify(ev) });
+      try {
+        const { dir } = await clonar(body.url ?? "", body.destinoPai ?? "", (linha) => {
+          void enviar({ type: "progresso", linha });
+        });
+        await enviar({ type: "ok", dir });
+      } catch (e) {
+        await enviar({ type: "erro", message: (e as Error).message || "clone falhou" });
+      }
+    });
   });
 
   /** Skills que o menu "/" do composer oferece: as do projeto aberto mais as do perfil ativo. */

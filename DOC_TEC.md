@@ -129,20 +129,51 @@ recusar escrita com a árvore suja. Os três `execFileSync` legados (`tarefas-gi
 `projeto-dir.ts`, `repo-map-indice.ts`) seguem onde estão: são síncronos por dependência de quem
 chama, e convertê-los é escopo próprio.
 
-`GET /v1/git/pr-url?projectPath=` devolve o link do formulário de PR do GitHub (`/compare/<branch>
-?expand=1`) pra branch atual — **sem login nenhum**, porque o navegador da pessoa já está logado.
+**Nada disto precisa de login.** `clone`, `fetch` e `pull` usam a credencial de git que já existe
+na máquina (chave SSH, credential helper) — é o mesmo comando que a pessoa rodaria no terminal, e
+repositório privado funciona sem o Nexo guardar token nenhum. `ambienteSemPrompt` (git.ts) força
+`GIT_TERMINAL_PROMPT=0` e `BatchMode=yes`: um daemon não tem terminal pra responder senha, e sem
+isso um fetch sem credencial penduraria a requisição até o timeout em vez de dizer o que faltou.
+
+| rota | o que faz |
+| --- | --- |
+| `GET /v1/git/pr-url` | link do formulário de PR (`/compare/<branch>?expand=1`) da branch atual |
+| `GET /v1/git/estado` | branch, árvore limpa?, upstream, `atras`/`adiante` |
+| `GET /v1/git/branches` | branches locais, mais recente primeiro |
+| `POST /v1/git/checkout` | troca de branch |
+| `POST /v1/git/pull` | fetch + merge **`--ff-only`** |
+| `POST /v1/git/clone` | clone com progresso, por SSE |
+
 Quem abre o navegador é o cliente (`shell.openExternal`, que só aceita https); o daemon nunca
 navega. `githubDoRemote` valida o host: remote do GitLab virando link de github.com é erro mudo,
-que leva a um 404 ou ao repositório de outra pessoa com o mesmo nome. Cada recusa (branch não
-pushada, HEAD desanexado, estar na branch base) existe porque a alternativa é o GitHub abrir
-dizendo "There isn't anything to compare" sem a pessoa saber por quê.
+que leva a um 404 ou ao repositório de outra pessoa com o mesmo nome.
 
-Abrir o PR pela API (título e base escolhidos dentro do Nexo), clonar por link e atualizar
-(fetch + pull fast-forward) são os próximos passos — e são eles que vão precisar de token, por
-OAuth Device Flow (o mesmo desenho de `login-session.ts`: start → abre o browser → poll → status,
-sem servidor de callback). Token do GitHub é da PESSOA, não do motor, então não entra em
-`profiles/<id>/keys.json`: vai num arquivo próprio 0600 fora do `GET /v1/config` (padrão de
-`profiles.ts`, não o de `typesafe.ts`, que escreve sem `mode`).
+**As recusas são a feature, não aspereza.** Trocar de branch ou atualizar com a árvore suja é
+recusado porque a mudança "segue" pra outra branch e some de onde a pessoa achava tê-la deixado;
+`pull` é `--ff-only` e para quando as duas pontas andaram, porque merge automático no repositório
+de outra pessoa é o que ninguém desfaz sem saber git — e quem clicou em "atualizar" não pediu por
+isso. No PR, a recusa de branch não pushada evita a página do GitHub dizendo "There isn't anything
+to compare" sem explicar.
+
+**`validarUrlDeClone` é a parte com risco de verdade do arquivo**: `ext::sh -c "<comando>"` é
+transporte legítimo do git e EXECUTA o comando, então clonar uma URL dessas é rodar código
+arbitrário na máquina. Por isso a lista de esquemas é branca (https e ssh) e não preta — transporte
+novo entra recusado por padrão. Link começando com `-` também é recusado (viraria flag), e a
+chamada ainda usa `--` como segundo cinto. Clone nunca escreve por cima: pasta com conteúdo é
+recusa, não merge.
+
+Falta a peça que exige token: **abrir o PR pela API** com título e base escolhidos dentro do Nexo.
+O caminho é OAuth Device Flow (mesmo desenho de `login-session.ts`: start → abre o browser → poll
+→ status, sem servidor de callback), e depende de registrar um OAuth App no GitHub — o `client_id`
+é público e vai no código, como o `gh` CLI faz. Token do GitHub é da PESSOA, não do motor, então
+não entra em `profiles/<id>/keys.json`: vai num arquivo próprio 0600 fora do `GET /v1/config`
+(padrão de `profiles.ts`, não o de `typesafe.ts`, que escreve sem `mode`).
+
+No desktop: botão de clonar no cabeçalho da lista de repositórios (`clone-modal.js`, progresso por
+SSE), e "Trocar de branch…" / "Atualizar do remote" / "Abrir PR no GitHub" no menu de contexto do
+repositório. O modal é módulo com dependências por parâmetro pelo mesmo motivo de `dialogo.js`: é
+o que o torna testável fora do Electron (`test/clone-modal.test.js`), já que `renderer.js` não tem
+teste.
 
 ## Runs
 
