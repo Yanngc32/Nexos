@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ferramentasDeAutoria } from "../src/autoria.ts";
+import { globalSkillsDir } from "../src/home.ts";
 import { tratarMcp } from "../src/mcp.ts";
 import { addProfile } from "../src/profiles.ts";
 import { listAgents, saveAgent } from "../src/agents.ts";
@@ -37,8 +40,10 @@ describe("o conjunto de autoria", () => {
      * É a fronteira toda desta feature. Definição errada se conserta em um
      * segundo; um run gasta quota de verdade e escreve branch no repositório da
      * pessoa. Apagar ficou de fora por ser a única ação de autoria que perde
-     * trabalho. Se alguém acrescentar uma quarta ferramenta, este teste falha e
-     * a decisão volta a ser tomada de propósito.
+     * trabalho. `nexo_skill_instalar` cabe na mesma fronteira: só escreve
+     * SKILL.md na pasta global, sobrescreve por `nome` igual agente/time, nunca
+     * executa nada. Se alguém acrescentar mais uma ferramenta, este teste falha
+     * e a decisão volta a ser tomada de propósito.
      */
     const nomes = Object.keys(await schemas(casa()));
     expect(nomes.sort()).toEqual([
@@ -46,6 +51,7 @@ describe("o conjunto de autoria", () => {
       "nexo_contexto",
       "nexo_hook_listar",
       "nexo_hook_salvar",
+      "nexo_skill_instalar",
       "nexo_time_salvar",
     ]);
   });
@@ -207,6 +213,117 @@ describe("nexo_time_salvar", () => {
       members: [],
     });
     expect(c.isError).toBe(true);
+  });
+});
+
+describe("nexo_skill_instalar", () => {
+  it("origem md grava o SKILL.md na pasta global", async () => {
+    const home = casa();
+    const c = await chamar(home, "nexo_skill_instalar", {
+      nome: "minha-skill",
+      origem: "md",
+      conteudo: "---\nname: minha-skill\ndescription: teste\n---\ncorpo",
+    });
+    expect(c.isError).toBeFalsy();
+    const destino = join(globalSkillsDir(home), "minha-skill", "SKILL.md");
+    expect(existsSync(destino)).toBe(true);
+    expect(readFileSync(destino, "utf8")).toContain("name: minha-skill");
+  });
+
+  it("origem md sem conteúdo é recusada", async () => {
+    const c = await chamar(casa(), "nexo_skill_instalar", { nome: "vazia", origem: "md", conteudo: "   " });
+    expect(c.isError).toBe(true);
+    expect(texto(c)).toMatch(/vazio/);
+  });
+
+  it("nome inválido é recusado", async () => {
+    const c = await chamar(casa(), "nexo_skill_instalar", { nome: "MAIÚSCULO", origem: "md", conteudo: "algo" });
+    expect(c.isError).toBe(true);
+    expect(texto(c)).toMatch(/slug inválido/);
+  });
+
+  describe("origem github", () => {
+    const fetchMock = vi.fn();
+
+    beforeEach(() => {
+      fetchMock.mockReset();
+      vi.stubGlobal("fetch", fetchMock);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("baixa SKILL.md (conteúdo inline em base64) e grava na pasta global", async () => {
+      const home = casa();
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          type: "file",
+          path: "SKILL.md",
+          content: Buffer.from("---\nname: remota\n---\ncorpo").toString("base64"),
+          encoding: "base64",
+        }),
+      });
+      const c = await chamar(home, "nexo_skill_instalar", {
+        nome: "remota",
+        origem: "github",
+        repo: "dono/repo",
+      });
+      expect(c.isError).toBeFalsy();
+      const destino = join(globalSkillsDir(home), "remota", "SKILL.md");
+      expect(existsSync(destino)).toBe(true);
+      expect(readFileSync(destino, "utf8")).toContain("name: remota");
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://api.github.com/repos/dono/repo/contents/SKILL.md",
+        expect.anything(),
+      );
+    });
+
+    it("repo em formato errado é recusado sem chamar fetch", async () => {
+      const c = await chamar(casa(), "nexo_skill_instalar", {
+        nome: "x",
+        origem: "github",
+        repo: "não-é-owner-slash-repo",
+      });
+      expect(c.isError).toBe(true);
+      expect(texto(c)).toMatch(/repo inválido/);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("HTTP não-ok do GitHub volta como isError com o motivo", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 404 });
+      const c = await chamar(casa(), "nexo_skill_instalar", {
+        nome: "x",
+        origem: "github",
+        repo: "dono/repo",
+      });
+      expect(c.isError).toBe(true);
+      expect(texto(c)).toMatch(/404/);
+    });
+
+    it("pasta com SKILL.md + arquivo auxiliar grava os dois preservando a estrutura", async () => {
+      const home = casa();
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          { type: "file", path: "skills/foo/SKILL.md", download_url: "https://raw/skill.md" },
+          { type: "file", path: "skills/foo/ref.txt", download_url: "https://raw/ref.txt" },
+        ],
+      });
+      fetchMock.mockResolvedValueOnce({ ok: true, text: async () => "---\nname: foo\n---\ncorpo" });
+      fetchMock.mockResolvedValueOnce({ ok: true, text: async () => "referência auxiliar" });
+      const c = await chamar(home, "nexo_skill_instalar", {
+        nome: "foo",
+        origem: "github",
+        repo: "dono/repo",
+        caminho: "skills/foo",
+      });
+      expect(c.isError).toBeFalsy();
+      const dir = join(globalSkillsDir(home), "foo");
+      expect(readFileSync(join(dir, "SKILL.md"), "utf8")).toContain("name: foo");
+      expect(readFileSync(join(dir, "ref.txt"), "utf8")).toBe("referência auxiliar");
+    });
   });
 });
 

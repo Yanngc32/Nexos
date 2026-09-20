@@ -9,6 +9,7 @@ import {
 import { listAgents, saveAgent, type AgentInput } from "./agents.ts";
 import { HOOK_EVENTS, listarRegras, saveRegra, type RegraInput } from "./hooks.ts";
 import { listProfiles } from "./profiles.ts";
+import { instalarSkillDeMarkdown, instalarSkillDoGithub } from "./skills.ts";
 import { listTeams, saveTeam, type TeamInput } from "./teams.ts";
 import type { Conjunto, Ferramenta, Saida } from "./mcp.ts";
 
@@ -45,6 +46,17 @@ function tentar(f: () => string): Saida {
   } catch (e) {
     const err = e as Error & { status?: number };
     // deixa o 5xx subir: defeito nosso não é coisa que o modelo conserte
+    if (err.status && err.status >= 500) throw err;
+    return { ok: false, texto: err.message || "não deu" };
+  }
+}
+
+/** Mesma regra de `tentar`, pra ferramenta assíncrona (instalar skill do GitHub pede fetch). */
+async function tentarAsync(f: () => Promise<string>): Promise<Saida> {
+  try {
+    return { ok: true, texto: await f() };
+  } catch (e) {
+    const err = e as Error & { status?: number };
     if (err.status && err.status >= 500) throw err;
     return { ok: false, texto: err.message || "não deu" };
   }
@@ -273,6 +285,56 @@ export function ferramentasDeAutoria(home: string): Conjunto {
             return `- ${r.id}${r.nome ? ` (${r.nome})` : ""} — ${r.evento} @ ${escopo} → ${quem}${extra ? ` [${extra}]` : ""}`;
           });
           return { ok: true, texto: linhas.join("\n") };
+        },
+      },
+      {
+        name: "nexo_skill_instalar",
+        description:
+          "Instala uma skill (SKILL.md) na pasta GLOBAL do Nexo: fica disponível pra QUALQUER conta " +
+          "(perfil de motor claude), não só a que pediu. Duas origens:\n" +
+          "- `md`: você escreve o SKILL.md inteiro em `conteudo` (com o frontmatter `--- name/description ---`).\n" +
+          "- `github`: baixa de um repo PÚBLICO. `repo` no formato owner/repo; `caminho` até o SKILL.md " +
+          "ou a pasta que o contém, com os arquivos ao lado (padrão: `SKILL.md` na raiz do repo); " +
+          "`ref` é branch/tag/commit opcional (padrão: branch default do repo).\n" +
+          "Mesmo `nome` sobrescreve a skill que já existia — é UPDATE, igual agente e time.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            nome: { type: "string", description: "minúsculas, números e - (pasta em ~/.nexo/skills)" },
+            origem: { type: "string", enum: ["md", "github"] },
+            conteudo: { type: "string", description: "obrigatório em origem=md: o SKILL.md inteiro" },
+            repo: { type: "string", description: "obrigatório em origem=github: owner/repo" },
+            caminho: {
+              type: "string",
+              description: "origem=github: caminho até o SKILL.md ou a pasta dele (padrão SKILL.md)",
+            },
+            ref: { type: "string", description: "origem=github: branch/tag/commit (padrão: branch default)" },
+          },
+          required: ["nome", "origem"],
+          additionalProperties: false,
+        },
+        executar: (args) => {
+          const nome = typeof args.nome === "string" ? args.nome.trim() : "";
+          if (args.origem === "md") {
+            return tentar(() => {
+              const destino = instalarSkillDeMarkdown(home, nome, typeof args.conteudo === "string" ? args.conteudo : "");
+              return `skill ${nome} instalada em ${destino} — vale pra qualquer conta a partir do próximo turno`;
+            });
+          }
+          if (args.origem === "github") {
+            const repo = typeof args.repo === "string" ? args.repo : "";
+            return tentarAsync(async () => {
+              const { destino, arquivos } = await instalarSkillDoGithub(
+                home,
+                nome,
+                repo,
+                typeof args.caminho === "string" ? args.caminho : undefined,
+                typeof args.ref === "string" ? args.ref : undefined,
+              );
+              return `skill ${nome} instalada de ${repo} (${arquivos} arquivo${arquivos === 1 ? "" : "s"}) em ${destino}`;
+            });
+          }
+          return { ok: false, texto: '"origem" precisa ser "md" ou "github"' };
         },
       },
     ];

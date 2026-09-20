@@ -967,6 +967,7 @@ describe("http mcp", () => {
       "nexo_time_salvar",
       "nexo_hook_salvar",
       "nexo_hook_listar",
+      "nexo_skill_instalar",
     ]);
   });
 
@@ -980,6 +981,7 @@ describe("http mcp", () => {
       "nexo_time_salvar",
       "nexo_hook_salvar",
       "nexo_hook_listar",
+      "nexo_skill_instalar",
       "nexo_repomap_resumo_salvar",
       "nexo_tarefa_listar",
       "nexo_tarefa_salvar",
@@ -1023,6 +1025,7 @@ describe("http mcp", () => {
       "nexo_time_salvar",
       "nexo_hook_salvar",
       "nexo_hook_listar",
+      "nexo_skill_instalar",
       "nexo_mapa_simbolos",
       "nexo_repomap_resumo_salvar",
       "nexo_tarefa_listar",
@@ -1042,6 +1045,7 @@ describe("http mcp", () => {
       "nexo_time_salvar",
       "nexo_hook_salvar",
       "nexo_hook_listar",
+      "nexo_skill_instalar",
       "nexo_veredito",
     ]);
   });

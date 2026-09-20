@@ -1,6 +1,7 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { globalSkillsDir, profileDir } from "./home.ts";
+import { assertSlug } from "./ids.ts";
 import { getProfile } from "./profiles.ts";
 
 export type SkillDef = {
@@ -124,4 +125,87 @@ export function listSkills(home: string, profileId: string | undefined, projectP
   }
   if (engineSuportaSkill) scanSkillsDir(globalSkillsDir(home), "global", seen, out);
   return out.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+}
+
+/**
+ * Instala uma skill escrita na hora (frontmatter + corpo) na pasta global —
+ * mesmo destino de `syncGlobalSkills`, então vale pra qualquer conta a partir
+ * do próximo turno. Mesmo `nome` sobrescreve (é UPDATE, igual `saveAgent`).
+ */
+export function instalarSkillDeMarkdown(home: string, nome: string, conteudo: string): string {
+  assertSlug(nome);
+  if (!conteudo.trim()) throw new Error("conteúdo vazio");
+  const destino = join(globalSkillsDir(home), nome, "SKILL.md");
+  mkdirSync(dirname(destino), { recursive: true });
+  writeFileSync(destino, conteudo, "utf8");
+  return destino;
+}
+
+type ArquivoGithub = { path: string; conteudo: string };
+
+/**
+ * Contents API do GitHub, recursiva. Sem token (rate limit menor, mas repo
+ * público não precisa) — o mesmo trade-off de `ensureCavemanInstalled`
+ * (modules.ts), só que genérico pra qualquer owner/repo/caminho em vez de uma
+ * URL fixa.
+ */
+async function baixarArvoreGithub(owner: string, repo: string, caminho: string, ref?: string): Promise<ArquivoGithub[]> {
+  const qs = ref ? `?ref=${encodeURIComponent(ref)}` : "";
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${caminho}${qs}`;
+  const resp = await fetch(url, { headers: { Accept: "application/vnd.github+json", "User-Agent": "nexo-daemon" } });
+  if (!resp.ok) throw new Error(`GitHub respondeu ${resp.status} em ${owner}/${repo}/${caminho || "/"}`);
+  const dados = (await resp.json()) as unknown;
+  const itens = (Array.isArray(dados) ? dados : [dados]) as Array<Record<string, unknown>>;
+  const out: ArquivoGithub[] = [];
+  for (const item of itens) {
+    const tipo = item.type as string | undefined;
+    const path = item.path as string;
+    if (tipo === "dir") {
+      out.push(...(await baixarArvoreGithub(owner, repo, path, ref)));
+    } else if (tipo === "file") {
+      const content = item.content as string | undefined;
+      const encoding = item.encoding as string | undefined;
+      if (content && encoding === "base64") {
+        out.push({ path, conteudo: Buffer.from(content, "base64").toString("utf8") });
+      } else {
+        const downloadUrl = item.download_url as string | undefined;
+        if (!downloadUrl) throw new Error(`GitHub não deu conteúdo nem download_url pra ${path}`);
+        const r2 = await fetch(downloadUrl);
+        if (!r2.ok) throw new Error(`GitHub respondeu ${r2.status} baixando ${path}`);
+        out.push({ path, conteudo: await r2.text() });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Instala uma skill de um repositório GitHub público na pasta global. `caminho`
+ * pode apontar direto pro `SKILL.md` ou pra pasta que o contém (junto com
+ * script/referência auxiliar, que também são copiados). Igual `instalarSkillDeMarkdown`:
+ * mesmo `nome` sobrescreve.
+ */
+export async function instalarSkillDoGithub(
+  home: string,
+  nome: string,
+  repo: string,
+  caminho = "SKILL.md",
+  ref?: string,
+): Promise<{ destino: string; arquivos: number }> {
+  assertSlug(nome);
+  const m = /^([\w.-]+)\/([\w.-]+)$/.exec(repo.trim());
+  if (!m) throw new Error(`repo inválido: "${repo}" — use o formato owner/repo`);
+  const [, owner, repoNome] = m;
+  const arquivos = await baixarArvoreGithub(owner, repoNome, caminho.trim() || "SKILL.md", ref);
+  const skillMd = arquivos.find((a) => a.path.split("/").pop() === "SKILL.md");
+  if (!skillMd) throw new Error(`não achei SKILL.md em ${owner}/${repoNome}/${caminho}`);
+  const base = skillMd.path.slice(0, skillMd.path.length - "SKILL.md".length);
+  const destinoDir = join(globalSkillsDir(home), nome);
+  for (const a of arquivos) {
+    const rel = a.path.startsWith(base) ? a.path.slice(base.length) : (a.path.split("/").pop() as string);
+    const destino = join(destinoDir, rel);
+    mkdirSync(dirname(destino), { recursive: true });
+    writeFileSync(destino, a.conteudo, "utf8");
+  }
+  return { destino: join(destinoDir, "SKILL.md"), arquivos: arquivos.length };
 }

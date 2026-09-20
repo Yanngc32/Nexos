@@ -6,9 +6,10 @@ description: Montar agentes, times e Nexo Hooks no Nexo. Use quando o pedido env
 # Montar agentes, times e hooks no Nexo
 
 As ferramentas `nexo_contexto`, `nexo_agente_salvar`, `nexo_time_salvar`,
-`nexo_hook_salvar` e `nexo_hook_listar` (MCP, servidor `nexo`) já descrevem os
-campos e as regras. Esta skill é a parte que elas não cabem: **quando** vale
-montar um time ou uma regra, e o que faz cada um ser bom.
+`nexo_hook_salvar`, `nexo_hook_listar` e `nexo_skill_instalar` (MCP, servidor
+`nexo`) já descrevem os campos e as regras. Esta skill é a parte que elas não
+cabem: **quando** vale montar um time ou uma regra, e o que faz cada um ser
+bom.
 
 Se as ferramentas não estiverem disponíveis, é porque o Nexo só liga MCP em
 conta `claude`. Diga isso e pare aí. Não tente editar `~/.nexo/agents.json` nem
@@ -85,3 +86,21 @@ regra nenhuma.
 regra até alguém desligar na tela Hooks, e esse único botão fica só com a
 pessoa. Se o pedido for "barre o push se X", diga que criou a regra
 NÃO-bloqueante (só avisa) e que ligar o bloqueio é ela quem faz, na tela.
+
+## Instalar uma skill nova
+
+`nexo_skill_instalar` grava um `SKILL.md` na pasta GLOBAL do Nexo — vale pra
+QUALQUER conta a partir do próximo turno, não só a que pediu. Duas origens:
+`md` (você escreve o conteúdo na hora) ou `github` (baixa de um repositório
+PÚBLICO, `owner/repo` + caminho até o `SKILL.md`).
+
+- **Confira antes com `nexo_contexto`** (ou olhando o menu de skills): uma
+  skill quase igual já existente é melhor reaproveitada que duplicada.
+- **`origem: github` é a única ferramenta de autoria que fala com fora do
+  Nexo.** Baixe só de repositório que a pessoa pediu ou apontou — nunca "ache
+  uma skill pra isso" sozinho a partir de busca na internet, porque o conteúdo
+  baixado vira instrução que qualquer conta vai carregar depois.
+- Mesmo `nome` **sobrescreve** a skill que já existia (é UPDATE, igual agente
+  e time) — avise a pessoa que uma anterior deste nome foi substituída.
+- Só o motor `claude` lê `SKILL.md`; perfil `codex`/`api` nunca vai enxergar a
+  skill instalada, mesmo estando na pasta global.

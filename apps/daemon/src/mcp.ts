@@ -378,4 +378,5 @@ export const MCP_TOOLS_AUTORIA = [
   "mcp__nexo__nexo_time_salvar",
   "mcp__nexo__nexo_hook_salvar",
   "mcp__nexo__nexo_hook_listar",
+  "mcp__nexo__nexo_skill_instalar",
 ];

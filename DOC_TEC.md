@@ -86,6 +86,16 @@ mesma pasta global.
 quando o perfil é `claude`** — `codex`/`api` não leem `SKILL.md`, então listar pra eles anunciaria
 uma opção que nunca funciona de verdade no turno.
 
+O modelo também instala skill global sozinho, na conversa normal, via `nexo_skill_instalar`
+(ferramenta de autoria, `apps/daemon/src/autoria.ts`, sobre `instalarSkillDeMarkdown`/
+`instalarSkillDoGithub` em `skills.ts`): `origem: "md"` grava o `SKILL.md` que ele mesmo escreveu;
+`origem: "github"` baixa de um `owner/repo` público pela Contents API (sem token — mesmo trade-off
+de rate limit de `ensureCavemanInstalled`, `modules.ts`), recursivo o bastante pra trazer junto
+script/referência que morem na mesma pasta do `SKILL.md`. As duas escrevem no mesmo
+`globalSkillsDir` que `syncGlobalSkills` já sincroniza — nenhum mecanismo novo de propagação.
+Mesmo `nome` sobrescreve (é UPDATE, igual `nexo_agente_salvar`/`nexo_time_salvar`); por isso ela
+mora ao lado dessas duas, não das ferramentas de execução.
+
 ## Agentes, times e autoria
 
 Agente personalizado (`agents.json`) é conta + instructions + modelo/effort/permissão. Time
