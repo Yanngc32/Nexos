@@ -17,6 +17,7 @@ import { MCP_TOOLS_DELEGAR, resetContadorDeDelegacao } from "./delegar.ts";
 import { MCP_TOOLS_NAVEGADOR } from "./navegador.ts";
 import { MCP_TOOLS_WINDOWS_CONTROL } from "./windows-control.ts";
 import { MCP_TOOLS_TAREFA } from "./tarefas.ts";
+import { expandirSkill } from "./skills.ts";
 import { apagarSessaoClaude, gravarSessaoClaude, lerSessaoClaude } from "./claude-session.ts";
 import { ApiEngine } from "./engines/api.ts";
 import { claudeEngine, codexEngine } from "./engines/cli.ts";
@@ -1253,6 +1254,18 @@ async function aplicarOverridesDoTurno(
   }
 }
 
+/**
+ * `/nome-da-skill` vira o corpo da skill pros motores que não sabem carregar
+ * skill sozinhos. O `claude` fica de fora porque o CLI dele já interpreta a
+ * barra — expandir aqui mandaria a mesma skill duas vezes no turno.
+ */
+function comSkill(text: string, live: Live, home: string, meta?: ThreadEvent): string {
+  const engine = getProfile(live.profileId, home)?.engine;
+  if (!engine || engine === "claude") return text;
+  const projectPath = meta?.type === "thread_meta" ? meta.projectPath : undefined;
+  return expandirSkill(text, home, live.profileId, projectPath);
+}
+
 export async function postMessage(
   threadId: string,
   text: string,
@@ -1293,7 +1306,7 @@ export async function postMessage(
     if (roteamento.pendente) return;
     const live = await ensureLive(threadId, home);
     await aplicarOverridesDoTurno(threadId, text, eventosAtuais, live, home);
-    await dispatch(threadId, home, live, promptWithAttachments(text, attachments));
+    await dispatch(threadId, home, live, promptWithAttachments(comSkill(text, live, home, meta), attachments));
   });
 }
 

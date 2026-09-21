@@ -12,6 +12,8 @@ export type SkillDef = {
    * perfil ativo; "global" = `~/.nexo/skills`, a mesma pra qualquer conta.
    */
   scope: "projeto" | "perfil" | "global";
+  /** Pasta da skill — é dela que sai o corpo, e é ela que o modelo lê pra achar arquivo auxiliar. */
+  dir: string;
 };
 
 /**
@@ -71,7 +73,7 @@ function scanSkillsDir(dir: string, scope: SkillDef["scope"], seen: Set<string>,
     const name = (fm.name || entrada).trim();
     if (!name || seen.has(name)) continue;
     seen.add(name);
-    out.push({ name, description: fm.description || "", scope });
+    out.push({ name, description: fm.description || "", scope, dir: join(dir, entrada) });
   }
 }
 
@@ -110,21 +112,64 @@ export function syncGlobalSkills(destSkillsDir: string, globalDir: string): void
  * do Nexo (`~/.nexo/skills`, sincronizadas pra dentro do perfil a cada turno
  * por `syncGlobalSkills`). Em empate de nome, projeto > perfil > global.
  *
- * Skill (SKILL.md) é um conceito só do motor `claude` — `codex` não lê nada
- * disso. Listar skill do perfil/global pra um perfil `codex`/`api` inflaria o
- * menu "/" com opção que nunca chega a valer no turno de verdade.
+ * Vale em QUALQUER motor. Só o `claude` lê `SKILL.md` sozinho (o CLI dele
+ * interpreta `/nome`); nos outros quem carrega é o Nexo, expandindo o corpo da
+ * skill no prompt do turno — ver `expandirSkill`. Antes o menu escondia skill
+ * de conta `codex`/`api`, porque não havia esse caminho: quem usava esses
+ * motores perdia o menu "/" inteiro.
  */
 export function listSkills(home: string, profileId: string | undefined, projectPath: string | undefined): SkillDef[] {
   const out: SkillDef[] = [];
   const seen = new Set<string>();
   if (projectPath) scanSkillsDir(join(projectPath, ".claude", "skills"), "projeto", seen, out);
   const profile = profileId ? getProfile(profileId, home) : undefined;
-  const engineSuportaSkill = !profileId || profile?.engine === "claude";
-  if (profile && engineSuportaSkill) {
-    scanSkillsDir(join(profileDir(profile.id, home), "claude", "skills"), "perfil", seen, out);
-  }
-  if (engineSuportaSkill) scanSkillsDir(globalSkillsDir(home), "global", seen, out);
+  if (profile) scanSkillsDir(join(profileDir(profile.id, home), "claude", "skills"), "perfil", seen, out);
+  scanSkillsDir(globalSkillsDir(home), "global", seen, out);
   return out.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+}
+
+/** Corpo do `SKILL.md`, sem o frontmatter — que é metadado de listagem, não instrução. */
+function corpoDaSkill(md: string): string {
+  return md.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").trim();
+}
+
+/**
+ * Expande `/nome-da-skill` no começo da mensagem, pros motores que não sabem
+ * carregar skill sozinhos.
+ *
+ * No `claude` isto NÃO roda: o CLI dele interpreta `/nome` por conta própria, e
+ * expandir aqui mandaria a skill duas vezes. Nos outros, `/nome` chegava como
+ * texto literal — o modelo via uma barra e um nome, e mais nada.
+ *
+ * O caminho da pasta vai junto porque skill séria tem arquivo ao lado
+ * (`references/`, script); sem ele o modelo leria o corpo e não teria como
+ * chegar no resto.
+ */
+export function expandirSkill(
+  texto: string,
+  home: string,
+  profileId: string | undefined,
+  projectPath: string | undefined,
+): string {
+  const m = /^\/([a-z0-9][a-z0-9._-]*)[ \t]*([\s\S]*)$/i.exec(texto.trim());
+  if (!m) return texto;
+  const [, nome, resto] = m;
+  const skill = listSkills(home, profileId, projectPath).find((s) => s.name.toLowerCase() === nome.toLowerCase());
+  if (!skill) return texto;
+  let corpo: string;
+  try {
+    corpo = corpoDaSkill(readFileSync(join(skill.dir, "SKILL.md"), "utf8"));
+  } catch {
+    return texto;
+  }
+  if (!corpo) return texto;
+  return [
+    `# Skill: ${skill.name}`,
+    `(carregada de ${skill.dir} — se o texto abaixo citar arquivo auxiliar, ele está nessa pasta)`,
+    "",
+    corpo,
+    ...(resto.trim() ? ["", "---", "", resto.trim()] : []),
+  ].join("\n");
 }
 
 /**

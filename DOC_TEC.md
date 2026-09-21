@@ -248,10 +248,17 @@ transporte que sabe falar: claude o arquivo `mcp.json`, codex a URL (`urlDeMcpDe
 por variável de ambiente. O arquivo passou a ser escrito só pro claude — pro codex seria mais uma
 cópia do token no disco que ninguém leria.
 
-Em aberto: **skills invisíveis** (`skills.ts` — `SKILL.md` é conceito do CLI do claude; dar isso
-ao codex exige um caminho de injeção via context pack que não existe hoje, e é decisão de desenho,
-não só código) e **cobertura de teste** (o codex ainda tem menos casos que o claude, embora a
-distância tenha caído).
+**Skills em qualquer motor** fecharam a lista. `SKILL.md` é conceito do CLI do claude, e a
+conclusão antiga tinha sido esconder o menu "/" de conta `codex`/`api` — o que fazia a pessoa
+perder o menu inteiro em vez de perder uma opção. A conclusão certa era dar o caminho:
+`expandirSkill` (skills.ts) troca `/nome-da-skill` pelo CORPO da skill no prompt do turno (sem o
+frontmatter, que é metadado de listagem), junto do caminho da pasta — skill séria tem arquivo ao
+lado (`references/`, script), e sem o caminho o modelo leria o corpo e não chegaria no resto. No
+`claude` isso NÃO roda: o CLI dele já interpreta a barra, e expandir mandaria a skill duas vezes.
+
+O que sobra de diferença é limitação real do CLI: sem texto parcial, sem `--allowed-tools`, sem
+`permission-mode`, sem janela de contexto, sem `limits`, e `--add-dir` de anexo (imagem colada não
+chega no codex). Nada disso é dívida nossa — é o que o `codex exec` não oferece.
 
 ## Runs
 
