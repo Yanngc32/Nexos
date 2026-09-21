@@ -2133,6 +2133,69 @@ li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
   color: var(--muted);
 }
 
+/* ---------- diff das edições do agente (diff-view.js) ---------- */
+/* `+12 −3` na linha colapsada: o tamanho da mudança sem precisar abrir. */
+.diff-stat {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--faint);
+  flex: none;
+}
+.diff {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  max-height: 340px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm, 6px);
+  background: var(--bg);
+  padding: 4px 0;
+}
+.diff-linha {
+  display: flex;
+  gap: 8px;
+  padding: 0 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--muted);
+}
+.diff-sinal {
+  flex: none;
+  width: 1ch;
+  opacity: .75;
+  user-select: none;
+}
+/* fundo em color-mix pelo mesmo motivo do resto do arquivo: o tom acompanha a
+   variável semântica se ela mudar, em vez de virar um hex solto aqui */
+.diff-add {
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  color: color-mix(in srgb, var(--ok) 70%, var(--text));
+}
+.diff-del {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: color-mix(in srgb, var(--danger) 70%, var(--text));
+}
+.diff-pulo {
+  color: var(--faint);
+  font-size: var(--fs-2xs);
+  padding: 2px 10px;
+  user-select: none;
+}
+.diff-sep {
+  margin: 8px 0 4px;
+  font-size: var(--fs-2xs);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.diff-nota {
+  margin: 0 0 6px;
+  font-size: var(--fs-2xs);
+  color: var(--faint);
+}
+.diff-nota-aviso { color: var(--warn); }
+
 /* ---------- subchat ao vivo (nexo_delegar/nexo_chamar) ---------- */
 .subchat { margin: 2px 0 4px 24px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
 .subchat.hidden { display: none; }

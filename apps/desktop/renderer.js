@@ -7,6 +7,7 @@ import { createTeamStudio } from "./team-studio.js";
 import { createHooksStudio } from "./hooks-studio.js";
 import { createAutomacaoModal } from "./automacao-modal.js";
 import { createCloneModal } from "./clone-modal.js";
+import { diffDeFerramenta, renderDiff, resumoDoDiff } from "./diff-view.js";
 import { createTarefasBoard } from "./tarefas-board.js";
 import { createDialogo } from "./dialogo.js";
 import { criarMenuContexto } from "./menu-contexto.js";
@@ -3406,16 +3407,26 @@ function appendEvent(ev, scroll = true) {
     if (ev.id) li.dataset.toolId = ev.id;
     const temInput = ev.input !== undefined && ev.input !== null && Object.keys(ev.input).length > 0;
     const subchat = ehFerramentaDeDelegar(ev.name) ? `<ol class="subchat hidden"></ol>` : "";
+    /*
+     * Ferramenta que edita arquivo mostra DIFF no lugar do JSON dos argumentos:
+     * pra um Edit, os argumentos SÃO o diff, só que na forma que menos se lê.
+     * As outras (Bash, Read, Grep…) seguem com o JSON, que ali ainda é o que há.
+     */
+    const diff = diffDeFerramenta(ev.name, ev.input);
+    const stat = diff ? `<span class="diff-stat">${escapeHtml(resumoDoDiff(diff))}</span>` : "";
     li.innerHTML =
-      `<div class="tool-line"><span class="tool-ico">⚙</span><span class="tool-name">${escapeHtml(ev.name)}</span>${arg}` +
+      `<div class="tool-line"><span class="tool-ico">⚙</span><span class="tool-name">${escapeHtml(ev.name)}</span>${arg}${stat}` +
       `<span class="tool-result-badge"></span><span class="tool-toggle">▾</span></div>` +
       subchat +
       `<div class="tool-detail hidden">` +
-      (temInput
-        ? `<div class="tool-detail-sec"><h4>Argumentos</h4><pre>${escapeHtml(JSON.stringify(ev.input, null, 2))}</pre></div>`
-        : "") +
+      (diff
+        ? `<div class="tool-detail-sec tool-detail-diff"><h4>Mudança</h4></div>`
+        : temInput
+          ? `<div class="tool-detail-sec"><h4>Argumentos</h4><pre>${escapeHtml(JSON.stringify(ev.input, null, 2))}</pre></div>`
+          : "") +
       `<div class="tool-detail-sec tool-detail-result hidden"><h4>Resultado</h4><pre></pre></div>` +
       `</div>`;
+    if (diff) renderDiff(li.querySelector(".tool-detail-diff"), diff);
     if (subchat) {
       // O `delegacao_run` (session.ts) pode chegar antes ou depois desta bolha — se já chegou
       // (fica em `state.subchatsPendentes`, por threadId), abre agora em vez de esperar de novo.

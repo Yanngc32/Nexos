@@ -175,6 +175,34 @@ repositório. O modal é módulo com dependências por parâmetro pelo mesmo mot
 o que o torna testável fora do Electron (`test/clone-modal.test.js`), já que `renderer.js` não tem
 teste.
 
+## Diff das edições do agente
+
+Bolha de ferramenta que edita arquivo (`Edit`, `MultiEdit`, `Write`) mostra o DIFF no lugar do JSON
+dos argumentos — pra um `Edit`, os argumentos SÃO o diff, só que na forma que menos se lê. As
+outras ferramentas (`Bash`, `Read`, `Grep`…) seguem com o JSON, que ali ainda é o que há. A linha
+colapsada ganha `+N −M`, então dá pra ver o tamanho da mudança sem abrir.
+
+`apps/desktop/diff-view.js` é lógica pura (molde de `run-view.js`, testada em
+`test/diff-view.test.js`): diff de linhas por LCS próprio — sem dependência, pelo mesmo motivo que
+o markdown tem parser próprio — com contexto colapsado em 3 linhas e teto de 600 linhas por lado,
+acima do qual o LCS (quadrático) travaria a tela e a edição vira bloco inteiro. O HTML sai por
+`createElement`/`textContent`, NUNCA `innerHTML`: é código vindo de um modelo, exatamente o texto
+que carrega tag sem querer — há teste que falha se alguém "simplificar" isso depois.
+
+Duas honestidades que a tela precisa dizer, e diz:
+
+- **`Write` não tem o "antes".** A ferramenta não manda e o daemon não guarda o arquivo em lugar
+  nenhum, então sai tudo como adição — verdade quando o arquivo é novo, meia-verdade quando já
+  existia. A bolha avisa.
+- **Histórico reaberto pode ter diff cortado.** `capInputPraPersistir` (session.ts) trunca string
+  de argumento em 2000 chars ao gravar no JSONL — ao vivo o SSE manda inteiro, reabrindo não.
+  `foiCortado` detecta pelo formato exato do corte (2001 chars terminando em "…") e a bolha marca
+  que o diff está incompleto. Sem isso, o diff inventaria uma remoção no fim que nunca aconteceu,
+  e pareceria que o agente apagou código.
+
+Só vale pro motor `claude`: `parse-codex.ts` emite evento de ferramenta **sem** `input`, então não
+há de onde tirar diff. O mobile não renderiza evento de ferramenta nenhum, e segue assim.
+
 ## Runs
 
 `POST /v1/runs` cria e dispara um time (`teamId` + `projectPath` + `goal`); progresso sai por SSE
