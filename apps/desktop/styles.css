@@ -1345,6 +1345,17 @@ body[data-focus="1"] .work #pane-chat {
   min-width: 0;
 }
 
+/*
+ * `.mod-meta` corta em uma linha porque nasceu pra item de lista, onde altura
+ * fixa importa. Dentro de um modal a frase é explicação, e cortada no "…" ela
+ * não explica nada — vi isso num print do modal de clonar.
+ */
+.mod-meta.quebra {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
 #pane-file {
   container-type: inline-size;
 }

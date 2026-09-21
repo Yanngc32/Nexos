@@ -2903,9 +2903,9 @@ async function menuDeBranches(e, path) {
   try {
     dados = await req(`/v1/git/branches?projectPath=${encodeURIComponent(path)}`);
   } catch (err) {
-    return appendEvent({ type: "error", message: `Branches: ${err.message}` });
+    return dialogo.avisar(`Branches: ${err.message}`);
   }
-  if (!dados.locais.length) return appendEvent({ type: "sys", message: "Nenhuma branch neste repositório." });
+  if (!dados.locais.length) return dialogo.avisar("Nenhuma branch neste repositório.");
   menuContexto.abrir(e, [
     { titulo: "Trocar de branch" },
     ...dados.locais.map((b) => ({
@@ -2916,29 +2916,36 @@ async function menuDeBranches(e, path) {
   ]);
 }
 
+/*
+ * Estas três saem por `dialogo.avisar`, e NÃO por `appendEvent`: o menu do
+ * repositório abre da barra lateral, onde pode não haver conversa nenhuma
+ * aberta — e `appendEvent` escreve no log do chat. Descobri isso rodando o app:
+ * o "Atualizar do remote" respondia certo e a tela não mostrava nada. Recusa
+ * que a pessoa não lê é igual a recusa que não aconteceu, e é justo aqui que
+ * ela precisa ler ("há mudança não commitada").
+ */
 async function trocarDeBranch(path, branch) {
   try {
     await req("/v1/git/checkout", { method: "POST", body: JSON.stringify({ projectPath: path, branch }) });
-    appendEvent({ type: "sys", message: `Agora em \`${branch}\`.` });
     if (samePath(path, state.projectPath)) await bindProject(path);
+    await dialogo.avisar(`Agora em ${branch}.`);
   } catch (err) {
     // a recusa do daemon é específica ("há mudança não commitada") e vale mais que um "não deu"
-    appendEvent({ type: "error", message: `Branch: ${err.message}` });
+    await dialogo.avisar(`Branch: ${err.message}`);
   }
 }
 
 async function atualizarRepo(path) {
   try {
     const r = await req("/v1/git/pull", { method: "POST", body: JSON.stringify({ projectPath: path }) });
-    appendEvent({
-      type: "sys",
-      message: r.jaEstavaEmDia
-        ? `\`${r.branch}\` já estava em dia.`
-        : `\`${r.branch}\`: ${r.trazidos} commit(s) trazido(s) do remote.`,
-    });
     if (!r.jaEstavaEmDia && samePath(path, state.projectPath)) await bindProject(path);
+    await dialogo.avisar(
+      r.jaEstavaEmDia
+        ? `${r.branch} já estava em dia.`
+        : `${r.branch}: ${r.trazidos} commit(s) trazido(s) do remote.`,
+    );
   } catch (err) {
-    appendEvent({ type: "error", message: `Atualizar: ${err.message}` });
+    await dialogo.avisar(`Atualizar: ${err.message}`);
   }
 }
 
@@ -2947,7 +2954,7 @@ async function abrirPrNoGitHub(path) {
     const { url } = await req(`/v1/git/pr-url?projectPath=${encodeURIComponent(path)}`);
     await window.nexo.openExternal(url);
   } catch (err) {
-    appendEvent({ type: "error", message: `PR: ${err.message}` });
+    await dialogo.avisar(`PR: ${err.message}`);
   }
 }
 
