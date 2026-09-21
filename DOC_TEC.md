@@ -240,10 +240,18 @@ Três coisas medidas contra o codex-cli 0.155.1, não deduzidas:
 Por isso `SessionInfo.contextWindow` virou opcional: o `sessionId` do codex não podia ficar refém
 de uma janela que ele não reporta, e mandar 0 faria o medidor da tela mostrar "/0".
 
-Em aberto: **skills invisíveis** (`skills.ts`, exige um caminho de injeção via context pack que
-não existe), **supervisor-MCP negado** (runs.ts:880 — limitação do nosso `thread_meta`, que passa o
-servidor como caminho de arquivo; o transporte codex já existe, ver `flagsDeMcpCodex`) e
-**cobertura de teste** (o codex ainda tem menos casos que o claude).
+**Supervisor-MCP no codex** também fechou, e a correção foi trocar o marcador da conversa: o
+`thread_meta` carregava o servidor como CAMINHO DE ARQUIVO (`mcpConfig`), formato que só o claude
+lê, então conta codex era recusada e gastava um turno inteiro por decisão — por limitação do NOSSO
+formato, não do CLI dela. Agora o marcador é `mcpRunId` (descritor neutro) e cada motor monta o
+transporte que sabe falar: claude o arquivo `mcp.json`, codex a URL (`urlDeMcpDeRun`) com o token
+por variável de ambiente. O arquivo passou a ser escrito só pro claude — pro codex seria mais uma
+cópia do token no disco que ninguém leria.
+
+Em aberto: **skills invisíveis** (`skills.ts` — `SKILL.md` é conceito do CLI do claude; dar isso
+ao codex exige um caminho de injeção via context pack que não existe hoje, e é decisão de desenho,
+não só código) e **cobertura de teste** (o codex ainda tem menos casos que o claude, embora a
+distância tenha caído).
 
 ## Runs
 

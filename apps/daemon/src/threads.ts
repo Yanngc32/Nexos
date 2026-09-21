@@ -23,6 +23,7 @@ export function createThread(
     runTitle?: string;
     mcpConfig?: string;
     mcpTools?: string[];
+    mcpRunId?: string;
   },
   home: string,
 ): CreatedThread {
@@ -43,6 +44,7 @@ export function createThread(
     ...(input.runTitle ? { runTitle: input.runTitle } : {}),
     ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
     ...(input.mcpTools?.length ? { mcpTools: input.mcpTools } : {}),
+    ...(input.mcpRunId ? { mcpRunId: input.mcpRunId } : {}),
   };
   appendEvent(meta, home);
   return { id };

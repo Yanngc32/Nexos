@@ -443,6 +443,18 @@ export type ThreadEvent =
       mcpConfig?: string;
       /** Ferramentas que esse MCP oferece; ver `StartOpts.mcpTools`. */
       mcpTools?: string[];
+      /**
+       * Esta conversa é o SUPERVISOR do run `<id>`, e fala com o servidor MCP
+       * preso a ele (`/v1/mcp/:runId`).
+       *
+       * Descritor neutro de propósito: antes o marcador era o `mcpConfig`, que
+       * é um CAMINHO DE ARQUIVO — formato que só o `claude` usa. Isso deixava o
+       * supervisor em conta `codex` sem canal MCP, caindo pro modo por turno
+       * (um turno inteiro por decisão) por uma limitação do nosso formato, não
+       * do CLI dele. Com o id aqui, cada motor monta o transporte que sabe
+       * falar: `claude` o arquivo, `codex` a URL com token no ambiente.
+       */
+      mcpRunId?: string;
     }
   | { ts: string; type: "user"; threadId: string; text: string; attachments?: Attachment[] }
   | { ts: string; type: "assistant"; threadId: string; text: string }

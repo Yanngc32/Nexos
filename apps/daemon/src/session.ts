@@ -8,7 +8,7 @@ import { readMemoria } from "./memoria.ts";
 import { promptWithAttachments, removeThreadAttachments, saveImages, type IncomingImage } from "./attachments.ts";
 import { loadConfig } from "./config.ts";
 import { projectKey, tokenPath } from "./home.ts";
-import { configDeMcpAutoria, MCP_TOOLS_AUTORIA, urlDeMcpAutoria } from "./mcp.ts";
+import { configDeMcpAutoria, MCP_TOOLS_AUTORIA, urlDeMcpAutoria, urlDeMcpDeRun } from "./mcp.ts";
 import { indiceDisponivel, lerIndice } from "./repo-map-indice.ts";
 import { MCP_TOOLS_REPO_MAP } from "./repo-map-simbolos.ts";
 import { MCP_TOOLS_VEREDITO } from "./veredito.ts";
@@ -540,18 +540,23 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
  * chamada HTTP direta ao provedor, sem cliente MCP nenhum, e dar ferramenta a
  * ele significaria o Nexo rodar o laço de ferramenta por conta própria.
  *
- * A conversa de SUPERVISOR segue só em `claude`: o servidor dela é preso ao run
- * e vem carimbado no `thread_meta` como CAMINHO DE ARQUIVO, formato que o codex
- * não usa. Nas contas codex o supervisor continua no canal por turno, que
- * agora funciona de verdade. Só a autoria — criar e editar agente e time, sem
- * executar nada — vale nos dois.
+ * A conversa de SUPERVISOR vale nos dois, e o `mcpRunId` no `thread_meta` é o
+ * que tornou isso possível: antes o marcador era o `mcpConfig`, um CAMINHO DE
+ * ARQUIVO que só o claude lê, então supervisor em conta codex caía pro canal
+ * por turno (um turno inteiro por decisão) por limitação do NOSSO formato, não
+ * do CLI dele. O servidor é o mesmo (`/v1/mcp/:runId`); só muda o transporte.
  */
 function mcpDaConversa(
   threadId: string,
-  meta: { mcpConfig?: string; mcpTools?: string[]; projectPath: string; runId?: string },
+  meta: { mcpConfig?: string; mcpTools?: string[]; projectPath: string; runId?: string; mcpRunId?: string },
   perfil: Profile,
   home: string,
 ): { mcpConfig?: string; mcpTools?: string[]; mcpHttp?: { url: string; token: string } } {
+  // supervisor: servidor preso ao run, transporte por motor
+  if (meta.mcpRunId && perfil.engine === "codex") {
+    const token = tokenDoHome(home);
+    return token ? { mcpHttp: { url: urlDeMcpDeRun(loadConfig(home).port, meta.mcpRunId), token } } : {};
+  }
   if (meta.mcpConfig) {
     return {
       mcpConfig: meta.mcpConfig,

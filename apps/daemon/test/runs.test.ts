@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
-import { addProfile } from "../src/profiles.ts";
+import { addProfile, markReady } from "../src/profiles.ts";
 import { removeAgent, saveAgent } from "../src/agents.ts";
 import { saveTeam } from "../src/teams.ts";
 import {
@@ -797,6 +798,35 @@ describe("supervisor por MCP", () => {
     expect(run.status).toBe("done");
     expect(run.steps.map((s) => s.status)).toEqual(["done", "done"]);
   });
+
+  it("supervisor em conta CODEX entra no canal MCP — não cai mais pro modo por turno", async () => {
+    /*
+     * Antes o marcador da conversa de supervisor era o `mcpConfig`, um CAMINHO
+     * DE ARQUIVO que só o claude lê — então conta codex era recusada e gastava
+     * um turno inteiro por decisão, por limitação do NOSSO formato e não do CLI
+     * dela. Agora o marcador é o `mcpRunId` e cada motor monta seu transporte:
+     * claude o arquivo, codex a URL com token no ambiente.
+     */
+    const home = base();
+    addProfile({ id: "pcx", engine: "codex" }, home, { skipBinCheck: true });
+    markReady("pcx", home);
+    saveAgent({ id: "chefe-cx", name: "Chefe", profileId: "pcx" }, home);
+    saveTeam(
+      { id: "t", name: "T", topology: "supervisor", canal: "mcp", members: [{ agentId: "chefe-cx" }, { agentId: "a2" }] },
+      home,
+    );
+    process.env.NEXO_CODEX_BIN = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-codex.mjs");
+    try {
+      const run = await rodar(home);
+      expect(run.canalOff ?? "", "o motor codex fala MCP").not.toMatch(/não fala MCP/);
+      // a conversa do supervisor leva o id do run, e NÃO um caminho de arquivo
+      const meta = readThread(run.steps[0]!.threadId!, home)[0] as Record<string, unknown>;
+      expect(meta.mcpRunId).toBe(run.id);
+      expect(meta.mcpConfig, "codex não lê arquivo de config").toBeUndefined();
+    } finally {
+      delete process.env.NEXO_CODEX_BIN;
+    }
+  }, 20_000);
 
   it("o canal só é guardado no supervisor: nas outras topologias não há decisão", () => {
     const home = base();

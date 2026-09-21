@@ -338,6 +338,15 @@ export function urlDeMcp(porta: number, caminho = "/v1/mcp"): string {
   return `http://127.0.0.1:${porta}${caminho}`;
 }
 
+/**
+ * Mesma boca do `configDeMcp`, na forma que o `codex` fala: URL em vez de
+ * arquivo. É o que dá supervisor-MCP a uma conta codex — o servidor é o MESMO
+ * (preso ao run pelo caminho), só muda o transporte.
+ */
+export function urlDeMcpDeRun(porta: number, runId: string): string {
+  return urlDeMcp(porta, `/v1/mcp/${runId}`);
+}
+
 /** Mesma boca de `urlDeMcp`, com o projeto (e run, se houver) embutidos — ver `caminhoDaAutoria`. */
 export function urlDeMcpAutoria(porta: number, projectPath?: string, runId?: string, threadId?: string): string {
   return urlDeMcp(porta, caminhoDaAutoria(projectPath, runId, threadId));

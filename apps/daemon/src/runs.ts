@@ -877,18 +877,27 @@ export function ferramentasDoRun(runId: string, home: string): Ferramentas | nul
 async function rodarSupervisorMcp(run: Run, teto: number, home: string, chefe: RunStep): Promise<boolean> {
   const agente = getAgent(chefe.agentId, home);
   if (!agente) return false;
-  if (engineKindOf(agente.profileId, home) !== "claude") {
+  const motor = engineKindOf(agente.profileId, home);
+  if (motor !== "claude" && motor !== "codex") {
     run.canalOff = "o motor da conta do supervisor não fala MCP";
     return false;
   }
 
   const dir = runDir(run.id, home);
   mkdirSync(dir, { recursive: true });
-  const arquivo = join(dir, "mcp.json");
-  // 0600: o arquivo carrega o token do daemon, e ele fica no disco enquanto o
-  // run vive. Em argv seria pior — argv é legível por qualquer processo do usuário.
-  const token = existsSync(tokenPath(home)) ? readFileSync(tokenPath(home), "utf8").trim() : "";
-  writeFileSync(arquivo, configDeMcp(loadConfig(home).port, token, run.id), { encoding: "utf8", mode: 0o600 });
+  /*
+   * O arquivo é o transporte do CLAUDE. O codex recebe URL + token por variável
+   * de ambiente (ver `mcpDaConversa`), e escrever pra ele um arquivo com o
+   * token do daemon que ninguém vai ler seria só mais uma cópia de segredo no
+   * disco. Por isso o marcador da conversa é o `mcpRunId`, e não o caminho.
+   */
+  const arquivo = motor === "claude" ? join(dir, "mcp.json") : undefined;
+  if (arquivo) {
+    // 0600: o arquivo carrega o token do daemon, e ele fica no disco enquanto o
+    // run vive. Em argv seria pior — argv é legível por qualquer processo do usuário.
+    const token = existsSync(tokenPath(home)) ? readFileSync(tokenPath(home), "utf8").trim() : "";
+    writeFileSync(arquivo, configDeMcp(loadConfig(home).port, token, run.id), { encoding: "utf8", mode: 0o600 });
+  }
 
   const time = getTeam(run.teamId, home);
   const equipe = time?.members.slice(1) ?? [];
@@ -906,8 +915,8 @@ async function rodarSupervisorMcp(run: Run, teto: number, home: string, chefe: R
       runStep: 0,
       runTitle: rotuloDoRun(run, home),
       title: `${agente.name} · supervisor`,
-      mcpConfig: arquivo,
-      mcpTools: [...MCP_TOOLS],
+      mcpRunId: run.id,
+      ...(arquivo ? { mcpConfig: arquivo, mcpTools: [...MCP_TOOLS] } : {}),
     },
     home,
   );
