@@ -71,7 +71,7 @@ function esforcoEfetivo(effort: EsforcoEscolhido | undefined): EffortLevel | und
  * - `--allowed-tools` também não existe: no `codex exec` a permissão é toda do
  *   sandbox, não por ferramenta.
  */
-function codexFlags(profile: Profile, over: EngineOverrides = {}): string[] {
+function codexFlags(profile: Profile, over: EngineOverrides = {}, resumindo = false): string[] {
   const escolhido = over.model ?? profile.model;
   // Mesmo motivo do claude: "auto" é marca de escolha dinâmica, não nome de modelo.
   const usaFallbackAuto = escolhido === MODELO_AUTO;
@@ -81,7 +81,16 @@ function codexFlags(profile: Profile, over: EngineOverrides = {}): string[] {
   const out: string[] = [];
   if (model && MODEL_RE.test(model)) out.push("-m", model);
   if (effort && EFFORT_LEVELS.includes(effort)) out.push("-c", `model_reasoning_effort="${effort}"`);
-  if (sandbox && CODEX_SANDBOX_MODES.includes(sandbox)) out.push("-s", sandbox);
+  /*
+   * `-s` NÃO existe no `exec resume` — medido contra o codex-cli 0.155.1, que
+   * responde `error: unexpected argument '-s' found` e nem chega a rodar. Sem
+   * este desvio, todo turno retomado morreria no parser de argumentos. `-m` e
+   * `-c` o resume aceita normalmente, então esses seguem.
+   *
+   * A política de sandbox da sessão retomada é a que ela já tinha: é sessão
+   * continuada, não nova.
+   */
+  if (!resumindo && sandbox && CODEX_SANDBOX_MODES.includes(sandbox)) out.push("-s", sandbox);
   return out;
 }
 
@@ -102,8 +111,14 @@ const PREFIXO_WINDOWS_CONTROL = "mcp__nexo__nexo_windows_";
  * `allowedTools` do próprio perfil — nenhum dos dois pode religar sozinho o que
  * esta config desligou.
  */
-function profileFlags(profile: Profile, home: string, over: EngineOverrides = {}, extraTools: string[] = []): string[] {
-  if (profile.engine === "codex") return codexFlags(profile, over);
+function profileFlags(
+  profile: Profile,
+  home: string,
+  over: EngineOverrides = {},
+  extraTools: string[] = [],
+  resumindo = false,
+): string[] {
+  if (profile.engine === "codex") return codexFlags(profile, over, resumindo);
   if (profile.engine !== "claude") return [];
   const escolhido = over.model ?? profile.model;
   const efetivo = escolhido ?? "";
@@ -246,13 +261,30 @@ export class CliEngine implements Engine {
     const profile = getProfile(this.profileId, this.home);
     const over: EngineOverrides = { ...agentOverrides(this.agentId, this.home), ...this.overridesDoTurno };
     const mcp = this.mcpFlags(profile?.engine);
-    this.args = profile ? [...this.baseArgs, ...profileFlags(profile, this.home, over, mcp.tools)] : [...this.baseArgs];
     /*
-     * `--resume` faz o CLI reabrir a conversa dele em vez de nascer amnésico.
-     * Sem isso o Nexo reenvia o histórico no stdin a cada `--print` e a quota
-     * some 2–5× mais rápido que no Claude Code interativo (cache-create de
-     * system+tools+histórico em todo turno, compactação extra do Nexo, etc.).
+     * Retomar a conversa do CLI em vez de nascer amnésico. Sem isso o Nexo
+     * reenvia o histórico no stdin a cada turno e a quota some 2–5× mais
+     * rápido (cache-create de system+tools+histórico toda vez, compactação
+     * extra do Nexo, etc.).
+     *
+     * Os dois CLIs fazem isso de formas DIFERENTES, e é por isso que há dois
+     * caminhos aqui:
+     * - `claude`: flag (`--resume <id>`), que entra no fim como qualquer outra.
+     * - `codex`: SUBCOMANDO (`exec resume <UUID> -`), que precisa vir logo
+     *   depois do `exec`, antes das opções. O `-` é o prompt: no `exec` comum o
+     *   stdin é lido sozinho, mas o help do `resume` só promete ler stdin
+     *   quando `-` é passado — explicitar custa nada e fecha a ambiguidade.
+     *
+     * Medido contra o codex-cli 0.155.1: com o UUID certo, o `thread.started`
+     * devolve o MESMO id em vez de abrir sessão nova.
      */
+    const resumindoCodex = profile?.engine === "codex" && Boolean(this.resumeSessionId);
+    // `slice(1)` pula o subcomando (`exec`) e mantém `--json`/`--skip-git-repo-check`
+    // numa fonte só, em vez de repetir a lista aqui.
+    const base = resumindoCodex
+      ? ["exec", "resume", this.resumeSessionId as string, "-", ...this.baseArgs.slice(1)]
+      : [...this.baseArgs];
+    this.args = profile ? [...base, ...profileFlags(profile, this.home, over, mcp.tools, resumindoCodex)] : base;
     if (profile?.engine === "claude" && this.resumeSessionId) {
       this.args.push("--resume", this.resumeSessionId);
     }

@@ -611,8 +611,16 @@ export type LimitsInfo = {
 export type SessionInfo = {
   sessionId?: string;
   model?: string;
-  /** Janela do modelo em tokens: o CLI marca 1M com o sufixo [1m] no nome. */
-  contextWindow: number;
+  /**
+   * Janela do modelo em tokens: o CLI marca 1M com o sufixo [1m] no nome.
+   *
+   * Opcional porque o `codex` não reporta janela nenhuma, e o `sessionId` dele
+   * (que é o que permite retomar a conversa em vez de reenviar o histórico
+   * todo turno) não pode ficar refém desse campo. Quem mostra janela já trata
+   * a ausência com fallback — mandar 0 faria o medidor da tela exibir "/0",
+   * que é pior que não saber.
+   */
+  contextWindow?: number;
   version?: string;
 };
 

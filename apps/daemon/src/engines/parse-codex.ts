@@ -234,12 +234,24 @@ export function parseCodexLine(linha: string): EngineEvent[] {
   }
 
   /*
-   * `thread.started` traz `thread_id`, e dava pra virar `session`. Não vira: o
-   * `SessionInfo` exige `contextWindow`, o codex não reporta janela nenhuma, e
-   * mandar 0 faria o medidor de contexto da tela mostrar "/0". Sem informação é
-   * melhor que informação errada.
+   * `thread.started` traz o id da sessão — é ele que permite retomar a conversa
+   * (`codex exec resume <UUID>`) em vez de reenviar o histórico inteiro a cada
+   * turno. Vai SEM `contextWindow`: o codex não reporta janela nenhuma, e
+   * mandar 0 faria o medidor da tela mostrar "/0" (por isso o campo é opcional
+   * no `SessionInfo`; ver a nota lá).
    *
-   * `item.started` e `item.updated` também caem aqui: mostrar o comando em voo e
+   * Medido contra o codex-cli 0.155.1: o `thread_id` é um UUID
+   * (`01a0c175-ac78-7770-9b1a-4ed06281528d`), que é exatamente o que o
+   * `exec resume` aceita — e resumindo com ele o MESMO id volta no
+   * `thread.started`, em vez de nascer um novo como num `exec` comum.
+   */
+  if (tipo === "thread.started") {
+    const id = texto(obj.thread_id);
+    return id ? [{ type: "session", sessionId: id }] : [];
+  }
+
+  /*
+   * `item.started` e `item.updated` caem aqui: mostrar o comando em voo e
    * depois completo duplicaria a linha, e só o completo tem o exit code.
    */
   return [];

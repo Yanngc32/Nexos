@@ -752,6 +752,82 @@ describe("motor codex", () => {
     ]);
   });
 
+  /*
+   * `resume` no codex é SUBCOMANDO, não flag como no claude — e a diferença é
+   * medida, não suposta: contra o codex-cli 0.155.1, `exec resume <UUID> -`
+   * devolve o MESMO `thread_id` no `thread.started` (sessão retomada), e um
+   * `-s` junto faz o binário morrer com `unexpected argument '-s' found` antes
+   * de rodar qualquer coisa.
+   */
+  it("thread.started vira session com o id, que é o que permite retomar", async () => {
+    const { events } = await turno(tempHome());
+    const s = events.find((e) => e.type === "session") as Record<string, unknown> | undefined;
+    expect(s?.sessionId).toBe("01a080ab-5677-7af0-8e63-60b7b4f88859");
+    // sem janela de propósito: o codex não reporta, e 0 faria o medidor mostrar "/0"
+    expect(s?.contextWindow).toBeUndefined();
+  });
+
+  it("sem sessão, o pack inteiro vai no payload a cada turno", async () => {
+    const home = tempHome();
+    addProfile({ id: "x1", engine: "codex" }, home, { skipBinCheck: true });
+    markReady("x1", home);
+    process.env.NEXO_CODEX_BIN = fakeCodex;
+    const engine = codexEngine(home, "x1");
+    const events: EngineEvent[] = [];
+    await engine.start(
+      { threadId: "t-cx-sem", projectPath: spawnCwd("."), profileId: "x1", contextPack: "pack-gigante" },
+      (ev) => events.push(ev),
+    );
+    await engine.send("oi");
+    await waitDone(events);
+    expect(engine.lastArgs).not.toContain("resume");
+    expect(engine.lastPayload).toBe("pack-gigante\n\noi");
+  });
+
+  it("com sessão, vira `exec resume <UUID> -` e o pack NÃO vai — é aqui que a quota é economizada", async () => {
+    const home = tempHome();
+    addProfile({ id: "x1", engine: "codex" }, home, { skipBinCheck: true });
+    markReady("x1", home);
+    process.env.NEXO_CODEX_BIN = fakeCodex;
+    const engine = codexEngine(home, "x1");
+    const events: EngineEvent[] = [];
+    await engine.start(
+      { threadId: "t-cx-res", projectPath: spawnCwd("."), profileId: "x1", contextPack: "pack-gigante-do-historico" },
+      (ev) => events.push(ev),
+    );
+    engine.updateResume("01a080ab-5677-7af0-8e63-60b7b4f88859");
+    await engine.send("segunda");
+    await waitDone(events);
+    expect(engine.lastArgs).toEqual([
+      "exec",
+      "resume",
+      "01a080ab-5677-7af0-8e63-60b7b4f88859",
+      "-",
+      "--json",
+      "--skip-git-repo-check",
+    ]);
+    expect(engine.lastPayload, "o histórico não é reenviado").toBe("segunda");
+  });
+
+  it("resumindo, o -s NÃO entra: o `exec resume` recusa essa flag e o turno morreria no parser", async () => {
+    const home = tempHome();
+    addProfile({ id: "x1", engine: "codex" }, home, { skipBinCheck: true });
+    markReady("x1", home);
+    updateProfile("x1", home, { model: "gpt-5.6-terra", sandboxMode: "workspace-write" });
+    process.env.NEXO_CODEX_BIN = fakeCodex;
+    const engine = codexEngine(home, "x1");
+    const events: EngineEvent[] = [];
+    await engine.start(
+      { threadId: "t-cx-sb", projectPath: spawnCwd("."), profileId: "x1", contextPack: "pack" },
+      (ev) => events.push(ev),
+    );
+    engine.updateResume("01a080ab-5677-7af0-8e63-60b7b4f88859");
+    await engine.send("segunda");
+    await waitDone(events);
+    expect(engine.lastArgs).not.toContain("-s");
+    expect(engine.lastArgs, "modelo o resume aceita, e continua valendo").toContain("gpt-5.6-terra");
+  });
+
   it("o turno fecha com uso e done, e o contexto é a soma do que ocupou a janela", async () => {
     const { events } = await turno(tempHome());
     const uso = events.find((e) => e.type === "usage") as Record<string, unknown> | undefined;

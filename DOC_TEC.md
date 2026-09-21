@@ -221,13 +221,29 @@ cego. E `pingUsoDeTodasAsContas` (session.ts) voltou a ser só `claude`: pingar 
 um turno de verdade por conta a cada 30 minutos esperando um `limits` que o parser não emite —
 turno cobrado, painel vazio do mesmo jeito.
 
-Em aberto, em ordem de impacto: **`--resume` no codex** (cli.ts:256 — hoje reenvia o context pack
-inteiro todo turno, 2–5× mais quota pelo nosso próprio comentário; o `codex exec resume` existe e
-falta medir), **skills invisíveis** (`skills.ts`, exige um caminho de injeção via context pack que
+**Retomar sessão no codex** também fechou, e é a maior economia de quota das três: antes cada
+turno reenviava o context pack inteiro. Os dois CLIs retomam de formas diferentes, e é por isso
+que `syncArgs` (cli.ts) tem dois caminhos — `claude` usa a FLAG `--resume <id>`, `codex` usa o
+SUBCOMANDO `exec resume <UUID> -`, que precisa vir logo depois do `exec`. O resto da maquinaria
+(guardar o id, não mandar o pack quando retoma, refazer o turno sem resume se a sessão sumiu) já
+era agnóstica de motor e valeu de graça.
+
+Três coisas medidas contra o codex-cli 0.155.1, não deduzidas:
+
+- `thread.started.thread_id` é UUID, e é o que o `exec resume` aceita — retomando com ele, o
+  MESMO id volta no `thread.started` (sessão nova mintaria outro).
+- **`exec resume` recusa `-s/--sandbox`** (`error: unexpected argument '-s' found`). Sem o desvio
+  em `codexFlags`, todo turno retomado morreria no parser de argumentos. `-m` e `-c` ele aceita.
+- O `-` explícito como prompt: o `exec` comum lê stdin sozinho, mas o help do `resume` só promete
+  ler quando `-` é passado.
+
+Por isso `SessionInfo.contextWindow` virou opcional: o `sessionId` do codex não podia ficar refém
+de uma janela que ele não reporta, e mandar 0 faria o medidor da tela mostrar "/0".
+
+Em aberto: **skills invisíveis** (`skills.ts`, exige um caminho de injeção via context pack que
 não existe), **supervisor-MCP negado** (runs.ts:880 — limitação do nosso `thread_meta`, que passa o
 servidor como caminho de arquivo; o transporte codex já existe, ver `flagsDeMcpCodex`) e
-**cobertura de teste** (o codex tem uma fração dos casos do claude; a fixture `fake-codex.mjs` já
-existe e é subusada).
+**cobertura de teste** (o codex ainda tem menos casos que o claude).
 
 ## Runs
 

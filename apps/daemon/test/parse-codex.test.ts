@@ -150,8 +150,23 @@ describe("parseCodexLine", () => {
     expect(evs).toEqual([{ type: "auth", detail: "request failed: 401" }]);
   });
 
-  it("thread.started e turn.started não geram evento", () => {
-    expect(parseCodexLine('{"type":"thread.started","thread_id":"01a080ab-5677-7af0-8e63-60b7b4f88859"}')).toEqual([]);
+  it("thread.started vira session com o id da sessão, SEM janela de contexto", () => {
+    /*
+     * O id é o que permite `exec resume <UUID>` — retomar a conversa em vez de
+     * reenviar o histórico inteiro todo turno. Vai sem `contextWindow` porque o
+     * codex não reporta janela nenhuma: 0 faria o medidor da tela mostrar "/0",
+     * e informação errada é pior que ausência.
+     */
+    expect(parseCodexLine('{"type":"thread.started","thread_id":"01a080ab-5677-7af0-8e63-60b7b4f88859"}')).toEqual([
+      { type: "session", sessionId: "01a080ab-5677-7af0-8e63-60b7b4f88859" },
+    ]);
+  });
+
+  it("thread.started sem id não vira sessão pela metade", () => {
+    expect(parseCodexLine('{"type":"thread.started"}')).toEqual([]);
+  });
+
+  it("turn.started não gera evento", () => {
     expect(parseCodexLine('{"type":"turn.started"}')).toEqual([]);
   });
 
