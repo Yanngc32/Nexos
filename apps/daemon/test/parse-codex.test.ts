@@ -24,11 +24,84 @@ describe("parseCodexLine", () => {
     ]);
   });
 
-  it("comando executado vira linha de ferramenta, com o exit code", () => {
+  it("comando executado vira linha de ferramenta COM argumentos, mais a saída pareada pelo id", () => {
+    /*
+     * O `id`, o `command` e o `aggregated_output` sempre estiveram nesta linha —
+     * o parser é que os jogava fora, e o chat do codex ficava cego: não dava pra
+     * ver o que o agente rodou nem o que voltou. É o `id` que faz a bolha de
+     * resultado encaixar na de ferramenta (`data-tool-id`, renderer.js), do
+     * mesmo jeito que já acontece no motor claude.
+     */
     const linha =
       '{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/bin/bash -lc \'echo alo\'","aggregated_output":"alo\\n","exit_code":0,"status":"completed"}}';
     expect(parseCodexLine(linha)).toEqual([
-      { type: "tool", name: "command_execution", summary: "/bin/bash -lc 'echo alo' (exit 0)" },
+      {
+        type: "tool",
+        name: "command_execution",
+        summary: "/bin/bash -lc 'echo alo' (exit 0)",
+        id: "item_1",
+        input: { command: "/bin/bash -lc 'echo alo'", exit_code: 0 },
+      },
+      { type: "tool_result", id: "item_1", result: "alo" },
+    ]);
+  });
+
+  it("exit code diferente de zero marca o resultado como erro", () => {
+    // é o que acende o ✕ na bolha; sem isso, comando que falhou parece ter dado certo
+    const linha =
+      '{"type":"item.completed","item":{"id":"item_9","type":"command_execution","command":"/bin/bash -lc \'sai 1\'","aggregated_output":"não achei\\n","exit_code":1,"status":"completed"}}';
+    const evs = parseCodexLine(linha);
+    expect(evs[1]).toEqual({ type: "tool_result", id: "item_9", result: "não achei", isError: true });
+  });
+
+  it("comando sem saída e sem falha não gera bolha de resultado vazia", () => {
+    const linha =
+      '{"type":"item.completed","item":{"id":"item_3","type":"command_execution","command":"/bin/bash -lc \'true\'","aggregated_output":"","exit_code":0,"status":"completed"}}';
+    const evs = parseCodexLine(linha);
+    expect(evs).toHaveLength(1);
+    expect(evs[0].type).toBe("tool");
+  });
+
+  it("falha silenciosa ainda vira resultado, dizendo o exit", () => {
+    const linha =
+      '{"type":"item.completed","item":{"id":"item_4","type":"command_execution","command":"/bin/bash -lc \'false\'","aggregated_output":"","exit_code":1,"status":"completed"}}';
+    expect(parseCodexLine(linha)[1]).toEqual({
+      type: "tool_result",
+      id: "item_4",
+      result: "(sem saída, exit 1)",
+      isError: true,
+    });
+  });
+
+  it("saída enorme é cortada, como no parser do claude", () => {
+    const grande = "x".repeat(900);
+    const linha = JSON.stringify({
+      type: "item.completed",
+      item: {
+        id: "item_5",
+        type: "command_execution",
+        command: "cat grande.txt",
+        aggregated_output: grande,
+        exit_code: 0,
+        status: "completed",
+      },
+    });
+    const res = parseCodexLine(linha)[1] as { result: string };
+    expect(res.result).toHaveLength(601);
+    expect(res.result.endsWith("…")).toBe(true);
+  });
+
+  it("tipo não medido repassa o payload cru, em vez de inventar nome de campo", () => {
+    /*
+     * Só `command_execution` foi dirigido contra o codex de verdade. Passar o
+     * item cru é o que faz a bolha mostrar o payload REAL de `file_change` na
+     * primeira vez que alguém rodar um — é assim que a medição que falta vai
+     * acontecer, em vez de eu chutar o formato agora.
+     */
+    const linha =
+      '{"type":"item.completed","item":{"id":"item_7","type":"file_change","path":"/repo/a.ts","status":"completed"}}';
+    expect(parseCodexLine(linha)).toEqual([
+      { type: "tool", name: "file_change", summary: "/repo/a.ts", id: "item_7", input: { path: "/repo/a.ts" } },
     ]);
   });
 

@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect, afterEach, vi } from "vitest";
@@ -743,6 +743,39 @@ describe("pingUsoDeTodasAsContas", () => {
     expect(limitsOf("a1")).toBeUndefined();
     expect(limitsOf("c-sem-login")).toBeUndefined();
   });
+
+  it("conta codex NUNCA é pingada — o turno seria cobrado esperando um `limits` que não existe", async () => {
+    /*
+     * `parse-codex.ts` não emite `limits` (o `codex exec --json` não reporta
+     * janela de uso), então pingar conta codex gastava um turno de verdade por
+     * conta a cada 30 minutos pra sempre receber nada. O binário sentinela
+     * abaixo grava um arquivo se for chamado: se ele existir no fim, voltamos a
+     * queimar quota à toa.
+     */
+    const home = tempHome();
+    addProfile({ id: "cx-ping", engine: "codex" }, home, { skipBinCheck: true });
+    // credencial viva de verdade (`auth.json` no CODEX_HOME do perfil): sem ela o
+    // motor recusa antes de spawnar, e o teste passaria sem provar nada
+    const codexHome = engineEnv(getProfile("cx-ping", home)!, home).CODEX_HOME!;
+    writeFileSync(join(codexHome, "auth.json"), liveCred(), "utf8");
+    markReady("cx-ping", home);
+    const marca = join(home, "pingou-codex");
+    const sentinela = join(home, "sentinela.mjs");
+    // shebang + bit de execução: sem os dois o spawn falha calado e o teste
+    // passaria por não ter rodado nada — que é o oposto do que ele afirma
+    writeFileSync(
+      sentinela,
+      `#!/usr/bin/env node\nimport { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marca)}, "1");\n`,
+      { encoding: "utf8", mode: 0o755 },
+    );
+    process.env.NEXO_CODEX_BIN = sentinela;
+    try {
+      await pingUsoDeTodasAsContas(home);
+      expect(existsSync(marca), "o motor codex não pode nem ser iniciado").toBe(false);
+    } finally {
+      delete process.env.NEXO_CODEX_BIN;
+    }
+  }, 10_000);
 
   it("conta claude com credencial válida é pingada num motor descartável (sem gravar thread)", async () => {
     const home = tempHome();

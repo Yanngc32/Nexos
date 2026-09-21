@@ -200,8 +200,34 @@ Duas honestidades que a tela precisa dizer, e diz:
   que o diff está incompleto. Sem isso, o diff inventaria uma remoção no fim que nunca aconteceu,
   e pareceria que o agente apagou código.
 
-Só vale pro motor `claude`: `parse-codex.ts` emite evento de ferramenta **sem** `input`, então não
-há de onde tirar diff. O mobile não renderiza evento de ferramenta nenhum, e segue assim.
+O mobile não renderiza evento de ferramenta nenhum, e segue assim.
+
+No `codex`, `file_change` ainda não vira diff: só `command_execution` teve o payload medido contra
+o binário de verdade, e `parse-codex.ts` repassa o item CRU como `input` justamente pra não
+inventar nome de campo. Na primeira vez que alguém rodar um `file_change`, a bolha mostra o
+payload real — é assim que a medição que falta deve acontecer, e aí o mapeamento pra
+`old_string`/`new_string` fica trivial.
+
+## Paridade entre motores
+
+`claude` e `codex` não são iguais, e parte disso é do CLI, não nossa: o `codex exec --json` não
+tem texto parcial, não tem `--allowed-tools` nem `permission-mode`, e não reporta janela de
+contexto nem limite de uso. O que NÃO é do CLI é dívida, e vale tratar como tal.
+
+Já fechado: evento de ferramenta do codex leva `id` e `input`, e a saída do comando vira
+`tool_result` pareado (com `isError` no `exit_code` != 0) — antes o parser recebia `command`,
+`aggregated_output` e `exit_code` no `item.completed` e jogava tudo fora, deixando o chat do codex
+cego. E `pingUsoDeTodasAsContas` (session.ts) voltou a ser só `claude`: pingar conta codex gastava
+um turno de verdade por conta a cada 30 minutos esperando um `limits` que o parser não emite —
+turno cobrado, painel vazio do mesmo jeito.
+
+Em aberto, em ordem de impacto: **`--resume` no codex** (cli.ts:256 — hoje reenvia o context pack
+inteiro todo turno, 2–5× mais quota pelo nosso próprio comentário; o `codex exec resume` existe e
+falta medir), **skills invisíveis** (`skills.ts`, exige um caminho de injeção via context pack que
+não existe), **supervisor-MCP negado** (runs.ts:880 — limitação do nosso `thread_meta`, que passa o
+servidor como caminho de arquivo; o transporte codex já existe, ver `flagsDeMcpCodex`) e
+**cobertura de teste** (o codex tem uma fração dos casos do claude; a fixture `fake-codex.mjs` já
+existe e é subusada).
 
 ## Runs
 

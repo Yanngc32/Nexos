@@ -45,8 +45,42 @@ import { AUTH_STATUS_RE, isAuthText, prettyAuth } from "./parse-claude.ts";
 /** Tipos de item que o binário serializa. Os que o Nexo mostra viram linha de ferramenta. */
 const FERRAMENTAS = new Set(["command_execution", "file_change", "mcp_tool_call", "web_search", "todo_list"]);
 
+/** Mesmo teto do parser do claude: nada que vá pra UI passa de um parágrafo. */
+const SAIDA_MAX = 600;
+
+/**
+ * Campos que já viajam em outro canal do evento — repetir no `input` só incharia
+ * a bolha e o `.jsonl`. `aggregated_output` sai daqui porque vira `tool_result`.
+ */
+const CAMPOS_DO_ENVELOPE = new Set(["id", "type", "status", "aggregated_output"]);
+
 function texto(v: unknown): string {
   return typeof v === "string" ? v : "";
+}
+
+function cap(s: string, max = SAIDA_MAX): string {
+  const t = s.trim();
+  return t.length > max ? `${t.slice(0, max)}…` : t;
+}
+
+/**
+ * Os argumentos da ferramenta, como o binário os mandou.
+ *
+ * Repassa o item CRU (menos o envelope) em vez de mapear campo a campo de
+ * propósito: só `command_execution` teve o payload medido contra o codex de
+ * verdade (ver o cabeçalho). Mapear os outros exigiria inventar nome de campo,
+ * que é justo o que `resumo()` evita desde o começo. Passando cru, a bolha
+ * expandida mostra o payload real de `file_change` e companhia na primeira vez
+ * que alguém rodar um — e é assim que a medição que falta vai acontecer, em vez
+ * de eu chutar agora.
+ */
+function entradaDoItem(item: Record<string, unknown>): Record<string, unknown> | undefined {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(item)) {
+    if (CAMPOS_DO_ENVELOPE.has(k) || v === null || v === undefined) continue;
+    out[k] = v;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 function int(v: unknown): number {
@@ -73,6 +107,50 @@ function resumo(item: Record<string, unknown>): string {
     if (v) return v.replace(/\s+/g, " ").slice(0, 200);
   }
   return tipo;
+}
+
+/**
+ * Uma ferramenta vira DOIS eventos, como no motor claude: a linha (`tool`, com
+ * os argumentos) e a saída (`tool_result`, pareada pelo `id`).
+ *
+ * Antes daqui saía só a linha, sem `id` e sem `input` — e o chat do codex ficava
+ * cego: nem o que o agente rodou, nem o que voltou. O `item.completed` já trazia
+ * as duas coisas (`command`, `aggregated_output`, `exit_code`); o parser é que
+ * as jogava fora. Com o `id` repassado, a bolha de resultado encaixa na de
+ * ferramenta pelo mesmo caminho que o claude usa (`data-tool-id`, renderer.js).
+ *
+ * `exit_code` diferente de zero marca `isError`, que é o que acende o ✕ na
+ * bolha. Sem saída nenhuma e sem falha não gera `tool_result`: bolha de
+ * resultado vazia é ruído.
+ */
+function ferramentaEvents(item: Record<string, unknown>, kind: string): EngineEvent[] {
+  const id = texto(item.id);
+  const entrada = entradaDoItem(item);
+  const out: EngineEvent[] = [
+    {
+      type: "tool",
+      name: kind,
+      summary: resumo(item),
+      ...(id ? { id } : {}),
+      ...(entrada ? { input: entrada } : {}),
+    },
+  ];
+
+  // sem `id` não há como parear o resultado com a linha — o renderer acha a
+  // bolha por `data-tool-id`, e um resultado órfão simplesmente sumiria
+  if (!id) return out;
+
+  const saida = cap(texto(item.aggregated_output));
+  const code = item.exit_code;
+  const falhou = typeof code === "number" && code !== 0;
+  if (!saida && !falhou) return out;
+  out.push({
+    type: "tool_result",
+    id,
+    result: saida || `(sem saída, exit ${String(code)})`,
+    ...(falhou ? { isError: true } : {}),
+  });
+  return out;
 }
 
 /**
@@ -112,7 +190,7 @@ export function parseCodexLine(linha: string): EngineEvent[] {
       const m = texto(item.message);
       return m ? [{ type: "tool", name: "aviso", summary: m }] : [];
     }
-    if (FERRAMENTAS.has(kind)) return [{ type: "tool", name: kind, summary: resumo(item) }];
+    if (FERRAMENTAS.has(kind)) return ferramentaEvents(item, kind);
     return [];
   }
 

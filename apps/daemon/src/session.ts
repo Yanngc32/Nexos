@@ -792,7 +792,14 @@ async function pingUso(p: Profile, home: string): Promise<void> {
  * aqui seria gasto duplicado sem ganhar nada.
  */
 export async function pingUsoDeTodasAsContas(home: string): Promise<void> {
-  const candidatos = listProfiles(home).filter((p) => p.engine === "claude" || p.engine === "codex");
+  /*
+   * Só `claude`. O ping existe pra capturar `limits`, e `parse-codex.ts` não
+   * emite esse evento — o `codex exec --json` não reporta janela de uso em
+   * lugar nenhum. Incluir conta codex aqui gastava um turno de verdade por
+   * conta, a cada 30 minutos, esperando um evento que nunca podia chegar: o
+   * turno era cobrado e o painel continuava vazio do mesmo jeito.
+   */
+  const candidatos = listProfiles(home).filter((p) => p.engine === "claude");
   const alvos = candidatos
     .map((p) => (p.status === "ready" ? p : applyLoginResult(p.id, home)))
     .filter((p) => p.status === "ready" && !perfilEmUso(p.id));
