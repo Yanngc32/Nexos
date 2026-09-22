@@ -527,9 +527,9 @@ export function createApp(home: string, token: string): Hono {
     return c.json({ error: "abra o terminal: nexo login " + p.id }, 202);
   });
 
+  // Sem `projectPath` na query: lista as conversas globais (sem projeto), não todas.
   app.get("/v1/threads", (c) => {
-    const projectPath = c.req.query("projectPath");
-    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    const projectPath = c.req.query("projectPath") || undefined;
     // `busy` é estado vivo (memória), não vem do JSONL: por isso é carimbado aqui.
     const busy = new Set(busyThreads());
     return c.json(listThreads(projectPath, home).map((t) => ({ ...t, busy: busy.has(t.id) })));
@@ -666,49 +666,56 @@ export function createApp(home: string, token: string): Hono {
   });
 
   app.post("/v1/threads", async (c) => {
-    const body = (await c.req.json()) as { projectPath: string; profileId?: string; agentId?: string; branch?: string };
+    const body = (await c.req.json()) as { projectPath?: string; profileId?: string; agentId?: string; branch?: string };
     try {
-      // Sem pasta a conversa nasce órfã: some da listagem (que filtra por
-      // projectPath) e de /v1/projects, sem erro nenhum pra quem criou.
-      const projectPath = typeof body.projectPath === "string" ? body.projectPath.trim() : "";
-      if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+      // `projectPath` ausente = conversa global (chat geral), sem projeto. Enviado mas vazio é erro
+      // — evita um cliente mandar "" sem querer e criar uma conversa global sem perceber.
+      // Sem pasta, a conversa também não entra em nenhuma listagem por projeto (filtra por
+      // projectPath) nem em /v1/projects, sem erro nenhum pra quem criou.
+      if (body.projectPath !== undefined && typeof body.projectPath === "string" && !body.projectPath.trim()) {
+        return c.json({ error: "projectPath, se enviado, não pode ser vazio" }, 400);
+      }
+      const projectPath = typeof body.projectPath === "string" ? body.projectPath.trim() || undefined : undefined;
       // Com agente, a conta dele é o padrão — mas um profileId explícito ainda manda.
       const def = body.agentId ? getAgent(body.agentId, home) : undefined;
       if (body.agentId && !def) return c.json({ error: `agente não existe: ${body.agentId}` }, 400);
       const profileId = body.profileId || def?.profileId || "";
       if (!profileId) return c.json({ error: "profileId obrigatório" }, 400);
+      const branch = typeof body.branch === "string" ? body.branch.trim() : "";
       // Antes de criar: depois disso a própria conversa já conta como "projeto conhecido" e o
       // teste de novidade não veria mais diferença nenhuma.
-      const chave = projectKey(projectPath);
-      const jaConhecido = projetosConhecidos(home).some((p) => projectKey(p) === chave);
-      const branch = typeof body.branch === "string" ? body.branch.trim() : "";
+      const jaConhecido = projectPath
+        ? projetosConhecidos(home).some((p) => projectKey(p) === projectKey(projectPath))
+        : false;
       const created = await createThreadNaBranch(
-        { projectPath, profileId, ...(def ? { agentId: def.id } : {}), ...(branch ? { branch } : {}) },
+        { ...(projectPath ? { projectPath } : {}), profileId, ...(def ? { agentId: def.id } : {}), ...(branch ? { branch } : {}) },
         home,
       );
-      // Best-effort: cobre regra global criada antes deste projeto existir pro Nexo. Não pode
-      // derrubar a criação da conversa por causa disto (ex.: pasta sem `.git` — sincronização já
-      // ignora, mas por garantia extra contra qualquer outro erro imprevisto).
-      try {
-        sincronizarHooksDoProjeto(projectPath, home);
-      } catch (e) {
-        console.error("sincronizar hooks ao abrir projeto:", (e as Error).message || e);
-      }
-      // Primeira vez que este projeto abre no Nexo: constrói o índice do repo map (Camada 1) —
-      // só se ainda não existir, pra não recalcular à toa em toda abertura (git.post-commit já
-      // mantém fresco depois disso). Sem custo de LLM — seguro rodar aqui, best-effort.
-      try {
-        if (!indiceDisponivel(projectPath, home)) construirIndice(projectPath, home, leitorDeResumos(projectPath, home));
-      } catch (e) {
-        console.error("construir índice do repo map ao abrir projeto:", (e as Error).message || e);
-      }
-      // `nexo.projeto-novo`: só na PRIMEIRA vez que este projeto aparece pro Nexo — fire-and-forget,
-      // igual post-commit/post-push (já aconteceu, não tem o que bloquear).
-      if (!jaConhecido) {
+      if (projectPath) {
+        // Best-effort: cobre regra global criada antes deste projeto existir pro Nexo. Não pode
+        // derrubar a criação da conversa por causa disto (ex.: pasta sem `.git` — sincronização já
+        // ignora, mas por garantia extra contra qualquer outro erro imprevisto).
         try {
-          fireHook("nexo.projeto-novo", projectPath, home);
+          sincronizarHooksDoProjeto(projectPath, home);
         } catch (e) {
-          console.error("nexo.projeto-novo:", (e as Error).message || e);
+          console.error("sincronizar hooks ao abrir projeto:", (e as Error).message || e);
+        }
+        // Primeira vez que este projeto abre no Nexo: constrói o índice do repo map (Camada 1) —
+        // só se ainda não existir, pra não recalcular à toa em toda abertura (git.post-commit já
+        // mantém fresco depois disso). Sem custo de LLM — seguro rodar aqui, best-effort.
+        try {
+          if (!indiceDisponivel(projectPath, home)) construirIndice(projectPath, home, leitorDeResumos(projectPath, home));
+        } catch (e) {
+          console.error("construir índice do repo map ao abrir projeto:", (e as Error).message || e);
+        }
+        // `nexo.projeto-novo`: só na PRIMEIRA vez que este projeto aparece pro Nexo — fire-and-forget,
+        // igual post-commit/post-push (já aconteceu, não tem o que bloquear).
+        if (!jaConhecido) {
+          try {
+            fireHook("nexo.projeto-novo", projectPath, home);
+          } catch (e) {
+            console.error("nexo.projeto-novo:", (e as Error).message || e);
+          }
         }
       }
       return c.json(created, 201);
@@ -1697,7 +1704,10 @@ export function createApp(home: string, token: string): Hono {
           appendEvent({ ts, type: "agent_assigned", threadId, agentId: pendente.alvo, confianca: pendente.confianca }, home);
         } else if (pendente.tipo === "time" && pendente.alvo) {
           const meta = events.find((e) => e.type === "thread_meta");
-          const projectPath = meta && meta.type === "thread_meta" ? meta.projectPath : "";
+          const projectPath = meta && meta.type === "thread_meta" ? meta.projectPath : undefined;
+          // Delegar a time exige projeto real (Run.projectPath) — conversa global (sem projeto)
+          // fica fora do escopo por enquanto.
+          if (!projectPath) return c.json({ error: "sem projeto: essa conversa não pode virar run de time" }, 400);
           const run = criarRun({ teamId: pendente.alvo, projectPath, goal: pendente.tarefa }, home);
           viraRun = true;
           void executarRun(run, home);

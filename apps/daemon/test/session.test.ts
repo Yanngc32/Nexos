@@ -26,7 +26,7 @@ import type { Profile, ThreadEvent } from "@nexo/shared";
 
 const ts0 = "2026-01-01T00:00:00.000Z";
 import { saveAgent } from "../src/agents.ts";
-import { memoriaPath } from "../src/memoria.ts";
+import { globalMemoriaPath, memoriaPath } from "../src/memoria.ts";
 import { construirIndice } from "../src/repo-map-indice.ts";
 import { deadCred, liveCred, tempHome } from "./helpers.ts";
 import { loadConfig, saveConfig } from "../src/config.ts";
@@ -576,6 +576,29 @@ describe("session", () => {
 
   it("clearThread numa thread inexistente lança", async () => {
     await expect(clearThread("nao-existe", tempHome())).rejects.toThrow(/não existe/);
+  });
+
+  it("conversa sem projeto roda o turno normal, com cwd de fallback (chat geral)", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ profileId: "p1" }, home);
+    await postMessage(t.id, "oi", home);
+    const engine = getLive(t.id)?.engine as StubEngine;
+    expect(engine.lastStart?.projectPath).toBeUndefined();
+    const types = readThread(t.id, home).map((e) => e.type);
+    expect(types).toEqual(["thread_meta", "user", "assistant"]);
+  });
+
+  it("conversa sem projeto lê MEMORIA.md global, com o rótulo 'Memória geral', sem repo map", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    writeFileSync(globalMemoriaPath(home), "fato global", "utf8");
+    const t = createThread({ profileId: "p1" }, home);
+    await postMessage(t.id, "oi", home);
+    const engine = getLive(t.id)?.engine as StubEngine;
+    const pack = engine.lastStart?.contextPack ?? "";
+    expect(pack).toContain("# Memória geral\nfato global");
+    expect(pack).not.toContain("Repo map");
   });
 });
 

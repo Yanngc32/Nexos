@@ -170,3 +170,53 @@ describe("threads", () => {
     expect(existsSync(fora)).toBe(false);
   });
 });
+
+describe("threads sem projeto (chat geral)", () => {
+  it("createThread sem projectPath grava thread_meta sem o campo", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const { id } = createThread({ profileId: "p1" }, home);
+    const meta = readThread(id, home).find((e) => e.type === "thread_meta");
+    expect(meta && meta.type === "thread_meta" ? meta.projectPath : "tinha meta?").toBeUndefined();
+  });
+
+  it("listThreads(undefined) lista só as globais, não as de projeto", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const global = createThread({ profileId: "p1" }, home);
+    const doProjeto = createThread({ projectPath: "C:/proj/x", profileId: "p1" }, home);
+
+    const globais = listThreads(undefined, home).map((t) => t.id);
+    expect(globais).toContain(global.id);
+    expect(globais).not.toContain(doProjeto.id);
+
+    const doProjetoLista = listThreads("C:/proj/x", home).map((t) => t.id);
+    expect(doProjetoLista).toContain(doProjeto.id);
+    expect(doProjetoLista).not.toContain(global.id);
+  });
+
+  it("threadHead de conversa global não quebra e projectPath vem undefined", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const { id } = createThread({ profileId: "p1" }, home);
+    const head = threadHead(id, home);
+    expect(head?.projectPath).toBeUndefined();
+  });
+
+  it("removeThread apaga conversa global sem tentar mexer em worktree/espelho", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const { id } = createThread({ profileId: "p1" }, home);
+    await expect(removeThread(id, home)).resolves.not.toThrow();
+    expect(() => readThread(id, home)).toThrow();
+  });
+
+  it("createThreadNaBranch sem projectPath ignora branch e cria conversa global normal", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const { id } = await createThreadNaBranch({ profileId: "p1", branch: "feature" }, home);
+    const head = threadHead(id, home);
+    expect(head?.projectPath).toBeUndefined();
+    expect(head?.worktreeDir).toBeUndefined();
+  });
+});

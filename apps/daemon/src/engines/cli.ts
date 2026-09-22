@@ -14,7 +14,7 @@ import {
 import type { Engine, EngineHandler, EngineMcp } from "./types.ts";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { attachmentsDir, enginePidPath, globalSkillsDir } from "../home.ts";
+import { attachmentsDir, enginePidPath, globalChatDir, globalSkillsDir } from "../home.ts";
 import { killTree } from "../kill-tree.ts";
 import { spawnCwd } from "../project-cwd.ts";
 import { agentOverrides } from "../agents.ts";
@@ -222,7 +222,7 @@ export class CliEngine implements Engine {
     this.syncArgs();
     this.extra = engineEnv(profile, this.home);
     this.spawnEnv = engineSpawnEnv(profile, this.home);
-    this.cwd = opts.cwdOverride ? spawnCwd(opts.cwdOverride) : spawnCwd(opts.projectPath);
+    this.cwd = spawnCwd(opts.cwdOverride ?? opts.projectPath ?? globalChatDir(this.home));
     this.bin = process.env[this.binEnv] ?? this.defaultBin;
     this.pack = opts.contextPack;
     this.threadId = opts.threadId;

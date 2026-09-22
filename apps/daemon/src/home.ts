@@ -31,6 +31,8 @@ export function ensureHome(root = nexoHome()): string {
     join(root, "runs"),
     join(root, "skills"),
     join(root, "worktrees"),
+    join(root, "chat-geral"),
+    join(root, "memoria-global"),
   ]) {
     mkdirSync(dir, { recursive: true });
   }
@@ -165,4 +167,19 @@ export function tarefasPath(root = nexoHome()): string {
  */
 export function globalSkillsDir(root = nexoHome()): string {
   return join(root, "skills");
+}
+
+/**
+ * Cwd do processo do motor pra conversa sem projeto (chat geral). Não é
+ * identidade de projeto nenhum — nunca entra em `projetosConhecidos`, nunca
+ * roda comando git — só existe porque `spawnCwd` sempre precisa de um
+ * diretório real em disco pra nascer o processo.
+ */
+export function globalChatDir(root = nexoHome()): string {
+  return join(root, "chat-geral");
+}
+
+/** Memória das conversas sem projeto (chat geral) — única, global, sem hash de projeto. Ver memoria.ts. */
+export function globalMemoriaDir(root = nexoHome()): string {
+  return join(root, "memoria-global");
 }

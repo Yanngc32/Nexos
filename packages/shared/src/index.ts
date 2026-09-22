@@ -425,7 +425,8 @@ export type ThreadEvent =
       ts: string;
       type: "thread_meta";
       threadId: string;
-      projectPath: string;
+      /** Ausente = conversa global, sem projeto (chat geral). */
+      projectPath?: string;
       title?: string;
       profileId: string;
       /**
@@ -674,7 +675,8 @@ export type EngineEvent =
 
 export type StartOpts = {
   threadId: string;
-  projectPath: string;
+  /** Ausente = conversa global, sem projeto; `cwdOverride` supre o cwd real do processo. */
+  projectPath?: string;
   profileId: string;
   contextPack: string;
   agentId?: string;

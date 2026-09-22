@@ -16,7 +16,8 @@ function nowIso(): string {
 export type CreatedThread = { id: string };
 
 export type CreateThreadInput = {
-  projectPath: string;
+  /** Ausente = conversa global, sem projeto (chat geral). */
+  projectPath?: string;
   profileId: string;
   title?: string;
   agentId?: string;
@@ -40,7 +41,7 @@ export function createThread(input: CreateThreadInput, home: string, opts: { id?
     ts: nowIso(),
     type: "thread_meta",
     threadId: id,
-    projectPath: input.projectPath,
+    ...(input.projectPath ? { projectPath: input.projectPath } : {}),
     profileId: input.profileId,
     ...(input.title ? { title: input.title } : {}),
     ...(input.agentId ? { agentId: input.agentId } : {}),
@@ -64,7 +65,7 @@ export function createThread(input: CreateThreadInput, home: string, opts: { id?
  */
 export async function createThreadNaBranch(input: CreateThreadInput, home: string): Promise<CreatedThread> {
   const branch = input.branch?.trim();
-  if (!branch) return createThread(input, home);
+  if (!branch || !input.projectPath) return createThread(input, home);
 
   const check = await podeIsolar(input.projectPath);
   if (!check.pode) throw Object.assign(new Error(`não deu pra fixar a branch: ${check.motivo}`), { status: 400 });
@@ -221,7 +222,7 @@ function espelharNoProjeto(event: ThreadEvent, path: string, linha: string, home
     if (!projectPath) {
       const meta =
         event.type === "thread_meta" ? event : readThread(event.threadId, home).find((e) => e.type === "thread_meta");
-      if (!meta || meta.type !== "thread_meta") return;
+      if (!meta || meta.type !== "thread_meta" || !meta.projectPath) return; // conversa global: sem projeto, sem espelho
       projectPath = meta.projectPath;
       projetoDaConversa.set(event.threadId, projectPath);
     }
@@ -244,7 +245,7 @@ export async function removeThread(id: string, home: string): Promise<void> {
   if (!existsSync(path)) throw new Error(`thread não existe: ${id}`);
   const head = threadHead(id, home);
   rmSync(path);
-  if (head) {
+  if (head?.projectPath) {
     projetoDaConversa.delete(id);
     try {
       rmSync(conversaEspelhoPath(id, head.projectPath, home), { force: true });
@@ -252,7 +253,7 @@ export async function removeThread(id: string, home: string): Promise<void> {
       // espelho é best-effort
     }
   }
-  if (head?.worktreeDir) {
+  if (head?.projectPath && head.worktreeDir) {
     const aindaUsada = listThreads(head.projectPath, home).some((t) => t.worktreeDir === head.worktreeDir);
     if (!aindaUsada) await removerWorktree(head.projectPath, head.worktreeDir).catch(() => {});
   }
@@ -269,7 +270,8 @@ export function readThread(id: string, home: string): ThreadEvent[] {
 
 export type ThreadHead = {
   id: string;
-  projectPath: string;
+  /** Ausente = conversa global, sem projeto. */
+  projectPath?: string;
   profileId: string;
   preview: string;
   updatedAt: string;
@@ -318,7 +320,8 @@ export function threadHead(id: string, home: string): ThreadHead | undefined {
   };
 }
 
-export function listThreads(projectPath: string, home: string): ThreadHead[] {
+/** `projectPath` ausente lista as conversas globais (sem projeto), não todas. */
+export function listThreads(projectPath: string | undefined, home: string): ThreadHead[] {
   ensureHome(home);
   const threadsDir = dirname(threadPath("placeholder", home));
   if (!existsSync(threadsDir)) return [];

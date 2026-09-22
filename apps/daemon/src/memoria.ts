@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "./config.ts";
-import { projectKey } from "./home.ts";
+import { globalMemoriaDir, projectKey } from "./home.ts";
 import { projectDir, projectDirSemCriar } from "./projeto-dir.ts";
 
 /**
@@ -95,5 +95,31 @@ export function readMemoria(projectPath: string, home: string): string {
     return readFileSync(path, "utf8");
   } catch {
     return "";
+  }
+}
+
+export function globalMemoriaPath(home: string): string {
+  return join(globalMemoriaDir(home), "MEMORIA.md");
+}
+
+/** Memória das conversas sem projeto (chat geral): única, global, mesmo padrão de `readMemoria`. */
+export function readMemoriaGlobal(home: string): string {
+  const path = globalMemoriaPath(home);
+  if (!existsSync(path)) return "";
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+/** Status pra UI (tela "Memória Geral") — espelha `statusDaMemoria`. */
+export function statusDaMemoriaGlobal(home: string): { existe: boolean; caminho: string; atualizadoEm?: string } {
+  const caminho = globalMemoriaPath(home);
+  try {
+    const st = statSync(caminho);
+    return { existe: true, caminho, atualizadoEm: st.mtime.toISOString() };
+  } catch {
+    return { existe: false, caminho };
   }
 }

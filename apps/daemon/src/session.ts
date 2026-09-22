@@ -4,10 +4,10 @@ import { join } from "node:path";
 import type { EngineEvent, EngineKind, EngineOverrides, Profile, SwitchReason, ThreadEvent } from "@nexo/shared";
 import { ESFORCO_AUTO, MODELO_AUTO, MODELO_AUTO_FALLBACK, TURNO_TETO_MS } from "@nexo/shared";
 import { agentOverrides, getAgent } from "./agents.ts";
-import { readMemoria } from "./memoria.ts";
+import { readMemoria, readMemoriaGlobal } from "./memoria.ts";
 import { promptWithAttachments, removeThreadAttachments, saveImages, type IncomingImage } from "./attachments.ts";
 import { loadConfig } from "./config.ts";
-import { projectKey, tokenPath } from "./home.ts";
+import { globalChatDir, projectKey, tokenPath } from "./home.ts";
 import { configDeMcpAutoria, MCP_TOOLS_AUTORIA, urlDeMcpAutoria, urlDeMcpDeRun } from "./mcp.ts";
 import { indiceDisponivel, lerIndice } from "./repo-map-indice.ts";
 import { MCP_TOOLS_REPO_MAP } from "./repo-map-simbolos.ts";
@@ -284,8 +284,8 @@ function setTerminal(live: Live, kind: Terminal): void {
   for (const acorda of waiters) acorda();
 }
 
-export function createEngine(profile: Profile, projectPath: string, home: string): Engine {
-  const cwd = spawnCwd(projectPath);
+export function createEngine(profile: Profile, projectPath: string | undefined, home: string): Engine {
+  const cwd = spawnCwd(projectPath ?? globalChatDir(home));
   switch (profile.engine) {
     case "stub":
       return new StubEngine(cwd);
@@ -328,10 +328,10 @@ export function engineKindOf(profileId: string, home: string): EngineKind {
  * atualizar o `MEMORIA.md` valem já na próxima mensagem, sem precisar trocar
  * de conta nem `/clear`.
  */
-function withInstructions(agentId: string | undefined, projectPath: string, packText: string, home: string): string {
+function withInstructions(agentId: string | undefined, projectPath: string | undefined, packText: string, home: string): string {
   const def = agentId ? getAgent(agentId, home) : undefined;
   const instrucoes = def?.instructions?.trim();
-  const memoria = readMemoria(projectPath, home).trim();
+  const memoria = (projectPath ? readMemoria(projectPath, home) : readMemoriaGlobal(home)).trim();
   const modulos = loadConfig(home).modulos;
   const blocos: string[] = [];
   // Módulo, não agente: vale pra TODA conversa (agente ou conta pura), por isso entra antes —
@@ -373,11 +373,12 @@ function withInstructions(agentId: string | undefined, projectPath: string, pack
     );
   }
   if (instrucoes) blocos.push(`# Agente: ${def?.name ?? agentId}\n${instrucoes}`);
-  if (memoria) blocos.push(`# Memória do projeto\n${memoria}`);
+  if (memoria) blocos.push(`# Memória ${projectPath ? "do projeto" : "geral"}\n${memoria}`);
   // Repo map — Camada 1 (índice, texto fixo, sem custo de LLM) + o nudge da Camada 2 (ferramenta
   // sob demanda). Mesmo bloco/peso que memória: descrição de ferramenta sozinha perde pro hábito
   // de grepar, um lembrete no topo do pack empurra mais forte que só o `tools/list` competindo.
-  if (indiceDisponivel(projectPath, home)) {
+  // Sem projeto (chat geral) não existe árvore de arquivos pra mapear.
+  if (projectPath && indiceDisponivel(projectPath, home)) {
     const indice = lerIndice(projectPath, home);
     if (indice) blocos.push(`# Repo map — árvore de arquivos deste projeto\n${indice}`);
     blocos.push(
@@ -552,7 +553,7 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
  */
 function mcpDaConversa(
   threadId: string,
-  meta: { mcpConfig?: string; mcpTools?: string[]; projectPath: string; runId?: string; mcpRunId?: string },
+  meta: { mcpConfig?: string; mcpTools?: string[]; projectPath?: string; runId?: string; mcpRunId?: string },
   perfil: Profile,
   home: string,
 ): { mcpConfig?: string; mcpTools?: string[]; mcpHttp?: { url: string; token: string } } {
@@ -578,7 +579,7 @@ function mcpDaConversa(
   if (!arquivo) return {};
   const tools = [
     ...MCP_TOOLS_AUTORIA,
-    ...(indiceDisponivel(meta.projectPath, home) ? MCP_TOOLS_REPO_MAP : []),
+    ...(meta.projectPath && indiceDisponivel(meta.projectPath, home) ? MCP_TOOLS_REPO_MAP : []),
     // `runId` só existe quando esta conversa é o passo de um run de PIPELINE (ver `executarPasso`
     // em runs.ts) — é o que dá ao agente do hook de pre-push como declarar `{ aprovado, motivo }`.
     ...(meta.runId ? MCP_TOOLS_VEREDITO : []),
@@ -622,7 +623,7 @@ function tokenDoHome(home: string): string {
  * argv: ele carrega o token, e argv é legível por qualquer processo do mesmo
  * usuário.
  */
-function arquivoDeAutoria(projectPath: string, runId: string | undefined, threadId: string, home: string): string {
+function arquivoDeAutoria(projectPath: string | undefined, runId: string | undefined, threadId: string, home: string): string {
   const token = tokenDoHome(home);
   if (!token) return "";
   const dir = join(home, "run");
@@ -631,7 +632,7 @@ function arquivoDeAutoria(projectPath: string, runId: string | undefined, thread
   // embutida agora é única por conversa, não só por projeto+run — arquivo compartilhado faria a
   // pergunta de uma conversa entregar a ferramenta com o threadId de outra.
   const hash = createHash("sha1")
-    .update(`${projectKey(projectPath)}::${runId ?? ""}::${threadId}`)
+    .update(`${projectPath ? projectKey(projectPath) : "sem-projeto"}::${runId ?? ""}::${threadId}`)
     .digest("hex")
     .slice(0, 10);
   const arquivo = join(dir, `mcp-autoria-${hash}.json`);
@@ -726,7 +727,7 @@ async function talvezCompactar(threadId: string, home: string): Promise<void> {
 }
 
 /** Um turno só, num motor descartável, devolvendo o texto que ele produziu. */
-function turnoDeResumo(p: Profile, projectPath: string, home: string, pedido: string): Promise<string> {
+function turnoDeResumo(p: Profile, projectPath: string | undefined, home: string, pedido: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const engine = createEngine(p, projectPath, home);
     let buf = "";

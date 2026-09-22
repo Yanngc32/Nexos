@@ -793,7 +793,7 @@ describe("http", () => {
     expect(existsSync(fora)).toBe(false);
   });
 
-  it("conversa sem projectPath é recusada em vez de nascer órfã", async () => {
+  it("conversa sem projectPath nasce como conversa global (chat geral)", async () => {
     const home = tempHome();
     addProfile({ id: "p1", engine: "stub" }, home);
     const app = createApp(home, token);
@@ -801,6 +801,27 @@ describe("http", () => {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ profileId: "p1" }),
+    });
+    expect(res.status).toBe(201);
+    const { id } = (await res.json()) as { id: string };
+
+    // Aparece na listagem global (sem projectPath na query), não em nenhuma listagem por projeto.
+    const globais = await app.request("/v1/threads", { headers: { authorization: `Bearer ${token}` } });
+    expect((await globais.json()).map((t: { id: string }) => t.id)).toContain(id);
+    const doProjeto = await app.request("/v1/threads?projectPath=C:/proj/x", {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect((await doProjeto.json()).map((t: { id: string }) => t.id)).not.toContain(id);
+  });
+
+  it("projectPath enviado vazio é recusado (evita conversa global sem querer)", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const app = createApp(home, token);
+    const res = await app.request("/v1/threads", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ projectPath: "  ", profileId: "p1" }),
     });
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/projectPath/);
