@@ -10,6 +10,7 @@ import { createCloneModal } from "./clone-modal.js";
 import { createNewThreadModal } from "./new-thread-modal.js";
 import { diffDeFerramenta, nomeArquivo, renderDiff } from "./diff-view.js";
 import { createTarefasBoard } from "./tarefas-board.js";
+import { createDsCanvas } from "./canvas-ds.js";
 import { createDialogo } from "./dialogo.js";
 import { criarMenuContexto } from "./menu-contexto.js";
 import { lerEventos } from "./sse.js";
@@ -68,10 +69,12 @@ const MODULES = [
   { id: "graph", name: "Memória do Projeto", keys: "", ico: "◈" },
   { id: "agentes", name: "Agentes, Times e Hooks", keys: "", ico: "🤖" },
   { id: "tarefas", name: "Tarefas", keys: "", ico: "🗂" },
+  { id: "ds", name: "Design System", keys: "", ico: "◧" },
   { id: "side-chat", name: "Chat lateral", keys: "Ctrl+Shift+S", ico: "💬" },
 ];
 
 const ABA_ICO = {
+  ds: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><rect x="13" y="5" width="6" height="6" rx="1"/><path d="M5 19h6M5 15h6"/><rect x="13" y="14" width="6" height="5" rx="2.5"/></svg>',
   file: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8Z"/><path d="M14 3v5h5"/></svg>',
   terminal: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 8 4 4-4 4"/><path d="M13 16h4"/></svg>',
   browser: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18"/></svg>',
@@ -1522,7 +1525,7 @@ function updateChatEmptyState() {
   cta.classList.toggle("hidden", !semRepos);
 }
 
-const WORK_PANES = ["file", "terminal", "browser", "canvas", "graph", "agentes", "tarefas"];
+const WORK_PANES = ["file", "terminal", "browser", "canvas", "graph", "agentes", "tarefas", "ds"];
 
 function chaveSessao(threadId = state.threadId) {
   return chaveWork(threadId, state.projectPath);
@@ -1664,6 +1667,7 @@ function aoMostrarPainel(view) {
     setAxTab(state.axTab);
   }
   if (view === "tarefas") void tarefasBoard.abrir();
+  if (view === "ds") void dsCanvas.abrir();
 }
 
 let workGen = 0;
@@ -5019,6 +5023,18 @@ const tarefasBoard = createTarefasBoard({
   avisar: (msg) => dialogo.avisar(msg),
 });
 
+const dsCanvas = createDsCanvas({
+  req,
+  api,
+  headers,
+  el: $,
+  getProjectPath: () => state.projectPath,
+  isOk: () => state.ok,
+  lerEventos,
+  pickFolder: () => window.nexo.pickFolder(),
+  avisar: (msg) => dialogo.avisar(msg),
+});
+
 const teamStudio = createTeamStudio({
   req,
   api,
@@ -5756,6 +5772,8 @@ async function bindProject(path) {
   await loadFileTree();
   fecharLogServico();
   svcPanel.limparPortas();
+  dsCanvas.trocouProjeto();
+  if (state.view === "ds") void dsCanvas.abrir();
   if (state.ok) await loadThreads();
   await loadServices();
   listenServices();
@@ -7769,6 +7787,7 @@ $("btn-agent-new").addEventListener("click", () => abrirEstudio(null));
 agentStudio.ligar();
 hooksStudio.ligar();
 $("btn-close-tarefas").addEventListener("click", fecharAbaAtual);
+$("btn-close-ds").addEventListener("click", fecharAbaAtual);
 tarefasBoard.ligar();
 dialogo.ligar();
 automacaoModal.ligar();

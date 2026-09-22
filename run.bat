@@ -2,6 +2,8 @@
 rem Sobe o Nexos. O app liga o motor sozinho, sem janela.
 rem   run.bat          -> abre o app (esta janela fica so com o log)
 rem   run.bat daemon   -> so o motor, em primeiro plano
+rem   run.bat dev      -> modo de teste: motor e dados isolados do Nexos instalado
+rem                       (~/.nexos-dev, porta 7433) e recarga automatica ao salvar
 rem Para abrir sem console nenhum, gere o atalho: make-shortcut.ps1 -Desktop
 setlocal
 cd /d "%~dp0"
@@ -65,6 +67,8 @@ if /i "%~1"=="daemon" (
   node "apps\daemon\scripts\nexo.mjs" up
   exit /b %errorlevel%
 )
+
+if /i "%~1"=="dev" set "NEXOS_DEV=1"
 
 pushd "apps\desktop"
 call "node_modules\.bin\electron.CMD" .

@@ -124,6 +124,16 @@ import {
   type TarefaInput,
 } from "./tarefas.ts";
 import { commitsRelacionados } from "./tarefas-git.ts";
+import {
+  ativarDs,
+  criarDs,
+  estadoDs,
+  pastaDoAtivo,
+  removerDs,
+  salvarCard,
+  salvarTokens,
+} from "./design-system.ts";
+import { assinarDs } from "./ds-watch.ts";
 import { desligarRepoMapResumos, gerarResumosSobDemanda, sincronizarRepoMapResumos } from "./repo-map-auto.ts";
 import { statusDaMemoria, statusDaMemoriaGlobal } from "./memoria.ts";
 import { importarZip } from "./importadores/importar-zip.ts";
@@ -1037,6 +1047,103 @@ export function createApp(home: string, token: string): Hono {
       const err = e as Error & { status?: number };
       return c.json({ error: err.message }, (err.status ?? 404) as 404);
     }
+  });
+
+  /* ---------- Design system do projeto (view Canvas) ---------- */
+
+  const dsErro = (c: Context, e: unknown) => {
+    const err = e as Error & { status?: number };
+    return c.json({ error: err.message }, (err.status ?? 400) as 400);
+  };
+
+  app.get("/v1/ds", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      return c.json(estadoDs(projectPath, home));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  app.post("/v1/ds", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { nome?: unknown; pasta?: unknown };
+      return c.json(criarDs(projectPath, home, body), 201);
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  app.put("/v1/ds/ativo", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { id?: string };
+      return c.json(ativarDs(projectPath, home, String(body.id ?? "")));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  app.delete("/v1/ds/:id", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      return c.json(removerDs(projectPath, home, c.req.param("id")));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  app.put("/v1/ds/tokens", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { tokens?: unknown; base?: string };
+      return c.json(salvarTokens(projectPath, home, body.tokens, body.base));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  app.put("/v1/ds/cards/:card", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as Parameters<typeof salvarCard>[3];
+      return c.json(salvarCard(projectPath, home, c.req.param("card"), body));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  /** Mudança em disco na pasta do DS ativo. O Canvas relê `GET /v1/ds` e anima a diferença. */
+  app.get("/v1/ds/events", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    const pasta = pastaDoAtivo(projectPath, home);
+    if (!pasta) return c.json({ error: "este projeto não tem design system" }, 404);
+    return streamSSE(c, async (stream) => {
+      let sair: () => void = () => {};
+      try {
+        sair = assinarDs(pasta, (ev) => {
+          void stream.writeSSE({ data: JSON.stringify(ev) });
+        });
+      } catch (e) {
+        // pasta sumiu do disco entre o ponteiro e o watch: o Canvas mostra o erro no GET
+        await stream.writeSSE({ data: JSON.stringify({ type: "erro", message: (e as Error).message }) });
+        return;
+      }
+      await new Promise<void>((resolve) => {
+        stream.onAbort(() => {
+          sair();
+          resolve();
+        });
+      });
+    });
   });
 
   /* ---------- Tarefas (quadro Kanban por projeto) ---------- */

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; connect-src http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src http: https: about: data: blob:; font-src 'self'"
+      content="default-src 'self'; connect-src http://127.0.0.1:*; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; frame-src http: https: about: data: blob:; font-src 'self' https://fonts.gstatic.com"
     />
     <title>Nexos</title>
     <link rel="stylesheet" href="./node_modules/@xterm/xterm/css/xterm.css" />
@@ -661,6 +661,69 @@
         <div id="tk-timeline" class="tk-timeline hidden">
           <div id="tk-timeline-corpo"></div>
           <p id="tk-timeline-vazio" class="tk-hint hidden">Nenhum marco com data ainda — defina início ou prazo em "Marcos".</p>
+        </div>
+      </section>
+      <section class="pane" id="pane-ds">
+        <header class="mod-head ds-head">
+          <h1>Design System</h1>
+          <select id="ds-sistema" class="hidden" aria-label="Design system ativo"></select>
+          <span id="ds-nome" class="ds-nome"></span>
+          <span id="ds-pasta" class="tk-projeto" title=""></span>
+          <button type="button" id="ds-avisos" class="ds-avisos hidden" title="Ver avisos do lint"></button>
+          <div id="ds-toolbar" class="ds-toolbar">
+            <select id="ds-tema" class="hidden" aria-label="Tema"></select>
+            <button type="button" id="ds-anim" class="ghost" aria-pressed="true" title="Animar mudanças">Animação</button>
+            <div class="ds-zoom" role="group" aria-label="Zoom">
+              <button type="button" id="ds-zoom-menos" class="ghost" title="Diminuir zoom">−</button>
+              <span id="ds-zoom-val">100%</span>
+              <button type="button" id="ds-zoom-mais" class="ghost" title="Aumentar zoom">+</button>
+              <button type="button" id="ds-ajustar" class="ghost" title="Ajustar à tela">Ajustar</button>
+            </div>
+            <div class="ds-novo-wrap">
+              <button type="button" id="ds-btn-novo" class="ghost">+ Novo</button>
+              <div id="ds-novo" class="ds-novo hidden">
+                <label>Nome<input type="text" id="ds-novo-nome" placeholder="Design system" /></label>
+                <label>Pasta (dentro do projeto)
+                  <span class="ds-pasta-campo"><input type="text" id="ds-novo-pasta" value="design-system" /><button type="button" id="ds-novo-escolher" class="ghost">Escolher…</button></span>
+                </label>
+                <p id="ds-novo-err" class="ag-err"></p>
+                <button type="button" id="ds-novo-criar" class="primary">Criar</button>
+              </div>
+            </div>
+          </div>
+          <button type="button" id="btn-close-ds" class="ghost mod-close" title="Fechar (volta só pro chat)">✕</button>
+        </header>
+        <p id="ds-erro" class="ag-err ds-erro hidden"></p>
+        <div class="ds-stage">
+          <p id="ds-sem-projeto" class="tk-hint ds-centro hidden">Abra um projeto pra criar o design system dele.</p>
+          <div id="ds-vazio" class="ds-vazio hidden">
+            <h2>Crie o design system deste projeto</h2>
+            <p>Tokens, regras de uso e cards de componente viram arquivos numa pasta do projeto. Os agentes leem e editam direto; esta tela mostra e ajusta.</p>
+            <label>Nome<input type="text" id="ds-vazio-nome" placeholder="Design system" /></label>
+            <label>Pasta (dentro do projeto)
+              <span class="ds-pasta-campo"><input type="text" id="ds-vazio-pasta" value="design-system" /><button type="button" id="ds-vazio-escolher" class="ghost">Escolher…</button></span>
+            </label>
+            <p id="ds-vazio-err" class="ag-err"></p>
+            <button type="button" id="ds-vazio-criar" class="primary">Criar design system</button>
+          </div>
+          <div id="ds-viewport" class="ds-viewport hidden">
+            <div id="ds-board" class="ds-board"></div>
+            <svg id="ds-traco" class="ds-traco" aria-hidden="true"></svg>
+            <div id="ds-cursor" class="ds-cursor" aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="18" height="18"><path d="M2 1.5 13.5 8 8.2 9.3 5.6 14.5Z" /></svg>
+            </div>
+          </div>
+          <aside id="ds-painel" class="ds-painel hidden">
+            <header class="ds-painel-head">
+              <strong id="ds-painel-tit"></strong>
+              <button type="button" id="ds-painel-fechar" class="ghost" title="Fechar">✕</button>
+            </header>
+            <div class="ax-tabs" role="tablist">
+              <button type="button" id="ds-painel-tab-tokens" class="ax-tab" role="tab" data-on="1">Tokens</button>
+              <button type="button" id="ds-painel-tab-avisos" class="ax-tab" role="tab" data-on="0">Avisos</button>
+            </div>
+            <div id="ds-painel-corpo" class="ds-painel-corpo"></div>
+          </aside>
         </div>
       </section>
         </div>

@@ -54,6 +54,24 @@ process.on("unhandledRejection", (err) => {
  * mais por cima do outro. `requestSingleInstanceLock` faz a segunda tentativa
  * só acordar a primeira e sair; quem já está aberto que responde.
  */
+/*
+ * Modo de teste (`run.bat dev`, só fora do empacotado): roda ISOLADO do Nexos instalado — motor
+ * próprio (`~/.nexos-dev`, porta 7433) e userData próprio ("Nexos Dev"). Sem isso o app de dev
+ * falaria com o motor instalado (versão velha, sem as rotas novas) e brigaria pelo mesmo
+ * localStorage. Tem que vir ANTES do lock de instância única, que usa o userData da hora da chamada.
+ */
+const DEV = !app.isPackaged && process.env.NEXOS_DEV === "1";
+if (DEV) {
+  if (!process.env.NEXOS_HOME) process.env.NEXOS_HOME = join(homedir(), ".nexos-dev");
+  const cfg = join(process.env.NEXOS_HOME, "config.json");
+  if (!existsSync(cfg)) {
+    mkdirSync(process.env.NEXOS_HOME, { recursive: true });
+    writeFileSync(cfg, JSON.stringify({ port: 7433 }, null, 2), "utf8");
+  }
+  app.setName("Nexos Dev");
+  app.setPath("userData", join(app.getPath("appData"), "Nexos Dev"));
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
@@ -358,6 +376,7 @@ function toRel(full) {
  * o rename pro nome novo não pode fazer ninguém "perder" projeto/conversa aberta.
  */
 function fixAppIdentity() {
+  if (DEV) return; // identidade própria, definida lá em cima
   const alvo = join(app.getPath("appData"), "Nexos");
   const antigos = [
     join(app.getPath("appData"), "Nexos"),
@@ -409,6 +428,94 @@ if (!process.env.NEXOS_VERBOSE) app.commandLine.appendSwitch("log-level", "3");
  */
 if (process.platform === "win32") {
   app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+}
+
+/** Espera um processo filho sair, com teto — `nexo down` que trava não pode travar a recarga. */
+function esperarSair(child, ms) {
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, ms);
+    child.once("exit", () => {
+      clearTimeout(t);
+      resolve();
+    });
+  });
+}
+
+let motorReiniciando = null;
+
+/** Só em dev: derruba e sobe o motor pra pegar o código novo do daemon. */
+function reiniciarMotorDev() {
+  if (motorReiniciando) return motorReiniciando;
+  motorReiniciando = (async () => {
+    try {
+      await esperarSair(spawnNexo(["down"]), 10_000);
+      const ok = await ensureDaemon(20_000);
+      console.log(ok ? "[dev] motor reiniciado" : "[dev] motor não voltou — veja ~/.nexos-dev/logs");
+    } finally {
+      motorReiniciando = null;
+    }
+  })();
+  return motorReiniciando;
+}
+
+/**
+ * Só em dev: recarrega sozinho ao salvar. Front (js/css/html do desktop) → recarrega a janela;
+ * `.cjs` do main/preload → reabre o app (não dá pra trocar o main com ele rodando); daemon ou
+ * `@nexos/shared` → reinicia o motor e depois recarrega a janela.
+ */
+function ligarRecargaDev() {
+  const { watch } = require("node:fs");
+  const ignorar = /(^|[\\/])(node_modules|dist|daemon-dist|test)([\\/]|$)|\.test\.|~$|\.tmp$/;
+  let timer = 0;
+  let acao = "";
+  const peso = { janela: 1, motor: 2, app: 3 };
+  const agendar = (tipo, arquivo) => {
+    if (!acao || peso[tipo] > peso[acao]) acao = tipo;
+    console.log(`[dev] mudou ${arquivo} → ${acao}`);
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const a = acao;
+      acao = "";
+      if (a === "app") {
+        app.relaunch();
+        app.exit(0);
+        return;
+      }
+      if (a === "motor") await reiniciarMotorDev();
+      if (win && !win.isDestroyed()) win.reload();
+    }, 300);
+  };
+  // No Windows o fs.watch também dispara quando o arquivo só é LIDO (o motor subindo lê o src
+  // inteiro) — sem conferir o mtime, cada reinício do motor dispararia outro, em loop.
+  const inicio = Date.now();
+  const mtimes = new Map();
+  const mudouDeVerdade = (caminho) => {
+    let m;
+    try {
+      m = require("node:fs").statSync(caminho).mtimeMs;
+    } catch {
+      return true; // apagado ou renomeado: é mudança
+    }
+    const antes = mtimes.get(caminho) ?? inicio;
+    mtimes.set(caminho, Math.max(m, antes));
+    return m > antes;
+  };
+  const vigiar = (pasta, classificar) => {
+    try {
+      watch(pasta, { recursive: true }, (_ev, nome) => {
+        const arquivo = String(nome || "");
+        if (!arquivo || ignorar.test(arquivo)) return;
+        const tipo = classificar(arquivo);
+        if (tipo && mudouDeVerdade(join(pasta, arquivo))) agendar(tipo, arquivo);
+      });
+    } catch (e) {
+      console.log(`[dev] não consegui vigiar ${pasta}: ${e.message}`);
+    }
+  };
+  vigiar(here, (f) => (/\.cjs$/.test(f) ? "app" : /\.(js|css|html)$/.test(f) ? "janela" : ""));
+  vigiar(join(daemonRoot, "src"), (f) => (/\.ts$/.test(f) ? "motor" : ""));
+  vigiar(join(repoRoot, "packages", "shared", "src"), (f) => (/\.ts$/.test(f) ? "motor" : ""));
+  console.log(`[dev] recarga automática ligada | motor: ${nexoHome()} porta ${readPort()}`);
 }
 
 /** Sobe o motor sem janela se ele não estiver de pé. */
@@ -1027,8 +1134,10 @@ app.whenReady().then(() => {
     app.quit();
     return { ok: true };
   });
-  void ensureDaemon();
+  // em dev o motor de pé pode ser de uma rodada anterior, com código velho: sobe de novo
+  void (DEV ? reiniciarMotorDev() : ensureDaemon());
   createWindow();
+  if (DEV) ligarRecargaDev();
   createTray();
   setupAutoUpdater();
   // reabre onde estava: painel que some a cada reinício não serve de painel
