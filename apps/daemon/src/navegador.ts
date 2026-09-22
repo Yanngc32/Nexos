@@ -1,4 +1,4 @@
-import type { NavegadorModo } from "@nexo/shared";
+import type { NavegadorModo } from "@nexos/shared";
 import type { Conjunto } from "./mcp.ts";
 import { sessionBus } from "./bus.ts";
 import { perguntar } from "./perguntas.ts";

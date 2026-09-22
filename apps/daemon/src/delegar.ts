@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import type { DelegacaoModo, Run } from "@nexo/shared";
+import type { DelegacaoModo, Run } from "@nexos/shared";
 import type { Conjunto } from "./mcp.ts";
 import { getAgent, listAgents } from "./agents.ts";
 import { getTeam, listTeams, upsertTimeDeMencao } from "./teams.ts";

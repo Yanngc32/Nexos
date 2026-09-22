@@ -8,7 +8,7 @@ import {
   type RunEvent,
   type RunStep,
   type TeamDef,
-} from "@nexo/shared";
+} from "@nexos/shared";
 import { getAgent } from "./agents.ts";
 import { runDir, runsRoot, tokenPath } from "./home.ts";
 import { newRunId } from "./ids.ts";

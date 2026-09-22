@@ -24,7 +24,7 @@ export function safeUrl(raw) {
  *
  * Sem eles, `http://fd7a:115c::1:7432/` faz o navegador ler `fd7a` como host e
  * `115c` como porta. A tela do celular e o QR usam isto; o daemon tem a mesma
- * regra em `@nexo/shared`.
+ * regra em `@nexos/shared`.
  */
 export function hostNaUrl(host) {
   const h = String(host || "").trim();
@@ -70,7 +70,7 @@ export function urlDoCelular(host, porta, codigo, https) {
  * O código vai na QUERY, não no fragmento: `GET /apk` roda no daemon, e
  * fragmento nunca chega ao servidor — só o `#c=` do pareamento pode ficar lá,
  * porque quem lê aquele é o JS da SPA, já carregada. Aqui não há SPA
- * nenhuma antes: o celular ainda pode nem ter o Nexo aberto.
+ * nenhuma antes: o celular ainda pode nem ter o Nexos aberto.
  */
 export function urlDoApk(host, porta, codigo, https) {
   const q = /^[0-9A-HJKMNP-TV-Z]{6}$/.test(String(codigo ?? "")) ? `?c=${codigo}` : "";

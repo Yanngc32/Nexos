@@ -11,7 +11,7 @@ describe("serve a interface web", () => {
   it("/app entrega o index", () => {
     const r = servirWeb("/app");
     expect(r?.tipo).toBe("text/html; charset=utf-8");
-    expect(r?.corpo.toString("utf8")).toContain("<title>Nexo</title>");
+    expect(r?.corpo.toString("utf8")).toContain("<title>Nexos</title>");
   });
 
   it("/app/ e /app/index.html dão o mesmo", () => {

@@ -126,20 +126,20 @@ async function tratar(req: IncomingMessage, res: ServerResponse): Promise<void> 
 }
 
 beforeAll(async () => {
-  process.env.NEXO_GOOGLE_CLIENT_ID = "cid";
+  process.env.NEXOS_GOOGLE_CLIENT_ID = "cid";
   server = createServer((req, res) => void tratar(req, res));
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  process.env.NEXO_GOOGLE_TOKEN_URL = `${base}/token`;
-  process.env.NEXO_GOOGLE_AUTH_URL = `${base}/auth`;
-  process.env.NEXO_GOOGLE_API_URL = `${base}/drive`;
-  process.env.NEXO_GOOGLE_UPLOAD_URL = `${base}/upload`;
+  process.env.NEXOS_GOOGLE_TOKEN_URL = `${base}/token`;
+  process.env.NEXOS_GOOGLE_AUTH_URL = `${base}/auth`;
+  process.env.NEXOS_GOOGLE_API_URL = `${base}/drive`;
+  process.env.NEXOS_GOOGLE_UPLOAD_URL = `${base}/upload`;
 });
 
 afterAll(() => {
   server.close();
-  for (const k of ["TOKEN", "AUTH", "API", "UPLOAD"]) delete process.env[`NEXO_GOOGLE_${k}_URL`];
-  delete process.env.NEXO_GOOGLE_CLIENT_ID;
+  for (const k of ["TOKEN", "AUTH", "API", "UPLOAD"]) delete process.env[`NEXOS_GOOGLE_${k}_URL`];
+  delete process.env.NEXOS_GOOGLE_CLIENT_ID;
 });
 
 beforeEach(() => {
@@ -153,7 +153,7 @@ afterEach(() => cancelAllGoogleLogins());
 /** Máquina com conta conectada e pasta do Drive escolhida. */
 function maquina(): string {
   const home = tempHome();
-  updateGoogleStore(home, { refreshToken: "rt-fake", email: "eu@exemplo.com", folderId: ROOT, folderName: "Nexo" });
+  updateGoogleStore(home, { refreshToken: "rt-fake", email: "eu@exemplo.com", folderId: ROOT, folderName: "Nexos" });
   return home;
 }
 
@@ -245,11 +245,11 @@ const escolher = (base: string, state: string, corpo: unknown) =>
 
 describe("entrar com Google", () => {
   it("o client embutido no app já deixa o botão disponível, sem configurar nada", () => {
-    delete process.env.NEXO_GOOGLE_CLIENT_ID;
+    delete process.env.NEXOS_GOOGLE_CLIENT_ID;
     try {
       expect(googleAccount(tempHome()).disponivel).toBe(true);
     } finally {
-      process.env.NEXO_GOOGLE_CLIENT_ID = "cid";
+      process.env.NEXOS_GOOGLE_CLIENT_ID = "cid";
     }
   });
 
@@ -298,13 +298,13 @@ describe("entrar com Google", () => {
     expect(readGoogleStore(home).refreshToken).toBe("rt-fake");
   });
 
-  it("'Criar a pasta Nexo' cria, marca e conclui", async () => {
+  it("'Criar a pasta Nexos' cria, marca e conclui", async () => {
     const home = tempHome();
     const { loginId, base, state } = await logar(home);
     const r = await escolher(base, state, { acao: "criar" });
     expect(r.status).toBe(200);
     const status = googleLoginStatus(loginId);
-    expect(status).toMatchObject({ state: "done", email: "eu@exemplo.com", folder: { name: "Nexo" } });
+    expect(status).toMatchObject({ state: "done", email: "eu@exemplo.com", folder: { name: "Nexos" } });
     const pasta = files.get(status.folder!.id)!;
     expect(pasta.parents).toEqual(["root"]);
     expect(pasta.props).toEqual({ nexoRaiz: "1" });
@@ -318,11 +318,11 @@ describe("entrar com Google", () => {
 
     const b = tempHome();
     const lb = await logar(b);
-    expect(await lb.pagina.text()).toContain("Continuar em “Nexo”");
+    expect(await lb.pagina.text()).toContain("Continuar em “Nexos”");
     const idA = readGoogleStore(a).folderId!;
     await escolher(lb.base, lb.state, { acao: "existente", id: idA });
     expect(readGoogleStore(b).folderId).toBe(idA);
-    expect([...files.values()].filter((f) => f.name === "Nexo")).toHaveLength(1);
+    expect([...files.values()].filter((f) => f.name === "Nexos")).toHaveLength(1);
   });
 
   it("pasta escolhida no seletor vira a raiz e tira a marca da anterior", async () => {
@@ -385,7 +385,7 @@ describe("entrar com Google", () => {
     expect((await fetch(`${redirect}?code=x&state=errado`)).status).toBe(400);
     expect((await escolher(new URL(redirect).origin, "errado", { acao: "criar" })).status).toBe(400);
     expect(googleLoginStatus(loginId).state).toBe("waiting");
-    expect([...files.values()].some((f) => f.name === "Nexo")).toBe(false);
+    expect([...files.values()].some((f) => f.name === "Nexos")).toBe(false);
   });
 
   it("escolha antes de terminar o login é recusada", async () => {
@@ -437,22 +437,22 @@ describe("sync com o Drive", () => {
     expect(r.erros[0]).toMatch(/não conectada/);
   });
 
-  it("sem pasta escolhida, cria a 'Nexo' na raiz do Drive (uma vez só) e sincroniza nela", async () => {
+  it("sem pasta escolhida, cria a 'Nexos' na raiz do Drive (uma vez só) e sincroniza nela", async () => {
     const home = tempHome();
     updateGoogleStore(home, { refreshToken: "rt-fake" });
     escrever(home, "proj/memoria/M.md", "oi");
     const r = await sincronizarDrive(home);
     expect(r.erros).toEqual([]);
-    const pastas = [...files.values()].filter((f) => f.name === "Nexo" && f.parents.includes("root"));
+    const pastas = [...files.values()].filter((f) => f.name === "Nexos" && f.parents.includes("root"));
     expect(pastas).toHaveLength(1);
     expect(readGoogleStore(home).folderId).toBe(pastas[0]!.id);
-    expect(remotos()).toEqual(["Nexo/proj/memoria/M.md"]);
+    expect(remotos()).toEqual(["Nexos/proj/memoria/M.md"]);
 
     await sincronizarDrive(home);
-    expect([...files.values()].filter((f) => f.name === "Nexo")).toHaveLength(1);
+    expect([...files.values()].filter((f) => f.name === "Nexos")).toHaveLength(1);
   });
 
-  it("outro PC da mesma conta reaproveita a 'Nexo' que já existe", async () => {
+  it("outro PC da mesma conta reaproveita a 'Nexos' que já existe", async () => {
     const a = tempHome();
     updateGoogleStore(a, { refreshToken: "rt-fake" });
     escrever(a, "proj/memoria/M.md", "do A");
@@ -463,18 +463,18 @@ describe("sync com o Drive", () => {
     const r = await sincronizarDrive(b);
     expect(r.erros).toEqual([]);
     expect(ler(b, "proj/memoria/M.md")).toBe("do A");
-    expect([...files.values()].filter((f) => f.name === "Nexo")).toHaveLength(1);
+    expect([...files.values()].filter((f) => f.name === "Nexos")).toHaveLength(1);
   });
 
   it("pasta apagada no Drive: esquece o id e a rodada seguinte recria", async () => {
     const home = tempHome();
-    updateGoogleStore(home, { refreshToken: "rt-fake", folderId: "PASTAQUENAOEXISTE1", folderName: "Nexo" });
+    updateGoogleStore(home, { refreshToken: "rt-fake", folderId: "PASTAQUENAOEXISTE1", folderName: "Nexos" });
     const r = await sincronizarDrive(home);
     expect(r.erros[0]).toMatch(/não existe mais/);
     expect(readGoogleStore(home).folderId).toBeUndefined();
     escrever(home, "proj/memoria/M.md", "x");
     expect((await sincronizarDrive(home)).erros).toEqual([]);
-    expect(remotos()).toEqual(["Nexo/proj/memoria/M.md"]);
+    expect(remotos()).toEqual(["Nexos/proj/memoria/M.md"]);
   });
 
   it("sobe tudo (menos meta.json) e outra máquina baixa", async () => {

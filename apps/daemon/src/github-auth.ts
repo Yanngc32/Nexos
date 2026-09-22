@@ -56,7 +56,7 @@ function badRequest(message: string): Error & { status: number } {
 }
 
 function ghBin(): string {
-  return process.env.NEXO_GH_BIN ?? "gh";
+  return process.env.NEXOS_GH_BIN ?? "gh";
 }
 
 function cleanupDir(dir: string): void {

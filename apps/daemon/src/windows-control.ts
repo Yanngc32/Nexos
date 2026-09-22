@@ -4,7 +4,7 @@ import { garantirHelperCompilado, windowsControlClient } from "./windows-control
 
 /**
  * `nexo_windows_*`: dá ao agente controle real de QUALQUER janela do Windows —
- * não só o painel Browser do próprio Nexo (isso já existe em `navegador.ts`).
+ * não só o painel Browser do próprio Nexos (isso já existe em `navegador.ts`).
  * Lista janelas/apps abertos, lê a árvore de UI Automation, captura screenshot
  * e manda clique/tecla/scroll/drag — via processo nativo separado
  * (`windows-control/native`, .NET) porque o daemon é Node puro, sem acesso a
@@ -13,7 +13,7 @@ import { garantirHelperCompilado, windowsControlClient } from "./windows-control
  * Gate de risco alto, deliberadamente FORA do padrão "modo por conta" que
  * `navegador.ts`/`delegar.ts` usam: uma chave GLOBAL (`config.windowsControlEnabled`),
  * porque a superfície de risco (mexer em QUALQUER app da máquina, não só o
- * Nexo) é grande demais pra decisão por conta ou por thread. Quem decide se
+ * Nexos) é grande demais pra decisão por conta ou por thread. Quem decide se
  * este `Conjunto` entra na montagem é `http.ts` (rota `/v1/mcp`); o filtro
  * final e incondicional — que NADA pode contornar, nem `allowedTools` escrito
  * à mão no perfil — é em `engines/cli.ts::profileFlags`.

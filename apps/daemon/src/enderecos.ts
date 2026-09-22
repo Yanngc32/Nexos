@@ -21,7 +21,7 @@ import { networkInterfaces } from "node:os";
  * - **loopback** é tratado à parte, porque é o único obrigatório: é por ele que
  *   o app do desktop fala com o daemon.
  * - **público** fica de fora, sempre. Máquina com IP público de verdade
- *   publicaria o Nexo na internet, e isso nunca é um padrão aceitável.
+ *   publicaria o Nexos na internet, e isso nunca é um padrão aceitável.
  */
 
 export type Classe = "loopback" | "tunel" | "lan" | "link-local" | "publico";

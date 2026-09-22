@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import { PAIR_ALFABETO, PAIR_CODE_LEN, PAIR_MAX_ERROS, PAIR_TTL_MS, normalizarCodigo } from "@nexo/shared";
+import { PAIR_ALFABETO, PAIR_CODE_LEN, PAIR_MAX_ERROS, PAIR_TTL_MS, normalizarCodigo } from "@nexos/shared";
 
 /**
  * Pareamento do celular.

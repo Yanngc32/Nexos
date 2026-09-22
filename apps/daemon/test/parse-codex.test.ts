@@ -108,7 +108,7 @@ describe("parseCodexLine", () => {
   /*
    * O caso que mais importa, e o que só apareceu dirigindo: o `codex` manda
    * `error` pra coisa que NÃO derruba o turno. Traduzir isso pro `error` do
-   * Nexo abortaria turno saudável — e o turno de onde estas duas linhas saíram
+   * Nexos abortaria turno saudável — e o turno de onde estas duas linhas saíram
    * terminou com `turn.completed` normal.
    */
   it("aviso e retentativa NÃO são erro: viram linha visível, não abortam o turno", () => {

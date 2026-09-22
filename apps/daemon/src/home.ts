@@ -1,10 +1,37 @@
-import { mkdirSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { assertSlug } from "./ids.ts";
 
+/**
+ * A pasta de dados chamava `.nexo` (nome do produto até a v0.1.0) e migra sozinha pra
+ * `.nexos` na primeira subida depois do rename — sem isto, quem já tinha perfil/conversas
+ * configurados "perderia" tudo ao atualizar. Só entra quando `NEXOS_HOME` não foi setado à
+ * mão (isso já escolhe o caminho por fora) e só quando o destino ainda não existe — depois
+ * da primeira migração vira no-op (um `existsSync` só).
+ */
+function migrarHomeAntigo(novo: string): void {
+  if (existsSync(novo)) return;
+  const antigo = join(homedir(), ".nexo"); // NUNCA mudar pra ".nexos" — é o nome ANTIGO
+  if (!existsSync(antigo)) return;
+  try {
+    renameSync(antigo, novo);
+  } catch {
+    // rename cruzando de dispositivo, ou pasta em uso: copia em vez de mover.
+    cpSync(antigo, novo, { recursive: true });
+    try {
+      rmSync(antigo, { recursive: true, force: true });
+    } catch {
+      // best-effort: a cópia já está de pé, sobrar a antiga não quebra nada.
+    }
+  }
+}
+
 export function nexoHome(): string {
-  return process.env.NEXO_HOME ?? join(homedir(), ".nexo");
+  if (process.env.NEXOS_HOME) return process.env.NEXOS_HOME;
+  const novo = join(homedir(), ".nexos");
+  migrarHomeAntigo(novo);
+  return novo;
 }
 
 /**
@@ -42,7 +69,7 @@ export function ensureHome(root = nexoHome()): string {
 /*
  * Todo caminho derivado de um id passa por assertSlug aqui, e não só em quem
  * chama: id de perfil e de conversa vêm de parâmetro de rota, e um `..` no meio
- * escapava do NEXO_HOME. Validar no construtor do caminho fecha o furo uma vez
+ * escapava do NEXOS_HOME. Validar no construtor do caminho fecha o furo uma vez
  * em vez de depender de cada chamador lembrar.
  */
 export function profileDir(id: string, root = nexoHome()): string {
@@ -148,7 +175,7 @@ export function tokenPath(root = nexoHome()): string {
   return join(root, "daemon.token");
 }
 
-/** Config dos Nexo Hooks: lista de regras (escopo global ou de projeto, evento, branch, agente). Ver hooks.ts. */
+/** Config dos Nexos Hooks: lista de regras (escopo global ou de projeto, evento, branch, agente). Ver hooks.ts. */
 export function hooksPath(root = nexoHome()): string {
   return join(root, "hooks.json");
 }
@@ -159,7 +186,7 @@ export function tarefasPath(root = nexoHome()): string {
 }
 
 /**
- * Skills globais do Nexo: um SKILL.md aqui vale pra qualquer perfil/conta,
+ * Skills globais do Nexos: um SKILL.md aqui vale pra qualquer perfil/conta,
  * porque `engineSpawnEnv` isola `CLAUDE_CONFIG_DIR` por perfil e o motor só
  * lê skill de dentro dessa pasta (ou do `.claude/skills` do projeto aberto).
  * Ver `syncGlobalSkills` em engines/cli.ts, que copia daqui pra cada perfil

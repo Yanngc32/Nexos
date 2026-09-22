@@ -3,7 +3,7 @@ import { addProfile } from "../src/profiles.ts";
 import { createThread, appendEvent, readThread } from "../src/threads.ts";
 import { modeloDoMotor } from "../src/session.ts";
 import { pack, tetoDeToken } from "../src/packer.ts";
-import { DEFAULT_CONFIG } from "@nexo/shared";
+import { DEFAULT_CONFIG } from "@nexos/shared";
 import { tempHome } from "./helpers.ts";
 
 /*

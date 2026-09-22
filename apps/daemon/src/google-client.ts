@@ -1,5 +1,5 @@
 /**
- * Registro do Nexo no Google Cloud — preenchido UMA vez por quem distribui o app; quem usa o Nexo
+ * Registro do Nexos no Google Cloud — preenchido UMA vez por quem distribui o app; quem usa o Nexos
  * nunca vê nada disto, só o botão "Entrar com Google".
  *
  * Nada aqui é segredo: em app instalado o Google trata o client como público (RFC 8252) — o que

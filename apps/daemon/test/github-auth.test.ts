@@ -26,7 +26,7 @@ async function waitDone(loginId: string, timeoutMs = 5000) {
 
 afterEach(() => {
   cancelAllGithubLogins();
-  delete process.env.NEXO_GH_BIN;
+  delete process.env.NEXOS_GH_BIN;
   delete process.env.FAKE_GH_NO_CODE;
   delete process.env.FAKE_GH_LOGIN_FAIL;
   delete process.env.FAKE_GH_TOKEN_FAIL;
@@ -35,7 +35,7 @@ afterEach(() => {
 describe("login do GitHub (conta única, global)", () => {
   it("loga, guarda o token global e devolve a conta conectada", async () => {
     const home = tempHome();
-    process.env.NEXO_GH_BIN = fake;
+    process.env.NEXOS_GH_BIN = fake;
     const { loginId, code, url } = await startGithubLogin(home);
     expect(code).toBe("XXXX-YYYY");
     expect(url).toBe("https://github.com/login/device");
@@ -49,7 +49,7 @@ describe("login do GitHub (conta única, global)", () => {
 
   it("desconectar apaga o token local (não é por perfil)", async () => {
     const home = tempHome();
-    process.env.NEXO_GH_BIN = fake;
+    process.env.NEXOS_GH_BIN = fake;
     const { loginId } = await startGithubLogin(home);
     await waitDone(loginId);
     expect(githubAccount(home).connected).toBe(true);
@@ -61,14 +61,14 @@ describe("login do GitHub (conta única, global)", () => {
 
   it("gh sem código falha em vez de pendurar", async () => {
     const home = tempHome();
-    process.env.NEXO_GH_BIN = fake;
+    process.env.NEXOS_GH_BIN = fake;
     process.env.FAKE_GH_NO_CODE = "1";
     await expect(startGithubLogin(home)).rejects.toThrow(/código/);
   });
 
   it("login recusado no GitHub não guarda token", async () => {
     const home = tempHome();
-    process.env.NEXO_GH_BIN = fake;
+    process.env.NEXOS_GH_BIN = fake;
     process.env.FAKE_GH_LOGIN_FAIL = "1";
     const { loginId } = await startGithubLogin(home);
     const status = await waitDone(loginId);

@@ -10,7 +10,7 @@ import { githubToken } from "./github-auth.ts";
  * `execFileSync` em `tarefas-git.ts`, `projeto-dir.ts` e `repo-map-indice.ts`,
  * cada um com timeout, encoding e tratamento de erro diferentes. Enquanto era
  * só leitura pontual dava pra viver com isso; a partir do momento em que o
- * Nexo passa a CLONAR, TROCAR DE BRANCH e ATUALIZAR repositório da pessoa, a
+ * Nexos passa a CLONAR, TROCAR DE BRANCH e ATUALIZAR repositório da pessoa, a
  * divergência vira risco: é aqui que mora a decisão de nunca usar `--force`, de
  * sempre ter timeout, e de recusar operação que escreve com a árvore suja.
  *
@@ -278,8 +278,8 @@ export function validarUrlDeClone(bruta: string): UrlDeClone {
  *
  * Usa a credencial de git que já existe na máquina (chave SSH, credential
  * helper) — é o mesmo `git clone` que a pessoa rodaria no terminal, então repo
- * privado funciona sem o Nexo guardar token nenhum. Se a conta de GitHub do
- * Nexo (`github-auth.ts`, Configurações → GitHub) estiver conectada, o token
+ * privado funciona sem o Nexos guardar token nenhum. Se a conta de GitHub do
+ * Nexos (`github-auth.ts`, Configurações → GitHub) estiver conectada, o token
  * dela tem prioridade — é o que faz repo privado clonar sem depender de
  * `gh`/SSH já configurado na máquina.
  *

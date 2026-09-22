@@ -6,7 +6,7 @@ import { aneisDeConta, doProjeto, emVoo, faixaDoRun, porOutrosProjetos, resumoMi
 /**
  * Painel flutuante: o caminhar das coisas, por cima de tudo.
  *
- * Ele existe porque o resto do Nexo só responde "como vai?" quando você está
+ * Ele existe porque o resto do Nexos só responde "como vai?" quando você está
  * olhando pra ele — e um time roda por minutos enquanto você está no editor.
  *
  * **Poll, não SSE, e isso é escolha.** Cada fonte aqui tem um stream próprio
@@ -276,9 +276,9 @@ async function atualizar() {
     if (cfg?.accent) aplicarAccent(cfg.accent);
     if (cfg?.tema) aplicarTema(cfg.tema);
     ultimo = { run, contas, agentes, projeto };
-    // o cabeçalho diz DE QUAL projeto é o que está abaixo: "Nexo" ali não
+    // o cabeçalho diz DE QUAL projeto é o que está abaixo: "Nexos" ali não
     // informava nada, e com dois projetos abertos a faixa ficava ambígua
-    el("grip").textContent = projeto ? folderName(projeto) : "Nexo";
+    el("grip").textContent = projeto ? folderName(projeto) : "Nexos";
     el("grip").title = projeto || "nenhum projeto aberto — mostrando tudo";
   } catch {
     // um poll que falha não apaga a tela: o retrato anterior continua valendo

@@ -5,7 +5,7 @@ import {
   TEAM_CANAIS,
   TEAM_MEMBERS_MAX,
   TEAM_TOPOLOGIES,
-} from "@nexo/shared";
+} from "@nexos/shared";
 import { listAgents, saveAgent, type AgentInput } from "./agents.ts";
 import { HOOK_EVENTS, listarRegras, saveRegra, type RegraInput } from "./hooks.ts";
 import { listProfiles } from "./profiles.ts";
@@ -14,7 +14,7 @@ import { listTeams, saveTeam, type TeamInput } from "./teams.ts";
 import type { Conjunto, Ferramenta, Saida } from "./mcp.ts";
 
 /**
- * Ferramentas de AUTORIA: o modelo cria e edita agentes, times e regras de Nexo Hook.
+ * Ferramentas de AUTORIA: o modelo cria e edita agentes, times e regras de Nexos Hook.
  *
  * O que ele NÃO pode fazer aqui é executar. Nem rodar time, nem apagar
  * definição. A assimetria é o critério: uma definição errada você conserta ou
@@ -73,7 +73,7 @@ export function ferramentasDeAutoria(home: string): Conjunto {
       {
         name: "nexo_contexto",
         description:
-          "O que existe no Nexo agora: contas (motor e estado de login), agentes e times. " +
+          "O que existe no Nexos agora: contas (motor e estado de login), agentes e times. " +
           "CHAME ISTO PRIMEIRO. Agente precisa de uma conta que exista, e time precisa de agentes " +
           "que existam — criar sem olhar dá erro que você poderia ter evitado.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -104,7 +104,7 @@ export function ferramentasDeAutoria(home: string): Conjunto {
                 : "- nenhum";
             })(),
             "",
-            "## Nexo Hooks",
+            "## Nexos Hooks",
             (() => {
               const regras = listarRegras(home);
               return regras.length
@@ -216,8 +216,8 @@ export function ferramentasDeAutoria(home: string): Conjunto {
       {
         name: "nexo_hook_salvar",
         description:
-          "Cria ou atualiza uma regra de Nexo Hook: dispara um agente ou time SOZINHO quando um " +
-          "evento acontece (commit, push, ou a primeira vez que um projeto abre no Nexo) — sem " +
+          "Cria ou atualiza uma regra de Nexos Hook: dispara um agente ou time SOZINHO quando um " +
+          "evento acontece (commit, push, ou a primeira vez que um projeto abre no Nexos) — sem " +
           "precisar ninguém pedir de novo. Mesmo id = atualiza, e campo que você não mandar fica " +
           "como estava. Escopo `global` vale em TODO projeto; `projeto` só num `projectPath`. " +
           "Exatamente um de `agentId`/`teamId`. NÃO cria regra bloqueante: `git.pre-push` bloqueante " +
@@ -271,7 +271,7 @@ export function ferramentasDeAutoria(home: string): Conjunto {
       },
       {
         name: "nexo_hook_listar",
-        description: "Lista as regras de Nexo Hook que já existem — escopo, evento, branch, quem roda, se é bloqueante.",
+        description: "Lista as regras de Nexos Hook que já existem — escopo, evento, branch, quem roda, se é bloqueante.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
         executar: () => {
           const regras = listarRegras(home);
@@ -290,7 +290,7 @@ export function ferramentasDeAutoria(home: string): Conjunto {
       {
         name: "nexo_skill_instalar",
         description:
-          "Instala uma skill (SKILL.md) na pasta GLOBAL do Nexo: fica disponível pra QUALQUER conta " +
+          "Instala uma skill (SKILL.md) na pasta GLOBAL do Nexos: fica disponível pra QUALQUER conta " +
           "(perfil de motor claude), não só a que pediu. Duas origens:\n" +
           "- `md`: você escreve o SKILL.md inteiro em `conteudo` (com o frontmatter `--- name/description ---`).\n" +
           "- `github`: baixa de um repo PÚBLICO. `repo` no formato owner/repo; `caminho` até o SKILL.md " +
@@ -300,7 +300,7 @@ export function ferramentasDeAutoria(home: string): Conjunto {
         inputSchema: {
           type: "object",
           properties: {
-            nome: { type: "string", description: "minúsculas, números e - (pasta em ~/.nexo/skills)" },
+            nome: { type: "string", description: "minúsculas, números e - (pasta em ~/.nexos/skills)" },
             origem: { type: "string", enum: ["md", "github"] },
             conteudo: { type: "string", description: "obrigatório em origem=md: o SKILL.md inteiro" },
             repo: { type: "string", description: "obrigatório em origem=github: owner/repo" },

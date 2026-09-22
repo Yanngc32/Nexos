@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Windows.Automation;
 
-namespace Nexo.WindowsControl;
+namespace Nexos.WindowsControl;
 
 internal sealed record WindowBounds(int X, int Y, int Width, int Height);
 internal sealed record WindowEntry(

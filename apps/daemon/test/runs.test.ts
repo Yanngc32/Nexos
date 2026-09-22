@@ -815,7 +815,7 @@ describe("supervisor por MCP", () => {
       { id: "t", name: "T", topology: "supervisor", canal: "mcp", members: [{ agentId: "chefe-cx" }, { agentId: "a2" }] },
       home,
     );
-    process.env.NEXO_CODEX_BIN = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-codex.mjs");
+    process.env.NEXOS_CODEX_BIN = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-codex.mjs");
     try {
       const run = await rodar(home);
       expect(run.canalOff ?? "", "o motor codex fala MCP").not.toMatch(/não fala MCP/);
@@ -824,7 +824,7 @@ describe("supervisor por MCP", () => {
       expect(meta.mcpRunId).toBe(run.id);
       expect(meta.mcpConfig, "codex não lê arquivo de config").toBeUndefined();
     } finally {
-      delete process.env.NEXO_CODEX_BIN;
+      delete process.env.NEXOS_CODEX_BIN;
     }
   }, 20_000);
 

@@ -520,7 +520,7 @@ describe("http accounts", () => {
     const home = tempHome();
     const app = createApp(home, "t");
     addProfile({ id: "c3", engine: "claude" }, home, { skipBinCheck: true });
-    process.env.NEXO_CLAUDE_BIN = fakeLogin;
+    process.env.NEXOS_CLAUDE_BIN = fakeLogin;
     try {
       const started = await app.request("/v1/profiles/c3/login/start", {
         method: "POST",
@@ -547,7 +547,7 @@ describe("http accounts", () => {
       expect(await ok.json()).toMatchObject({ ok: true, profile: { id: "c3", status: "ready" } });
     } finally {
       cancelAllLogins();
-      delete process.env.NEXO_CLAUDE_BIN;
+      delete process.env.NEXOS_CLAUDE_BIN;
     }
   });
 
@@ -653,10 +653,10 @@ describe("http", () => {
   it("import claude sem credencial global = 400", async () => {
     const home = tempHome();
     addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
-    const prev = process.env.NEXO_CLAUDE_GLOBAL;
-    const prevJson = process.env.NEXO_CLAUDE_GLOBAL_JSON;
-    process.env.NEXO_CLAUDE_GLOBAL = join(home, "empty-claude");
-    process.env.NEXO_CLAUDE_GLOBAL_JSON = join(home, "nope.json");
+    const prev = process.env.NEXOS_CLAUDE_GLOBAL;
+    const prevJson = process.env.NEXOS_CLAUDE_GLOBAL_JSON;
+    process.env.NEXOS_CLAUDE_GLOBAL = join(home, "empty-claude");
+    process.env.NEXOS_CLAUDE_GLOBAL_JSON = join(home, "nope.json");
     try {
       const app = createApp(home, token);
       const res = await app.request("/v1/profiles/c1/import", {
@@ -665,10 +665,10 @@ describe("http", () => {
       });
       expect(res.status).toBe(400);
     } finally {
-      if (prev === undefined) delete process.env.NEXO_CLAUDE_GLOBAL;
-      else process.env.NEXO_CLAUDE_GLOBAL = prev;
-      if (prevJson === undefined) delete process.env.NEXO_CLAUDE_GLOBAL_JSON;
-      else process.env.NEXO_CLAUDE_GLOBAL_JSON = prevJson;
+      if (prev === undefined) delete process.env.NEXOS_CLAUDE_GLOBAL;
+      else process.env.NEXOS_CLAUDE_GLOBAL = prev;
+      if (prevJson === undefined) delete process.env.NEXOS_CLAUDE_GLOBAL_JSON;
+      else process.env.NEXOS_CLAUDE_GLOBAL_JSON = prevJson;
     }
   });
 
@@ -717,7 +717,7 @@ describe("http", () => {
     const proj = tempHome();
     const fixture = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-service.mjs");
     writeFileSync(
-      join(proj, "nexo.json"),
+      join(proj, "nexos.json"),
       JSON.stringify({
         services: [
           { id: "svc", name: "Fake", cmd: `${JSON.stringify(process.execPath)} ${JSON.stringify(fixture)}`, url: "http://127.0.0.1:9/" },
@@ -798,7 +798,7 @@ describe("http", () => {
 
   /**
    * O id da conversa vem do caminho da rota e virava nome de arquivo. Com `..`
-   * escapava do NEXO_HOME: a mensagem era gravada antes da validação e criava
+   * escapava do NEXOS_HOME: a mensagem era gravada antes da validação e criava
    * arquivo (e pasta) em qualquer lugar onde o daemon tenha escrita.
    */
   it("threadId com .. na rota não cria arquivo fora do home", async () => {

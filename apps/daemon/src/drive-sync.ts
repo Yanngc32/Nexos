@@ -188,11 +188,11 @@ export function driveStatus(home: string): StatusDrive {
   };
 }
 
-export const NOME_PASTA_NEXO = "Nexo";
+export const NOME_PASTA_NEXO = "Nexos";
 
 /**
  * Pasta de destino quando esta máquina ainda não tem nenhuma: a que outro PC da mesma conta já
- * usa (marcada, ver `marcarRaizNexo`), senão cria "Nexo" no Meu Drive. Grava o id pra próxima rodada.
+ * usa (marcada, ver `marcarRaizNexo`), senão cria "Nexos" no Meu Drive. Grava o id pra próxima rodada.
  */
 export async function garantirPastaNexo(home: string): Promise<{ id: string; name: string }> {
   const existente = await acharRaizNexo(home);
@@ -257,7 +257,7 @@ async function rodar(home: string): Promise<ResultadoSync> {
       // pasta apagada (ou tirada do alcance) no Drive: esquece, a próxima rodada acha/cria outra
       if ((e as { status?: number }).status === 404) {
         removerPastaDrive(home);
-        throw new Error("a pasta do Drive não existe mais — o Nexo vai criar outra na próxima sincronização");
+        throw new Error("a pasta do Drive não existe mais — o Nexos vai criar outra na próxima sincronização");
       }
       throw e;
     }

@@ -1,7 +1,7 @@
 import { lerEventos } from "./sse.js";
 
 /**
- * Painel de serviços locais do projeto (o que o `nexo.json` declara).
+ * Painel de serviços locais do projeto (o que o `nexos.json` declara).
  *
  * O módulo é dono do estado dos serviços — lista, erro, confiança, log aberto e
  * o resultado da sonda por porta. Isso morava no `state` global do renderer,
@@ -121,7 +121,7 @@ export function createServicesPanel({
   }
 
   /**
-   * Sobe o que o nexo.json marcou como autostart. O daemon ignora em projeto não
+   * Sobe o que o nexos.json marcou como autostart. O daemon ignora em projeto não
    * confiável, então chamar sempre é seguro; só vale a pena se há algo parado.
    */
   async function autostart() {

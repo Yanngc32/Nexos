@@ -1,11 +1,11 @@
 {
-  "name": "@nexo/daemon",
+  "name": "@nexos/daemon",
   "version": "0.0.1",
   "private": true,
   "license": "MIT",
   "type": "module",
   "bin": {
-    "nexo": "./scripts/nexo.mjs"
+    "nexos": "./scripts/nexo.mjs"
   },
   "scripts": {
     "dev": "node ./scripts/nexo.mjs",
@@ -17,7 +17,7 @@
   "dependencies": {
     "@bubblewrap/core": "^1.25.0",
     "@hono/node-server": "^1.13.7",
-    "@nexo/shared": "workspace:*",
+    "@nexos/shared": "workspace:*",
     "@typesafe-ai/sdk": "^0.5.0",
     "adm-zip": "^0.6.1",
     "hono": "^4.6.14",

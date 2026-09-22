@@ -129,7 +129,7 @@ export function createCloneModal({ el, api, headers, req, lerEventos, pickFolder
     preencherBranches(fullName, repo.defaultBranch);
   }
 
-  /** Lista "meus repositórios" só quando o GitHub do Nexo está conectado (Configurações → GitHub). */
+  /** Lista "meus repositórios" só quando o GitHub do Nexos está conectado (Configurações → GitHub). */
   async function carregarRepos() {
     const bloco = el("cl-github");
     if (!req || !bloco) return;

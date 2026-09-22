@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ATTACH_MAX_BYTES, ATTACH_MAX_PER_MESSAGE, IMAGE_MIMES, type Attachment } from "@nexo/shared";
+import { ATTACH_MAX_BYTES, ATTACH_MAX_PER_MESSAGE, IMAGE_MIMES, type Attachment } from "@nexos/shared";
 import { attachmentsDir } from "./home.ts";
 
 /** O que o cliente manda junto da mensagem: bytes em base64, sem caminho nenhum. */

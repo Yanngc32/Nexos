@@ -1,6 +1,6 @@
 /**
  * Página que `GET /apk` devolve — HTML solto, de propósito, e não a SPA de
- * `/app/`: quem chega aqui é um celular que ainda NÃO tem o Nexo instalado, às
+ * `/app/`: quem chega aqui é um celular que ainda NÃO tem o Nexos instalado, às
  * vezes sem nem abrir o navegador antes, e a página tem que se explicar
  * sozinha sem depender de módulo nenhum carregando certo.
  *
@@ -39,10 +39,10 @@ function pagina(titulo: string, corpo: string): string {
 
 export function paginaApk(estado: EstadoApk): string {
   if (estado.tipo === "erro") {
-    return pagina("Nexo — código inválido", `<h1>Código inválido</h1><p>${escapar(estado.motivo)}</p>`);
+    return pagina("Nexos — código inválido", `<h1>Código inválido</h1><p>${escapar(estado.motivo)}</p>`);
   }
   return pagina(
-    "Nexo — APK",
+    "Nexos — APK",
     `<h1>Ainda não tem build pronto</h1><p>Peça um código novo no computador quando o build do APK existir.</p>`,
   );
 }

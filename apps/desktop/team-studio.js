@@ -102,7 +102,7 @@ export function createTeamStudio({
    */
   const AVISO_MCP =
     "Por ferramenta, o supervisor chama os membros DENTRO do turno dele: o run inteiro cabe num " +
-    "turno só, em vez de um turno por decisão. Só vale em conta Claude — nas outras o Nexo cai de " +
+    "turno só, em vez de um turno por decisão. Só vale em conta Claude — nas outras o Nexos cai de " +
     "volta pro modo por turno e registra o motivo no run.";
 
   function aoMudar() {

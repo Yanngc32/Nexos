@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
-import type { SwitchReason } from "@nexo/shared";
+import type { SwitchReason } from "@nexos/shared";
 import { getAgent, listAgents, removeAgent, saveAgent, type AgentInput } from "./agents.ts";
 import { loadConfig, saveConfig } from "./config.ts";
 import { clearTypesafeApiKey, hasTypesafeApiKey, saveTypesafeApiKey, typesafeUsage } from "./typesafe.ts";
@@ -700,7 +700,7 @@ export function createApp(home: string, token: string): Hono {
         home,
       );
       if (projectPath) {
-        // Best-effort: cobre regra global criada antes deste projeto existir pro Nexo. Não pode
+        // Best-effort: cobre regra global criada antes deste projeto existir pro Nexos. Não pode
         // derrubar a criação da conversa por causa disto (ex.: pasta sem `.git` — sincronização já
         // ignora, mas por garantia extra contra qualquer outro erro imprevisto).
         try {
@@ -708,7 +708,7 @@ export function createApp(home: string, token: string): Hono {
         } catch (e) {
           console.error("sincronizar hooks ao abrir projeto:", (e as Error).message || e);
         }
-        // Primeira vez que este projeto abre no Nexo: constrói o índice do repo map (Camada 1) —
+        // Primeira vez que este projeto abre no Nexos: constrói o índice do repo map (Camada 1) —
         // só se ainda não existir, pra não recalcular à toa em toda abertura (git.post-commit já
         // mantém fresco depois disso). Sem custo de LLM — seguro rodar aqui, best-effort.
         try {
@@ -716,7 +716,7 @@ export function createApp(home: string, token: string): Hono {
         } catch (e) {
           console.error("construir índice do repo map ao abrir projeto:", (e as Error).message || e);
         }
-        // `nexo.projeto-novo`: só na PRIMEIRA vez que este projeto aparece pro Nexo — fire-and-forget,
+        // `nexo.projeto-novo`: só na PRIMEIRA vez que este projeto aparece pro Nexos — fire-and-forget,
         // igual post-commit/post-push (já aconteceu, não tem o que bloquear).
         if (!jaConhecido) {
           try {
@@ -868,7 +868,7 @@ export function createApp(home: string, token: string): Hono {
     return c.json(listServices(projectPath, home));
   });
 
-  /** Marca o projeto como confiável: sem isso o autostart do nexo.json é ignorado. */
+  /** Marca o projeto como confiável: sem isso o autostart do nexos.json é ignorado. */
   app.post("/v1/services/trust", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { projectPath?: string };
     if (!body.projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
@@ -925,7 +925,7 @@ export function createApp(home: string, token: string): Hono {
         return c.json(status);
       } catch (e) {
         const err = e as Error & { status?: number };
-        // erro de parse do nexo.json não é culpa do request: 422
+        // erro de parse do nexos.json não é culpa do request: 422
         const status = err.status ?? (/nexo\.json/.test(err.message) ? 422 : 400);
         return c.json({ error: err.message }, status as 400);
       }
@@ -1000,7 +1000,7 @@ export function createApp(home: string, token: string): Hono {
     }
   });
 
-  /* ---------- Nexo Hooks: regras ---------- */
+  /* ---------- Nexos Hooks: regras ---------- */
 
   app.get("/v1/hooks/rules", (c) => c.json(listarRegras(home)));
 
@@ -1261,7 +1261,7 @@ export function createApp(home: string, token: string): Hono {
   });
 
   /**
-   * Gatilho dos Nexo Hooks — chamado pelo script instalado em `.git/hooks/`
+   * Gatilho dos Nexos Hooks — chamado pelo script instalado em `.git/hooks/`
    * (ver `sincronizarHooksDoProjeto`). `post-commit`/`post-push` respondem
    * rápido de propósito: a ação roda em segundo plano, sem segurar a
    * requisição — o script chama com `|| true`, então `git commit`/`git push`
@@ -1301,7 +1301,7 @@ export function createApp(home: string, token: string): Hono {
   /* ---------- Repo map ---------- */
 
   /**
-   * "O que o Nexo sabe deste projeto" — memória + repo map + quantos Nexo Hooks (global ou deste
+   * "O que o Nexos sabe deste projeto" — memória + repo map + quantos Nexos Hooks (global ou deste
    * projeto) valem pra ele, numa chamada só. É a fonte da tela "Memória do Projeto" no desktop.
    */
   app.get("/v1/projeto/status", (c) => {
@@ -1341,7 +1341,7 @@ export function createApp(home: string, token: string): Hono {
   /**
    * Nome de pasta manual pra este projeto dentro de `projetosDir` — sobrescreve o slug detectado
    * (git remote ou nome da pasta local). Migra na hora (não espera o próximo restart do daemon)
-   * pra quem já tinha dados no slug antigo não perder nada até reabrir o Nexo.
+   * pra quem já tinha dados no slug antigo não perder nada até reabrir o Nexos.
    */
   app.put("/v1/projeto/slug", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { projectPath?: string; slug?: string };

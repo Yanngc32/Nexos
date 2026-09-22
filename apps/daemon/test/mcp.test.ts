@@ -12,7 +12,7 @@ import {
   ferramentasDoSupervisor,
   urlDeMcpAutoria,
 } from "../src/mcp.ts";
-import { TURNO_TETO_MS } from "@nexo/shared";
+import { TURNO_TETO_MS } from "@nexos/shared";
 
 const MEMBROS = [
   { id: "leitor", nome: "Leitor", papel: "lê o código" },

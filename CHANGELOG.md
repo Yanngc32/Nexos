@@ -12,6 +12,53 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Segurança
 
+## [0.2.0] - 2026-09-22
+
+### Adicionado
+
+- Botão "Atualizar agora" em Configurações → Contas → Atualizar CLI, pro Claude Code CLI e pro
+  Codex CLI: reaproveita a mesma rota (`POST /v1/engines/:engine/install`, `npm install -g
+  <pacote>@latest`) que já instalava automaticamente na criação de conta — agora dá pra atualizar
+  uma CLI já instalada sem passar por criar/remover perfil.
+- Sequência de ferramentas/raciocínio de um turno ("Trabalhando…", "Lendo…", "Editando…",
+  "Pensando…") empilha uma linha por fase em vez de trocar o rótulo no lugar — fechar "Lendo…" e
+  abrir "Editando…" antes só sobrescrevia o texto, escondendo que o agente tinha passado por ali.
+  Só a fase mais recente pisca os 3 pontinhos; as anteriores ficam como texto simples, apagado.
+
+### Corrigido
+
+- **App empacotado (.exe) subia sem o motor — bug real de produção.** `pnpm deploy` monta o
+  `node_modules` do daemon com NTFS junctions no Windows, e o `electron-builder` tem um filtro
+  interno (`util/filter.js`) que descarta, em silêncio e sem nenhum erro no log do build, qualquer
+  pasta chamada exatamente `node_modules` na raiz de um `extraResources` — o instalador saía sem
+  `tsx`/`esbuild`/`@nexos/shared`, e "ligar o motor" nunca funcionava pra quem instalasse. Corrigido
+  em duas partes: `deploy:daemon` (agora `scripts/deploy-daemon.mjs`) gera o deploy com
+  `--config.node-linker=hoisted` (`node_modules` plano, sem junction) e tolera a flakiness conhecida
+  do pnpm ao criar shims em `.bin` no Windows — o critério de sucesso é o conteúdo existir, não o
+  exit code; `scripts/after-pack.cjs` (hook `afterPack` do electron-builder) copia essa pasta na
+  mão depois do empacotamento, já que não tem `filter:` que desligue a exclusão. Validado
+  instalando o `.exe` de verdade (não só `--dir`) e confirmando `/health` responder.
+- Release do GitHub saía em rascunho (draft) — invisível em `/releases/latest`, que é justamente o
+  que o `electron-updater` consulta — e ainda duplicava em duas entradas pra mesma tag. `publish.
+  releaseType: release` no `electron-builder.yml` evita repetir; a v0.1.0 foi corrigida à mão.
+
+### Alterado
+
+- **Rebatizado de Nexo pra Nexos** — nome do app, pacotes do monorepo (`@nexo/*` → `@nexos/*`),
+  comando de CLI (`nexo` → `nexos`), variáveis de ambiente (`NEXO_*` → `NEXOS_*`), `appId`/
+  `productName` do instalador, projeto nativo do controle do Windows
+  (`Nexo.WindowsControl` → `Nexos.WindowsControl`) e toda a UI/documentação visível. Compatibilidade
+  com quem já usava o nome antigo, sempre com migração automática (nunca manual):
+  - `~/.nexo` → `~/.nexos`: migra sozinho na primeira subida depois do update (rename, ou cópia se
+    cruzar de dispositivo) — perfis, conversas e config continuam intactos.
+  - Pasta de dados do Electron (`Roaming\Nexo`) → `Roaming\Nexos`: mesma migração automática que já
+    existia pro formato ainda mais antigo (`@nexo\desktop`).
+  - `nexo.json` (declaração de serviços locais do projeto) → `nexos.json`: o nome novo é o que o
+    Nexos escreve, mas um `nexo.json` já existente no projeto continua sendo lido normalmente.
+  - Prefixo de branch dos times (`nexo/<run>/...`) e nomes de ferramenta MCP (`nexo_agente_salvar`
+    e afins) foram deixados como estão de propósito — são identificadores técnicos/protocolo, não
+    marca, e mudar quebraria branch e histórico já existentes sem ganho nenhum pra quem usa.
+
 ## [0.1.0] - 2026-09-22
 
 ### Adicionado
@@ -25,7 +72,7 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   "Chat geral"): o Data export do Claude.ai vira uma thread global por conversa, evento por
   evento, na ordem original.
 - Empacotamento do desktop como instalador Windows (`electron-builder` + NSIS,
-  `pnpm --filter @nexo/desktop build`) e o app se atualizando sozinho: rota
+  `pnpm --filter @nexos/desktop build`) e o app se atualizando sozinho: rota
   `GET /v1/status/turno-ativo` no daemon e `electron-updater` integrado no processo main
   (check no boot + a cada 4h, download em background, `quitAndInstall` só dispara com
   `turno-ativo: false` — nunca interrompe um agente no meio de um turno; com turno ativo o
@@ -125,7 +172,7 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 - CI no GitHub Actions: `pnpm typecheck` + `pnpm test` em Linux e Windows, Node 20 e 22.
 - Scripts `pnpm typecheck` (por pacote, agregado na raiz) e `pnpm check` (typecheck + testes).
 - Primeiros testes do app: `apps/desktop/markdown.js` saiu do `renderer.js` pra módulo próprio e
-  ganhou 21 casos (`pnpm --filter @nexo/desktop test`), com foco em injeção — tag do modelo vira
+  ganhou 21 casos (`pnpm --filter @nexos/desktop test`), com foco em injeção — tag do modelo vira
   texto, `javascript:`/`data:`/`file:` não viram âncora, aspas não escapam do `href`, bloco de
   código é escapado. É o ponto onde texto do modelo vira HTML na janela; o CSP é a segunda linha
   de defesa, a primeira é escapar antes de formatar, e agora existe teste que trava essa ordem.
@@ -145,7 +192,7 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   `POST /pair` é a única rota de escrita sem autenticação do daemon, e o que a torna defensável são
   as travas: vale 2 minutos, serve uma vez, 5 erros queimam o código, comparação em tempo constante,
   e pedir um novo invalida o anterior. Dá 5 chances em 10^6 pra quem já alcança a porta.
-  **Endereço de escuta configurável** (`config.host`, `NEXO_HOST`), com `127.0.0.1` de padrão. Sem
+  **Endereço de escuta configurável** (`config.host`, `NEXOS_HOST`), com `127.0.0.1` de padrão. Sem
   isso o celular não alcança nem por túnel: a interface do Tailscale tem IP próprio, não é loopback.
   A tela avisa quando o endereço só aceita a própria máquina, e avisa mais forte no `0.0.0.0`.
   O que a interface reaproveita do desktop vem de `/app/comum/`, com **lista branca** de módulos
@@ -163,7 +210,7 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   O valor é o teto de turno do daemon (`TURNO_TETO_MS`, 15 min) mais um minuto de folga. A ordem
   importa: quem tem que desistir primeiro é o daemon, porque só ele sabe DIZER o motivo ("motor
   falhou", "quota estourou") de um jeito que o supervisor entende e pode contornar.
-  A constante mudou de casa pro `@nexo/shared` porque `mcp.ts` não pode importar `session.ts` sem
+  A constante mudou de casa pro `@nexos/shared` porque `mcp.ts` não pode importar `session.ts` sem
   fechar ciclo — o motor de CLI importa o mcp.
 - `GET /v1/runs/atual`, e o painel flutuante passou a usar essa em vez da listagem. Ele consulta a
    cada 2s e mostra UM run; pedir a lista pra isso abria todo `run.json` da máquina e serializava o
@@ -184,7 +231,7 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   parser próprio (`engines/parse-codex.ts`) e fixture que RECUSA qualquer invocação que não seja
   `exec --json`, pra a regressão ser barulhenta.
   As ferramentas de autoria (criar e editar agente e time) passam a valer em conta `codex`:
-  `-c mcp_servers.nexo={url=…,bearer_token_env_var=NEXO_MCP_TOKEN}`, com o token no ambiente do
+  `-c mcp_servers.nexo={url=…,bearer_token_env_var=NEXOS_MCP_TOKEN}`, com o token no ambiente do
   processo filho — nem em argv nem em arquivo, o que é melhor do que o arquivo `0600` que o
   `claude` exige. O supervisor por MCP segue só em `claude` (o servidor dele é preso ao run e vem
   carimbado como caminho de arquivo); em codex ele usa o canal por turno, que agora funciona.
@@ -517,7 +564,7 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   O `appendEvent` não validava: em `POST /v1/threads/<id>/messages` o evento do usuário era
   gravado antes de `readThread` (que é quem validava), então um id como `..%2F..%2Fevil` criava
   arquivo — e pasta, via `mkdirSync` recursivo — em qualquer lugar onde o daemon tem escrita,
-  fora do `NEXO_HOME`. Exigia o token bearer, mas escapava do diretório de estado. Consulta de
+  fora do `NEXOS_HOME`. Exigia o token bearer, mas escapava do diretório de estado. Consulta de
   perfil com id fora do formato passa a responder 404 em vez de estourar. Coberto por teste no
   nível da rota.
 
@@ -531,5 +578,5 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   atributo em vários pontos (`href` do markdown, `class`, `data-*`); sem isso, texto vindo do
   modelo com aspas fechava o atributo. O CSP já barrava a execução, mas a saída saía corrompida.
 - `.gitignore` cobre `.env*`, `*.pem`, `*.key`, `*.token`, `keys.json` e `.nexo/`.
-- Pacotes internos (`@nexo/daemon`, `@nexo/shared`) marcados como `private` — não são publicáveis
+- Pacotes internos (`@nexos/daemon`, `@nexos/shared`) marcados como `private` — não são publicáveis
   por acidente.

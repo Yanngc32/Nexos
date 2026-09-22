@@ -244,7 +244,7 @@ function escreverQuadro(q: Quadro, home: string): void {
 }
 
 /**
- * Migração de uma vez só do `~/.nexo/tarefas.json` (arquivo único, todos os projetos, formato
+ * Migração de uma vez só do `~/.nexos/tarefas.json` (arquivo único, todos os projetos, formato
  * anterior à pasta-por-projeto): melhor esforço, nunca lança — arquivo legado ausente ou
  * corrompido só significa que este projeto nasce com o quadro padrão, igual sempre nasceu.
  */
@@ -563,7 +563,7 @@ function limparDependeDe(v: unknown, projectPath: string, home: string, idAtual?
 }
 
 /**
- * Automação de coluna (Nexo Hooks, evento `tarefa.mudou-coluna`): best-effort, nunca lança —
+ * Automação de coluna (Nexos Hooks, evento `tarefa.mudou-coluna`): best-effort, nunca lança —
  * uma regra mal configurada (agente apagado, etc.) não pode impedir a MUDANÇA DE COLUNA de
  * gravar, só a automação em cima dela falha silenciosamente (loga e segue).
  */

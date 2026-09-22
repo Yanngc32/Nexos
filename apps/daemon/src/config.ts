@@ -10,7 +10,7 @@ import {
   type SwitchMode,
   type Tema,
   type TypesafeModo,
-} from "@nexo/shared";
+} from "@nexos/shared";
 import { configPath, ensureHome } from "./home.ts";
 
 /**

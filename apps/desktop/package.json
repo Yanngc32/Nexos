@@ -1,6 +1,6 @@
 {
-  "name": "@nexo/desktop",
-  "version": "0.1.0",
+  "name": "@nexos/desktop",
+  "version": "0.2.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "electron .",
     "test": "vitest run",
-    "deploy:daemon": "pnpm --filter @nexo/daemon deploy --prod ./daemon-dist",
+    "deploy:daemon": "node scripts/deploy-daemon.mjs",
     "build": "pnpm run deploy:daemon && electron-builder --win",
     "build:publish": "pnpm run deploy:daemon && electron-builder --win --publish always"
   },

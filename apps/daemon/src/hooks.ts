@@ -11,7 +11,7 @@ import { getTeam, upsertTimeDeHook } from "./teams.ts";
 import { consumirVeredito } from "./veredito.ts";
 
 /**
- * Nexo Hooks v2: regra configurável (escopo global ou de um projeto,
+ * Nexos Hooks v2: regra configurável (escopo global ou de um projeto,
  * evento, branch opcional, bloqueio opcional), não mais uma config fixa por
  * projeto. Ver docs/superpowers/specs/2026-09-09-memoria-projeto-design.md.
  *
@@ -49,10 +49,10 @@ export type RegraHook = {
 };
 
 /**
- * Os eventos que o Nexo dispara hoje. Despacho é genérico (`fireHook` não sabe o que é git) — os
+ * Os eventos que o Nexos dispara hoje. Despacho é genérico (`fireHook` não sabe o que é git) — os
  * três `git.*` têm script em `.git/hooks/` por trás (ver `sincronizarHooksDoProjeto`);
  * `nexo.projeto-novo` não tem script nenhum, é o PRÓPRIO daemon quem detecta e dispara (ver
- * `POST /v1/threads`, http.ts) na primeira vez que um projeto é aberto no Nexo.
+ * `POST /v1/threads`, http.ts) na primeira vez que um projeto é aberto no Nexos.
  */
 export const HOOK_EVENTS = [
   "git.post-commit",
@@ -288,7 +288,7 @@ function regrasCasando(
  * ainda precisam — instala o que falta, remove o que nenhuma regra mais pede. Chamada sempre que
  * uma regra muda (ver `sincronizarAposMudanca`) e quando um projeto é aberto/adicionado (ver
  * `POST /v1/threads`, http.ts) — cobre o caso de regra global criada antes deste projeto existir
- * pro Nexo. Silenciosa fora de um repositório git: nada a instalar.
+ * pro Nexos. Silenciosa fora de um repositório git: nada a instalar.
  *
  * `git.post-commit` entra SEMPRE, mesmo sem regra nenhuma pedindo — é o gatilho que mantém a
  * Camada 1 do repo map fresca (ver `POST /v1/hooks/fire`, http.ts), e essa atualização não passa

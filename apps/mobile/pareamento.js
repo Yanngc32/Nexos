@@ -78,7 +78,7 @@ export function limparUrl(loc = window.location, hist = window.history) {
  * Deixa o campo mostrando exatamente o que vai ser enviado: maiúscula, sem
  * separador, e com as confusões de leitura desfeitas — I e L viram 1, O vira 0.
  *
- * Esta regra é uma **cópia** da `normalizarCodigo` do `@nexo/shared`, e a cópia
+ * Esta regra é uma **cópia** da `normalizarCodigo` do `@nexos/shared`, e a cópia
  * é o preço de o app de celular ser JS servido a um navegador: ele não carrega
  * TypeScript do pacote compartilhado. Quem decide de verdade é o daemon; aqui é
  * só pra tela não mentir sobre o que foi digitado. Os dois lados têm teste com
@@ -117,7 +117,7 @@ export async function parear(codigo, { base = baseDaPagina(), fetchImpl = fetch 
       body: JSON.stringify({ codigo: limpo }),
     });
   } catch {
-    return { ok: false, erro: "Não alcancei o computador. O Nexo está ligado e o túnel de pé?" };
+    return { ok: false, erro: "Não alcancei o computador. O Nexos está ligado e o túnel de pé?" };
   }
   const dados = await res.json().catch(() => ({}));
   if (!res.ok) return { ok: false, erro: dados.error || "O código não serviu." };

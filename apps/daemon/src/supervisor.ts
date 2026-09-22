@@ -1,4 +1,4 @@
-import type { AgentDef } from "@nexo/shared";
+import type { AgentDef } from "@nexos/shared";
 
 /**
  * Protocolo de decisão do supervisor.

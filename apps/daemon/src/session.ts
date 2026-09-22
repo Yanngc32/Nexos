@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { EngineEvent, EngineKind, EngineOverrides, Profile, SwitchReason, ThreadEvent } from "@nexo/shared";
-import { ESFORCO_AUTO, MODELO_AUTO, MODELO_AUTO_FALLBACK, TURNO_TETO_MS } from "@nexo/shared";
+import type { EngineEvent, EngineKind, EngineOverrides, Profile, SwitchReason, ThreadEvent } from "@nexos/shared";
+import { ESFORCO_AUTO, MODELO_AUTO, MODELO_AUTO_FALLBACK, TURNO_TETO_MS } from "@nexos/shared";
 import { agentOverrides, getAgent } from "./agents.ts";
 import { readMemoria, readMemoriaGlobal } from "./memoria.ts";
 import { promptWithAttachments, removeThreadAttachments, saveImages, type IncomingImage } from "./attachments.ts";
@@ -324,7 +324,7 @@ export function engineKindOf(profileId: string, home: string): EngineKind {
 /**
  * Instruções do agente e memória do projeto no topo do pack — nesta ordem
  * (agente é mais específico que projeto). Recalculado em TODO turno junto do
- * resto do pack (ver `ensureLive`), então editar agente ou o Nexo Hook
+ * resto do pack (ver `ensureLive`), então editar agente ou o Nexos Hook
  * atualizar o `MEMORIA.md` valem já na próxima mensagem, sem precisar trocar
  * de conta nem `/clear`.
  */
@@ -543,7 +543,7 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
  * (`--mcp-config`), o segundo por chave de config e token em variável de
  * ambiente (`-c mcp_servers.nexo=…`). `api` e `stub` não entram — o `api` é
  * chamada HTTP direta ao provedor, sem cliente MCP nenhum, e dar ferramenta a
- * ele significaria o Nexo rodar o laço de ferramenta por conta própria.
+ * ele significaria o Nexos rodar o laço de ferramenta por conta própria.
  *
  * A conversa de SUPERVISOR vale nos dois, e o `mcpRunId` no `thread_meta` é o
  * que tornou isso possível: antes o marcador era o `mcpConfig`, um CAMINHO DE
@@ -592,7 +592,7 @@ function mcpDaConversa(
     // Só em conversa NORMAL — não existe <webview> num run headless (ver navegador.ts).
     ...(!meta.runId && perfil.navegadorModo && perfil.navegadorModo !== "negado" ? MCP_TOOLS_NAVEGADOR : []),
     // Gate GLOBAL, não por conta (ver windows-control.ts): mexe em QUALQUER app da máquina, não
-    // só o Nexo. `profileFlags` em engines/cli.ts filtra de novo, incondicional — esta linha só
+    // só o Nexos. `profileFlags` em engines/cli.ts filtra de novo, incondicional — esta linha só
     // evita listar a ferramenta quando já se sabe de antemão que a chamada vai ser barrada.
     ...(!meta.runId && loadConfig(home).windowsControlEnabled ? MCP_TOOLS_WINDOWS_CONTROL : []),
   ];

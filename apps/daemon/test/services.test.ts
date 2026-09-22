@@ -23,10 +23,10 @@ import { tempHome } from "./helpers.ts";
 const fixture = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-service.mjs");
 const node = JSON.stringify(process.execPath);
 
-/** Projeto de mentira com um nexo.json dentro. */
+/** Projeto de mentira com um nexos.json dentro. */
 function projeto(services: unknown): string {
   const dir = tempHome();
-  writeFileSync(join(dir, "nexo.json"), JSON.stringify({ services }), "utf8");
+  writeFileSync(join(dir, "nexos.json"), JSON.stringify({ services }), "utf8");
   return dir;
 }
 
@@ -51,7 +51,7 @@ afterEach(() => {
 });
 
 describe("readServiceDefs", () => {
-  it("projeto sem nexo.json não tem serviço", () => {
+  it("projeto sem nexos.json não tem serviço", () => {
     expect(readServiceDefs(tempHome())).toEqual([]);
   });
 
@@ -71,12 +71,26 @@ describe("readServiceDefs", () => {
 
   it("json quebrado vira erro legível, não crash", () => {
     const dir = tempHome();
-    writeFileSync(join(dir, "nexo.json"), "{ isso não é json", "utf8");
+    writeFileSync(join(dir, "nexos.json"), "{ isso não é json", "utf8");
     expect(() => readServiceDefs(dir)).toThrow(/inválido/);
     // listServices não propaga: devolve o erro no relatório
     const rel = listServices(dir, tempHome());
     expect(rel.services).toEqual([]);
     expect(rel.error).toMatch(/inválido/);
+  });
+
+  it("projeto com o nome antigo (nexo.json, produto se chamava Nexos até a v0.1.0) continua funcionando", () => {
+    const dir = tempHome();
+    writeFileSync(dir + "/nexo.json", JSON.stringify({ services: [{ id: "web", cmd: "npm run dev" }] }), "utf8");
+    expect(readServiceDefs(dir)).toEqual([
+      { id: "web", cmd: "npm run dev", cwd: ".", url: undefined, autostart: false },
+    ]);
+  });
+
+  it("os dois nomes juntos: o novo (nexos.json) ganha", () => {
+    const dir = projeto([{ id: "novo", cmd: "a" }]);
+    writeFileSync(dir + "/nexo.json", JSON.stringify({ services: [{ id: "velho", cmd: "b" }] }), "utf8");
+    expect(readServiceDefs(dir).map((s) => s.id)).toEqual(["novo"]);
   });
 });
 

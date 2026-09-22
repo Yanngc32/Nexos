@@ -1,6 +1,6 @@
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ThreadEvent } from "@nexo/shared";
+import type { ThreadEvent } from "@nexos/shared";
 import { loadConfig } from "./config.ts";
 import { listarBranches } from "./git.ts";
 import { ensureHome, threadPath, threadWorktreeDir } from "./home.ts";
@@ -165,7 +165,7 @@ function metaParaEstaMaquina(linha: string, projectPath: string, home: string): 
 }
 
 /**
- * Traz pra `~/.nexo/threads` as conversas que chegaram pela pasta do projeto (sync do Drive,
+ * Traz pra `~/.nexos/threads` as conversas que chegaram pela pasta do projeto (sync do Drive,
  * ver drive-sync.ts) e ainda não estão — ou estão incompletas — nesta máquina. Só pra projeto que
  * esta máquina conhece (é dele que sai o `projectPath` certo). Devolve quantas conversas mexeu.
  * A fonte de verdade local segue sendo `threadPath`; o espelho só alimenta.
@@ -406,7 +406,7 @@ export function projectsFromThreads(home: string): string[] {
 }
 
 /**
- * Todo projeto que o Nexo já conhece: o que o app salvou (`config.repos`) mais o que as
+ * Todo projeto que o Nexos já conhece: o que o app salvou (`config.repos`) mais o que as
  * conversas gravadas revelam, sem o que o usuário escondeu (`hiddenRepos`). Mesma dedução de
  * `GET /v1/projects` (http.ts) — reexportada aqui pra `sincronizarHooksGlobal` (hooks.ts) não
  * duplicar a lógica de "quais projetos existem" com um critério que pode divergir do endpoint.

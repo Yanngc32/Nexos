@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { addProfile } from "../src/profiles.ts";
 import { ApiEngine } from "../src/engines/api.ts";
 import { tempHome } from "./helpers.ts";
-import type { EngineEvent } from "@nexo/shared";
+import type { EngineEvent } from "@nexos/shared";
 
 let server: ReturnType<typeof createServer> | undefined;
 let base = "";
@@ -16,13 +16,13 @@ async function listen(handler: RequestListener): Promise<void> {
   const addr = server.address();
   if (!addr || typeof addr === "string") throw new Error("no addr");
   base = `http://127.0.0.1:${addr.port}`;
-  process.env.NEXO_API_BASE = base;
+  process.env.NEXOS_API_BASE = base;
 }
 
 afterEach(() => {
   server?.close();
   server = undefined;
-  delete process.env.NEXO_API_BASE;
+  delete process.env.NEXOS_API_BASE;
 });
 
 function collect(engine: ApiEngine): Promise<EngineEvent[]> {

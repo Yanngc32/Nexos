@@ -1,7 +1,7 @@
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
-namespace Nexo.WindowsControl;
+namespace Nexos.WindowsControl;
 
 internal static partial class SelfTest
 {

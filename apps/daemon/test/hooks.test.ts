@@ -344,7 +344,7 @@ describe("sincronizarHooksDoProjeto", () => {
     const dir = repo();
     saveRegra({ escopo: { tipo: "global" }, evento: "git.pre-push", agentId: "memoria" }, home);
     sincronizarHooksDoProjeto(dir, home);
-    expect(readFileSync(join(dir, ".git", "hooks", "pre-push"), "utf8")).toContain("nexo hook fire git.pre-push");
+    expect(readFileSync(join(dir, ".git", "hooks", "pre-push"), "utf8")).toContain("nexos hook fire git.pre-push");
   });
 
   it("remover a única regra de um evento tira a linha do script (chamado de novo depois de apagar)", () => {

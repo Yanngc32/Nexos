@@ -211,7 +211,7 @@ export type EngineOverrides = {
   sandboxMode?: CodexSandboxMode;
 };
 
-/** Serviço local declarado no `nexo.json` do projeto. */
+/** Serviço local declarado no `nexos.json` do projeto. */
 export type ServiceDef = {
   id: string;
   name?: string;
@@ -248,7 +248,7 @@ export type ServiceStatus = {
 export type ServicesReport = {
   projectPath: string;
   trusted: boolean;
-  /** Erro de parse/validação do nexo.json, quando houver. */
+  /** Erro de parse/validação do nexos.json, quando houver. */
   error?: string;
   services: ServiceStatus[];
 };
@@ -304,36 +304,36 @@ export type NexoConfig = {
   lastProject: string;
   lastThread: string;
   /**
-   * Projetos onde o `autostart` do nexo.json é honrado. O arquivo vive no
+   * Projetos onde o `autostart` do nexos.json é honrado. O arquivo vive no
    * repositório e diz qual comando rodar: sem essa lista, abrir projeto de
    * terceiro executaria comando arbitrário na máquina.
    */
   trustedProjects: string[];
   /**
-   * Raiz de `~/.nexo/memoria/<hash-do-projeto>/MEMORIA.md`. Vazio = default
-   * (dentro do próprio `NEXO_HOME`). Existe pra apontar pra uma pasta já
+   * Raiz de `~/.nexos/memoria/<hash-do-projeto>/MEMORIA.md`. Vazio = default
+   * (dentro do próprio `NEXOS_HOME`). Existe pra apontar pra uma pasta já
    * sincronizada entre máquinas (Drive etc.) — é assim que a memória de
-   * projeto atravessa PC diferente, sem o Nexo implementar sync nenhum.
+   * projeto atravessa PC diferente, sem o Nexos implementar sync nenhum.
    */
   memoriaDir: string;
   /**
-   * Raiz de `~/.nexo/grafo/<hash-do-projeto>/` — cache em disco do repo map (índice de
-   * arquivos + resumos, ver `repo-map-indice.ts`). Vazio = default (dentro do `NEXO_HOME`).
+   * Raiz de `~/.nexos/grafo/<hash-do-projeto>/` — cache em disco do repo map (índice de
+   * arquivos + resumos, ver `repo-map-indice.ts`). Vazio = default (dentro do `NEXOS_HOME`).
    * Separado de `memoriaDir` de propósito: o usuário pode querer sincronizar o repo map
    * (regenerável, maior) numa pasta diferente da memória (curada, pequena, mais sensível).
    * Nome mantido do tempo do `graphify` — trocar quebraria config de quem já usa.
    */
   graphDir: string;
   /**
-   * Raiz de `~/.nexo/tarefas/<hash-do-projeto>/` — quadro (colunas/marcos/etiquetas) e cada
-   * tarefa em um `.md` próprio (ver `tarefas.ts`). Vazio = default (dentro do `NEXO_HOME`).
+   * Raiz de `~/.nexos/tarefas/<hash-do-projeto>/` — quadro (colunas/marcos/etiquetas) e cada
+   * tarefa em um `.md` próprio (ver `tarefas.ts`). Vazio = default (dentro do `NEXOS_HOME`).
    * Mesma ideia de `memoriaDir`: apontar pra uma pasta já sincronizada (Drive, OneDrive etc.)
    * é como o quadro de tarefas atravessa de um PC pro outro — não tem sync embutido.
    */
   tarefasDir: string;
   /**
    * Raiz nova unificada: `<projetosDir>/<slug-do-projeto>/{memoria,tarefas,repo-map}/`. Vazio
-   * = default (`<NEXO_HOME>/projetos`). Quando `memoriaDir`/`graphDir`/`tarefasDir` estão
+   * = default (`<NEXOS_HOME>/projetos`). Quando `memoriaDir`/`graphDir`/`tarefasDir` estão
    * preenchidos, esse tipo específico ignora `projetosDir` e continua no layout antigo (ver
    * `projeto-dir.ts`) — existe só pra quem nunca usou os três campos separados.
    */
@@ -353,7 +353,7 @@ export type NexoConfig = {
    * Módulos externos opcionais, cada um ligado/desligado à parte. `rtk` é um proxy de CLI (hook
    * `PreToolUse`) que filtra saída de comando antes dela entrar no contexto; `caveman` é uma skill
    * de comunicação comprimida — nenhum dos dois é instalado nem sincronizado se estiver desligado
-   * (ver `modules.ts`). `repoMapResumos` liga um agente + uma regra global de Nexo Hook
+   * (ver `modules.ts`). `repoMapResumos` liga um agente + uma regra global de Nexos Hook
    * (`git.post-commit`) que gera/mantém os resumos por IA do repo map sozinho, sem botão manual
    * (ver `repo-map-auto.ts`) — precisa de `repoMapProfileId` (a conta que roda esse agente). O
    * índice em si (Camada 1) não depende deste módulo: roda sempre, sem LLM. `quadroTarefas` injeta
@@ -370,7 +370,7 @@ export type NexoConfig = {
   /**
    * Dá ao agente ferramentas `nexo_windows_*`: ver janelas/apps abertos, capturar
    * estado (screenshot + árvore de UI Automation) e controlar mouse/teclado em
-   * QUALQUER app do Windows — não só o próprio Nexo. Desligado por padrão.
+   * QUALQUER app do Windows — não só o próprio Nexos. Desligado por padrão.
    *
    * Gate próprio, deliberadamente FORA de `modulos`: é permissão de risco mais
    * alto que os módulos externos ali (aqueles não tocam noutro app da máquina),
@@ -775,7 +775,7 @@ export type TeamDef = {
   updatedAt: string;
   /**
    * Time de 1 membro criado automaticamente — `"mencao"` por uma `@menção` de
-   * agente avulso no composer (`upsertTimeDeMencao`), `"hook"` por um Nexo Hook
+   * agente avulso no composer (`upsertTimeDeMencao`), `"hook"` por um Nexos Hook
    * (`upsertTimeDeHook`, ver hooks.ts). Não aparece na tela de Times — existe só
    * pra `runs.ts` ter um `teamId` de verdade pra apontar.
    */

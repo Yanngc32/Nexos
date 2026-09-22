@@ -8,7 +8,7 @@
 import { readThread } from "../src/threads.ts";
 import { escolherModelo } from "../src/typesafe.ts";
 import { nexoHome } from "../src/home.ts";
-import type { ThreadEvent } from "@nexo/shared";
+import type { ThreadEvent } from "@nexos/shared";
 
 const FALAS = 6;
 

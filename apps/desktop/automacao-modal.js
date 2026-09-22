@@ -1,5 +1,5 @@
 /**
- * Modal de automação da tela de Tarefas — cria/edita/apaga regras de Nexo Hook do evento
+ * Modal de automação da tela de Tarefas — cria/edita/apaga regras de Nexos Hook do evento
  * `tarefa.mudou-coluna`, sempre escopadas ao projeto aberto (`getProjectPath()`). Mesma API HTTP
  * de `hooks-studio.js` (`/v1/hooks/rules`), mas essa tela só existe aqui — o evento
  * `tarefa.mudou-coluna` nem aparece mais no select de evento do Hooks Studio.

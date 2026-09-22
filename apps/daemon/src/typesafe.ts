@@ -8,7 +8,7 @@ import {
   type EffortLevel,
   type EngineKind,
   type TeamDef,
-} from "@nexo/shared";
+} from "@nexos/shared";
 import { listAgents } from "./agents.ts";
 import { getProfile, listProfiles } from "./profiles.ts";
 import { listTeams } from "./teams.ts";
@@ -53,7 +53,7 @@ function descreverTime(t: TeamDef): string {
 export function montarCandidatos(home: string) {
   const agentes = listAgents(home);
   const modelos = modelosDisponiveis(home);
-  // `origem` marca time-sombra criado automaticamente por @menção ou Nexo Hook
+  // `origem` marca time-sombra criado automaticamente por @menção ou Nexos Hook
   // (apelido de agente avulso, não uma decisão de "time"). Contagem de membros
   // não serve de filtro: um time real intencional pode ter 1 membro só.
   const times = listTeams(home).filter((t) => !t.origem);

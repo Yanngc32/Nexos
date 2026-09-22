@@ -1,6 +1,6 @@
 {
-  "name": "Nexo",
-  "short_name": "Nexo",
+  "name": "Nexos",
+  "short_name": "Nexos",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#141417",

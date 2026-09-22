@@ -33,7 +33,7 @@ import { garantirKeystore, gerarAssetLinks } from "./apk-keystore.ts";
  * de IP nem de HTTP puro. Quem chama garante isso antes.
  *
  * PRECISA do SDK do Android (`ANDROID_HOME`/`ANDROID_SDK_ROOT`) e de um JDK
- * (`JAVA_HOME`) instalados na máquina — nenhum dos dois vem junto do Nexo, e
+ * (`JAVA_HOME`) instalados na máquina — nenhum dos dois vem junto do Nexos, e
  * a imensa maioria de quem só usa o app de desktop não vai ter. Sem eles,
  * falha com mensagem clara ANTES de gastar tempo gerando projeto nenhum.
  *
@@ -104,7 +104,7 @@ function sdkEnv(): { jdkPath: string; androidSdkPath: string } | null {
  * Android removeu faz anos; instalação feita hoje pelo Android Studio só tem
  * `cmdline-tools/<versão>/bin`. Sem isto, `AndroidSdkTools.create` rejeita
  * QUALQUER SDK atual com "The provided androidSdk isn't correct.", mesmo um
- * instalado certinho — não é só nesta máquina, é qualquer usuário do Nexo.
+ * instalado certinho — não é só nesta máquina, é qualquer usuário do Nexos.
  *
  * Cria `bin -> cmdline-tools/<versão>/bin` E `lib -> cmdline-tools/<versão>/lib`
  * (mesmos nomes que teriam na convenção antiga). Os DOIS, não só `bin`: o
@@ -264,8 +264,8 @@ async function rodar(home: string, https: { hostname: string; port: number }): P
   const manifestJson: TwaManifestJson = {
     packageId: APLICACAO_ID,
     host: https.hostname,
-    name: "Nexo",
-    launcherName: "Nexo",
+    name: "Nexos",
+    launcherName: "Nexos",
     display: "standalone",
     // mesma cor de fundo do tema padrão da interface (apps/desktop/styles.css e
     // apps/mobile/mobile.css): splash e barras do sistema não podem destoar da

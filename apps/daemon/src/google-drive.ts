@@ -3,10 +3,10 @@ import { googleAccessToken } from "./google-auth.ts";
 
 /** Cliente fino da API v3 do Drive (só fetch). URLs sobrescrevíveis por env pros testes. */
 function apiUrl(): string {
-  return process.env.NEXO_GOOGLE_API_URL ?? "https://www.googleapis.com/drive/v3";
+  return process.env.NEXOS_GOOGLE_API_URL ?? "https://www.googleapis.com/drive/v3";
 }
 function uploadUrl(): string {
-  return process.env.NEXO_GOOGLE_UPLOAD_URL ?? "https://www.googleapis.com/upload/drive/v3";
+  return process.env.NEXOS_GOOGLE_UPLOAD_URL ?? "https://www.googleapis.com/upload/drive/v3";
 }
 
 export const MIME_PASTA = "application/vnd.google-apps.folder";
@@ -60,20 +60,20 @@ export async function getFolder(home: string, id: string): Promise<DriveItem> {
 }
 
 /**
- * Marca (em `appProperties`, invisível pra pessoa) da pasta onde o Nexo guarda os projetos. É por
+ * Marca (em `appProperties`, invisível pra pessoa) da pasta onde o Nexos guarda os projetos. É por
  * ela que outro PC da mesma conta acha a pasta sozinho — inclusive uma que foi escolhida no seletor
  * e tem qualquer nome.
  */
 const MARCA = "nexoRaiz";
 
-/** Pasta marcada como raiz do Nexo nesta conta (a mais antiga, se por acaso houver mais de uma). */
+/** Pasta marcada como raiz do Nexos nesta conta (a mais antiga, se por acaso houver mais de uma). */
 export async function acharRaizNexo(home: string): Promise<DriveItem | undefined> {
   const q = encodeURIComponent(`appProperties has { key='${MARCA}' and value='1' } and mimeType = '${MIME_PASTA}' and trashed = false`);
   const res = await driveFetch(home, `${apiUrl()}/files?q=${q}&orderBy=createdTime&pageSize=10&fields=files(${CAMPOS})&includeItemsFromAllDrives=true&${COMUM}`);
   return ((await res.json()) as { files?: DriveItem[] }).files?.[0];
 }
 
-/** Marca `id` como a raiz do Nexo e desmarca qualquer outra — só uma vale por conta. */
+/** Marca `id` como a raiz do Nexos e desmarca qualquer outra — só uma vale por conta. */
 export async function marcarRaizNexo(home: string, id: string): Promise<void> {
   const q = encodeURIComponent(`appProperties has { key='${MARCA}' and value='1' } and trashed = false`);
   const res = await driveFetch(home, `${apiUrl()}/files?q=${q}&pageSize=100&fields=files(id)&includeItemsFromAllDrives=true&${COMUM}`);

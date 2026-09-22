@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Nexo.WindowsControl;
+namespace Nexos.WindowsControl;
 
 internal static class NativeMethods
 {

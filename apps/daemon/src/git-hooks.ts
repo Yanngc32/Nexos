@@ -5,11 +5,11 @@ import { nexoHome } from "./home.ts";
 
 /**
  * Mecânica de instalação do lado do git — só isto: escrever/remover o bloco em
- * `.git/hooks/`. O despacho de verdade (o que `nexo hook fire` chamado pelo
+ * `.git/hooks/`. O despacho de verdade (o que `nexos hook fire` chamado pelo
  * script realmente faz) mora em `hooks.ts`; este arquivo não sabe nada disso.
  */
 
-/** Nome do arquivo de hook do git pra cada evento que o Nexo dispara. */
+/** Nome do arquivo de hook do git pra cada evento que o Nexos dispara. */
 export const GIT_HOOK_FILES: Record<string, string> = {
   "git.post-commit": "post-commit",
   "git.post-push": "post-push",
@@ -34,12 +34,12 @@ function shPath(p: string): string {
 }
 
 /**
- * A CLI do Nexo resolvida por caminho absoluto, e não pelo `nexo` do PATH.
+ * A CLI do Nexos resolvida por caminho absoluto, e não pelo `nexos` do PATH.
  *
- * O bin `nexo` só existe como bin de workspace (`apps/daemon/package.json`) — nunca é
- * instalado global. Um hook que chamasse só `nexo` falhava com `command not found` em
+ * O bin `nexos` só existe como bin de workspace (`apps/daemon/package.json`) — nunca é
+ * instalado global. Um hook que chamasse só `nexos` falhava com `command not found` em
  * TODO commit, e o `|| true` (que existe pra daemon fora do ar não travar `git commit`)
- * engolia isso sem deixar rastro nenhum: o Nexo parecia estar ligado e nunca escrevia
+ * engolia isso sem deixar rastro nenhum: o Nexos parecia estar ligado e nunca escrevia
  * memória. O daemon sabe onde a própria CLI está, então é ele quem grava o caminho.
  */
 function nexoCliPath(): string {
@@ -58,7 +58,7 @@ function nexoLogPath(): string {
  *
  * Ordem de resolução, igual nos três eventos: caminho absoluto da CLI (com `node`
  * disponível), senão `nexo` do PATH, senão registra no log do daemon. O fallback pelo
- * PATH continua porque o caminho absoluto morre se a pasta do Nexo for movida, e aí
+ * PATH continua porque o caminho absoluto morre se a pasta do Nexos for movida, e aí
  * uma instalação global salva o hook.
  *
  * `pre-push` é o único que PRECISA propagar o exit code: é o único evento que
@@ -71,9 +71,9 @@ function blocoDoHook(event: string): string {
   const cli = `nexo_cli="${nexoCliPath()}"`;
   const log = nexoLogPath();
   const temCli = '[ -f "$nexo_cli" ] && command -v node >/dev/null 2>&1';
-  const temPath = "command -v nexo >/dev/null 2>&1";
+  const temPath = "command -v nexos >/dev/null 2>&1";
   const semNada = (extra: string): string =>
-    `echo "nexo: ${event} não disparou — nem \\"$nexo_cli\\" nem 'nexo' no PATH${extra}" >> "${log}" 2>/dev/null || true`;
+    `echo "nexos: ${event} não disparou — nem \\"$nexo_cli\\" nem 'nexos' no PATH${extra}" >> "${log}" 2>/dev/null || true`;
   if (event === "git.pre-push") {
     return [
       inicio,
@@ -83,7 +83,7 @@ function blocoDoHook(event: string): string {
       `  if ${temCli}; then`,
       '    node "$nexo_cli" hook fire git.pre-push --branch "$branch"',
       `  elif ${temPath}; then`,
-      '    nexo hook fire git.pre-push --branch "$branch"',
+      '    nexos hook fire git.pre-push --branch "$branch"',
       "  else",
       // Regra bloqueante que não consegue rodar não libera o push — só agora diz por quê,
       // em vez de barrar com o 127 opaco de "command not found" que sobrava antes.
@@ -102,7 +102,7 @@ function blocoDoHook(event: string): string {
     `if ${temCli}; then`,
     `  node "$nexo_cli" hook fire ${event} >/dev/null 2>&1 || true`,
     `elif ${temPath}; then`,
-    `  nexo hook fire ${event} >/dev/null 2>&1 || true`,
+    `  nexos hook fire ${event} >/dev/null 2>&1 || true`,
     "else",
     `  ${semNada("")}`,
     "fi",
@@ -131,7 +131,7 @@ export function installGitHookScript(projectPath: string, event: string): boolea
   const atual = existsSync(path) ? readFileSync(path, "utf8") : "";
   /*
    * Sentinela presente não quer mais dizer "nada a fazer": o corpo do bloco carrega o
-   * caminho absoluto da CLI, que muda quando o Nexo é movido de pasta — e, sem esta
+   * caminho absoluto da CLI, que muda quando o Nexos é movido de pasta — e, sem esta
    * troca, um hook escrito por uma versão antiga ficaria com o `nexo` cru do PATH pra
    * sempre, sem nenhum caminho de atualização a não ser remover e recriar a regra.
    */

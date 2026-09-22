@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { pack, tetoDeToken, TOKEN_CAP_PISO } from "../src/packer.ts";
-import type { ThreadEvent } from "@nexo/shared";
-import { DEFAULT_CONFIG } from "@nexo/shared";
+import type { ThreadEvent } from "@nexos/shared";
+import { DEFAULT_CONFIG } from "@nexos/shared";
 
 const ts = "2026-01-01T00:00:00.000Z";
 const tid = "t-1";

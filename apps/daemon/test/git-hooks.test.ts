@@ -21,7 +21,7 @@ describe("installGitHookScript", () => {
     expect(installGitHookScript(dir, "git.post-commit")).toBe(true);
     const conteudo = readFileSync(join(dir, ".git", "hooks", "post-commit"), "utf8");
     expect(conteudo).toContain("#!/bin/sh");
-    expect(conteudo).toContain("nexo hook fire git.post-commit");
+    expect(conteudo).toContain("nexos hook fire git.post-commit");
   });
 
   it("anexa a um hook já existente, sem apagar o que tinha", () => {
@@ -31,7 +31,7 @@ describe("installGitHookScript", () => {
     installGitHookScript(dir, "git.post-commit");
     const conteudo = readFileSync(path, "utf8");
     expect(conteudo).toContain("echo ja-tinha-algo");
-    expect(conteudo).toContain("nexo hook fire git.post-commit");
+    expect(conteudo).toContain("nexos hook fire git.post-commit");
   });
 
   it("é idempotente: instalar duas vezes não duplica a linha", () => {
@@ -42,7 +42,7 @@ describe("installGitHookScript", () => {
     const segunda = readFileSync(join(dir, ".git", "hooks", "post-commit"), "utf8");
     expect(mudou).toBe(false);
     expect(segunda).toBe(primeira);
-    expect(segunda.match(/nexo hook fire/g)).toHaveLength(1);
+    expect(segunda.match(/nexos hook fire/g)).toHaveLength(1);
   });
 
   it("arquivo existe mas está vazio (sobra de um uninstall que removeu o último bloco): reinstala COM shebang, não anexa num arquivo sem shebang nenhum", () => {
@@ -60,7 +60,7 @@ describe("installGitHookScript", () => {
     installGitHookScript(dir, "git.post-commit");
     const conteudo = readFileSync(path, "utf8");
     expect(conteudo.startsWith("#!/bin/sh")).toBe(true);
-    expect(conteudo).toContain("nexo hook fire git.post-commit");
+    expect(conteudo).toContain("nexos hook fire git.post-commit");
   });
 
   it("post-commit e post-push são arquivos separados", () => {
@@ -80,21 +80,21 @@ describe("installGitHookScript", () => {
     const dir = repo();
     installGitHookScript(dir, "git.pre-push");
     const conteudo = readFileSync(join(dir, ".git", "hooks", "pre-push"), "utf8");
-    expect(conteudo).toContain("nexo hook fire git.pre-push --branch");
+    expect(conteudo).toContain("nexos hook fire git.pre-push --branch");
     // O `|| true` dos outros eventos não pode encostar no disparo: é o código dele que
     // decide o push. (O log do caso "não achei a CLI" tem `|| true` próprio, e pode.)
     expect(conteudo).not.toMatch(/hook fire git\.pre-push[^\n]*\|\| true/);
     expect(conteudo).toContain('if [ "$status" -ne 0 ]; then exit "$status"; fi');
   });
 
-  it("chama a CLI por caminho absoluto, com o `nexo` do PATH só de fallback", () => {
+  it("chama a CLI por caminho absoluto, com o `nexos` do PATH só de fallback", () => {
     const dir = repo();
     installGitHookScript(dir, "git.post-commit");
     const conteudo = readFileSync(join(dir, ".git", "hooks", "post-commit"), "utf8");
     const cli = shPath(fileURLToPath(new URL("../scripts/nexo.mjs", import.meta.url)));
     expect(conteudo).toContain(`nexo_cli="${cli}"`);
     expect(conteudo).toContain('node "$nexo_cli" hook fire git.post-commit');
-    expect(conteudo).toContain("elif command -v nexo >/dev/null 2>&1; then");
+    expect(conteudo).toContain("elif command -v nexos >/dev/null 2>&1; then");
     // Caminho de Windows vai com `/`: dentro de aspas no `sh`, `\` é escape.
     expect(conteudo).not.toMatch(/nexo_cli="[^"]*\\/);
   });
@@ -156,13 +156,13 @@ describe("o script gerado roda", () => {
     }
   });
 
-  it("sem node e sem CLI, cai no `nexo` do PATH", () => {
+  it("sem node e sem CLI, cai no `nexos` do PATH", () => {
     const dir = repo();
     const bin = tempHome();
     // `$nexo_cli` existe (é a CLI de verdade do repo), mas com este PATH não há `node` —
-    // é o que força o elif, o mesmo caminho de quem instalou o Nexo global.
-    writeFileSync(join(bin, "nexo"), `#!/bin/sh\necho "$@" > "${shPath(join(bin, "chamado.txt"))}"\n`, "utf8");
-    chmodSync(join(bin, "nexo"), 0o755);
+    // é o que força o elif, o mesmo caminho de quem instalou o Nexos global.
+    writeFileSync(join(bin, "nexos"), `#!/bin/sh\necho "$@" > "${shPath(join(bin, "chamado.txt"))}"\n`, "utf8");
+    chmodSync(join(bin, "nexos"), 0o755);
     installGitHookScript(dir, "git.post-commit");
 
     const r = sh(join(dir, ".git", "hooks", "post-commit"), bin);
@@ -170,21 +170,21 @@ describe("o script gerado roda", () => {
     expect(readFileSync(join(bin, "chamado.txt"), "utf8").trim()).toBe("hook fire git.post-commit");
   });
 
-  it("sem node, sem CLI e sem `nexo` no PATH, registra no log em vez de sumir calado", () => {
+  it("sem node, sem CLI e sem `nexos` no PATH, registra no log em vez de sumir calado", () => {
     const dir = repo();
     const home = tempHome();
-    const anterior = process.env.NEXO_HOME;
-    process.env.NEXO_HOME = home;
+    const anterior = process.env.NEXOS_HOME;
+    process.env.NEXOS_HOME = home;
     try {
       installGitHookScript(dir, "git.post-commit");
     } finally {
-      if (anterior === undefined) delete process.env.NEXO_HOME;
-      else process.env.NEXO_HOME = anterior;
+      if (anterior === undefined) delete process.env.NEXOS_HOME;
+      else process.env.NEXOS_HOME = anterior;
     }
 
     const vazio = tempHome();
     const r = sh(join(dir, ".git", "hooks", "post-commit"), vazio);
-    // `git commit` não pode quebrar nem quando o Nexo está inalcançável.
+    // `git commit` não pode quebrar nem quando o Nexos está inalcançável.
     expect(r.status).toBe(0);
     expect(readFileSync(join(home, "daemon.log"), "utf8")).toContain("git.post-commit não disparou");
   });
@@ -199,7 +199,7 @@ describe("uninstallGitHookScript", () => {
     expect(uninstallGitHookScript(dir, "git.post-commit")).toBe(true);
     const conteudo = readFileSync(path, "utf8");
     expect(conteudo).toContain("echo ja-tinha-algo");
-    expect(conteudo).not.toContain("nexo hook fire");
+    expect(conteudo).not.toContain("nexos hook fire");
   });
 
   it("apaga o conteúdo se sobrar só o shebang", () => {

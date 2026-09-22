@@ -4,14 +4,22 @@ import type { Readable } from "node:stream";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import type { ProbeResult, ServiceDef, ServiceStatus, ServicesReport } from "@nexo/shared";
+import type { ProbeResult, ServiceDef, ServiceStatus, ServicesReport } from "@nexos/shared";
 import { loadConfig, saveConfig } from "./config.ts";
 import { ensureHome, projectKey } from "./home.ts";
 import { assertSlug } from "./ids.ts";
 import { killByPort, killTree } from "./kill-tree.ts";
 
 /** Nome do arquivo que declara os serviços, na raiz do projeto. */
-export const SERVICES_FILE = "nexo.json";
+export const SERVICES_FILE = "nexos.json";
+
+/**
+ * Nome antigo (produto se chamava Nexos até a v0.1.0). Projeto que já tinha um `nexo.json`
+ * antes do rename continua funcionando — sem isto, todo projeto existente perderia os
+ * serviços declarados só por causa da atualização do app. Só leitura: nunca escrevemos
+ * nem migramos automaticamente um arquivo do usuário dentro do repositório dele.
+ */
+const SERVICES_FILE_ANTIGO = "nexo.json";
 
 /** Teto do log por serviço. Log de servidor é volátil: não vai pro disco. */
 const LOG_CAP_BYTES = 64 * 1024;
@@ -36,7 +44,7 @@ type Live = {
    * Porta que a saída do processo revelou de verdade — ferramenta como o Vite cai pra
    * próxima porta livre sem avisar por outro canal quando a declarada já está ocupada
    * (processo zumbi de uma subida anterior). Sem isso, `killByPort` mira só na porta do
-   * `nexo.json`, que pode não ser onde o processo ATUAL está escutando.
+   * `nexos.json`, que pode não ser onde o processo ATUAL está escutando.
    */
   actualPort?: number;
 };
@@ -72,9 +80,10 @@ export function trustProject(projectPath: string, home: string): string[] {
   return saveConfig(home, { trustedProjects: [...cfg.trustedProjects, resolve(projectPath)] }).trustedProjects;
 }
 
-/** Lê e valida o nexo.json. Lança com motivo legível; nunca devolve serviço meio válido. */
+/** Lê e valida o nexos.json (ou o `nexo.json` antigo, se só ele existir). Lança com motivo legível; nunca devolve serviço meio válido. */
 export function readServiceDefs(projectPath: string): ServiceDef[] {
-  const path = join(resolve(projectPath), SERVICES_FILE);
+  const raiz = resolve(projectPath);
+  const path = existsSync(join(raiz, SERVICES_FILE)) ? join(raiz, SERVICES_FILE) : join(raiz, SERVICES_FILE_ANTIGO);
   if (!existsSync(path)) return [];
   let raw: unknown;
   try {

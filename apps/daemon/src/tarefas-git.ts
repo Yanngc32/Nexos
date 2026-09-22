@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 
 /**
  * Vínculo automático entre tarefa e código: busca commits cuja MENSAGEM menciona o id da
- * tarefa (`tk-...`) — convenção livre (quem quiser que o Nexo ache o commit inclui o id na
+ * tarefa (`tk-...`) — convenção livre (quem quiser que o Nexos ache o commit inclui o id na
  * mensagem), não força nada. Sem campo persistido: sempre computado na hora, nunca fica
  * desatualizado. Ver docs/superpowers/specs/2026-09-12-tarefas-avancado-design.md.
  */

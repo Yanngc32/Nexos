@@ -1,4 +1,4 @@
-import type { LimitsInfo, SessionInfo, UsageWindow } from "@nexo/shared";
+import type { LimitsInfo, SessionInfo, UsageWindow } from "@nexos/shared";
 import { contextWindowOf } from "./engines/parse-claude.ts";
 import { getProfile } from "./profiles.ts";
 import { getLive, limitsOf } from "./session.ts";

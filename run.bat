@@ -1,11 +1,11 @@
 @echo off
-rem Sobe o Nexo. O app liga o motor sozinho, sem janela.
+rem Sobe o Nexos. O app liga o motor sozinho, sem janela.
 rem   run.bat          -> abre o app (esta janela fica so com o log)
 rem   run.bat daemon   -> so o motor, em primeiro plano
 rem Para abrir sem console nenhum, gere o atalho: make-shortcut.ps1 -Desktop
 setlocal
 cd /d "%~dp0"
-title Nexo
+title Nexos
 
 rem Se este .bat for aberto a partir de um terminal filho de outro app Electron
 rem (ex.: terminal integrado de um editor baseado em Electron), essa variavel
@@ -16,7 +16,7 @@ set "ELECTRON_RUN_AS_NODE="
 
 where node >nul 2>nul
 if errorlevel 1 (
-  echo [nexo] Node.js nao esta no PATH.
+  echo [nexos] Node.js nao esta no PATH.
   exit /b 1
 )
 
@@ -31,7 +31,7 @@ rem Esses dois checks acima so pegam "nunca instalou". Se o pnpm-lock.yaml
 rem mudou desde o ultimo install (ex.: git pull trouxe dependencia nova),
 rem os binarios continuam existindo e o script pulava o install sem checar
 rem o lockfile -- compara um hash salvo pra pegar esse caso.
-set "LOCK_MARKER=node_modules\.nexo-lock-hash"
+set "LOCK_MARKER=node_modules\.nexos-lock-hash"
 set "LOCK_HASH="
 for /f "usebackq delims=" %%H in (`certutil -hashfile pnpm-lock.yaml SHA256 2^>nul ^| findstr /v "hash CertUtil"`) do set "LOCK_HASH=%%H"
 if not exist "%LOCK_MARKER%" goto install
@@ -40,7 +40,7 @@ if not "%LOCK_HASH%"=="%LOCK_SAVED%" goto install
 goto deps_ok
 
 :install
-echo [nexo] instalando dependencias...
+echo [nexos] instalando dependencias...
 where pnpm >nul 2>nul
 if errorlevel 1 (
   call corepack pnpm install
@@ -48,17 +48,17 @@ if errorlevel 1 (
   call pnpm install
 )
 if errorlevel 1 (
-  echo [nexo] falha no install. Rode manualmente: corepack pnpm install
+  echo [nexos] falha no install. Rode manualmente: corepack pnpm install
   exit /b 1
 )
 if not exist "apps\desktop\node_modules\electron\dist\electron.exe" (
-  echo [nexo] pnpm instalou os pacotes mas nao baixou o electron.exe.
-  echo [nexo] o pnpm bloqueia script de postinstall por padrao. Rode:
-  echo [nexo]   pnpm approve-builds
-  echo [nexo] aprove "electron" e "esbuild", depois rode run.bat de novo.
+  echo [nexos] pnpm instalou os pacotes mas nao baixou o electron.exe.
+  echo [nexos] o pnpm bloqueia script de postinstall por padrao. Rode:
+  echo [nexos]   pnpm approve-builds
+  echo [nexos] aprove "electron" e "esbuild", depois rode run.bat de novo.
   exit /b 1
 )
-for /f "usebackq delims=" %%H in (`certutil -hashfile pnpm-lock.yaml SHA256 2^>nul ^| findstr /v "hash CertUtil"`) do echo %%H > "node_modules\.nexo-lock-hash"
+for /f "usebackq delims=" %%H in (`certutil -hashfile pnpm-lock.yaml SHA256 2^>nul ^| findstr /v "hash CertUtil"`) do echo %%H > "node_modules\.nexos-lock-hash"
 
 :deps_ok
 if /i "%~1"=="daemon" (

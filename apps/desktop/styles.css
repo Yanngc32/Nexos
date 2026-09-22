@@ -2798,6 +2798,36 @@ li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
   background: var(--elev);
 }
 
+/*
+ * Fases do turno empilhadas ("Lendo" → "Editando" → "Pensando…", ver ensureWorkGroup em
+ * renderer.js): uma linha por fase, na ordem em que aconteceram. Só a ÚLTIMA (a fase corrente)
+ * ganha os pontinhos animados — as anteriores (`.work-fase-feita`) ficam como texto simples e
+ * apagado, prova de que já passou por ali sem competir visualmente com o que está rolando agora.
+ */
+.work-fases {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.work-fase {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.work-fase-feita {
+  opacity: 0.6;
+}
+
+.work-fase-feita .work-dots {
+  display: none;
+}
+
 .work-dots {
   display: inline-flex;
   gap: 3px;
@@ -2812,15 +2842,15 @@ li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
   opacity: 0.35;
 }
 
-.work-group[data-live="1"] .work-dots i {
+.work-group[data-live="1"] .work-fases > li:last-child .work-dots i {
   animation: work-dot-bounce 1s ease-in-out infinite;
 }
 
-.work-group[data-live="1"] .work-dots i:nth-child(2) {
+.work-group[data-live="1"] .work-fases > li:last-child .work-dots i:nth-child(2) {
   animation-delay: 0.15s;
 }
 
-.work-group[data-live="1"] .work-dots i:nth-child(3) {
+.work-group[data-live="1"] .work-fases > li:last-child .work-dots i:nth-child(3) {
   animation-delay: 0.3s;
 }
 
@@ -2838,7 +2868,7 @@ li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .work-group[data-live="1"] .work-dots i {
+  .work-group[data-live="1"] .work-fases > li:last-child .work-dots i {
     animation: none;
     opacity: 0.9;
   }

@@ -16,7 +16,7 @@ import { agruparConversas } from "./comum/thread-groups.js";
 import { extrairMencoes } from "./comum/mention.js";
 
 /**
- * App de celular do Nexo, servido pelo próprio daemon.
+ * App de celular do Nexos, servido pelo próprio daemon.
  *
  * Ele NÃO é o app do desktop encolhido: só existe aqui o que faz sentido com o
  * telefone na mão — acompanhar o que está rodando e conversar. Árvore de
@@ -1059,7 +1059,7 @@ function mostrar(aba) {
 
 async function abrirAgora() {
   mostrar("agora");
-  $("titulo").textContent = "Nexo";
+  $("titulo").textContent = "Nexos";
   await puxarAgora();
   comecarRelogio();
 }
@@ -1123,7 +1123,7 @@ function pegarCodigoDaUrl() {
  * QR escaneado com o app JÁ ABERTO.
  *
  * Trocar só o fragmento não recarrega a página, então nada aqui reexecuta e a
- * tela fica parada — e é o caso comum de quem põe o Nexo na tela de início: o
+ * tela fica parada — e é o caso comum de quem põe o Nexos na tela de início: o
  * sistema reaproveita a aba em vez de abrir outra. Sem isto, escanear com o app
  * aberto simplesmente não faz nada, e nem erro aparece.
  */

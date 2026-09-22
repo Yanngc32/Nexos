@@ -27,7 +27,7 @@ export async function loginProfile(
 
   const bin =
     opts?.bin ??
-    (p.engine === "claude" ? (process.env.NEXO_CLAUDE_BIN ?? "claude") : (process.env.NEXO_CODEX_BIN ?? "codex"));
+    (p.engine === "claude" ? (process.env.NEXOS_CLAUDE_BIN ?? "claude") : (process.env.NEXOS_CODEX_BIN ?? "codex"));
   // `claude auth login` é o comando real; "/login" só existe dentro da sessão interativa.
   const args = p.engine === "claude" ? ["auth", "login", "--claudeai"] : ["login"];
 

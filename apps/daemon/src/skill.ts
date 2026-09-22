@@ -4,19 +4,19 @@ import { fileURLToPath } from "node:url";
 import { globalSkillsDir, nexoHome } from "./home.ts";
 
 /**
- * Instala a skill `nexo-times` na pasta global do Nexo.
+ * Instala a skill `nexo-times` na pasta global do Nexos.
  *
  * As ferramentas MCP já bastam pro modelo criar agente e time: as regras estão
  * nas descrições delas. A skill é a camada de JULGAMENTO — quando vale montar
  * um time, qual topologia, o que faz um `instructions` prestar — que não cabe
  * em descrição de ferramenta e que ele só carrega quando o assunto aparece.
  *
- * Vai em `~/.nexo/skills/` — a mesma pasta que `syncGlobalSkills` (ver
+ * Vai em `~/.nexos/skills/` — a mesma pasta que `syncGlobalSkills` (ver
  * `engines/cli.ts`) já copia pra dentro do `CLAUDE_CONFIG_DIR` isolado de cada
  * perfil a cada turno. Instalar direto em `~/.claude/skills/` (config real do
  * Claude Code na máquina, fora do isolamento por perfil) fazia a skill vazar
- * pra qualquer sessão Claude Code do usuário — inclusive fora do Nexo — e
- * ainda assim não chegar em perfil nenhum do Nexo que não usasse por acaso
+ * pra qualquer sessão Claude Code do usuário — inclusive fora do Nexos — e
+ * ainda assim não chegar em perfil nenhum do Nexos que não usasse por acaso
  * esse mesmo `~/.claude` como config.
  */
 
@@ -27,7 +27,7 @@ export function destinoDaSkill(base = nexoHome()): string {
 }
 
 /**
- * A fonte, dentro do repositório do Nexo.
+ * A fonte, dentro do repositório do Nexos.
  *
  * `fileURLToPath` e NÃO `new URL(...).pathname`: no Windows o `pathname` vem
  * como `/D:/a/repo/...`, e o `join` com isso produz `D:\D:\a\repo\...` — caminho

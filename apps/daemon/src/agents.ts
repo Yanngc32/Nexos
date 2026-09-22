@@ -14,7 +14,7 @@ import {
   type EsforcoEscolhido,
   type EngineOverrides,
   type PermissionMode,
-} from "@nexo/shared";
+} from "@nexos/shared";
 import { agentsPath, ensureHome } from "./home.ts";
 import { getProfile } from "./profiles.ts";
 

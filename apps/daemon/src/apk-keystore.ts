@@ -59,9 +59,9 @@ export async function garantirKeystore(home: string, jdkPath: string): Promise<K
     alias,
     password: senha,
     keypassword: senha,
-    fullName: "Nexo",
-    organizationalUnit: "Nexo",
-    organization: "Nexo",
+    fullName: "Nexos",
+    organizationalUnit: "Nexos",
+    organization: "Nexos",
     country: "BR",
   });
 

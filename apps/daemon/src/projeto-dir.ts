@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import type { NexoConfig } from "@nexo/shared";
+import type { NexoConfig } from "@nexos/shared";
 import { loadConfig } from "./config.ts";
 import { projectKey } from "./home.ts";
 
@@ -188,7 +188,7 @@ function moverLegado(antigo: string, projectPath: string, tipo: TipoMigravel, ho
 /**
  * Alguém acabou de APAGAR `memoriaDir`/`tarefasDir`/`graphDir` do config — o layout de verdade
  * daquele tipo passa a ser o novo (`projectDir/<sub>`), e o que estava na raiz antiga precisa vir
- * junto. `migrarProjeto` não dá conta deste caso: ele procura só na raiz PADRÃO (`~/.nexo/<tipo>`)
+ * junto. `migrarProjeto` não dá conta deste caso: ele procura só na raiz PADRÃO (`~/.nexos/<tipo>`)
  * e, quando roda, o campo já foi apagado — ninguém mais sabe pra onde a pessoa tinha apontado.
  * Sem isso, tirar o override deixava memória/tarefas/repo map pra trás sem aviso nenhum.
  *

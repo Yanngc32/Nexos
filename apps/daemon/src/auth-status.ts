@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import type { Profile } from "@nexo/shared";
+import type { Profile } from "@nexos/shared";
 import { engineSpawnEnv } from "./profiles.ts";
 
 /** Recorte do `claude auth status --json`. É a verdade do CLI, não do arquivo. */
@@ -12,7 +12,7 @@ export type CliAuthStatus = {
 };
 
 function claudeBin(): string {
-  return process.env.NEXO_CLAUDE_BIN ?? "claude";
+  return process.env.NEXOS_CLAUDE_BIN ?? "claude";
 }
 
 function str(v: unknown): string | undefined {

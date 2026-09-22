@@ -1,7 +1,7 @@
 import type { Server } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
-import { DEFAULT_CONFIG } from "@nexo/shared";
+import { DEFAULT_CONFIG } from "@nexos/shared";
 import { classificar, enderecosDaMaquina, escolherHostDoCelular, ondeEscutar } from "./enderecos.ts";
 import { hostnameTailscale, pedirCertTailscale } from "./tls-tailscale.ts";
 
@@ -18,7 +18,7 @@ import { hostnameTailscale, pedirCertTailscale } from "./tls-tailscale.ts";
  * deveria estar ligado, liga o que falta, desliga o que sobrou, e não mexe no
  * que já está certo. Chamar de novo sem nada ter mudado não faz nada. Por isso
  * dá pra chamá-la de um relógio sem medo — túnel que sobe cinco minutos depois
- * de o Nexo abrir é o caso comum, não a exceção.
+ * de o Nexos abrir é o caso comum, não a exceção.
  *
  * O loopback é o único obrigatório. Túnel fora do ar é situação normal (ele
  * volta), então falhar em ligá-lo é registrado e segue a vida — o daemon nunca
@@ -228,7 +228,7 @@ export async function tentarHttps(fetchHandler: Fetch, port: number, home: strin
 
 /**
  * Relógio que mantém os endereços em dia. É ele que faz "ligar o Tailscale
- * depois de abrir o Nexo" funcionar sem ninguém clicar em nada.
+ * depois de abrir o Nexos" funcionar sem ninguém clicar em nada.
  *
  * 20 segundos porque o custo é uma varredura de interfaces (microssegundos) e
  * ninguém aceita esperar minuto pra ponte subir. `unref` pra não segurar o

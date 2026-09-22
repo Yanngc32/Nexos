@@ -152,11 +152,11 @@ describe("carga", () => {
   it("outro erro aparece como veio", async () => {
     const { panel, $ } = montar({
       req: async () => {
-        throw new Error("nexo.json inválido: linha 3");
+        throw new Error("nexos.json inválido: linha 3");
       },
     });
     await panel.load();
-    expect($("svc-error").textContent).toBe("nexo.json inválido: linha 3");
+    expect($("svc-error").textContent).toBe("nexos.json inválido: linha 3");
   });
 
   it("erro de parse vindo do daemon também aparece", async () => {

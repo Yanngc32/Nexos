@@ -1,11 +1,11 @@
-# Processo de release do Nexo desktop
+# Processo de release do Nexos desktop
 
 ## Versionamento
 
 `apps/desktop/package.json → version` segue [SemVer](https://semver.org/lang/pt-BR/):
 `MAJOR.MINOR.PATCH`. Enquanto o app não tem base de usuário externa, incrementos são por
 julgamento (não há API pública versionada) — `MINOR` pra funcionalidade nova, `PATCH` pra
-correção, `MAJOR` reservado pra mudança que quebra dado gravado em `~/.nexo` de versão anterior.
+correção, `MAJOR` reservado pra mudança que quebra dado gravado em `~/.nexos` de versão anterior.
 
 ## Cortar uma release
 
@@ -18,7 +18,7 @@ correção, `MAJOR` reservado pra mudança que quebra dado gravado em `~/.nexo` 
 5. A tag dispara `.github/workflows/release.yml` (runner `windows-latest`), que builda e publica
    o instalador no GitHub Releases — nenhum passo manual de upload.
 
-Publish manual (sem esperar a tag), se precisar: `pnpm --filter @nexo/desktop build:publish`
+Publish manual (sem esperar a tag), se precisar: `pnpm --filter @nexos/desktop build:publish`
 numa máquina Windows, com `GH_TOKEN` no ambiente (permissão de escrita em Releases do repo).
 
 **Build com `--dir` (sem instalador) não gera `app-update.yml`** — esse arquivo só sai no
@@ -80,7 +80,7 @@ empacotamento). Precisa de uma release de verdade publicada (`git tag vX.Y.Z && 
 origin vX.Y.Z`) e de uma versão anterior já instalada pra testar o update em cima.
 
 **Instalação do zero**
-- [ ] Baixar o `Nexo Setup X.Y.Z.exe` do GitHub Releases e rodar — o instalador NSIS abre
+- [ ] Baixar o `Nexos Setup X.Y.Z.exe` do GitHub Releases e rodar — o instalador NSIS abre
       sem precisar de Node/pnpm na máquina.
 - [ ] SmartScreen mostra o aviso "Editor desconhecido" esperado (sem assinatura de código —
       ver seção acima); "Mais informações" → "Executar assim mesmo" segue normal.
@@ -102,5 +102,5 @@ origin vX.Y.Z`) e de uma versão anterior já instalada pra testar o update em c
       app segue funcionando normal.
 
 **Desinstalação**
-- [ ] Desinstalar pelo painel do Windows remove o app; `~/.nexo` (config, conversas, tokens)
+- [ ] Desinstalar pelo painel do Windows remove o app; `~/.nexos` (config, conversas, tokens)
       continua no disco — desinstalar não é "esquecer" o usuário.

@@ -6,7 +6,7 @@ import { claudeEngine, codexEngine, parseCliLine } from "../src/engines/cli.ts";
 import { contextWindowOf, toolSummary } from "../src/engines/parse-claude.ts";
 import { spawnCwd } from "../src/project-cwd.ts";
 import { tempHome } from "./helpers.ts";
-import type { EngineEvent } from "@nexo/shared";
+import type { EngineEvent } from "@nexos/shared";
 
 const fake = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-claude.mjs");
 
@@ -34,7 +34,7 @@ describe("CliEngine", () => {
     const home = tempHome();
     addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
     markReady("c1", home);
-    process.env.NEXO_CLAUDE_BIN = fake;
+    process.env.NEXOS_CLAUDE_BIN = fake;
     const engine = claudeEngine(home, "c1");
     const events: EngineEvent[] = [];
     const project = spawnCwd(".");
@@ -62,7 +62,7 @@ describe("CliEngine", () => {
     const home = tempHome();
     addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
     markReady("c1", home);
-    process.env.NEXO_CLAUDE_BIN = fake;
+    process.env.NEXOS_CLAUDE_BIN = fake;
     const engine = claudeEngine(home, "c1");
     const events: EngineEvent[] = [];
     await engine.start(
@@ -81,7 +81,7 @@ describe("CliEngine --resume", () => {
     const home = tempHome();
     addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
     markReady("c1", home);
-    process.env.NEXO_CLAUDE_BIN = fake;
+    process.env.NEXOS_CLAUDE_BIN = fake;
     try {
       const engine = claudeEngine(home, "c1");
       const events: EngineEvent[] = [];
@@ -94,7 +94,7 @@ describe("CliEngine --resume", () => {
       expect(engine.lastPayload).toBe("pack\n\noi");
       expect(engine.lastArgs).not.toContain("--resume");
     } finally {
-      delete process.env.NEXO_CLAUDE_BIN;
+      delete process.env.NEXOS_CLAUDE_BIN;
     }
   });
 
@@ -102,7 +102,7 @@ describe("CliEngine --resume", () => {
     const home = tempHome();
     addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
     markReady("c1", home);
-    process.env.NEXO_CLAUDE_BIN = fake;
+    process.env.NEXOS_CLAUDE_BIN = fake;
     try {
       const engine = claudeEngine(home, "c1");
       const events: EngineEvent[] = [];
@@ -117,7 +117,7 @@ describe("CliEngine --resume", () => {
       expect(engine.lastArgs).toContain("sess-abcd-1234");
       expect(engine.lastPayload).toBe("segunda");
     } finally {
-      delete process.env.NEXO_CLAUDE_BIN;
+      delete process.env.NEXOS_CLAUDE_BIN;
     }
   });
 
@@ -125,7 +125,7 @@ describe("CliEngine --resume", () => {
     const home = tempHome();
     addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
     markReady("c1", home);
-    process.env.NEXO_CLAUDE_BIN = fake;
+    process.env.NEXOS_CLAUDE_BIN = fake;
     try {
       const engine = claudeEngine(home, "c1");
       const events: EngineEvent[] = [];
@@ -141,7 +141,7 @@ describe("CliEngine --resume", () => {
       expect(events.some((e) => e.type === "error")).toBe(false);
       expect(events.some((e) => e.type === "done")).toBe(true);
     } finally {
-      delete process.env.NEXO_CLAUDE_BIN;
+      delete process.env.NEXOS_CLAUDE_BIN;
     }
   });
 });
@@ -152,7 +152,7 @@ describe("CliEngine flags", () => {
     addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
     markReady("c1", home);
     updateProfile("c1", home, { model: "sonnet", effort: "high", permissionMode: "plan" });
-    process.env.NEXO_CLAUDE_BIN = fake;
+    process.env.NEXOS_CLAUDE_BIN = fake;
     const engine = claudeEngine(home, "c1");
     await engine.start(
       { threadId: "t-1", projectPath: spawnCwd("."), profileId: "c1", contextPack: "pack" },
@@ -189,7 +189,7 @@ describe("CliEngine flags", () => {
     addProfile({ id: "c-auto", engine: "claude" }, home, { skipBinCheck: true });
     markReady("c-auto", home);
     updateProfile("c-auto", home, { model: "auto" });
-    process.env.NEXO_CLAUDE_BIN = fake;
+    process.env.NEXOS_CLAUDE_BIN = fake;
     const engine = claudeEngine(home, "c-auto");
     await engine.start(
       { threadId: "t-auto", projectPath: spawnCwd("."), profileId: "c-auto", contextPack: "pack" },
@@ -213,7 +213,7 @@ describe("CliEngine auth", () => {
     const home = tempHome();
     addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
     markReady("c1", home);
-    process.env.NEXO_CLAUDE_BIN = fake;
+    process.env.NEXOS_CLAUDE_BIN = fake;
     const engine = claudeEngine(home, "c1");
     const events: EngineEvent[] = [];
     await engine.start(
@@ -268,7 +268,7 @@ describe("toolSummary", () => {
     const home = tempHome();
     addProfile({ id: "c-img", engine: "claude" }, home, { skipBinCheck: true });
     markReady("c-img", home);
-    process.env.NEXO_CLAUDE_BIN = fake;
+    process.env.NEXOS_CLAUDE_BIN = fake;
     try {
       const engine = claudeEngine(home, "c-img");
       await engine.start(
@@ -283,7 +283,7 @@ describe("toolSummary", () => {
       expect(engine.lastArgs[i + 1]).toContain(home);
       await engine.abort();
     } finally {
-      delete process.env.NEXO_CLAUDE_BIN;
+      delete process.env.NEXOS_CLAUDE_BIN;
     }
   });
 
@@ -601,7 +601,7 @@ describe("allowedTools no argv", () => {
     addProfile({ id: "c-allow", engine: "claude" }, home, { skipBinCheck: true });
     markReady("c-allow", home);
     updateProfile("c-allow", home, { allowedTools: ["Bash(git *)", "Bash(gh *)"] });
-    process.env.NEXO_CLAUDE_BIN = fake;
+    process.env.NEXOS_CLAUDE_BIN = fake;
     try {
       const engine = claudeEngine(home, "c-allow");
       await engine.start(
@@ -612,7 +612,7 @@ describe("allowedTools no argv", () => {
       expect(i).toBeGreaterThan(-1);
       expect(engine.lastArgs.slice(i + 1, i + 3)).toEqual(["Bash(git *)", "Bash(gh *)"]);
     } finally {
-      delete process.env.NEXO_CLAUDE_BIN;
+      delete process.env.NEXOS_CLAUDE_BIN;
     }
   });
 
@@ -620,7 +620,7 @@ describe("allowedTools no argv", () => {
     const home = tempHome();
     addProfile({ id: "c-sem", engine: "claude" }, home, { skipBinCheck: true });
     markReady("c-sem", home);
-    process.env.NEXO_CLAUDE_BIN = fake;
+    process.env.NEXOS_CLAUDE_BIN = fake;
     try {
       const engine = claudeEngine(home, "c-sem");
       await engine.start(
@@ -629,7 +629,7 @@ describe("allowedTools no argv", () => {
       );
       expect(engine.lastArgs).not.toContain("--allowed-tools");
     } finally {
-      delete process.env.NEXO_CLAUDE_BIN;
+      delete process.env.NEXOS_CLAUDE_BIN;
     }
   });
 });
@@ -639,7 +639,7 @@ describe("updateMcp: muda ferramenta MCP sem precisar de engine novo", () => {
     const home = tempHome();
     addProfile({ id: "c-mcp", engine: "claude" }, home, { skipBinCheck: true });
     markReady("c-mcp", home);
-    process.env.NEXO_CLAUDE_BIN = fake;
+    process.env.NEXOS_CLAUDE_BIN = fake;
     try {
       const engine = claudeEngine(home, "c-mcp");
       const events: EngineEvent[] = [];
@@ -661,7 +661,7 @@ describe("updateMcp: muda ferramenta MCP sem precisar de engine novo", () => {
       const j = engine.lastArgs.indexOf("--allowed-tools");
       expect(engine.lastArgs.slice(j + 1)).toContain("mcp__nexo__nexo_delegar");
     } finally {
-      delete process.env.NEXO_CLAUDE_BIN;
+      delete process.env.NEXOS_CLAUDE_BIN;
     }
   });
 });
@@ -703,7 +703,7 @@ describe("motor codex", () => {
   async function turno(home: string, opts: Record<string, unknown> = {}, texto = "oi") {
     addProfile({ id: "x1", engine: "codex" }, home, { skipBinCheck: true });
     markReady("x1", home);
-    process.env.NEXO_CODEX_BIN = fakeCodex;
+    process.env.NEXOS_CODEX_BIN = fakeCodex;
     const engine = codexEngine(home, "x1");
     const events: EngineEvent[] = [];
     await engine.start(
@@ -731,7 +731,7 @@ describe("motor codex", () => {
     addProfile({ id: "x1", engine: "codex" }, home, { skipBinCheck: true });
     markReady("x1", home);
     updateProfile("x1", home, { model: "gpt-5.6-terra", effort: "ultra", sandboxMode: "workspace-write" });
-    process.env.NEXO_CODEX_BIN = fakeCodex;
+    process.env.NEXOS_CODEX_BIN = fakeCodex;
     const engine = codexEngine(home, "x1");
     const events: EngineEvent[] = [];
     await engine.start({ threadId: "t-2", projectPath: spawnCwd("."), profileId: "x1", contextPack: "pack" }, (ev) =>
@@ -771,7 +771,7 @@ describe("motor codex", () => {
     const home = tempHome();
     addProfile({ id: "x1", engine: "codex" }, home, { skipBinCheck: true });
     markReady("x1", home);
-    process.env.NEXO_CODEX_BIN = fakeCodex;
+    process.env.NEXOS_CODEX_BIN = fakeCodex;
     const engine = codexEngine(home, "x1");
     const events: EngineEvent[] = [];
     await engine.start(
@@ -788,7 +788,7 @@ describe("motor codex", () => {
     const home = tempHome();
     addProfile({ id: "x1", engine: "codex" }, home, { skipBinCheck: true });
     markReady("x1", home);
-    process.env.NEXO_CODEX_BIN = fakeCodex;
+    process.env.NEXOS_CODEX_BIN = fakeCodex;
     const engine = codexEngine(home, "x1");
     const events: EngineEvent[] = [];
     await engine.start(
@@ -814,7 +814,7 @@ describe("motor codex", () => {
     addProfile({ id: "x1", engine: "codex" }, home, { skipBinCheck: true });
     markReady("x1", home);
     updateProfile("x1", home, { model: "gpt-5.6-terra", sandboxMode: "workspace-write" });
-    process.env.NEXO_CODEX_BIN = fakeCodex;
+    process.env.NEXOS_CODEX_BIN = fakeCodex;
     const engine = codexEngine(home, "x1");
     const events: EngineEvent[] = [];
     await engine.start(
@@ -869,13 +869,13 @@ describe("motor codex", () => {
     });
     expect(engine.lastArgs).toContain("-c");
     expect(engine.lastArgs).toContain(
-      'mcp_servers.nexo={url="http://127.0.0.1:7432/v1/mcp",bearer_token_env_var="NEXO_MCP_TOKEN"}',
+      'mcp_servers.nexo={url="http://127.0.0.1:7432/v1/mcp",bearer_token_env_var="NEXOS_MCP_TOKEN"}',
     );
     expect(engine.lastArgs.join(" ")).not.toContain("segredo-do-daemon");
 
-    const eco = events.find((e) => e.type === "tool" && /NEXO_MCP_TOKEN=/.test((e as { summary: string }).summary));
+    const eco = events.find((e) => e.type === "tool" && /NEXOS_MCP_TOKEN=/.test((e as { summary: string }).summary));
     // o eco vem como command_execution, então o resumo traz o exit code atrás
-    expect((eco as { summary: string }).summary).toBe("NEXO_MCP_TOKEN=segredo-do-daemon (exit 0)");
+    expect((eco as { summary: string }).summary).toBe("NEXOS_MCP_TOKEN=segredo-do-daemon (exit 0)");
   });
 
   it("sem MCP não sobra flag de MCP no argv", async () => {

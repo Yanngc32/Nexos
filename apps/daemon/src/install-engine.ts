@@ -1,4 +1,4 @@
-import type { EngineKind } from "@nexo/shared";
+import type { EngineKind } from "@nexos/shared";
 import { spawnBin } from "./spawn-bin.ts";
 
 /** Pacote npm por motor — só os dois que `addProfile` verifica com `which()` têm instalação automática. */

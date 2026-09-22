@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { LimitsInfo, SessionInfo } from "@nexo/shared";
+import type { LimitsInfo, SessionInfo } from "@nexos/shared";
 import { addProfile } from "../src/profiles.ts";
 import { appendEvent, createThread, type ThreadUsage } from "../src/threads.ts";
 import { contextLines, costLines, fmtReset, fmtTokens, limitsLines, threadReport } from "../src/usage-report.ts";

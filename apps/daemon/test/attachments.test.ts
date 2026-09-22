@@ -9,7 +9,7 @@ import { addProfile } from "../src/profiles.ts";
 import { getLive, postMessage } from "../src/session.ts";
 import { createThread, readThread } from "../src/threads.ts";
 import { tempHome } from "./helpers.ts";
-import type { ThreadEvent } from "@nexo/shared";
+import type { ThreadEvent } from "@nexos/shared";
 
 /** PNG 1x1 de verdade: o daemon confere a assinatura do formato. */
 const PNG =

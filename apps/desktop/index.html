@@ -6,14 +6,14 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; connect-src http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src http: https: about: data: blob:; font-src 'self'"
     />
-    <title>Nexo</title>
+    <title>Nexos</title>
     <link rel="stylesheet" href="./node_modules/@xterm/xterm/css/xterm.css" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <aside class="side">
       <div class="side-top">
-        <span class="word">Nexo</span>
+        <span class="word">Nexos</span>
       </div>
       <nav class="side-nav" aria-label="Ações">
         <button type="button" id="btn-new" class="nav-item" title="Nova conversa">
@@ -66,10 +66,10 @@
         <ul id="svc-list" class="svc-list"></ul>
         <div id="svc-empty" class="svc-empty hidden">
           <p>Nenhum serviço declarado neste projeto.</p>
-          <button type="button" id="btn-svc-create" class="ghost">Pedir pro agente criar o nexo.json</button>
+          <button type="button" id="btn-svc-create" class="ghost">Pedir pro agente criar o nexos.json</button>
         </div>
         <p id="svc-error" class="svc-error hidden"></p>
-        <button type="button" id="btn-svc-trust" class="ghost svc-trust hidden" title="Libera o autostart declarado no nexo.json">
+        <button type="button" id="btn-svc-trust" class="ghost svc-trust hidden" title="Libera o autostart declarado no nexos.json">
           Confiar neste projeto
         </button>
       </div>
@@ -352,7 +352,7 @@
                 <section class="ag-sec" id="ag-tpl-sec">
                   <h2>Modelo de criação</h2>
                   <p class="ag-hint">
-                    Formatos inspirados no ADK do Google. O Nexo não orquestra sub-agentes — cada
+                    Formatos inspirados no ADK do Google. O Nexos não orquestra sub-agentes — cada
                     modelo dá a forma de trabalho pela instrução. Cada um explica onde difere.
                   </p>
                   <div class="ag-tpls" id="ag-tpls"></div>
@@ -518,7 +518,7 @@
           <div class="ax-list">
             <ul id="hook-list" class="agents-list"></ul>
             <p id="hook-empty" class="agents-empty">
-              Nenhuma regra criada. Um Nexo Hook dispara um agente sozinho quando um evento de git
+              Nenhuma regra criada. Um Nexos Hook dispara um agente sozinho quando um evento de git
               acontece — post-commit, post-push ou pre-push (esse pode barrar o push).
             </p>
             <div class="agents-foot">
@@ -552,7 +552,7 @@
                       <option value="git.post-commit">git.post-commit — depois de cada commit</option>
                       <option value="git.post-push">git.post-push — depois de cada push</option>
                       <option value="git.pre-push">git.pre-push — antes do push (pode barrar)</option>
-                      <option value="nexo.projeto-novo">nexo.projeto-novo — 1ª vez que o projeto abre no Nexo</option>
+                      <option value="nexo.projeto-novo">nexo.projeto-novo — 1ª vez que o projeto abre no Nexos</option>
                     </select></label>
                 </div>
                 <label class="ag-f" id="hk-branch-wrap"><span>Branch (opcional — vazio casa qualquer uma)</span>
@@ -1307,6 +1307,32 @@
                   </div>
                 </div>
               </div>
+              <p class="set-grupo-tit">Atualizar CLI</p>
+              <div class="set-grupo">
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Claude Code CLI</h4>
+                    <p>
+                      Baixa a versão mais nova do <code>@anthropic-ai/claude-code</code> (npm) — o Nexos roda
+                      essa CLI por baixo pra toda conta <code>claude</code>. Não mexe em login nem credencial.
+                    </p>
+                    <p id="cli-update-claude-status" class="set-aviso"></p>
+                  </div>
+                  <div class="set-ctl">
+                    <button type="button" class="ghost btn-cli-update" data-engine="claude">Atualizar agora</button>
+                  </div>
+                </div>
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Codex CLI</h4>
+                    <p>Baixa a versão mais nova do <code>@openai/codex</code> (npm).</p>
+                    <p id="cli-update-codex-status" class="set-aviso"></p>
+                  </div>
+                  <div class="set-ctl">
+                    <button type="button" class="ghost btn-cli-update" data-engine="codex">Atualizar agora</button>
+                  </div>
+                </div>
+              </div>
               <p class="set-grupo-tit">Adicionar conta</p>
               <div class="set-grupo">
                 <div class="set-row">
@@ -1431,7 +1457,7 @@
                     <h4>Conectar um celular</h4>
                     <p>
                       Aponte a câmera do celular para o código: ele abre a página e conecta sozinho.
-                      Dali, <b>Adicionar à tela de início</b> deixa o Nexo como um app. Sem câmera,
+                      Dali, <b>Adicionar à tela de início</b> deixa o Nexos como um app. Sem câmera,
                       abra <b id="cel-url">http://…/app/</b> e digite o código.
                       Ele vale 2 minutos e serve uma vez; depois disso o celular fica conectado.
                     </p>
@@ -1458,7 +1484,7 @@
                       Compila localmente, uma vez — precisa de HTTPS de pé (veja acima) e do SDK do
                       Android instalado nesta máquina (<code>JAVA_HOME</code> e
                       <code>ANDROID_HOME</code>). A chave de assinatura é gerada uma vez em
-                      <code>~/.nexo/apk/</code> e reusada sempre: trocar quebraria atualização de
+                      <code>~/.nexos/apk/</code> e reusada sempre: trocar quebraria atualização de
                       quem já instalou.
                     </p>
                     <p class="set-err" id="apk-build-status"></p>
@@ -1492,7 +1518,7 @@
               <div class="set-grupo">
                 <div class="set-row">
                   <div class="set-txt">
-                    <h4>Onde o celular alcança o Nexo</h4>
+                    <h4>Onde o celular alcança o Nexos</h4>
                     <p id="cel-alcance">…</p>
                   </div>
                   <div class="set-ctl">
@@ -1502,7 +1528,7 @@
                 <details class="set-det" id="cel-avancado">
                   <summary>Endereço de escuta (avançado)</summary>
                   <p>
-                    O Nexo já escuta sozinho no loopback e em qualquer túnel que a máquina tenha
+                    O Nexos já escuta sozinho no loopback e em qualquer túnel que a máquina tenha
                     (Tailscale, WireGuard) — inclusive em túnel que subir depois, sem reiniciar nada.
                     Só preencha aqui se precisar de um endereço específico. <code>0.0.0.0</code>
                     publica na rede inteira, e aí o token é a única barreira.
@@ -1517,7 +1543,7 @@
                 <div class="set-row">
                   <div class="set-txt">
                     <h4>Versão</h4>
-                    <p>Versão instalada do Nexo desktop.</p>
+                    <p>Versão instalada do Nexos desktop.</p>
                   </div>
                   <div class="set-ctl">
                     <span id="sobre-versao" class="sobre-versao">…</span>
@@ -1541,7 +1567,7 @@
                 <div class="set-row">
                   <div class="set-txt">
                     <h4>Troca de conta na quota</h4>
-                    <p>O que o Nexo faz quando a quota da conta ativa acaba.</p>
+                    <p>O que o Nexos faz quando a quota da conta ativa acaba.</p>
                     <p id="switch-mode-err" class="set-err"></p>
                   </div>
                   <div class="set-ctl">
@@ -1577,7 +1603,7 @@
                   <h4>Projetos <span id="projetos-dir-badge" class="shared-badge" data-on="0">só nesta máquina</span></h4>
                   <p>
                     Onde fica a pasta de CADA projeto (memória, tarefas e repo map, tudo dentro
-                    dela). Vazio = dentro do próprio Nexo, só nesta máquina. Aponte pra uma pasta
+                    dela). Vazio = dentro do próprio Nexos, só nesta máquina. Aponte pra uma pasta
                     já sincronizada (Drive, OneDrive, etc.) pra abrir o mesmo projeto de outro PC
                     e continuar de onde parou.
                   </p>
@@ -1653,7 +1679,7 @@
                     <h4>Permitir controle do Windows</h4>
                     <p>
                       Dá ao agente ferramentas pra ver janelas e controlar mouse e teclado em
-                      <strong>outros aplicativos</strong> — não só o Nexo. Permissão independente e mais
+                      <strong>outros aplicativos</strong> — não só o Nexos. Permissão independente e mais
                       perigosa que as demais; enquanto ligada, um aviso fica sempre visível no app.
                     </p>
                     <p id="mod-windows-control-err" class="set-err"></p>
@@ -1756,7 +1782,7 @@
                     <h4>Seus projetos em todos os computadores</h4>
                     <p>
                       Memória, tarefas e conversas ficam numa pasta do seu Google Drive e aparecem iguais em
-                      qualquer PC onde você entrar. O Nexo só mexe na pasta que você escolher.
+                      qualquer PC onde você entrar. O Nexos só mexe na pasta que você escolher.
                     </p>
                     <p id="gdrive-status" class="set-hint">Não conectado.</p>
                     <p id="gdrive-sync-status" class="set-hint"></p>

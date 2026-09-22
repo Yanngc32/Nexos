@@ -120,7 +120,7 @@ describe("ondeEscutar", () => {
 
   it("LAN e público NÃO entram por conta própria", () => {
     // publicar no Wi-Fi compartilhado é escolha, não conveniência; e IP público
-    // seria o Nexo na internet
+    // seria o Nexos na internet
     expect(ondeEscutar([lan, publico])).toEqual(["127.0.0.1"]);
   });
 

@@ -1,6 +1,6 @@
 using System.Text.Json.Nodes;
 
-namespace Nexo.WindowsControl;
+namespace Nexos.WindowsControl;
 
 internal sealed class CommandDispatcher
 {

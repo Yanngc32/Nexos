@@ -1,4 +1,4 @@
-import type { EngineEvent, EngineOverrides, StartOpts } from "@nexo/shared";
+import type { EngineEvent, EngineOverrides, StartOpts } from "@nexos/shared";
 import type { Engine, EngineHandler, EngineMcp } from "./types.ts";
 
 export class StubEngine implements Engine {

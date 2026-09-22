@@ -1,10 +1,10 @@
-import type { EngineEvent } from "@nexo/shared";
+import type { EngineEvent } from "@nexos/shared";
 import { AUTH_STATUS_RE, isAuthText, prettyAuth } from "./parse-claude.ts";
 
 /**
  * O stream do `codex exec --json`.
  *
- * **Por que este arquivo existe.** O motor `codex` do Nexo spawnava o binário
+ * **Por que este arquivo existe.** O motor `codex` do Nexos spawnava o binário
  * SEM argumento nenhum e parseava a saída com o parser do Claude. `codex` sem
  * subcomando abre a TUI interativa, e com stdin em pipe ela morre na hora:
  *
@@ -38,11 +38,11 @@ import { AUTH_STATUS_RE, isAuthText, prettyAuth } from "./parse-claude.ts";
  * - **`error` não é fatal.** O aviso "Model metadata … not found" chega como
  *   `item.completed` de tipo `error`, e o `error` de topo carrega retentativa de
  *   rede ("Reconnecting… 2/5"). Nos dois casos o turno SEGUE e termina bem.
- *   Traduzir isso pro `error` do Nexo abortaria turno saudável — o canal fatal é
+ *   Traduzir isso pro `error` do Nexos abortaria turno saudável — o canal fatal é
  *   o `turn.failed`.
  */
 
-/** Tipos de item que o binário serializa. Os que o Nexo mostra viram linha de ferramenta. */
+/** Tipos de item que o binário serializa. Os que o Nexos mostra viram linha de ferramenta. */
 const FERRAMENTAS = new Set(["command_execution", "file_change", "mcp_tool_call", "web_search", "todo_list"]);
 
 /** Mesmo teto do parser do claude: nada que vá pra UI passa de um parágrafo. */

@@ -15,7 +15,7 @@ Três processos:
 
 1. **Daemon** (`apps/daemon`) — escuta em `127.0.0.1:7432` (porta configurável). Dono de todo o
    estado: perfis, threads, anexos, serviços, agentes, times, runs. Não fala com o disco do
-   projeto, só com `~/.nexo`.
+   projeto, só com `~/.nexos`.
 2. **Motor** — um processo por conversa ativa, filho do daemon. É a CLI do agente (`claude`,
    `codex`) ou uma chamada HTTP à API do provedor.
 3. **App Electron** — cliente do daemon. O `main.cjs` também é dono do acesso ao disco do projeto
@@ -34,7 +34,7 @@ webview com privilégio a mais).
 
 ## Estado no disco
 
-Tudo em `~/.nexo` (ou `NEXO_HOME`). Nada disso vai pro repositório.
+Tudo em `~/.nexos` (ou `NEXOS_HOME`). Nada disso vai pro repositório.
 
 | caminho | conteúdo | modo |
 | --- | --- | --- |
@@ -47,7 +47,7 @@ Tudo em `~/.nexo` (ou `NEXO_HOME`). Nada disso vai pro repositório.
 | `teams.json` | times de agentes (inclui os ocultos criados por `@menção`, ver Times) | — |
 | `threads/<id>.jsonl` | histórico da conversa, um evento por linha | — |
 | `attachments/<thread>/` | imagens coladas no chat | — |
-| `skills/` | skills globais do Nexo (`SKILL.md` por pasta) — valem em toda conta, não só uma | — |
+| `skills/` | skills globais do Nexos (`SKILL.md` por pasta) — valem em toda conta, não só uma | — |
 | `runs/<id>/` | artefato de cada passo de um run (`passo-N-<agente>.md`) | — |
 | `daemon.token` | token bearer da API local | `0600` |
 | `run/` | PIDs do daemon e dos motores | — |
@@ -66,16 +66,16 @@ com o `CONFIG_DIR` apontado pro perfil, então duas contas do mesmo provedor nã
 `POST /v1/profiles/:id/import` copia a credencial global do Claude pro perfil.
 
 MCP: `claude` recebe `--mcp-config` (arquivo `0600`, porque carrega o token) e `codex` recebe
-`-c mcp_servers.nexo={url=…,bearer_token_env_var=NEXO_MCP_TOKEN}`, com o token no ambiente do
+`-c mcp_servers.nexo={url=…,bearer_token_env_var=NEXOS_MCP_TOKEN}`, com o token no ambiente do
 filho — nem em argv nem em arquivo. As ferramentas de autoria valem nos dois; o servidor do
 supervisor, preso ao run, só em `claude`. `api` e `stub` não têm cliente MCP.
 
-O `codex exec` recusa rodar fora de repositório git; o Nexo passa `--skip-git-repo-check` pra o
+O `codex exec` recusa rodar fora de repositório git; o Nexos passa `--skip-git-repo-check` pra o
 motor não ser o único a falhar em projeto que funciona nos outros.
 
 ## Skills
 
-Um `SKILL.md` (frontmatter `name`/`description` + corpo) em `~/.nexo/skills/<nome>/` vale em
+Um `SKILL.md` (frontmatter `name`/`description` + corpo) em `~/.nexos/skills/<nome>/` vale em
 qualquer perfil `claude` — `syncGlobalSkills` (`apps/daemon/src/skills.ts`) copia cada pasta pra
 dentro do `CLAUDE_CONFIG_DIR` isolado do perfil a cada turno (é o que faz o CLI de fato enxergar,
 já que ele só lê skill do próprio config dir ou do `.claude/skills` do projeto aberto). `nexo
@@ -124,14 +124,14 @@ sem ele já ter um time cria (ou reaproveita, idempotente) um time-pipeline-de-1
 `apps/daemon/src/git.ts` é o único jeito de chamar git no daemon: `git(args, cwd, timeout)`,
 assíncrono, com teto de 30s, saída de stdout+stderr junta e sem lançar nunca (quem chama decide
 pelo `ok`). Enquanto era só leitura pontual, cada módulo ter o seu era barato; a partir do momento
-em que o Nexo mexe no repositório da pessoa, é aqui que mora a regra de nunca usar `--force` e de
+em que o Nexos mexe no repositório da pessoa, é aqui que mora a regra de nunca usar `--force` e de
 recusar escrita com a árvore suja. Os três `execFileSync` legados (`tarefas-git.ts`,
 `projeto-dir.ts`, `repo-map-indice.ts`) seguem onde estão: são síncronos por dependência de quem
 chama, e convertê-los é escopo próprio.
 
 **Nada disto precisa de login.** `clone`, `fetch` e `pull` usam a credencial de git que já existe
 na máquina (chave SSH, credential helper) — é o mesmo comando que a pessoa rodaria no terminal, e
-repositório privado funciona sem o Nexo guardar token nenhum. `ambienteSemPrompt` (git.ts) força
+repositório privado funciona sem o Nexos guardar token nenhum. `ambienteSemPrompt` (git.ts) força
 `GIT_TERMINAL_PROMPT=0` e `BatchMode=yes`: um daemon não tem terminal pra responder senha, e sem
 isso um fetch sem credencial penduraria a requisição até o timeout em vez de dizer o que faltou.
 
@@ -162,7 +162,7 @@ novo entra recusado por padrão. Link começando com `-` também é recusado (vi
 chamada ainda usa `--` como segundo cinto. Clone nunca escreve por cima: pasta com conteúdo é
 recusa, não merge.
 
-Falta a peça que exige token: **abrir o PR pela API** com título e base escolhidos dentro do Nexo.
+Falta a peça que exige token: **abrir o PR pela API** com título e base escolhidos dentro do Nexos.
 O caminho é OAuth Device Flow (mesmo desenho de `login-session.ts`: start → abre o browser → poll
 → status, sem servidor de callback), e depende de registrar um OAuth App no GitHub — o `client_id`
 é público e vai no código, como o `gh` CLI faz. Token do GitHub é da PESSOA, não do motor, então
@@ -272,8 +272,8 @@ rm` limpa os branches `nexo/*` que já foram mesclados.
 
 - **`/comando`**: só quando é a mensagem inteira. Autocomplete lista comando embutido (`/cost`,
   `/clear`…) e skill descoberta (`GET /v1/skills`). Selecionar é só texto — quem interpreta
-  `/nome-da-skill` como carregar a skill é a própria CLI por baixo, não o Nexo.
-- **`@agente`/`@time`**: em qualquer ponto do texto. Ao enviar, o Nexo (lado desktop,
+  `/nome-da-skill` como carregar a skill é a própria CLI por baixo, não o Nexos.
+- **`@agente`/`@time`**: em qualquer ponto do texto. Ao enviar, o Nexos (lado desktop,
   `renderer.js`) varre a mensagem por `@<id>` (`mention.js`, `extrairMencoes`) e, pra cada um que
   bate com agente ou time existente, dispara um `POST /v1/runs` EM PARALELO ao turno de chat
   normal — a mensagem inteira ainda vai pro modelo, sem alteração. Agente avulso passa por
@@ -284,7 +284,7 @@ rm` limpa os branches `nexo/*` que já foram mesclados.
 ## Inspector de elemento (painel Browser)
 
 O painel Browser usa `<webview>` porque o preview (`http://127.0.0.1:<porta>`, origem diferente
-de `file://`) bloquearia qualquer script do Nexo de tocar no DOM de dentro de um `<iframo>`
+de `file://`) bloquearia qualquer script do Nexos de tocar no DOM de dentro de um `<iframo>`
 comum (Same-Origin Policy) — `<webview>` é o mecanismo do Electron pensado pra isso.
 
 `browser-inspector-preload.cjs` roda dentro do preview (só ele tem Node/Electron; a página
@@ -298,7 +298,7 @@ fila e `@menção` de graça.
 
 ## API HTTP
 
-Toda rota `/v1/*` exige `Authorization: Bearer <token>`, com o token lido de `~/.nexo/daemon.token`.
+Toda rota `/v1/*` exige `Authorization: Bearer <token>`, com o token lido de `~/.nexos/daemon.token`.
 Exceções: `/health`, `/v1/health`, `/pair`, `/apk` (pareamento e download de APK do celular, cada
 um com suas próprias travas, estados separados — ver Limites de acesso) e
 `/.well-known/assetlinks.json` (público por natureza — é o Android que busca sozinho, sem
@@ -342,7 +342,7 @@ Layout único: barra lateral fixa + área de trabalho que troca de painel.
   tooltip e horário à direita (substituído pelo `×` de apagar no hover). Conversa ocupada mostra
   ponto pulsando e "trabalhando…". Conversa de um run agrupada numa pasta pelo run, fechada por
   padrão.
-- **Serviços** — o que o `nexo.json` do projeto declara: status, start/stop/restart, log em
+- **Serviços** — o que o `nexos.json` do projeto declara: status, start/stop/restart, log em
   overlay. Autostart só roda em projeto marcado como confiável (botão "Confiar neste projeto").
 - **Rodapé** — status do motor, ligar/desligar, modo foco, configurações.
 
@@ -445,7 +445,7 @@ ameaça do pareamento, mas estado **inteiramente separado**: o QR carrega só ho
 (nunca a URL do artefato com o hash embutido — o gerador de QR do desktop satura em ~213 bytes), e
 é o celular que troca o código pela informação de verdade ao abrir `GET /apk?c=CODIGO`. Com build
 pronto, essa rota serve o `.apk` DIRETO (`content-type` correto, hash no header
-`X-Nexo-Sha256`); sem build, devolve uma página HTML solta explicando.
+`X-Nexos-Sha256`); sem build, devolve uma página HTML solta explicando.
 
 **Build (Fase 2, `apps/daemon/src/apk-build.ts`)**: botão "Gerar APK" no painel Celular dispara em
 segundo plano (`POST /v1/apk/build`, `GET` só consulta status) — TWA (Trusted Web Activity) via
@@ -455,7 +455,7 @@ não valida Digital Asset Links em cima de IP) e SDK do Android na máquina (`JA
 gastar tempo. Retenção de 2 builds (`apps/daemon/apk/builds/`), estado persistido em
 `apk/atual.json` (sobrevive a reiniciar o daemon).
 
-**Keystore** (`apps/daemon/src/apk-keystore.ts`): gerado UMA vez, em `~/.nexo/apk/keystore.jks`
+**Keystore** (`apps/daemon/src/apk-keystore.ts`): gerado UMA vez, em `~/.nexos/apk/keystore.jks`
 (`0600`, mesmo padrão do `daemon.token`) — nunca regenerado depois de existir, porque trocar a
 chave quebraria atualização de quem já instalou. Usa o `KeyTool` do próprio `@bubblewrap/core`.
 

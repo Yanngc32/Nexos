@@ -1,7 +1,7 @@
 using System.Text;
 using System.Windows.Automation;
 
-namespace Nexo.WindowsControl;
+namespace Nexos.WindowsControl;
 
 internal sealed record AccessibilitySnapshot(string Tree, string? FocusedElement, string? DocumentText, int ElementCount);
 

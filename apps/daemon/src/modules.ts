@@ -8,7 +8,7 @@ import { globalSkillsDir } from "./home.ts";
  * Módulos externos opcionais (`NexoConfig.modulos`) — cada um instalado e sincronizado só se
  * ligado. `rtk` é um proxy de CLI (hook `PreToolUse` que filtra saída de comando antes dela entrar
  * no contexto); `caveman` é uma skill de comunicação comprimida, instalada pelo MESMO mecanismo
- * que já copia `~/.nexo/skills` pra dentro do `CLAUDE_CONFIG_DIR` isolado de cada perfil (ver
+ * que já copia `~/.nexos/skills` pra dentro do `CLAUDE_CONFIG_DIR` isolado de cada perfil (ver
  * `syncGlobalSkills`, engines/cli.ts, e `skill.ts`, que já faz isto pra "nexo-times").
  */
 
@@ -81,7 +81,7 @@ export async function syncRtkHook(claudeConfigDir: string): Promise<void> {
 const CAVEMAN_SKILL_URL = "https://raw.githubusercontent.com/JuliusBrussee/caveman/main/skills/caveman/SKILL.md";
 
 /**
- * Instala a skill `caveman` na pasta global do Nexo (mesmo lugar que `nexo-times`, ver skill.ts)
+ * Instala a skill `caveman` na pasta global do Nexos (mesmo lugar que `nexo-times`, ver skill.ts)
  * pra `syncGlobalSkills` copiar pra dentro do `CLAUDE_CONFIG_DIR` de cada perfil como qualquer
  * outra skill — nenhum mecanismo novo. Best-effort, nunca lança: rede fora não pode impedir o
  * módulo de ser ligado nem o daemon de subir. Não reinstala se já existe (edição manual do usuário

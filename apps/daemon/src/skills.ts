@@ -9,7 +9,7 @@ export type SkillDef = {
   description: string;
   /**
    * "projeto" = `.claude/skills` do repo aberto; "perfil" = pasta claude do
-   * perfil ativo; "global" = `~/.nexo/skills`, a mesma pra qualquer conta.
+   * perfil ativo; "global" = `~/.nexos/skills`, a mesma pra qualquer conta.
    */
   scope: "projeto" | "perfil" | "global";
   /** Pasta da skill — é dela que sai o corpo, e é ela que o modelo lê pra achar arquivo auxiliar. */
@@ -78,9 +78,9 @@ function scanSkillsDir(dir: string, scope: SkillDef["scope"], seen: Set<string>,
 }
 
 /**
- * Copia cada skill de `~/.nexo/skills` pra dentro da pasta de skills do perfil
+ * Copia cada skill de `~/.nexos/skills` pra dentro da pasta de skills do perfil
  * (`CLAUDE_CONFIG_DIR/skills`, isolada por conta). É a diferença entre uma
- * skill só aparecer no menu "/" do Nexo e o motor de verdade enxergar ela — o
+ * skill só aparecer no menu "/" do Nexos e o motor de verdade enxergar ela — o
  * CLI só lê skill de dentro do seu próprio `CLAUDE_CONFIG_DIR` ou do
  * `.claude/skills` do projeto aberto, nunca de uma pasta global arbitrária.
  * Roda a cada turno (custo é ler alguns KB de markdown); sobrescreve pra
@@ -109,11 +109,11 @@ export function syncGlobalSkills(destSkillsDir: string, globalDir: string): void
 /**
  * Skills que o motor desta conversa enxerga: as do projeto (`.claude/skills`),
  * as do perfil (pasta claude isolada por conta — ver `engineEnv`) e as globais
- * do Nexo (`~/.nexo/skills`, sincronizadas pra dentro do perfil a cada turno
+ * do Nexos (`~/.nexos/skills`, sincronizadas pra dentro do perfil a cada turno
  * por `syncGlobalSkills`). Em empate de nome, projeto > perfil > global.
  *
  * Vale em QUALQUER motor. Só o `claude` lê `SKILL.md` sozinho (o CLI dele
- * interpreta `/nome`); nos outros quem carrega é o Nexo, expandindo o corpo da
+ * interpreta `/nome`); nos outros quem carrega é o Nexos, expandindo o corpo da
  * skill no prompt do turno — ver `expandirSkill`. Antes o menu escondia skill
  * de conta `codex`/`api`, porque não havia esse caminho: quem usava esses
  * motores perdia o menu "/" inteiro.

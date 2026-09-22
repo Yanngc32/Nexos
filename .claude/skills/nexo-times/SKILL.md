@@ -1,9 +1,9 @@
 ---
 name: nexo-times
-description: Montar agentes, times e Nexo Hooks no Nexo. Use quando o pedido envolver criar/ajustar um agente, montar um time, escolher entre pipeline, fan-in e supervisor, disparar algo sozinho quando um evento acontecer (commit, push, projeto novo), ou quando um trabalho for grande o bastante pra valer dividir entre agentes em vez de fazer sozinho.
+description: Montar agentes, times e Nexos Hooks no Nexos. Use quando o pedido envolver criar/ajustar um agente, montar um time, escolher entre pipeline, fan-in e supervisor, disparar algo sozinho quando um evento acontecer (commit, push, projeto novo), ou quando um trabalho for grande o bastante pra valer dividir entre agentes em vez de fazer sozinho.
 ---
 
-# Montar agentes, times e hooks no Nexo
+# Montar agentes, times e hooks no Nexos
 
 As ferramentas `nexo_contexto`, `nexo_agente_salvar`, `nexo_time_salvar`,
 `nexo_hook_salvar`, `nexo_hook_listar` e `nexo_skill_instalar` (MCP, servidor
@@ -11,8 +11,8 @@ As ferramentas `nexo_contexto`, `nexo_agente_salvar`, `nexo_time_salvar`,
 cabem: **quando** vale montar um time ou uma regra, e o que faz cada um ser
 bom.
 
-Se as ferramentas não estiverem disponíveis, é porque o Nexo só liga MCP em
-conta `claude`. Diga isso e pare aí. Não tente editar `~/.nexo/agents.json` nem
+Se as ferramentas não estiverem disponíveis, é porque o Nexos só liga MCP em
+conta `claude`. Diga isso e pare aí. Não tente editar `~/.nexos/agents.json` nem
 `teams.json` na mão: nada valida o que você escrever, e uma escrita do daemon
 entre a sua leitura e a sua gravação leva sua edição embora sem avisar.
 
@@ -69,12 +69,12 @@ Criar **não executa**. Diga à pessoa, em uma linha, o que você montou e que o
 run é o clique dela — com `maxSteps` se for supervisor. Não prometa resultado
 de trabalho que ainda não rodou.
 
-## Nexo Hooks: disparar sozinho quando algo acontece
+## Nexos Hooks: disparar sozinho quando algo acontece
 
 `nexo_hook_salvar` cria uma regra que dispara um agente OU um time (`agentId`
 ou `teamId`, nunca os dois) sozinho quando `git.post-commit`, `git.post-push`,
 `git.pre-push` ou `nexo.projeto-novo` (primeira vez que o projeto abre no
-Nexo) acontecem — sem ninguém pedir de novo. `nexo_hook_listar` mostra as
+Nexos) acontecem — sem ninguém pedir de novo. `nexo_hook_listar` mostra as
 regras que já existem; confira antes de criar outra igual.
 
 Vale a pena quando o gatilho é o EVENTO, não a conversa: "sempre que eu der
@@ -89,7 +89,7 @@ NÃO-bloqueante (só avisa) e que ligar o bloqueio é ela quem faz, na tela.
 
 ## Instalar uma skill nova
 
-`nexo_skill_instalar` grava um `SKILL.md` na pasta GLOBAL do Nexo — vale pra
+`nexo_skill_instalar` grava um `SKILL.md` na pasta GLOBAL do Nexos — vale pra
 QUALQUER conta a partir do próximo turno, não só a que pediu. Duas origens:
 `md` (você escreve o conteúdo na hora) ou `github` (baixa de um repositório
 PÚBLICO, `owner/repo` + caminho até o `SKILL.md`).
@@ -97,7 +97,7 @@ PÚBLICO, `owner/repo` + caminho até o `SKILL.md`).
 - **Confira antes com `nexo_contexto`** (ou olhando o menu de skills): uma
   skill quase igual já existente é melhor reaproveitada que duplicada.
 - **`origem: github` é a única ferramenta de autoria que fala com fora do
-  Nexo.** Baixe só de repositório que a pessoa pediu ou apontou — nunca "ache
+  Nexos.** Baixe só de repositório que a pessoa pediu ou apontou — nunca "ache
   uma skill pra isso" sozinho a partir de busca na internet, porque o conteúdo
   baixado vira instrução que qualquer conta vai carregar depois.
 - Mesmo `nome` **sobrescreve** a skill que já existia (é UPDATE, igual agente

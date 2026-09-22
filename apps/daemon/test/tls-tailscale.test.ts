@@ -36,7 +36,7 @@ describe("hostnameTailscale", () => {
 });
 
 describe("pedirCertTailscale", () => {
-  it("sucesso: grava cert e key em ~/.nexo/tls, key sempre 0600, e devolve os dois", async () => {
+  it("sucesso: grava cert e key em ~/.nexos/tls, key sempre 0600, e devolve os dois", async () => {
     const home = tempHome();
     execFileMock.mockImplementation((_bin, args, _opts, cb) => {
       const certFile = args[args.indexOf("--cert-file") + 1];

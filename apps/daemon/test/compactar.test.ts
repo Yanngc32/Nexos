@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { PackConfig, ThreadEvent } from "@nexo/shared";
-import { DEFAULT_CONFIG } from "@nexo/shared";
+import type { PackConfig, ThreadEvent } from "@nexos/shared";
+import { DEFAULT_CONFIG } from "@nexos/shared";
 import { historicoParaResumir, montarCompactacao, pedidoDeResumo } from "../src/compactar.ts";
 import { aResumir, cobertosPor, escopo, pack, precisaCompactar, tokensDoHistorico } from "../src/packer.ts";
 

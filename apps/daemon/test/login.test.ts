@@ -7,15 +7,15 @@ import { loginProfile } from "../src/login.ts";
 import { tempHome } from "./helpers.ts";
 
 function isolateClaudeGlobal(home: string): () => void {
-  const prev = process.env.NEXO_CLAUDE_GLOBAL;
-  const prevJson = process.env.NEXO_CLAUDE_GLOBAL_JSON;
-  process.env.NEXO_CLAUDE_GLOBAL = join(home, "empty-claude-global");
-  process.env.NEXO_CLAUDE_GLOBAL_JSON = join(home, "empty-claude.json");
+  const prev = process.env.NEXOS_CLAUDE_GLOBAL;
+  const prevJson = process.env.NEXOS_CLAUDE_GLOBAL_JSON;
+  process.env.NEXOS_CLAUDE_GLOBAL = join(home, "empty-claude-global");
+  process.env.NEXOS_CLAUDE_GLOBAL_JSON = join(home, "empty-claude.json");
   return () => {
-    if (prev === undefined) delete process.env.NEXO_CLAUDE_GLOBAL;
-    else process.env.NEXO_CLAUDE_GLOBAL = prev;
-    if (prevJson === undefined) delete process.env.NEXO_CLAUDE_GLOBAL_JSON;
-    else process.env.NEXO_CLAUDE_GLOBAL_JSON = prevJson;
+    if (prev === undefined) delete process.env.NEXOS_CLAUDE_GLOBAL;
+    else process.env.NEXOS_CLAUDE_GLOBAL = prev;
+    if (prevJson === undefined) delete process.env.NEXOS_CLAUDE_GLOBAL_JSON;
+    else process.env.NEXOS_CLAUDE_GLOBAL_JSON = prevJson;
   };
 }
 
@@ -86,7 +86,7 @@ describe("loginProfile", () => {
     mkdirSync(global, { recursive: true });
     writeFileSync(join(global, ".credentials.json"), "{}", "utf8");
     const restore = isolateClaudeGlobal(home);
-    process.env.NEXO_CLAUDE_GLOBAL = global;
+    process.env.NEXOS_CLAUDE_GLOBAL = global;
     try {
       addProfile({ id: "c4", engine: "claude" }, home, { skipBinCheck: true });
       await loginProfile("c4", home, { bin: fakeEmpty });

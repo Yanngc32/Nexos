@@ -9,7 +9,7 @@ import { arquivosParaResumir } from "./repo-map-enriquecimento.ts";
 /**
  * Módulo "Resumos por IA" (`NexoConfig.modulos.repoMapResumos`) — substitui `grafo-auto.ts`.
  *
- * Só o ENRIQUECIMENTO (resumo de 1 linha por arquivo) passa pelo mecanismo de agente + Nexo
+ * Só o ENRIQUECIMENTO (resumo de 1 linha por arquivo) passa pelo mecanismo de agente + Nexos
  * Hooks: a Camada 1 (índice) não precisa de LLM nenhum, então é recalculada por chamada direta de
  * função nos pontos onde os eventos já nascem (`POST /v1/threads`, `POST /v1/hooks/fire` — ver
  * `http.ts`), sem regra nem agente. Toda `RegraHook` exige `agentId`/`teamId` e sempre sobe um run

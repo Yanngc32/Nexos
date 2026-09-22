@@ -1,4 +1,4 @@
-import type { PackConfig, ThreadEvent } from "@nexo/shared";
+import type { PackConfig, ThreadEvent } from "@nexos/shared";
 
 export type PackResult = {
   text: string;

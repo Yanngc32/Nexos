@@ -44,7 +44,7 @@ describe("construirApk sem SDK do Android (ambiente sem ANDROID_HOME/ANDROID_SDK
     const e = estadoAtualBuild(home);
     expect(e).toMatchObject({ fase: "erro" });
     expect((e as { motivo: string }).motivo).toMatch(/SDK do Android/);
-    // não deve ter tocado o disco em ~/.nexo/apk pra nada — falhou antes de qualquer passo
+    // não deve ter tocado o disco em ~/.nexos/apk pra nada — falhou antes de qualquer passo
     expect(existsSync(apkDir(home))).toBe(false);
   });
 

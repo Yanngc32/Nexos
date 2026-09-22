@@ -1,4 +1,4 @@
-import type { EngineEvent } from "@nexo/shared";
+import type { EngineEvent } from "@nexos/shared";
 
 export const LIMIT_RE =
   /rate_limit|\bquota\b|\b429\b|session limit|usage limit|hit your (session )?limit|you've hit your/i;

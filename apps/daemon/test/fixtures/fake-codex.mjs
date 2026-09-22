@@ -20,7 +20,7 @@ if (argv[0] !== "exec" || !argv.includes("--json")) {
 process.stdout.write(
   JSON.stringify({
     type: "item.completed",
-    item: { id: "meta", type: "command_execution", command: `NEXO_MCP_TOKEN=${process.env.NEXO_MCP_TOKEN ?? ""}`, exit_code: 0, status: "completed" },
+    item: { id: "meta", type: "command_execution", command: `NEXOS_MCP_TOKEN=${process.env.NEXOS_MCP_TOKEN ?? ""}`, exit_code: 0, status: "completed" },
   }) + "\n",
 );
 

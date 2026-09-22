@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace Nexo.WindowsControl;
+namespace Nexos.WindowsControl;
 
 internal sealed record RpcRequest(string Id, string Method, JsonObject? Params);
 internal sealed record RpcError(string Message);

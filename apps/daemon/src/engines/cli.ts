@@ -1,6 +1,6 @@
 import type { ChildProcessWithoutNullStreams, SpawnOptions } from "node:child_process";
-import type { EngineEvent, EngineOverrides, Profile, StartOpts } from "@nexo/shared";
-import type { EffortLevel, EsforcoEscolhido } from "@nexo/shared";
+import type { EngineEvent, EngineOverrides, Profile, StartOpts } from "@nexos/shared";
+import type { EffortLevel, EsforcoEscolhido } from "@nexos/shared";
 import {
   CODEX_SANDBOX_MODES,
   EFFORT_LEVELS,
@@ -10,7 +10,7 @@ import {
   MODEL_RE,
   PERMISSION_MODES,
   TOOL_PATTERN_RE,
-} from "@nexo/shared";
+} from "@nexos/shared";
 import type { Engine, EngineHandler, EngineMcp } from "./types.ts";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -158,7 +158,7 @@ function profileFlags(
 type CliEngineOpts = {
   home: string;
   profileId: string;
-  binEnv: "NEXO_CLAUDE_BIN" | "NEXO_CODEX_BIN";
+  binEnv: "NEXOS_CLAUDE_BIN" | "NEXOS_CODEX_BIN";
   defaultBin: string;
   args: string[];
   /**
@@ -262,10 +262,10 @@ export class CliEngine implements Engine {
     const over: EngineOverrides = { ...agentOverrides(this.agentId, this.home), ...this.overridesDoTurno };
     const mcp = this.mcpFlags(profile?.engine);
     /*
-     * Retomar a conversa do CLI em vez de nascer amnésico. Sem isso o Nexo
+     * Retomar a conversa do CLI em vez de nascer amnésico. Sem isso o Nexos
      * reenvia o histórico no stdin a cada turno e a quota some 2–5× mais
      * rápido (cache-create de system+tools+histórico toda vez, compactação
-     * extra do Nexo, etc.).
+     * extra do Nexos, etc.).
      *
      * Os dois CLIs fazem isso de formas DIFERENTES, e é por isso que há dois
      * caminhos aqui:
@@ -291,7 +291,7 @@ export class CliEngine implements Engine {
     this.args.push(...this.attachmentFlags(profile?.engine));
     this.args.push(...mcp.flags);
     this.lastArgs = this.args;
-    // Skill de `~/.nexo/skills` só chega no motor se estiver dentro do CLAUDE_CONFIG_DIR
+    // Skill de `~/.nexos/skills` só chega no motor se estiver dentro do CLAUDE_CONFIG_DIR
     // isolado deste perfil — sincroniza a cada turno pra qualquer conta enxergar a mesma skill.
     if (profile?.engine === "claude") {
       const dir = engineEnv(profile, this.home).CLAUDE_CONFIG_DIR;
@@ -380,7 +380,7 @@ export class CliEngine implements Engine {
       cwd: this.cwd,
       env: {
         ...this.spawnEnv,
-        NEXO_CONTEXT_PACK: this.pack,
+        NEXOS_CONTEXT_PACK: this.pack,
         // só o codex usa: o nome da variável está no `-c` que ele recebeu
         ...(this.mcpHttp ? { [ENV_TOKEN_MCP]: this.mcpHttp.token } : {}),
       },
@@ -460,7 +460,7 @@ export function claudeEngine(home: string, profileId: string): CliEngine {
   return new CliEngine({
     home,
     profileId,
-    binEnv: "NEXO_CLAUDE_BIN",
+    binEnv: "NEXOS_CLAUDE_BIN",
     defaultBin: "claude",
     args: ["--print", "--verbose", "--output-format", "stream-json", "--include-partial-messages"],
     parse: parseCliLine,
@@ -476,7 +476,7 @@ export function claudeEngine(home: string, profileId: string): CliEngine {
  *
  * `--skip-git-repo-check` porque o `codex exec` se recusa a rodar fora de um
  * repositório git. É uma proteção dele — sem git, o que o modelo escreve não tem
- * como ser desfeito — e desligá-la é escolha, não descuido: o Nexo já aceita
+ * como ser desfeito — e desligá-la é escolha, não descuido: o Nexos já aceita
  * projeto que não é repositório nos outros motores, e manter a recusa faria o
  * `codex` ser o único a falhar em projeto que funciona hoje. Quem quer a rede
  * usa git no projeto, que é o que o fan-in já exige pra isolar membro.
@@ -488,7 +488,7 @@ export function codexEngine(home: string, profileId: string): CliEngine {
   return new CliEngine({
     home,
     profileId,
-    binEnv: "NEXO_CODEX_BIN",
+    binEnv: "NEXOS_CODEX_BIN",
     defaultBin: "codex",
     args: ["exec", "--json", "--skip-git-repo-check"],
     parse: parseCodexLine,

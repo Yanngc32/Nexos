@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import { APK_CODE_LEN, APK_MAX_ERROS, APK_TTL_MS, PAIR_ALFABETO, normalizarCodigo } from "@nexo/shared";
+import { APK_CODE_LEN, APK_MAX_ERROS, APK_TTL_MS, PAIR_ALFABETO, normalizarCodigo } from "@nexos/shared";
 
 /**
  * Código de download do APK Android.

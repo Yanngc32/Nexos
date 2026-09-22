@@ -39,7 +39,7 @@ describe("catálogo", () => {
     }
   });
 
-  it("os modelos que se inspiram no ADK dizem onde o Nexo difere", () => {
+  it("os modelos que se inspiram no ADK dizem onde o Nexos difere", () => {
     // vender orquestração que não existe seria mentira: quem empresta o formato
     // de um agente composto tem que explicar que aqui é um agente só
     for (const id of ["pipeline", "loop", "coordenador"]) {

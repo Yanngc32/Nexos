@@ -175,17 +175,17 @@ describe("profiles", () => {
     const global = join(home, "claude-global");
     mkdirSync(global, { recursive: true });
     writeFileSync(join(global, ".credentials.json"), deadCred(), "utf8");
-    const prev = process.env.NEXO_CLAUDE_GLOBAL;
-    const prevJson = process.env.NEXO_CLAUDE_GLOBAL_JSON;
-    process.env.NEXO_CLAUDE_GLOBAL = global;
-    process.env.NEXO_CLAUDE_GLOBAL_JSON = join(home, "missing.json");
+    const prev = process.env.NEXOS_CLAUDE_GLOBAL;
+    const prevJson = process.env.NEXOS_CLAUDE_GLOBAL_JSON;
+    process.env.NEXOS_CLAUDE_GLOBAL = global;
+    process.env.NEXOS_CLAUDE_GLOBAL_JSON = join(home, "missing.json");
     try {
       addProfile({ id: "gdead", engine: "claude" }, home, { skipBinCheck: true });
       expect(() => importGlobalCredentials("gdead", home)).toThrow(/vencida|vazia/);
       expect(getProfile("gdead", home)?.status).toBe("unauthenticated");
     } finally {
-      process.env.NEXO_CLAUDE_GLOBAL = prev;
-      process.env.NEXO_CLAUDE_GLOBAL_JSON = prevJson;
+      process.env.NEXOS_CLAUDE_GLOBAL = prev;
+      process.env.NEXOS_CLAUDE_GLOBAL_JSON = prevJson;
     }
   });
 
@@ -194,19 +194,19 @@ describe("profiles", () => {
     const global = join(home, "claude-global");
     mkdirSync(global, { recursive: true });
     writeFileSync(join(global, ".credentials.json"), "{}", "utf8");
-    const prev = process.env.NEXO_CLAUDE_GLOBAL;
-    const prevJson = process.env.NEXO_CLAUDE_GLOBAL_JSON;
-    process.env.NEXO_CLAUDE_GLOBAL = global;
-    process.env.NEXO_CLAUDE_GLOBAL_JSON = join(home, "missing.json");
+    const prev = process.env.NEXOS_CLAUDE_GLOBAL;
+    const prevJson = process.env.NEXOS_CLAUDE_GLOBAL_JSON;
+    process.env.NEXOS_CLAUDE_GLOBAL = global;
+    process.env.NEXOS_CLAUDE_GLOBAL_JSON = join(home, "missing.json");
     try {
       addProfile({ id: "g1", engine: "claude" }, home, { skipBinCheck: true });
       const p = importGlobalCredentials("g1", home);
       expect(p.status).toBe("ready");
     } finally {
-      if (prev === undefined) delete process.env.NEXO_CLAUDE_GLOBAL;
-      else process.env.NEXO_CLAUDE_GLOBAL = prev;
-      if (prevJson === undefined) delete process.env.NEXO_CLAUDE_GLOBAL_JSON;
-      else process.env.NEXO_CLAUDE_GLOBAL_JSON = prevJson;
+      if (prev === undefined) delete process.env.NEXOS_CLAUDE_GLOBAL;
+      else process.env.NEXOS_CLAUDE_GLOBAL = prev;
+      if (prevJson === undefined) delete process.env.NEXOS_CLAUDE_GLOBAL_JSON;
+      else process.env.NEXOS_CLAUDE_GLOBAL_JSON = prevJson;
     }
   });
 
@@ -215,19 +215,19 @@ describe("profiles", () => {
     const global = join(home, "claude-global");
     mkdirSync(join(global, "deep"), { recursive: true });
     writeFileSync(join(global, "deep", ".credentials.json"), "{}", "utf8");
-    const prev = process.env.NEXO_CLAUDE_GLOBAL;
-    const prevJson = process.env.NEXO_CLAUDE_GLOBAL_JSON;
-    process.env.NEXO_CLAUDE_GLOBAL = global;
-    process.env.NEXO_CLAUDE_GLOBAL_JSON = join(home, "missing.json");
+    const prev = process.env.NEXOS_CLAUDE_GLOBAL;
+    const prevJson = process.env.NEXOS_CLAUDE_GLOBAL_JSON;
+    process.env.NEXOS_CLAUDE_GLOBAL = global;
+    process.env.NEXOS_CLAUDE_GLOBAL_JSON = join(home, "missing.json");
     try {
       addProfile({ id: "g2", engine: "claude" }, home, { skipBinCheck: true });
       const p = importGlobalCredentials("g2", home);
       expect(p.status).toBe("ready");
     } finally {
-      if (prev === undefined) delete process.env.NEXO_CLAUDE_GLOBAL;
-      else process.env.NEXO_CLAUDE_GLOBAL = prev;
-      if (prevJson === undefined) delete process.env.NEXO_CLAUDE_GLOBAL_JSON;
-      else process.env.NEXO_CLAUDE_GLOBAL_JSON = prevJson;
+      if (prev === undefined) delete process.env.NEXOS_CLAUDE_GLOBAL;
+      else process.env.NEXOS_CLAUDE_GLOBAL = prev;
+      if (prevJson === undefined) delete process.env.NEXOS_CLAUDE_GLOBAL_JSON;
+      else process.env.NEXOS_CLAUDE_GLOBAL_JSON = prevJson;
     }
   });
 });

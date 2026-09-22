@@ -127,7 +127,7 @@ describe("startDaemon", () => {
   });
 
   it("nunca escuta em endereço mais aberto do que foi pedido", async () => {
-    // se a detecção ou o fallback trouxessem 0.0.0.0, o Nexo apareceria na rede
+    // se a detecção ou o fallback trouxessem 0.0.0.0, o Nexos apareceria na rede
     // inteira sem ninguém pedir
     const home = tempHome();
     saveConfig(home, { host: "203.0.113.7" });

@@ -169,7 +169,7 @@ describe("migrarRaizLegadaRemovida", () => {
   it("traz o conteúdo da raiz que a pessoa apagou do config — `migrarProjeto` sozinho não acha", () => {
     const home = tempHome();
     const projeto = tempProjeto();
-    // Raiz escolhida pela pessoa (ex.: uma pasta do Drive), FORA de `~/.nexo`.
+    // Raiz escolhida pela pessoa (ex.: uma pasta do Drive), FORA de `~/.nexos`.
     const raizEscolhida = mkdtempSync(join(tmpdir(), "nexo-drive-"));
     const antiga = join(raizEscolhida, hashLegado(projeto));
     mkdirSync(antiga, { recursive: true });

@@ -22,7 +22,7 @@ import {
 } from "../src/session.ts";
 import { janelaDaConta, modeloDoMotor } from "../src/session.ts";
 import { StubEngine } from "../src/engines/stub.ts";
-import type { Profile, ThreadEvent } from "@nexo/shared";
+import type { Profile, ThreadEvent } from "@nexos/shared";
 
 const ts0 = "2026-01-01T00:00:00.000Z";
 import { saveAgent } from "../src/agents.ts";
@@ -293,7 +293,7 @@ describe("session", () => {
     addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
     const dir = engineEnv(getProfile("c1", home)!, home).CLAUDE_CONFIG_DIR!;
     writeFileSync(join(dir, ".credentials.json"), liveCred(), "utf8");
-    process.env.NEXO_CLAUDE_BIN = join(
+    process.env.NEXOS_CLAUDE_BIN = join(
       dirname(fileURLToPath(import.meta.url)),
       "fixtures",
       "fake-claude.mjs",
@@ -314,7 +314,7 @@ describe("session", () => {
       expect(seen.some((e) => e.type === "error")).toBe(false);
     } finally {
       sessionBus.off(t.id, onEv);
-      delete process.env.NEXO_CLAUDE_BIN;
+      delete process.env.NEXOS_CLAUDE_BIN;
     }
   });
 
@@ -791,12 +791,12 @@ describe("pingUsoDeTodasAsContas", () => {
       `#!/usr/bin/env node\nimport { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marca)}, "1");\n`,
       { encoding: "utf8", mode: 0o755 },
     );
-    process.env.NEXO_CODEX_BIN = sentinela;
+    process.env.NEXOS_CODEX_BIN = sentinela;
     try {
       await pingUsoDeTodasAsContas(home);
       expect(existsSync(marca), "o motor codex não pode nem ser iniciado").toBe(false);
     } finally {
-      delete process.env.NEXO_CODEX_BIN;
+      delete process.env.NEXOS_CODEX_BIN;
     }
   }, 10_000);
 
@@ -805,14 +805,14 @@ describe("pingUsoDeTodasAsContas", () => {
     addProfile({ id: "c-ping", engine: "claude" }, home, { skipBinCheck: true });
     const dir = engineEnv(getProfile("c-ping", home)!, home).CLAUDE_CONFIG_DIR!;
     writeFileSync(join(dir, ".credentials.json"), liveCred(), "utf8");
-    process.env.NEXO_CLAUDE_BIN = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-claude.mjs");
+    process.env.NEXOS_CLAUDE_BIN = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-claude.mjs");
     try {
       await pingUsoDeTodasAsContas(home);
       // a fixture não emite `limits`, então o ponto aqui é: terminou sozinho (não travou até o
       // timeout de 60s) e a conta virou "ready" pelo mesmo caminho de uma conversa de verdade.
       expect(getProfile("c-ping", home)?.status).toBe("ready");
     } finally {
-      delete process.env.NEXO_CLAUDE_BIN;
+      delete process.env.NEXOS_CLAUDE_BIN;
     }
   }, 10_000);
 });

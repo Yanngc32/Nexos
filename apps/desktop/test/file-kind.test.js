@@ -25,7 +25,7 @@ describe("tipo de arquivo pela extensão", () => {
       "logo.svg": "svg",
       "pnpm-lock.yaml": "yaml",
       "config.toml": "config",
-      "Nexo.lnk": "link",
+      "Nexos.lnk": "link",
       "saida.log": "texto",
       "pacote.zip": "arq",
       "electron.exe": "bin",

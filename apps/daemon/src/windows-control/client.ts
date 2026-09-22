@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 /**
- * Ponte com o helper nativo `Nexo.WindowsControl.exe` (.NET, `native/*.cs`) —
+ * Ponte com o helper nativo `Nexos.WindowsControl.exe` (.NET, `native/*.cs`) —
  * fala JSON-lines por stdio: um pedido `{id,method,params}\n`, uma resposta
  * `{id,result?,error?}\n`. Só o Win32/UI Automation de verdade sabe listar
  * janela, ler árvore de acessibilidade e mandar SendInput; o daemon (Node
@@ -17,7 +17,7 @@ const execFileAsync = promisify(execFile);
  * separado, em vez de reimplementar isso em JS.
  */
 
-const HELPER_NAME = "Nexo.WindowsControl.exe";
+const HELPER_NAME = "Nexos.WindowsControl.exe";
 const TIMEOUT_MS = 45_000;
 
 interface NativeResponse<T> {

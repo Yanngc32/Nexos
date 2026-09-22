@@ -2,7 +2,7 @@
  * Modelos de criação de agente, inspirados nos formatos do ADK do Google
  * (LlmAgent, SequentialAgent, LoopAgent, coordenador com sub-agentes).
  *
- * Importante não vender o que não existe: o Nexo não orquestra sub-agentes nem
+ * Importante não vender o que não existe: o Nexos não orquestra sub-agentes nem
  * roda etapas em paralelo — o motor é uma CLI em `--print`, um turno por vez.
  * O que estes modelos fazem é dar ao agente a FORMA de trabalho de cada
  * arquétipo pela instrução: onde o ADK monta um SequentialAgent com três

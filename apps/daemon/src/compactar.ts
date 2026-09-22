@@ -1,4 +1,4 @@
-import type { PackConfig, Profile, ThreadEvent } from "@nexo/shared";
+import type { PackConfig, Profile, ThreadEvent } from "@nexos/shared";
 import { aResumir, CABECALHO, cobertosPor, escopo, tokensDoHistorico } from "./packer.ts";
 
 /**
@@ -14,12 +14,12 @@ import { aResumir, CABECALHO, cobertosPor, escopo, tokensDoHistorico } from "./p
  * resumo é a única forma de o turno seguinte ainda saber por que uma decisão foi
  * tomada seis mensagens atrás.
  *
- * **Por que o Nexo precisa fazer isso, e não o CLI.** O CLI do `claude` tem
+ * **Por que o Nexos precisa fazer isso, e não o CLI.** O CLI do `claude` tem
  * autocompact próprio (o `autocompact_state` do stream traz `enabled` e
- * `threshold`). Ele só dispara em sessão longa. Sem `--resume`, o Nexo fazia
+ * `threshold`). Ele só dispara em sessão longa. Sem `--resume`, o Nexos fazia
  * UM SPAWN POR TURNO com `--print` e o histórico ia no context pack — não
  * existia sessão pra ele compactar. Com `--resume` (ver `CliEngine.updateResume`)
- * a sessão volta a existir, o autocompact do CLI passa a valer, e o Nexo NÃO
+ * a sessão volta a existir, o autocompact do CLI passa a valer, e o Nexos NÃO
  * gasta um turno extra de resumo nessas conversas. Compactação daqui fica
  * pra motor sem sessão (`codex`/`api`/primeiro turno sem id).
  *

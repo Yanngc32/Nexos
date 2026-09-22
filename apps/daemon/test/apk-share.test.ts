@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { APK_CODE_LEN, APK_MAX_ERROS, APK_TTL_MS, PAIR_ALFABETO } from "@nexo/shared";
+import { APK_CODE_LEN, APK_MAX_ERROS, APK_TTL_MS, PAIR_ALFABETO } from "@nexos/shared";
 import {
   abrirDownload,
   downloadAberto,

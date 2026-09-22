@@ -1,4 +1,4 @@
-# Nexo
+# Nexos
 
 Orquestrador local de agentes de código. Um daemon roda na sua máquina, fala com CLIs de
 agente já instaladas nela (Claude Code, Codex) ou com API, e um app Electron serve de
@@ -13,7 +13,7 @@ provedor dela.
 ## Instalar (Windows)
 
 Baixe o instalador em **[Releases](https://github.com/Yanngc32/Nexos/releases/latest)** —
-`Nexo Setup X.Y.Z.exe`, na seção Assets da release mais recente — e rode. Não precisa de
+`Nexos Setup X.Y.Z.exe`, na seção Assets da release mais recente — e rode. Não precisa de
 Node, pnpm nem clonar o repositório: o daemon vai empacotado junto do app.
 
 O instalador não é assinado (ver [docs/RELEASE.md](docs/RELEASE.md#assinatura-de-código)),
@@ -32,7 +32,7 @@ abaixo.
 - Node.js 20+
 - pnpm 9 (`corepack enable`)
 - Para o motor `claude`/`codex`: a CLI correspondente instalada e logada
-- Para o motor `api`: uma chave do provedor (guardada em `~/.nexo/profiles/<id>/`)
+- Para o motor `api`: uma chave do provedor (guardada em `~/.nexos/profiles/<id>/`)
 
 ## Instalação
 
@@ -79,12 +79,12 @@ packages/shared  tipos e constantes compartilhados
 docs/            specs e plano de implementação
 ```
 
-Nenhum pacote compila: o daemon roda via `tsx` e o `@nexo/shared` é consumido como fonte
+Nenhum pacote compila: o daemon roda via `tsx` e o `@nexos/shared` é consumido como fonte
 (`exports` aponta para o `.ts`). O `tsc` existe só como checador (`pnpm typecheck`).
 
 ## Estado no disco
 
-Tudo fica em `~/.nexo` (ou `NEXO_HOME`):
+Tudo fica em `~/.nexos` (ou `NEXOS_HOME`):
 
 | caminho | conteúdo |
 | --- | --- |
@@ -113,7 +113,7 @@ O supervisor manda por um de dois canais:
 - **por turno** (padrão): ele responde a ordem em texto, o daemon executa e volta com o resultado
   no turno seguinte da mesma conversa. Custa **um turno por decisão** e roda em qualquer motor.
 - **por ferramenta (MCP)**: o daemon vira servidor MCP e ele chama os membros sem sair do turno —
-  o run inteiro cabe num turno só. Só em conta `claude`; nas outras o Nexo cai de volta pro canal
+  o run inteiro cabe num turno só. Só em conta `claude`; nas outras o Nexos cai de volta pro canal
   por turno e registra o motivo em `canalOff`.
 
 Nos dois casos quem executa o membro é o daemon, e quantas rodadas vão acontecer é o supervisor
@@ -121,7 +121,7 @@ quem escolhe — use `maxSteps` no orçamento do run pra fechar a conta.
 
 ### Compactação automática de contexto
 
-Quando o histórico encosta em 80% do que cabe no turno, o Nexo **resume** o
+Quando o histórico encosta em 80% do que cabe no turno, o Nexos **resume** o
 trecho antigo em vez de cortá-lo, e passa a mandar o resumo no lugar dele. As
 últimas mensagens seguem verbatim: recência é o que mais importa pro turno
 seguinte.
@@ -131,9 +131,9 @@ CARACTERES do que jogava fora, cortados no meio da palavra — o meio da convers
 desaparecia inteiro. O corte continua existindo como último recurso, pra quando
 o resumo ainda não couber ou o motor falhar em produzi-lo.
 
-O `claude` tem autocompact próprio, mas ele nunca dispara aqui: o Nexo faz um
+O `claude` tem autocompact próprio, mas ele nunca dispara aqui: o Nexos faz um
 spawn por turno com `--print`, então não existe sessão longa pra ele compactar.
-A memória da conversa é do Nexo, e a compactação também.
+A memória da conversa é do Nexos, e a compactação também.
 
 **Custa um turno da sua conta**, com o trecho antigo como entrada — e se paga nos
 turnos seguintes, que passam a mandar o resumo. Desligue com
@@ -167,14 +167,14 @@ comando explícito porque `~/.claude` é configuração de outra ferramenta.
 Vale em conta `claude` e em conta `codex`, cada um do jeito dele (arquivo de config
 num, chave de config e token por variável de ambiente no outro). Nas contas `api` e
 `stub` não vale, e a tela continua sendo o caminho garantido: o `api` é chamada HTTP
-direta ao provedor, sem cliente MCP nenhum — dar ferramenta a ele significaria o Nexo
+direta ao provedor, sem cliente MCP nenhum — dar ferramenta a ele significaria o Nexos
 rodar o laço de ferramenta por conta própria, que é outra coisa.
 
 O **supervisor** por MCP segue só em `claude`: o servidor dele é preso ao run e vem
 carimbado na conversa como caminho de arquivo, formato que o `codex` não usa. Em conta
 `codex` o supervisor usa o canal por turno.
 
-### O que o Nexo escreve no SEU repositório
+### O que o Nexos escreve no SEU repositório
 
 Um time em paralelo (fan-in) dá a cada membro uma árvore de trabalho própria via `git worktree`,
 num branch `nexo/<run>/<n>-<agente>`. A árvore sai do disco quando o run acaba; **o branch fica**,
@@ -213,7 +213,7 @@ de fora (hoje só existem no processo do Electron, e telefone não é onde se l�
 **Ligar a ponte, uma vez:**
 
 1. Tenha um túnel de pé no PC e no celular (Tailscale, WireGuard). Não precisa
-   descobrir nem digitar o IP: o Nexo acha sozinho.
+   descobrir nem digitar o IP: o Nexos acha sozinho.
 2. No PC: **Configurações → Celular → Gerar código**.
 3. Aponte a câmera do celular pro QR. Ele abre a página e conecta.
 4. No celular, **Adicionar à tela de início**. Vira um app.
@@ -247,7 +247,7 @@ vez, não uma credencial permanente.
 
 `Ctrl+Shift+W`, o botão **Painel** no rodapé ou a bandeja abrem uma janela pequena que fica sempre
 por cima: passo do run em andamento, conversas trabalhando, quota por conta e custo acumulado. Ela
-existe pra responder "está andando?" sem trazer o Nexo pra frente — um time roda por minutos
+existe pra responder "está andando?" sem trazer o Nexos pra frente — um time roda por minutos
 enquanto você está no editor. Arraste pela faixa do título; ela reabre onde estava.
 
 O que ela mostra é do **projeto aberto** (o cabeçalho diz qual). A quota é exceção: é da conta, não
@@ -263,7 +263,7 @@ do projeto. Sem projeto aberto, ela mostra tudo que o daemon está fazendo.
   sem credencial já conheceria o código, e não haveria nada a adivinhar. Um teste varre a
   tabela de rotas e falha se qualquer `/v1/*` responder sem o bearer, porque no Hono a
   autenticação depende da ordem de registro e uma rota aberta não dá erro nenhum.
-- O token tem 192 bits e fica em `~/.nexo/daemon.token` (modo `0600`). Ele
+- O token tem 192 bits e fica em `~/.nexos/daemon.token` (modo `0600`). Ele
   **sobrevive** às subidas do daemon, senão o celular desparearia a cada reinício —
   sessão que morre sozinha não é segurança, é atrito. A revogação é explícita:
   **Desconectar celulares** sorteia um novo e derruba todos de uma vez.

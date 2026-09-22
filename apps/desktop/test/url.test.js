@@ -162,7 +162,7 @@ describe("urlDoCelular", () => {
 describe("urlDoApk", () => {
   it("monta o endereço que GET /apk espera, com o código na QUERY (não no fragmento)", () => {
     // fragmento nunca chega ao servidor — só o JS da SPA já carregada o lê, e
-    // aqui o celular pode nem ter o Nexo aberto ainda
+    // aqui o celular pode nem ter o Nexos aberto ainda
     expect(urlDoApk("192.168.0.42", 7432, "AB3K9Z")).toBe("http://192.168.0.42:7432/apk?c=AB3K9Z");
     expect(urlDoApk("192.168.0.42", 7432)).toBe("http://192.168.0.42:7432/apk");
   });

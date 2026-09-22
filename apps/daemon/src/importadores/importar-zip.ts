@@ -1,5 +1,5 @@
 import AdmZip from "adm-zip";
-import type { ThreadEvent } from "@nexo/shared";
+import type { ThreadEvent } from "@nexos/shared";
 import { appendEvent, createThread } from "../threads.ts";
 import { claudeExport } from "./claude-export.ts";
 import type { Importador } from "./tipos.ts";

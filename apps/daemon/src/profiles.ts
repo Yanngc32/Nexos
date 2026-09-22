@@ -22,7 +22,7 @@ import type {
   NavegadorModo,
   PermissionMode,
   Profile,
-} from "@nexo/shared";
+} from "@nexos/shared";
 import {
   CLAUDE_EFFORT_LEVELS,
   CODEX_SANDBOX_MODES,
@@ -34,7 +34,7 @@ import {
   PERMISSION_MODES,
   TOOL_PATTERN_RE,
   WINDOW_KEY_RE,
-} from "@nexo/shared";
+} from "@nexos/shared";
 import { loadConfig, saveConfig } from "./config.ts";
 import { githubToken } from "./github-auth.ts";
 import { assertSlug } from "./ids.ts";
@@ -579,7 +579,7 @@ export const IMPORT_WARNING =
   "aviso: credencial copiada é foto da sessão do ~/.claude — o refresh token rotaciona, então a cópia morre no primeiro refresh do login global. Para durar, use: nexo login <perfil>";
 
 export function globalClaudeDir(): string {
-  return process.env.NEXO_CLAUDE_GLOBAL ?? join(homedir(), ".claude");
+  return process.env.NEXOS_CLAUDE_GLOBAL ?? join(homedir(), ".claude");
 }
 
 export function importGlobalCredentials(id: string, home: string): Profile {
@@ -590,7 +590,7 @@ export function importGlobalCredentials(id: string, home: string): Profile {
   if (!dest) throw new Error("pasta claude ausente");
   mkdirSync(dest, { recursive: true });
   let copied = copyCredTree(globalClaudeDir(), dest);
-  const homeJson = process.env.NEXO_CLAUDE_GLOBAL_JSON ?? join(homedir(), ".claude.json");
+  const homeJson = process.env.NEXOS_CLAUDE_GLOBAL_JSON ?? join(homedir(), ".claude.json");
   if (existsSync(homeJson)) {
     copyFileSync(homeJson, join(dest, ".claude.json"));
     copied += 1;

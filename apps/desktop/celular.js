@@ -1,7 +1,7 @@
 import { hostNaUrl } from "./url.js";
 
 /**
- * O texto do painel Celular: onde o celular alcança o Nexo, e o que está no
+ * O texto do painel Celular: onde o celular alcança o Nexos, e o que está no
  * caminho quando não alcança.
  *
  * Está num módulo próprio porque tem regra e ordem, e porque `renderer.js` não
@@ -27,13 +27,13 @@ export function alcancaveis(hosts = []) {
 export function celAlcance(escuta) {
   const hosts = escuta?.hosts ?? [];
   const porta = escuta?.port || 7432;
-  if (!hosts.length) return "O Nexo não está escutando. Ligue o motor no rodapé.";
+  if (!hosts.length) return "O Nexos não está escutando. Ligue o motor no rodapé.";
   if (TUDO.has(hosts[0])) {
     return `Escutando na rede inteira, na porta ${porta}. Qualquer um que alcance esta máquina depende só do token.`;
   }
   const fora = alcancaveis(hosts);
   if (!fora.length) {
-    return `Só esta máquina alcança. Ligue seu túnel (Tailscale, WireGuard) e o Nexo entra nele sozinho, em segundos, sem reiniciar nada.`;
+    return `Só esta máquina alcança. Ligue seu túnel (Tailscale, WireGuard) e o Nexos entra nele sozinho, em segundos, sem reiniciar nada.`;
   }
   return `Alcançável em ${fora.map((h) => `${hostNaUrl(h)}:${porta}`).join(" e ")} — quem estiver no seu túnel chega, e mais ninguém.`;
 }
@@ -49,7 +49,7 @@ export function celAviso(escuta) {
   const hosts = escuta?.hosts ?? [];
   if (falhas.length) {
     const lista = falhas.map((f) => `${f.host} (${f.motivo})`).join(", ");
-    return `Não consegui escutar em ${lista}. Se for o endereço do seu túnel, ele deve estar fora do ar — quando voltar, o Nexo entra sozinho.`;
+    return `Não consegui escutar em ${lista}. Se for o endereço do seu túnel, ele deve estar fora do ar — quando voltar, o Nexos entra sozinho.`;
   }
   if (TUDO.has(hosts[0])) {
     return "Atenção: escutar em toda a rede deixa o token como única barreira. Não faça isso em Wi-Fi compartilhado.";

@@ -1,7 +1,7 @@
 using System.Drawing;
 using System.Runtime.InteropServices;
 
-namespace Nexo.WindowsControl;
+namespace Nexos.WindowsControl;
 
 internal static class InputController
 {

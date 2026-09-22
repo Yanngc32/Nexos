@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import type { Server } from "node:http";
 import { join } from "node:path";
-import { DEFAULT_CONFIG } from "@nexo/shared";
+import { DEFAULT_CONFIG } from "@nexos/shared";
 import { loadConfig } from "./config.ts";
 import { fecharTudo, ligadoEm, manterEmDia, manterHttpsEmDia, religar } from "./escuta.ts";
 import { ensureHome, tokenPath } from "./home.ts";
@@ -32,7 +32,7 @@ export type StartResult =
  * Antes ele era sorteado a cada subida, e o efeito prático era desparear o
  * celular toda vez que a máquina reiniciava: você escaneava o QR de novo todo
  * dia. Sessão que morre sozinha não é segurança, é atrito — o arquivo já é
- * `0600`, e quem consegue lê-lo consegue ler o resto do `~/.nexo` também.
+ * `0600`, e quem consegue lê-lo consegue ler o resto do `~/.nexos` também.
  *
  * A troca é explícita: `POST /v1/token/rotate` sorteia um novo e derruba todos
  * os celulares de uma vez. Revogar virou botão, em vez de acontecer por
@@ -81,12 +81,12 @@ export async function startDaemon(home: string, opts?: { port?: number }): Promi
   reapRunPids(home);
 
   /*
-   * `NEXO_HOST` ganha do config: quem sobe o daemon num terminal com uma
+   * `NEXOS_HOST` ganha do config: quem sobe o daemon num terminal com uma
    * interface específica em mente não deveria ter que editar arquivo. Nos dois
    * casos é um ACRÉSCIMO à detecção automática, não uma substituição — o
    * loopback entra sempre, e os túneis que a máquina tem entram sozinhos.
    */
-  const hostManual = () => process.env.NEXO_HOST?.trim() || loadConfig(home).host;
+  const hostManual = () => process.env.NEXOS_HOST?.trim() || loadConfig(home).host;
 
   const token = tokenDaCasa(home);
   const app = createApp(home, token);

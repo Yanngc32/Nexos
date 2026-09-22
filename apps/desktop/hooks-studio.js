@@ -1,5 +1,5 @@
 /**
- * Tela cheia de UMA regra de Nexo Hook — sem bancada de execução (a regra não roda aqui, só
+ * Tela cheia de UMA regra de Nexos Hook — sem bancada de execução (a regra não roda aqui, só
  * dispara sozinha quando o evento acontece). Mesmo padrão de `team-studio.js`: campos lidos por
  * `id`, `sujo()` compara contra um snapshot pra saber se há mudança pendente, erro da API cai
  * num parágrafo dedicado. Automação de tarefa (`tarefa.mudou-coluna`) não se cria aqui — vive só

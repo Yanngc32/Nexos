@@ -28,7 +28,7 @@ import {
   INSTRUCAO_MODELO,
   INSTRUCAO_ESFORCO,
 } from "../src/typesafe.ts";
-import { MODELO_AUTO, ESFORCO_AUTO } from "@nexo/shared";
+import { MODELO_AUTO, ESFORCO_AUTO } from "@nexos/shared";
 
 function listarThreadsRecentes(home: string, limite = 20) {
   const dir = dirname(threadPath("placeholder", home));

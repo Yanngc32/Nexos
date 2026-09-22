@@ -236,7 +236,7 @@ describe("limpeza dos branches nexo/*", () => {
 
     const feitos = await apagarBranchesNexo(r, ["release", "main", "../fuga"]);
     expect(feitos.every((f) => !f.ok)).toBe(true);
-    expect(feitos.every((f) => f.saida === "não é branch do Nexo")).toBe(true);
+    expect(feitos.every((f) => f.saida === "não é branch do Nexos")).toBe(true);
     expect(execFileSync("git", ["branch", "--list", "release"], { cwd: r, encoding: "utf8" }).trim()).toContain(
       "release",
     );

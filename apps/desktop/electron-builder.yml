@@ -1,8 +1,8 @@
 # Config do electron-builder — gera o instalador Windows (NSIS) e publica no GitHub Releases,
 # que é de onde o electron-updater (ver main.cjs) lê a versão mais nova em produção.
 # Ver docs/RELEASE.md pro processo de corte de release.
-appId: br.com.2dconsultores.nexo
-productName: Nexo
+appId: br.com.2dconsultores.nexos
+productName: Nexos
 directories:
   output: dist
 files:
@@ -13,14 +13,30 @@ files:
   - "!**/*.test.js"
 # O daemon roda como processo filho do main, no PRÓPRIO binário do Electron em modo Node
 # (ELECTRON_RUN_AS_NODE — ver spawnNexo em main.cjs), então não depende de Node instalado na
-# máquina de quem instala. `daemon-dist` é gerado por `pnpm run deploy:daemon` (script `predeploy`
-# do `build`/`build:publish`): `pnpm deploy` resolve `@nexo/shared` (workspace:*) pra uma cópia de
-# verdade dentro do próprio `node_modules` do deploy, em vez do symlink pro monorepo que não
-# existe na máquina de quem instala. `tsx` é dependency (não devDependency) do daemon por isso —
-# precisa ir junto do `--prod` do deploy pra interpretar o TypeScript em runtime.
+# máquina de quem instala. `daemon-dist` é gerado por `pnpm run deploy:daemon`: `pnpm deploy`
+# resolve `@nexos/shared` (workspace:*) pra uma cópia de verdade dentro do próprio `node_modules`
+# do deploy, em vez do symlink pro monorepo que não existe na máquina de quem instala. `tsx` é
+# dependency (não devDependency) do daemon por isso — precisa ir junto do `--prod` do deploy pra
+# interpretar o TypeScript em runtime.
+#
+# `deploy:daemon` (scripts/deploy-daemon.mjs) roda com `--config.node-linker=hoisted` DE
+# PROPÓSITO: sem isto o pnpm monta o `node_modules` do deploy com NTFS junctions (Windows)
+# apontando pra `.pnpm/<pacote>/node_modules/<pacote>`, e o node_modules resultante SEMPRE some
+# do pacote (ver nota abaixo) — `hoisted` gera um `node_modules` PLANO, sem junction nenhuma.
+#
+# `node_modules` sai de fora do `extraResources` abaixo DE PROPÓSITO: o electron-builder tem um
+# filtro embutido (`util/filter.js`) que descarta, em silêncio e sem flag que desligue, qualquer
+# pasta chamada exatamente `node_modules` na raiz de uma origem de `extraResources`. Sem isso o
+# app empacotado subia sem `tsx`/`esbuild`/`@nexos/shared`, e o motor nunca ligava — nenhum erro
+# nem warning no log do build. `scripts/after-pack.cjs` copia essa pasta na mão, depois do
+# electron-builder empacotar o resto.
 extraResources:
   - from: daemon-dist
     to: daemon
+    filter:
+      - "**/*"
+      - "!node_modules"
+afterPack: scripts/after-pack.cjs
 win:
   target: nsis
   icon: icons/app.png

@@ -1,4 +1,4 @@
-import type { EngineEvent, EngineOverrides, StartOpts } from "@nexo/shared";
+import type { EngineEvent, EngineOverrides, StartOpts } from "@nexos/shared";
 
 export type EngineHandler = (ev: EngineEvent) => void;
 

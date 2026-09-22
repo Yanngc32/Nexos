@@ -8,7 +8,7 @@ import { ensureHome, googleAuthPath } from "./home.ts";
  * (navegador + escolha da pasta) mora em google-conectar.ts.
  *
  * Escopo `drive` (completo): a pessoa escolhe QUALQUER pasta já existente no Drive dela (navegando
- * ou colando um link — ver google-conectar.ts), não só pasta criada pelo próprio Nexo. Tentamos
+ * ou colando um link — ver google-conectar.ts), não só pasta criada pelo próprio Nexos. Tentamos
  * `drive.file` + Picker antes — não dá: Picker não concede acesso de leitura/escrita a PASTA
  * nenhuma, só a arquivo individual que a pessoa abre por ele. Sem escopo completo, marcar uma
  * pasta "de fora" como raiz (escrever `appProperties` nela) dá 404/403 mesmo ela existindo.
@@ -17,10 +17,10 @@ import { ensureHome, googleAuthPath } from "./home.ts";
  */
 export const SCOPES = "openid email https://www.googleapis.com/auth/drive";
 export function authUrl(): string {
-  return process.env.NEXO_GOOGLE_AUTH_URL ?? "https://accounts.google.com/o/oauth2/v2/auth";
+  return process.env.NEXOS_GOOGLE_AUTH_URL ?? "https://accounts.google.com/o/oauth2/v2/auth";
 }
 export function tokenUrl(): string {
-  return process.env.NEXO_GOOGLE_TOKEN_URL ?? "https://oauth2.googleapis.com/token";
+  return process.env.NEXOS_GOOGLE_TOKEN_URL ?? "https://oauth2.googleapis.com/token";
 }
 
 export type GoogleStore = {
@@ -71,9 +71,9 @@ export function updateGoogleStore(home: string, patch: { [K in keyof GoogleStore
 
 /** Client OAuth do app: o embutido (google-client.ts); env sobrescreve, pra desenvolvimento. */
 export function googleClient(): { clientId: string; clientSecret: string } | undefined {
-  const clientId = process.env.NEXO_GOOGLE_CLIENT_ID || GOOGLE_CLIENT_PADRAO.clientId;
+  const clientId = process.env.NEXOS_GOOGLE_CLIENT_ID || GOOGLE_CLIENT_PADRAO.clientId;
   if (!clientId) return undefined;
-  return { clientId, clientSecret: process.env.NEXO_GOOGLE_CLIENT_SECRET ?? GOOGLE_CLIENT_PADRAO.clientSecret };
+  return { clientId, clientSecret: process.env.NEXOS_GOOGLE_CLIENT_SECRET ?? GOOGLE_CLIENT_PADRAO.clientSecret };
 }
 
 export function googleAccount(home: string): {

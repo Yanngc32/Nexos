@@ -12,7 +12,7 @@ import {
   type TeamDef,
   type TeamMember,
   type TeamTopology,
-} from "@nexo/shared";
+} from "@nexos/shared";
 import { getAgent } from "./agents.ts";
 import { ensureHome, teamsPath } from "./home.ts";
 
@@ -57,7 +57,7 @@ function writeAll(list: TeamDef[], home: string): void {
   writeFileSync(teamsPath(home), JSON.stringify({ teams: list }, null, 2), "utf8");
 }
 
-/** Os times que a tela mostra — nunca um time oculto (`@menção` ou Nexo Hook). */
+/** Os times que a tela mostra — nunca um time oculto (`@menção` ou Nexos Hook). */
 export function listTeams(home: string): TeamDef[] {
   return readAll(home)
     .filter((t) => !t.origem)
@@ -149,7 +149,7 @@ export function saveTeam(input: TeamInput, home: string): TeamDef {
 }
 
 /**
- * Time-pipeline-de-1 oculto pra um agente avulso — usado tanto por `@menção` quanto por Nexo
+ * Time-pipeline-de-1 oculto pra um agente avulso — usado tanto por `@menção` quanto por Nexos
  * Hook. É só um envelope pra reusar o motor de Run como está: `runs.ts` (retomar, abortar, nome
  * de exibição) só enxerga time por `getTeam(teamId)`, então um `teamId` que não existe em
  * `teams.json` quebraria isso.
@@ -190,7 +190,7 @@ export function upsertTimeDeMencao(agentId: string, home: string): TeamDef {
   return upsertTimeOculto(agentId, home, "mencao", "mencao-", (nome) => `Menção: ${nome}`);
 }
 
-/** Disparo de um Nexo Hook (ex.: `git.post-commit` → agente "memória") — ver `upsertTimeOculto`. */
+/** Disparo de um Nexos Hook (ex.: `git.post-commit` → agente "memória") — ver `upsertTimeOculto`. */
 export function upsertTimeDeHook(agentId: string, home: string): TeamDef {
   return upsertTimeOculto(agentId, home, "hook", "hook-", (nome) => `Hook: ${nome}`);
 }

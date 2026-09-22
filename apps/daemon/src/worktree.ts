@@ -198,7 +198,7 @@ export async function apagarBranchesNexo(projectPath: string, branches: string[]
   for (const branch of branches) {
     // só o que este módulo cria: um nome vindo de fora não apaga branch de pessoa
     if (!branch.startsWith("nexo/")) {
-      feitos.push({ branch, ok: false, saida: "não é branch do Nexo" });
+      feitos.push({ branch, ok: false, saida: "não é branch do Nexos" });
       continue;
     }
     const r = await git(["branch", "-d", branch], repo);

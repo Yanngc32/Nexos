@@ -1,7 +1,7 @@
-import { TURNO_TETO_MS } from "@nexo/shared";
+import { TURNO_TETO_MS } from "@nexos/shared";
 
 /**
- * Servidor MCP do Nexo — a versão do supervisor em que ele age DENTRO do turno.
+ * Servidor MCP do Nexos — a versão do supervisor em que ele age DENTRO do turno.
  *
  * No supervisor por turno (`supervisor.ts`) o modelo responde uma ordem, o turno
  * fecha, o daemon executa e volta no turno seguinte: um turno por decisão. Aqui
@@ -9,7 +9,7 @@ import { TURNO_TETO_MS } from "@nexo/shared";
  * inteiro cabe num turno só.
  *
  * O que se paga por isso:
- * - **só o motor `claude`.** É o único em que o Nexo liga MCP hoje. Pro `api` e
+ * - **só o motor `claude`.** É o único em que o Nexos liga MCP hoje. Pro `api` e
  *   pro `stub` não há cliente MCP pra ligar; pro `codex` há (o CLI dele suporta
  *   `mcp_servers`) e é lacuna nossa, não impossibilidade. Nas três o run cai no
  *   modo por turno, e é por isso que ele segue sendo o padrão.
@@ -360,7 +360,7 @@ export function urlDeMcpAutoria(porta: number, projectPath?: string, runId?: str
  * cai bem na mesma preocupação que fez a config do `claude` ir pra arquivo
  * `0600` em vez de argv — aqui o token não passa nem por um nem por outro.
  */
-export const ENV_TOKEN_MCP = "NEXO_MCP_TOKEN";
+export const ENV_TOKEN_MCP = "NEXOS_MCP_TOKEN";
 
 /**
  * Os argumentos que ligam o MCP do daemon no `codex exec`.

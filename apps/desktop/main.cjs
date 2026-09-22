@@ -10,6 +10,8 @@ const {
   readdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
+  rmSync,
   writeFileSync,
 } = require("node:fs");
 const { readdir, readFile, stat } = require("node:fs/promises");
@@ -58,10 +60,10 @@ if (!app.requestSingleInstanceLock()) {
 
 const here = __dirname;
 /**
- * Em dev, o daemon é a pasta do monorepo (`apps/daemon`), com `@nexo/shared` linkado pelo pnpm
+ * Em dev, o daemon é a pasta do monorepo (`apps/daemon`), com `@nexos/shared` linkado pelo pnpm
  * workspace. Empacotado, essa pasta não existe na máquina de quem instala — o daemon vira
  * `daemon-dist` (gerado por `pnpm run deploy:daemon`, ver electron-builder.yml) e vai junto do
- * `.exe` como `extraResources`, com `@nexo/shared` já copiado de verdade pra dentro dele.
+ * `.exe` como `extraResources`, com `@nexos/shared` já copiado de verdade pra dentro dele.
  */
 const daemonRoot = app.isPackaged ? join(process.resourcesPath, "daemon") : join(here, "../daemon");
 const repoRoot = app.isPackaged ? daemonRoot : resolve(daemonRoot, "..", "..");
@@ -71,8 +73,33 @@ const BIN_EXT =
 const MAX_PREVIEW = 256 * 1024;
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
+/**
+ * A pasta de dados chamava `.nexo` (nome do produto até a v0.1.0) e migra sozinha pra
+ * `.nexos` — mesma lógica de `home.ts` do daemon, duplicada aqui porque o Electron lê
+ * tema/config ANTES de o daemon subir (ver `readTema`/`daemonInfo` abaixo), então não dá
+ * pra esperar o processo filho migrar primeiro.
+ */
+function migrarHomeAntigo(novo) {
+  if (existsSync(novo)) return;
+  const antigo = join(homedir(), ".nexo"); // NUNCA mudar pra ".nexos" — é o nome ANTIGO
+  if (!existsSync(antigo)) return;
+  try {
+    renameSync(antigo, novo);
+  } catch {
+    cpSync(antigo, novo, { recursive: true });
+    try {
+      rmSync(antigo, { recursive: true, force: true });
+    } catch {
+      /* best-effort: a cópia já está de pé */
+    }
+  }
+}
+
 function nexoHome() {
-  return process.env.NEXO_HOME ?? join(homedir(), ".nexo");
+  if (process.env.NEXOS_HOME) return process.env.NEXOS_HOME;
+  const novo = join(homedir(), ".nexos");
+  migrarHomeAntigo(novo);
+  return novo;
 }
 
 function tokenPath() {
@@ -224,7 +251,7 @@ function spawnNexoLogin(id) {
           "@echo off",
           ...(app.isPackaged ? ["set ELECTRON_RUN_AS_NODE=1"] : []),
           `cd /d "${daemonRoot}"`,
-          `echo Nexo login  ${slug}`,
+          `echo Nexos login  ${slug}`,
           `echo.`,
           `"${node}" "${tsx}" "${entry}" login ${slug}`,
           "if errorlevel 1 (",
@@ -234,12 +261,12 @@ function spawnNexoLogin(id) {
           "  exit /b 1",
           ")",
           "echo.",
-          "echo Pronto. Fecha esta janela e volta pro Nexo.",
+          "echo Pronto. Fecha esta janela e volta pro Nexos.",
           "pause",
         ].join("\r\n"),
         "utf8",
       );
-      const child = spawn("cmd.exe", ["/c", "start", "Nexo login", bat], {
+      const child = spawn("cmd.exe", ["/c", "start", "Nexos login", bat], {
         cwd: daemonRoot,
         detached: true,
         stdio: "ignore",
@@ -317,23 +344,27 @@ function toRel(full) {
 }
 
 /**
- * Modo screenshot (só dev): NEXO_SHOT=caminho.png abre a janela escondida,
- * espera NEXO_SHOT_WAIT ms, salva a imagem e sai. NEXO_SHOT_SIZE=1280x800 muda
- * o tamanho; NEXO_SHOT_JS=arquivo.js roda esse script no renderer antes do clique.
+ * Modo screenshot (só dev): NEXOS_SHOT=caminho.png abre a janela escondida,
+ * espera NEXOS_SHOT_WAIT ms, salva a imagem e sai. NEXOS_SHOT_SIZE=1280x800 muda
+ * o tamanho; NEXOS_SHOT_JS=arquivo.js roda esse script no renderer antes do clique.
  */
 /**
- * Identidade fixa do app. O package.json chama "@nexo/desktop", e o Electron
- * usava isso como pasta de userData ("Roaming\@nexo/desktop") — nome com barra,
+ * Identidade fixa do app. O package.json chama "@nexos/desktop", e o Electron
+ * usava isso como pasta de userData ("Roaming\@nexos\desktop") — nome com barra,
  * caminho instável entre formas de abrir o app. Quando mudava, o localStorage
  * ia embora e o app parecia ter esquecido projetos e conversas.
+ *
+ * "Nexos" (produto até a v0.1.0) entra na lista de pastas antigas pelo mesmo motivo:
+ * o rename pro nome novo não pode fazer ninguém "perder" projeto/conversa aberta.
  */
 function fixAppIdentity() {
-  const alvo = join(app.getPath("appData"), "Nexo");
+  const alvo = join(app.getPath("appData"), "Nexos");
   const antigos = [
+    join(app.getPath("appData"), "Nexos"),
     join(app.getPath("appData"), "@nexo", "desktop"),
     join(app.getPath("appData"), "Electron"),
   ];
-  app.setName("Nexo");
+  app.setName("Nexos");
   if (!existsSync(join(alvo, "Local Storage"))) {
     // primeira vez com o nome novo: puxa o estado do diretório antigo
     for (const velho of antigos) {
@@ -355,7 +386,7 @@ function fixAppIdentity() {
           }
         }
       }
-      console.log("[nexo] userData migrado de", velho, "| arquivos:", copiados);
+      console.log("[nexos] userData migrado de", velho, "| arquivos:", copiados);
       break;
     }
   }
@@ -364,10 +395,10 @@ function fixAppIdentity() {
 
 fixAppIdentity();
 
-const SHOT = process.env.NEXO_SHOT ?? "";
+const SHOT = process.env.NEXOS_SHOT ?? "";
 
 // silencia o ruído do Chromium (INFO/WARNING/"Hit debug scenario") no stderr
-if (!process.env.NEXO_VERBOSE) app.commandLine.appendSwitch("log-level", "3");
+if (!process.env.NEXOS_VERBOSE) app.commandLine.appendSwitch("log-level", "3");
 
 /**
  * Bug conhecido do Chromium no Windows 11: a detecção de "janela ocluída" (native window
@@ -394,15 +425,15 @@ async function ensureDaemon(timeoutMs = 15_000) {
 }
 
 function shotSize() {
-  const m = /^(\d{3,5})x(\d{3,5})$/.exec(process.env.NEXO_SHOT_SIZE ?? "");
+  const m = /^(\d{3,5})x(\d{3,5})$/.exec(process.env.NEXOS_SHOT_SIZE ?? "");
   return m ? { width: Number(m[1]), height: Number(m[2]) } : { width: 1280, height: 800 };
 }
 
 async function runShot(target) {
   console.log("[shot] appName:", app.getName(), "| userData:", app.getPath("userData"));
-  const waitMs = Number(process.env.NEXO_SHOT_WAIT ?? 2000);
+  const waitMs = Number(process.env.NEXOS_SHOT_WAIT ?? 2000);
   await new Promise((r) => setTimeout(r, waitMs));
-  const jsFile = process.env.NEXO_SHOT_JS ?? "";
+  const jsFile = process.env.NEXOS_SHOT_JS ?? "";
   if (jsFile && existsSync(jsFile)) {
     try {
       const out = await win.webContents.executeJavaScript(readFileSync(jsFile, "utf8"), true);
@@ -420,12 +451,12 @@ async function runShot(target) {
     } catch (err) {
       console.error("[shot] js falhou:", err.message);
     }
-    await new Promise((r) => setTimeout(r, Number(process.env.NEXO_SHOT_JS_WAIT ?? 1200)));
+    await new Promise((r) => setTimeout(r, Number(process.env.NEXOS_SHOT_JS_WAIT ?? 1200)));
   }
-  // NEXO_SHOT_ALVO=widget (dev): fotografa o painel flutuante em vez da janela
+  // NEXOS_SHOT_ALVO=widget (dev): fotografa o painel flutuante em vez da janela
   // principal — ele é outra BrowserWindow e não sai na foto da primeira.
   const alvoWc =
-    process.env.NEXO_SHOT_ALVO === "widget" && widget && !widget.isDestroyed() ? widget.webContents : win.webContents;
+    process.env.NEXOS_SHOT_ALVO === "widget" && widget && !widget.isDestroyed() ? widget.webContents : win.webContents;
   const img = await alvoWc.capturePage();
   writeFileSync(target, img.toPNG());
   console.log("[shot]", target);
@@ -443,14 +474,14 @@ function createWindow() {
     minWidth: SHOT ? 0 : 900,
     minHeight: SHOT ? 0 : 560,
     backgroundColor: TEMA_BG[tema],
-    title: "Nexo",
+    title: "Nexos",
     icon: join(here, "icons", "app.png"),
     webPreferences: {
       preload: join(here, "preload.cjs"),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
-      // <webview> do painel Browser: é a única forma de o Nexo controlar (destacar,
+      // <webview> do painel Browser: é a única forma de o Nexos controlar (destacar,
       // selecionar) o conteúdo carregado dentro, já que ele vive numa origem
       // diferente (http://127.0.0.1:porta vs file://) e a Same-Origin Policy bloqueia
       // acesso direto de fora. Ver browser-inspector-preload.cjs.
@@ -475,9 +506,9 @@ function createWindow() {
     webPreferences.sandbox = false;
   });
   const query = { tema, ...(HEX.test(accent) ? { accent } : {}) };
-  // NEXO_SHOT_URL (dev): captura uma página local em vez do app — serve pra
+  // NEXOS_SHOT_URL (dev): captura uma página local em vez do app — serve pra
   // revisar mockup de UI com o CSS de verdade.
-  const shotUrl = process.env.NEXO_SHOT_URL ?? "";
+  const shotUrl = process.env.NEXOS_SHOT_URL ?? "";
   if (SHOT && /^http:\/\/127\.0\.0\.1:\d+\//.test(shotUrl)) win.loadURL(shotUrl);
   else win.loadFile(join(here, "index.html"), { query });
   if (SHOT) {
@@ -559,7 +590,7 @@ function createWindow() {
  * Painel flutuante: janela própria, sem moldura, sempre por cima.
  *
  * Janela separada e não um canto da principal porque o ponto dele é aparecer
- * quando o Nexo NÃO está na frente — um time roda por minutos enquanto você
+ * quando o Nexos NÃO está na frente — um time roda por minutos enquanto você
  * está no editor. Painel embutido some junto com a janela e não resolveria
  * nada.
  *
@@ -618,7 +649,7 @@ function createWidget() {
     minimizable: false,
     fullscreenable: false,
     skipTaskbar: true,
-    title: "Nexo — painel",
+    title: "Nexos — painel",
     webPreferences: {
       preload: join(here, "preload.cjs"),
       sandbox: false,
@@ -720,7 +751,7 @@ function createTray() {
   // pets/nexo/mago/idle.png pelo bake.py e já salvo nos tamanhos certos em icons/.
   const img = nativeImage.createFromPath(join(here, "icons", "tray-32.png"));
   tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img);
-  tray.setToolTip("Nexo");
+  tray.setToolTip("Nexos");
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Abrir", click: () => win?.show() },
@@ -762,7 +793,7 @@ app.on("second-instance", () => {
 });
 
 app.whenReady().then(() => {
-  // Barra File/Edit/View/Window/Help é o menu padrão do Electron — o Nexo não usa nenhum item
+  // Barra File/Edit/View/Window/Help é o menu padrão do Electron — o Nexos não usa nenhum item
   // dela (o menu de verdade é a UI própria), então só sobra como ruído acima da janela.
   Menu.setApplicationMenu(null);
   handle("daemon:info", () => daemonInfo());

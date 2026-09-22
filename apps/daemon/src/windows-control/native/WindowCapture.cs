@@ -2,10 +2,10 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 
-namespace Nexo.WindowsControl;
+namespace Nexos.WindowsControl;
 
 /// <summary>
-/// Nexo não roda dentro do Electron (o daemon é um processo Node puro, sem
+/// Nexos não roda dentro do Electron (o daemon é um processo Node puro, sem
 /// `desktopCapturer`), então a captura tem que vir do próprio helper — via
 /// `PrintWindow` com `PW_RENDERFULLCONTENT`, que também pega conteúdo
 /// renderizado por GPU/DirectComposition (BitBlt simples não pegaria).

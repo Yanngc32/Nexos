@@ -15,8 +15,8 @@ import { tempHome } from "./helpers.ts";
 const skill = () => readFileSync(origemDaSkill(), "utf8").replace(/\r\n/g, "\n");
 
 describe("instalarSkill", () => {
-  it("põe em ~/.nexo/skills, escopo global do Nexo", () => {
-    // pasta global do Nexo, não ~/.claude direto: syncGlobalSkills copia daqui
+  it("põe em ~/.nexos/skills, escopo global do Nexos", () => {
+    // pasta global do Nexos, não ~/.claude direto: syncGlobalSkills copia daqui
     // pra dentro do CLAUDE_CONFIG_DIR isolado de cada perfil a cada turno
     const base = mkdtempSync(join(tmpdir(), "nexo-skill-"));
     const r = instalarSkill(base);

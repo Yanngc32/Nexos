@@ -1,5 +1,5 @@
 {
-  "name": "nexo",
+  "name": "nexos",
   "private": true,
   "description": "Orquestrador local de agentes de c\u00f3digo: daemon em 127.0.0.1 + app Electron.",
   "license": "MIT",
@@ -9,9 +9,9 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "check": "pnpm typecheck && pnpm test",
-    "dev": "pnpm --filter @nexo/daemon dev",
-    "nexo": "pnpm --filter @nexo/daemon exec node ./scripts/nexo.mjs",
-    "up": "pnpm --filter @nexo/daemon exec node ./scripts/nexo.mjs up",
-    "desktop": "pnpm --filter @nexo/desktop dev"
+    "dev": "pnpm --filter @nexos/daemon dev",
+    "nexos": "pnpm --filter @nexos/daemon exec node ./scripts/nexo.mjs",
+    "up": "pnpm --filter @nexos/daemon exec node ./scripts/nexo.mjs up",
+    "desktop": "pnpm --filter @nexos/desktop dev"
   }
 }

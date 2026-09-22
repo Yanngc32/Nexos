@@ -172,7 +172,7 @@ const state = {
   queue: {},
   /** Fila pausada porque o turno acabou mal (quota/login/erro). */
   queuePaused: false,
-  /** Serviços locais declarados no nexo.json do projeto. */
+  /** Serviços locais declarados no nexos.json do projeto. */
   /**
    * Painel de agentes: um retrato por conversa com motor de pé, alimentado pelo
    * SSE global. É o que permite acompanhar duas contas trabalhando ao mesmo tempo.
@@ -204,7 +204,7 @@ const state = {
   inspector: { selecionados: [], caixaAberta: false },
   /** Times de agentes; a lista vive aqui porque o painel e a tela cheia leem. */
   teams: [],
-  /** Regras de Nexo Hook; mesma razão de `teams`. */
+  /** Regras de Nexos Hook; mesma razão de `teams`. */
   hookRules: [],
   /** Aba ativa da tela unificada Agentes/Times/Hooks (`#pane-agentes`). */
   axTab: "agentes",
@@ -1515,7 +1515,7 @@ function updateChatEmptyState() {
   const cta = $("chat-empty-cta");
   if (!title || !sub || !cta) return;
   const semRepos = state.repos.length === 0;
-  title.textContent = semRepos ? "Bem-vindo ao Nexo" : "Escolhe uma conversa";
+  title.textContent = semRepos ? "Bem-vindo ao Nexos" : "Escolhe uma conversa";
   sub.textContent = semRepos
     ? "Abra uma pasta pra começar a conversar com o agente."
     : "Escolhe uma conversa à esquerda ou cria outra.";
@@ -3509,14 +3509,27 @@ function ensureWorkGroup(log, kind) {
     li = document.createElement("li");
     li.className = "work-group";
     li.dataset.live = "1";
-    li.innerHTML =
-      `<details class="work"><summary><span class="work-label"></span>` +
-      `<span class="work-dots"><i></i><i></i><i></i></span></summary>` +
-      `<ul class="work-body"></ul></details>`;
+    li.innerHTML = `<details class="work"><summary><ul class="work-fases"></ul></summary><ul class="work-body"></ul></details>`;
     log.append(li);
   }
-  li.dataset.kind = kind;
-  li.querySelector(".work-label").textContent = ROTULO_WORK_GROUP[kind] ?? ROTULO_WORK_GROUP.tool;
+  /*
+   * Cada troca de fase ("Lendo…" → "Editando…" → "Pensando…") empilha uma linha nova em vez de
+   * sobrescrever a de antes — sem isto, o rótulo do turno inteiro ficava reduzido ao ÚLTIMO passo,
+   * e quem via a bolha fechada não fazia ideia de que o agente tinha lido e editado antes de
+   * pensar. Mesma fase repetida (dois `Read` seguidos) não empilha de novo: só a mais recente
+   * ganha os pontinhos animados, as anteriores ficam como texto simples.
+   */
+  if (li.dataset.kind !== kind) {
+    li.dataset.kind = kind;
+    const fases = li.querySelector(".work-fases");
+    fases.lastElementChild?.classList.add("work-fase-feita");
+    const fase = document.createElement("li");
+    fase.className = "work-fase";
+    fase.innerHTML =
+      `<span class="work-fase-nome">${ROTULO_WORK_GROUP[kind] ?? ROTULO_WORK_GROUP.tool}</span>` +
+      `<span class="work-dots"><i></i><i></i><i></i></span>`;
+    fases.append(fase);
+  }
   return li.querySelector(".work-body");
 }
 
@@ -4679,7 +4692,7 @@ function abrirEstudio(def) {
   agentStudio.abrir(def);
 }
 
-/* ---------- Nexo Hooks ---------- */
+/* ---------- Nexos Hooks ---------- */
 
 async function loadHookRules() {
   if (!state.ok) return;
@@ -6124,7 +6137,7 @@ $("btn-svc-create").addEventListener("click", async () => {
   state.view = "none";
   applyWorkLayout();
   await sendChatMessage(
-    "Crie um nexo.json na raiz deste projeto declarando os serviços locais dele " +
+    "Crie um nexos.json na raiz deste projeto declarando os serviços locais dele " +
       "(front, backend, worker — o que existir). Formato: " +
       '{ "services": [ { "id": "web", "name": "Frontend", "cmd": "npm run dev", "cwd": ".", ' +
       '"url": "http://localhost:5173", "autostart": true } ] }. ' +
@@ -6240,7 +6253,7 @@ $("btn-new").addEventListener("click", async () => {
  * Comandos do chat, agrupados por função pro menu de "/". Não é 1:1 com o
  * Claude Code: fora ficam comandos de config global do CLI (/mcp, /hooks,
  * /statusline, /agents, /vim, /ide…) e de sessão interativa persistente
- * (/rewind, /resume, /doctor…) — o Nexo spawna o motor sem sessão contínua
+ * (/rewind, /resume, /doctor…) — o Nexos spawna o motor sem sessão contínua
  * e já tem painel próprio de Configurações pra isso.
  */
 const SLASH_GROUPS = ["Conta", "Sessão", "Tarefas", "Skills", "Ajuda"];
@@ -6574,7 +6587,7 @@ async function runSlash(text) {
     return;
   }
   // Skill descoberta em `.claude/skills` (projeto ou perfil): manda "/nome ..." como
-  // mensagem normal — quem invoca a skill via ferramenta Skill é o motor, não o Nexo.
+  // mensagem normal — quem invoca a skill via ferramenta Skill é o motor, não o Nexos.
   // Recarrega se ainda não tiver rodado pra esta pasta/conta (ex: comando digitado
   // e enviado rápido demais pro menu ter disparado a varredura antes).
   await loadSkills();
@@ -7328,7 +7341,7 @@ async function renderGoogleDrive() {
         ? `Conectado${acc.email ? ` como ${acc.email}` : ""}${acc.folder ? ` · pasta “${acc.folder.name}”` : ""}.`
         : acc.disponivel
           ? "Não conectado."
-          : "Indisponível nesta versão do Nexo.";
+          : "Indisponível nesta versão do Nexos.";
     $("btn-gdrive-conectar").classList.toggle("hidden", acc.connected || esperando);
     $("btn-gdrive-conectar").disabled = !acc.disponivel;
     $("btn-gdrive-cancelar").classList.toggle("hidden", !esperando);
@@ -7603,6 +7616,40 @@ $("btn-profile-install").addEventListener("click", async () => {
   btn.classList.add("hidden");
   const body = corpoNovoPerfil();
   if (body) await tentarCriarPerfil(body);
+});
+
+/**
+ * "Atualizar agora" do Claude/Codex CLI — mesma rota (`/v1/engines/:engine/install`) que já
+ * instala na criação de conta, só que chamada sem depender de estar criando perfil nenhum:
+ * `npm install -g <pacote>@latest` também é o comando certo pra ATUALIZAR o que já está
+ * instalado (não é exclusivo de instalação do zero).
+ */
+document.querySelectorAll(".btn-cli-update").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const engine = btn.dataset.engine;
+    const status = $(`cli-update-${engine}-status`);
+    btn.disabled = true;
+    status.classList.remove("set-err");
+    status.textContent = "Atualizando… pode levar um minuto.";
+    let res;
+    try {
+      res = await req(`/v1/engines/${encodeURIComponent(engine)}/install`, { method: "POST" });
+    } catch (e) {
+      btn.disabled = false;
+      status.classList.add("set-err");
+      status.textContent = e.message || "Não deu pra atualizar.";
+      return;
+    }
+    btn.disabled = false;
+    if (!res.ok) {
+      const cauda = String(res.log || "").trim().split(/\r?\n/).filter(Boolean).slice(-6).join(" ");
+      status.classList.add("set-err");
+      status.textContent = `Falha ao atualizar.${cauda ? ` ${cauda}` : ""}`;
+      return;
+    }
+    status.classList.remove("set-err");
+    status.textContent = "Atualizado.";
+  });
 });
 
 $("allow-profile").addEventListener("change", syncAllowInput);

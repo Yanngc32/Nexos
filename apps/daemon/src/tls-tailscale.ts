@@ -21,7 +21,7 @@ const TIMEOUT_STATUS_MS = 10_000;
 const TIMEOUT_CERT_MS = 30_000;
 
 function tailscaleBin(): string {
-  return process.env.NEXO_TAILSCALE_BIN ?? "tailscale";
+  return process.env.NEXOS_TAILSCALE_BIN ?? "tailscale";
 }
 
 export function tlsDir(home: string): string {
@@ -60,7 +60,7 @@ export type CertPar = { certPem: string; keyPem: string };
  * Pede (ou renova — `tailscale cert` decide sozinho se está perto de vencer) o
  * certificado pro hostname, e devolve o par pronto pra `https.createServer`.
  *
- * Grava em `~/.nexo/tls/`, sempre `0600` — mesmo padrão do `daemon.token`, e pela
+ * Grava em `~/.nexos/tls/`, sempre `0600` — mesmo padrão do `daemon.token`, e pela
  * mesma razão: é material sensível (a chave privada) morando ao lado do resto.
  */
 export async function pedirCertTailscale(hostname: string, home: string): Promise<CertPar | null> {

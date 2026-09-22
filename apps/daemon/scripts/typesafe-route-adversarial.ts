@@ -64,8 +64,8 @@ const CASOS: Caso[] = [
     tarefa: "Qual o melhor vinho pra harmonizar com risoto de cogumelos?",
   },
   {
-    titulo: "13. Meta: pergunta sobre o próprio Nexo/sistema de agentes",
-    tarefa: "Quantos agentes eu tenho configurados no Nexo hoje e qual deles usa o modelo haiku?",
+    titulo: "13. Meta: pergunta sobre o próprio Nexos/sistema de agentes",
+    tarefa: "Quantos agentes eu tenho configurados no Nexos hoje e qual deles usa o modelo haiku?",
   },
   {
     titulo: "14. Muito longa, com sinal real enterrado no meio de ruído",

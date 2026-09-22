@@ -16,7 +16,7 @@ importers:
       '@hono/node-server':
         specifier: ^1.13.7
         version: 1.19.17(hono@4.13.5)
-      '@nexo/shared':
+      '@nexos/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@typesafe-ai/sdk':

@@ -5,11 +5,11 @@ import { spawnBin } from "./spawn-bin.ts";
  * Repositórios e branches da conta de GitHub conectada (github-auth.ts), pro
  * seletor do "Clonar repositório". Autentica cada chamada via `GH_TOKEN` —
  * sem isso o `gh` tentaria a sessão pessoal da máquina (ou nenhuma), não a
- * conta que o Nexo guardou.
+ * conta que o Nexos guardou.
  */
 
 function ghBin(): string {
-  return process.env.NEXO_GH_BIN ?? "gh";
+  return process.env.NEXOS_GH_BIN ?? "gh";
 }
 
 function badRequest(message: string): Error & { status: number } {

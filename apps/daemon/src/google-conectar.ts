@@ -17,7 +17,7 @@ import {
 
 /**
  * "Entrar com Google" de ponta a ponta, tudo no navegador da pessoa: consentimento do Google →
- * página "Onde guardar seus projetos?" (continuar na pasta que outro PC já usa, criar "Nexo" no
+ * página "Onde guardar seus projetos?" (continuar na pasta que outro PC já usa, criar "Nexos" no
  * Meu Drive ou escolher outra no seletor de pastas próprio + link colado) → "Pronto". O app só
  * acompanha o estado.
  *
@@ -79,7 +79,7 @@ async function abrirServidor(home: string, estadoInicial: ConectarEstado, rotas:
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     // `state` errado = outra origem tentando injetar código ou escolher pasta: ignora sem encerrar
     if (url.searchParams.get("state") !== sessao.segredo) {
-      html(res, 400, pagina("Link inválido", "<p>Volte pro Nexo e tente de novo.</p>"));
+      html(res, 400, pagina("Link inválido", "<p>Volte pro Nexos e tente de novo.</p>"));
       return;
     }
     rotas(sessao, req, res, url).catch((e: Error) => {
@@ -111,7 +111,7 @@ function json(res: ServerResponse, status: number, corpo: unknown): void {
 /** Clique em "Entrar com Google": devolve a URL pra abrir no navegador. */
 export async function startGoogleLogin(home: string): Promise<{ loginId: string; url: string }> {
   const client = googleClient();
-  if (!client) throw httpError("login com Google indisponível nesta versão do Nexo", 400);
+  if (!client) throw httpError("login com Google indisponível nesta versão do Nexos", 400);
   const { verifier, challenge } = pkce();
 
   const sessao = await abrirServidor(home, "waiting", (s, req, res, url) =>
@@ -283,7 +283,7 @@ button:disabled{opacity:.5;cursor:wait}
 #linkPasta:focus{outline:none;border-color:var(--ac)}`;
 
 function pagina(titulo: string, corpo: string): string {
-  return `<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Nexo — ${esc(titulo)}</title><style>${ESTILO}</style><body><div class="card"><div class="marca">Nexo</div><h1>${esc(titulo)}</h1>${corpo}</div>`;
+  return `<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Nexos — ${esc(titulo)}</title><style>${ESTILO}</style><body><div class="card"><div class="marca">Nexos</div><h1>${esc(titulo)}</h1>${corpo}</div>`;
 }
 
 function paginaEscolha(s: Sessao, existente: { id: string; name: string } | undefined): string {
@@ -291,7 +291,7 @@ function paginaEscolha(s: Sessao, existente: { id: string; name: string } | unde
     existente
       ? `<button class="pri" data-acao="existente" data-id="${esc(existente.id)}">Continuar em “${esc(existente.name)}”<small>A pasta que você já usa em outro computador</small></button>`
       : "",
-    `<button class="${existente ? "" : "pri"}" data-acao="criar">Criar a pasta “${NOME_PASTA_NEXO}” no Meu Drive<small>Recomendado — o Nexo cuida de tudo</small></button>`,
+    `<button class="${existente ? "" : "pri"}" data-acao="criar">Criar a pasta “${NOME_PASTA_NEXO}” no Meu Drive<small>Recomendado — o Nexos cuida de tudo</small></button>`,
     `<button data-acao="navegar">Escolher outra pasta…<small>Navegue até a pasta do seu Drive</small></button>`,
   ].join("");
   const quem = s.email ? `Conectado como <strong>${esc(s.email)}</strong>. ` : "";
@@ -323,8 +323,8 @@ async function escolher(corpo){
     const j=await r.json().catch(()=>({}));
     if(!r.ok)return erro(j.error||"Não deu certo. Tente de novo.");
     const card=document.querySelector(".card");
-    card.innerHTML='<div class="marca">Nexo</div><h1>Pronto!</h1><p></p>';
-    card.querySelector("p").textContent="Seus projetos vão ficar em “"+j.folder.name+"”. Pode fechar esta aba e voltar pro Nexo.";
+    card.innerHTML='<div class="marca">Nexos</div><h1>Pronto!</h1><p></p>';
+    card.querySelector("p").textContent="Seus projetos vão ficar em “"+j.folder.name+"”. Pode fechar esta aba e voltar pro Nexos.";
   }catch(e){erro("Não deu certo: "+e.message)}
 }
 function abrirNavegador(){

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { hostNaUrl, type EngineKind } from "@nexo/shared";
+import { hostNaUrl, type EngineKind } from "@nexos/shared";
 import { configPath, ensureHome, nexoHome, tokenPath } from "./home.ts";
 import { loadConfig } from "./config.ts";
 import {
@@ -47,7 +47,7 @@ async function cmdUp(): Promise<void> {
   const home = homeFromEnv();
   const started = await startDaemon(home);
   if (started.alreadyUp) {
-    console.log(`nexo already up  http://127.0.0.1:${started.port}`);
+    console.log(`nexos already up  http://127.0.0.1:${started.port}`);
     return;
   }
   // Fire-and-forget, em paralelo ao resto da subida — nunca lançam, então não atrasam nem
@@ -74,7 +74,7 @@ async function cmdUp(): Promise<void> {
     void pingUsoDeTodasAsContas(home).catch((e) => console.error("ping de uso:", (e as Error).message));
   }, PING_USO_MS);
   /*
-   * Sync com o Drive (só se a conta está conectada; a pasta "Nexo" é criada/achada sozinha): uma vez na subida e a
+   * Sync com o Drive (só se a conta está conectada; a pasta "Nexos" é criada/achada sozinha): uma vez na subida e a
    * cada 2min. `sincronizarDrive` nunca lança (erro vai no resultado) e é single-flight, então
    * um ciclo lento não empilha o próximo.
    */
@@ -91,11 +91,11 @@ async function cmdUp(): Promise<void> {
   for (const f of started.falhas) {
     // túnel fora do ar é normal e ele volta sozinho; dizer o motivo evita que
     // "o celular não conecta" vire caça ao tesouro
-    console.error(`nexo: não consegui escutar em ${f.host} (${f.motivo})`);
+    console.error(`nexos: não consegui escutar em ${f.host} (${f.motivo})`);
   }
   for (const h of started.hosts) {
     const mostrar = h === "0.0.0.0" || h === "::" ? "127.0.0.1" : h;
-    console.log(`nexo up  http://${hostNaUrl(mostrar)}:${started.port}`);
+    console.log(`nexos up  http://${hostNaUrl(mostrar)}:${started.port}`);
   }
   // serviço é filho nosso: não sobrevive ao daemon
   const shutdown = () => {
@@ -153,7 +153,7 @@ async function main(): Promise<void> {
   if (cmd === "down") return cmdDown();
 
   if (cmd === "skill") {
-    if (argv[1] !== "install") throw new Error("uso: nexo skill install");
+    if (argv[1] !== "install") throw new Error("uso: nexos skill install");
     const r = instalarSkill();
     if (!r.ok) {
       console.error(r.motivo);
@@ -177,7 +177,7 @@ async function main(): Promise<void> {
     const provider = arg("--provider", argv) as "anthropic" | "openai" | "gemini" | undefined;
     const model = arg("--model", argv);
     const apiKey = arg("--key", argv);
-    if (!id) throw new Error("uso: nexo profile add <id> --engine stub|claude|codex|api");
+    if (!id) throw new Error("uso: nexos profile add <id> --engine stub|claude|codex|api");
     addProfile(
       {
         id,
@@ -193,7 +193,7 @@ async function main(): Promise<void> {
 
   if (cmd === "profile" && argv[1] === "set") {
     const id = argv[2];
-    if (!id) throw new Error("uso: nexo profile set <id> [--model opus] [--effort high] [--mode auto]");
+    if (!id) throw new Error("uso: nexos profile set <id> [--model opus] [--effort high] [--mode auto]");
     const model = arg("--model", argv);
     const effort = arg("--effort", argv);
     const permissionMode = arg("--mode", argv);
@@ -217,7 +217,7 @@ async function main(): Promise<void> {
 
   if (cmd === "profile" && argv[1] === "rm") {
     const id = argv[2];
-    if (!id) throw new Error("uso: nexo profile rm <id>");
+    if (!id) throw new Error("uso: nexos profile rm <id>");
     removeProfile(id, home);
     console.log("rm", id);
     return;
@@ -225,7 +225,7 @@ async function main(): Promise<void> {
 
   if (cmd === "login") {
     const id = argv[1];
-    if (!id) throw new Error("uso: nexo login <perfil> [--from-global]");
+    if (!id) throw new Error("uso: nexos login <perfil> [--from-global]");
     const fromGlobal = argv.includes("--from-global");
     await loginProfile(id, home, { fromGlobal });
     console.log("ready", id);
@@ -244,10 +244,10 @@ async function main(): Promise<void> {
         return;
       }
       if (!rel.services.length) {
-        console.log(`nenhum serviço em nexo.json (${project})`);
+        console.log(`nenhum serviço em nexos.json (${project})`);
         return;
       }
-      if (!rel.trusted) console.warn("projeto não confiável: autostart ignorado (nexo svc trust)");
+      if (!rel.trusted) console.warn("projeto não confiável: autostart ignorado (nexos svc trust)");
       for (const s of rel.services) {
         const porta = s.portNumber ? `:${s.portNumber}` : "";
         const estado = s.proc === "exited" ? `exited(${s.exitCode})` : s.proc;
@@ -262,7 +262,7 @@ async function main(): Promise<void> {
     }
     const todos = argv.includes("--all");
     const id = argv[2];
-    if (!todos && !id) throw new Error("uso: nexo svc up|down|restart <id> | --all");
+    if (!todos && !id) throw new Error("uso: nexos svc up|down|restart <id> | --all");
     const alvos = todos ? listServices(project, home).services.map((s) => s.id) : [id as string];
 
     if (sub === "up" || sub === "down" || sub === "restart") {
@@ -283,7 +283,7 @@ async function main(): Promise<void> {
       return;
     }
     if (sub === "logs") {
-      if (!id) throw new Error("uso: nexo svc logs <id>");
+      if (!id) throw new Error("uso: nexos svc logs <id>");
       process.stdout.write(serviceLogs(project, id));
       const canal = servicesChannel(project);
       servicesBus.on(canal, (ev: { type: string; id?: string; chunk?: string }) => {
@@ -292,14 +292,14 @@ async function main(): Promise<void> {
       await new Promise(() => {});
       return;
     }
-    throw new Error("uso: nexo svc ls|up|down|restart|logs|trust");
+    throw new Error("uso: nexos svc ls|up|down|restart|logs|trust");
   }
 
   /**
    * Chamado PELO script de hook do git (`.git/hooks/post-commit`/`post-push`/`pre-push`), nunca à
    * mão — quem instala o script é `sincronizarHooksDoProjeto` (hooks.ts), disparada sozinha
-   * quando uma regra é criada/editada/apagada pela API/UI ou quando o projeto é aberto no Nexo. Não
-   * existe mais `nexo hook install` manual: a v2 não tem um passo que a pessoa precisa lembrar.
+   * quando uma regra é criada/editada/apagada pela API/UI ou quando o projeto é aberto no Nexos. Não
+   * existe mais `nexos hook install` manual: a v2 não tem um passo que a pessoa precisa lembrar.
    *
    * `post-commit`/`post-push` são fire-and-forget com teto curto e nunca lançam: quem chama já tem
    * `|| true` no shell, mas o motivo real de engolir erro aqui é não travar nem falhar
@@ -331,7 +331,7 @@ async function main(): Promise<void> {
       if (bloqueante) {
         const { aprovado, motivo } = (await resp.json()) as { aprovado?: boolean; motivo?: string };
         if (!aprovado) {
-          console.error(motivo || "push barrado por um Nexo Hook");
+          console.error(motivo || "push barrado por um Nexos Hook");
           process.exitCode = 1;
         }
       }
@@ -344,7 +344,7 @@ async function main(): Promise<void> {
   }
 
   /*
-   * Os branches que o fan-in deixa. Existe porque eles ACUMULAM: o Nexo tira a
+   * Os branches que o fan-in deixa. Existe porque eles ACUMULAM: o Nexos tira a
    * árvore de trabalho e deixa o branch de propósito (é ele que guarda o que o
    * agente fez), então um repositório com uso regular de time junta um por
    * membro por run e ninguém apaga dezenas à mão.
@@ -353,7 +353,7 @@ async function main(): Promise<void> {
     const project = argv[2] && !argv[2].startsWith("--") ? argv[2] : process.cwd();
     const isolar = await podeIsolar(project);
     if (!isolar.pode) {
-      console.error(`nexo: ${isolar.motivo}`);
+      console.error(`nexos: ${isolar.motivo}`);
       process.exitCode = 1;
       return;
     }
@@ -371,7 +371,7 @@ async function main(): Promise<void> {
         console.log(`${b.mesclado ? "mesclado    " : "não mesclado"}\t${b.ultimo.slice(0, 10)}\t${b.branch}`);
       }
       const sobrando = alvo.filter((b) => b.mesclado).length;
-      console.log(`\n${alvo.length} branch(es); ${sobrando} já no HEAD — 'nexo branch rm' apaga esses.`);
+      console.log(`\n${alvo.length} branch(es); ${sobrando} já no HEAD — 'nexos branch rm' apaga esses.`);
       return;
     }
 
@@ -403,7 +403,7 @@ async function main(): Promise<void> {
 
   if (cmd === "thread" && argv[1] === "new") {
     const profileId = argv[2];
-    if (!profileId) throw new Error("uso: nexo thread new <perfil>");
+    if (!profileId) throw new Error("uso: nexos thread new <perfil>");
     const t = createThread({ projectPath: process.cwd(), profileId }, home);
     console.log(t.id);
     return;
@@ -411,7 +411,7 @@ async function main(): Promise<void> {
 
   if (cmd === "thread" && argv[1] === "show") {
     const id = argv[2];
-    if (!id) throw new Error("uso: nexo thread show <id>");
+    if (!id) throw new Error("uso: nexos thread show <id>");
     for (const e of readThread(id, home)) console.log(JSON.stringify(e));
     return;
   }
@@ -419,7 +419,7 @@ async function main(): Promise<void> {
   if (cmd === "switch") {
     const profileId = argv[1];
     const threadId = arg("--thread", argv) ?? argv[2];
-    if (!profileId || !threadId) throw new Error("uso: nexo switch <perfil> --thread <id>");
+    if (!profileId || !threadId) throw new Error("uso: nexos switch <perfil> --thread <id>");
     await switchThread(threadId, { profileId, confirmed: true, reason: "user" }, home);
     console.log("switched", profileId);
     return;
@@ -427,7 +427,7 @@ async function main(): Promise<void> {
 
   if (cmd === "chat") {
     const profileId = argv[1];
-    if (!profileId) throw new Error("uso: nexo chat <perfil>");
+    if (!profileId) throw new Error("uso: nexos chat <perfil>");
     const t = createThread({ projectPath: process.cwd(), profileId }, home);
     console.log("thread", t.id);
     const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -541,7 +541,7 @@ async function main(): Promise<void> {
           console.error((e as Error).message);
           if ((e as Error).message.includes("perfil não existe")) {
             const ids = listProfiles(home).map((p) => p.id);
-            console.error("perfis:", ids.length ? ids.join(", ") : "(nenhum — nexo profile add …)");
+            console.error("perfis:", ids.length ? ids.join(", ") : "(nenhum — nexos profile add …)");
           }
         }
         ask();
@@ -551,22 +551,22 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log(`nexo — config ${configPath(home)}
-  nexo up | down
-  nexo profile add <id> --engine stub|claude|codex|api
-  nexo profile ls | rm <id>
-  nexo profile set <id> [--model opus|sonnet|haiku|fable] [--effort low|medium|high|xhigh|max]
+  console.log(`nexos — config ${configPath(home)}
+  nexos up | down
+  nexos profile add <id> --engine stub|claude|codex|api
+  nexos profile ls | rm <id>
+  nexos profile set <id> [--model opus|sonnet|haiku|fable] [--effort low|medium|high|xhigh|max]
                         [--mode auto|manual|acceptEdits|plan|bypassPermissions]
-  nexo login <id>
-  nexo svc ls | up <id>|--all | down <id>|--all | restart <id> | logs <id> | trust
-  nexo hook fire <evento> [--branch <nome>]   (chamado pelo script de .git/hooks/, não à mão —
+  nexos login <id>
+  nexos svc ls | up <id>|--all | down <id>|--all | restart <id> | logs <id> | trust
+  nexos hook fire <evento> [--branch <nome>]   (chamado pelo script de .git/hooks/, não à mão —
                                                regra e sincronização vivem na API/UI de Hooks)
-  nexo thread new <perfil> | ls [pasta] | show <id>
-  nexo branch ls | rm [pasta] [--run <id>]   (branches nexo/* dos times; rm só apaga
+  nexos thread new <perfil> | ls [pasta] | show <id>
+  nexos branch ls | rm [pasta] [--run <id>]   (branches nexo/* dos times; rm só apaga
                                               o que já está no HEAD)
-  nexo chat <perfil>        (no chat: /account, /accounts, /cost, /context, /usage,
+  nexos chat <perfil>        (no chat: /account, /accounts, /cost, /context, /usage,
                              /switch <id>, /help)
-  nexo switch <perfil> --thread <id>`);
+  nexos switch <perfil> --thread <id>`);
 }
 
 main().catch((e) => {

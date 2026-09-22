@@ -1,4 +1,4 @@
-# Contribuindo com o Nexo
+# Contribuindo com o Nexos
 
 Obrigado pelo interesse. Este arquivo não é etiqueta: são as decisões do projeto que
 não se descobrem lendo o código de fora, e que já custaram commit de correção quando
@@ -23,7 +23,7 @@ Para rodar de verdade: `pnpm up` sobe o daemon, `pnpm desktop` abre o app.
 Não existe passo de build em lugar nenhum do repositório:
 
 - o daemon roda via `tsx`, direto do `.ts`;
-- o `@nexo/shared` é consumido como **fonte** — o `exports` do `package.json` aponta
+- o `@nexos/shared` é consumido como **fonte** — o `exports` do `package.json` aponta
   para `./src/index.ts`, não para um `dist/`;
 - o `apps/desktop` é JavaScript puro (`.mjs`/`.js`), sem transpilação;
 - o `apps/mobile` é HTML/CSS/JS servido cru pelo daemon.

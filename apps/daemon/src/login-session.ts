@@ -1,7 +1,7 @@
 import type { ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import type { Profile } from "@nexo/shared";
+import type { Profile } from "@nexos/shared";
 import { cliAuthStatus } from "./auth-status.ts";
 import { killTree } from "./kill-tree.ts";
 import { applyLoginResult, engineEnv, engineSpawnEnv, getProfile } from "./profiles.ts";
@@ -43,7 +43,7 @@ function badRequest(message: string): Error & { status: number } {
 }
 
 function claudeBin(): string {
-  return process.env.NEXO_CLAUDE_BIN ?? "claude";
+  return process.env.NEXOS_CLAUDE_BIN ?? "claude";
 }
 
 function requireClaude(profileId: string, home: string): Profile {

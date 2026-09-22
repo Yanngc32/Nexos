@@ -44,11 +44,11 @@ describe("listSkills", () => {
 });
 
 describe("listSkills em motor que não é claude", () => {
-  it("codex e api agora ENXERGAM a skill — o Nexo é quem carrega, via expandirSkill", () => {
+  it("codex e api agora ENXERGAM a skill — o Nexos é quem carrega, via expandirSkill", () => {
     /*
      * Antes o menu "/" era escondido de conta codex/api porque `SKILL.md` é
      * conceito do CLI do claude. Só que quem perdia era a pessoa: o menu inteiro
-     * sumia. Agora o Nexo expande a skill no prompt, então listar é verdade.
+     * sumia. Agora o Nexos expande a skill no prompt, então listar é verdade.
      */
     const home = tempHome();
     criaSkillGlobal(home, "revisar");

@@ -1,5 +1,5 @@
-import type { EngineEvent, EngineOverrides, StartOpts } from "@nexo/shared";
-import { MODELO_AUTO, MODELO_AUTO_FALLBACK } from "@nexo/shared";
+import type { EngineEvent, EngineOverrides, StartOpts } from "@nexos/shared";
+import { MODELO_AUTO, MODELO_AUTO_FALLBACK } from "@nexos/shared";
 import type { Engine, EngineHandler, EngineMcp } from "./types.ts";
 import { getProfile, readApiKey } from "../profiles.ts";
 
@@ -61,7 +61,7 @@ export class ApiEngine implements Engine {
       this.handler({ type: "error", message: "api key ausente" });
       return;
     }
-    const base = process.env.NEXO_API_BASE ?? defaultBase(profile.api.provider);
+    const base = process.env.NEXOS_API_BASE ?? defaultBase(profile.api.provider);
     const url = `${base.replace(/\/$/, "")}/v1/messages`;
     const res = await this.fetchImpl(url, {
       method: "POST",

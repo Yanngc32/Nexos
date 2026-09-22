@@ -1,4 +1,4 @@
-# Cria o atalho "Nexo.lnk" que abre o app sem console.
+# Cria o atalho "Nexos.lnk" que abre o app sem console.
 # Uso:  powershell -ExecutionPolicy Bypass -File make-shortcut.ps1 [-Desktop]
 param([switch]$Desktop)
 
@@ -11,8 +11,8 @@ if (-not (Test-Path $exe)) {
   Write-Error "electron.exe nao encontrado. Rode antes: corepack pnpm install"
 }
 
-$targets = @(Join-Path $root 'Nexo.lnk')
-if ($Desktop) { $targets += Join-Path ([Environment]::GetFolderPath('Desktop')) 'Nexo.lnk' }
+$targets = @(Join-Path $root 'Nexos.lnk')
+if ($Desktop) { $targets += Join-Path ([Environment]::GetFolderPath('Desktop')) 'Nexos.lnk' }
 
 $shell = New-Object -ComObject WScript.Shell
 foreach ($lnk in $targets) {
@@ -21,7 +21,7 @@ foreach ($lnk in $targets) {
   $s.Arguments = '"' + $appDir + '"'
   $s.WorkingDirectory = $appDir
   $s.IconLocation = "$exe,0"
-  $s.Description = 'Nexo'
+  $s.Description = 'Nexos'
   $s.WindowStyle = 1
   $s.Save()
   Write-Output "criado: $lnk"

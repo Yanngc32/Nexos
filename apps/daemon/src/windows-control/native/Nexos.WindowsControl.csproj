@@ -6,8 +6,8 @@
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
-    <AssemblyName>Nexo.WindowsControl</AssemblyName>
-    <RootNamespace>Nexo.WindowsControl</RootNamespace>
+    <AssemblyName>Nexos.WindowsControl</AssemblyName>
+    <RootNamespace>Nexos.WindowsControl</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
     <!-- Captura de janela (WindowCapture.cs, System.Drawing.Bitmap) — o daemon
