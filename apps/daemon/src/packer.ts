@@ -30,6 +30,8 @@ function render(event: ThreadEvent): string | undefined {
       return `System: switched ${event.fromProfileId} -> ${event.toProfileId} (${event.reason})`;
     case "error":
       return `System: error ${event.message}`;
+    case "run_resultado":
+      return `System: o time "${event.titulo}" (chamado desta conversa) terminou com status ${event.status}.${event.arquivo ? ` Saída completa em ${event.arquivo}.` : ""}\n${event.texto}`;
   }
 }
 

@@ -1,5 +1,6 @@
 import type { Conjunto } from "./mcp.ts";
-import { appendEvent } from "./threads.ts";
+import { getAgent } from "./agents.ts";
+import { appendEvent, readThread } from "./threads.ts";
 import { sessionBus } from "./bus.ts";
 
 /**
@@ -100,6 +101,20 @@ export function ferramentaDePerguntar(threadId: string, home: string): Conjunto 
   ];
 }
 
+/** Chat de origem desta conversa (se ela é passo de time chamado de um chat) e quem pergunta. */
+function origemDe(threadId: string, home: string): { threadId: string; de: string } | null {
+  let eventos;
+  try {
+    eventos = readThread(threadId, home);
+  } catch {
+    return null;
+  }
+  const meta = eventos.find((e) => e.type === "thread_meta");
+  if (!meta || meta.type !== "thread_meta" || !meta.origemThreadId) return null;
+  const agente = meta.agentId ? getAgent(meta.agentId, home) : undefined;
+  return { threadId: meta.origemThreadId, de: agente?.name || meta.title || "subagente" };
+}
+
 /**
  * O mecanismo de pausa em si, sem a casca de ferramenta MCP — `nexo_delegar` (delegar.ts), no
  * modo "questionar", chama isto direto pra perguntar "pode delegar?" sem precisar o modelo passar
@@ -132,6 +147,16 @@ export async function perguntar(
   sessionBus.emit(threadId, perguntaEv);
   sessionBus.emit("*", perguntaEv);
 
+  // Passo de time chamado de um chat: a conversa dele não aparece pra ninguém (fica fora da barra
+  // lateral), então a pergunta é REPASSADA pro chat de origem, onde a pessoa está. A resposta dada
+  // lá resolve esta aqui — `deThreadId` diz pra tela onde responder.
+  const origem = origemDe(threadId, home);
+  if (origem) {
+    const repassada = { ...perguntaEv, threadId: origem.threadId, deThreadId: threadId, de: origem.de };
+    appendEvent(repassada, home);
+    sessionBus.emit(origem.threadId, repassada);
+  }
+
   const resposta = await new Promise<string>((resolve) => {
     pendentes.set(threadId, { resolve });
   });
@@ -140,6 +165,11 @@ export async function perguntar(
   appendEvent(respostaEv, home);
   sessionBus.emit(threadId, respostaEv);
   sessionBus.emit("*", respostaEv);
+  if (origem) {
+    const eco = { ...respostaEv, threadId: origem.threadId };
+    appendEvent(eco, home);
+    sessionBus.emit(origem.threadId, eco);
+  }
 
   return { ok: true, texto: resposta };
 }

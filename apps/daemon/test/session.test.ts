@@ -442,6 +442,7 @@ describe("session", () => {
         repoMapResumos: false,
         repoMapProfileId: "",
         quadroTarefas: true,
+        coletaDesign: true,
       },
     });
     saveAgent({ id: "rev", name: "Revisor", profileId: "p1", instructions: "só português" }, home);

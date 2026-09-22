@@ -30,17 +30,19 @@ Referência de produto: Claude Design (Anthropic Labs), que tem chat + canvas, D
 
 ## Storage
 
-O DS mora **dentro do projeto, na pasta que o usuário escolhe** ao criar (o padrão sugerido é `design-system/`). O caminho fica salvo na config do projeto no daemon. Um projeto pode ter mais de um DS (ex.: painel interno e portal do cliente); nesse caso, um deles é o "ativo".
+O DS mora **na pasta do projeto no Nexos** (`projectDir`: a mesma de `memoria/`, `tarefas/` e `repo-map/`, dentro de `projetosDir`, que a pessoa já escolheu), sem seletor de pasta: `design-system/<id>/`, com o ponteiro (lista + ativo) em `design-system.json` ao lado. Sincroniza entre máquinas junto com o resto da pasta do projeto; não entra no git do repositório. Um projeto pode ter mais de um DS (ex.: painel interno e portal do cliente); o id sai do nome, e um deles é o "ativo". Imagem relativa nos cards (o logo) é relativa à **raiz do repositório** — o Canvas usa ela como `<base>`.
+
+> Consequência pra Fase 5: como o DS fica fora do repo, o agente precisa receber acesso explícito a essa pasta (ex.: `--add-dir` no `claude`) pra ler/editar os cards.
 
 ```
-<pasta-escolhida>/
+<projectDir>/design-system/<id>/
   tokens.json        # W3C DTCG: color, typography, spacing, radius, shadow, motion, breakpoint
   DESIGN.md          # regras de uso (o "Uso da cor" etc.) — o que o agente lê
   cards/<id>.html    # 1 card por arquivo; só var(--token), nunca hex literal
   meta.json          # ordem das seções, fonte de geração, versões, avisos de lint
 ```
 
-Os **arquivos são a fonte da verdade**. Qualquer um pode alterá-los: o agente (via Write/Edit/shell), o próprio Canvas (Edit/Controles) ou o usuário num editor. O Canvas só reflete o que está em disco. Tudo é versionado pelo git do projeto, sem banco novo.
+Os **arquivos são a fonte da verdade**. Qualquer um pode alterá-los: o agente (via Write/Edit/shell), o próprio Canvas (Edit/Controles) ou o usuário num editor. O Canvas só reflete o que está em disco. Sem banco novo.
 
 ### Seções padrão (o agente pode omitir ou adicionar)
 
@@ -71,7 +73,7 @@ Ferramentas MCP de DS duplicariam o que `claude`/`codex` já fazem, gerariam sup
 
 ### 1. Daemon — `apps/daemon/src/design-system.ts`
 
-- Leitura e escrita em disco: `lerDs`, `salvarTokens`, `salvarCard`. O caminho vem da config do projeto e é validado pra ficar DENTRO do projeto (sem `..`, sem symlink pra fora; mesma regra de `projeto-dir.ts`).
+- Leitura e escrita em disco: `estadoDs`, `salvarTokens`, `salvarCard`. A pasta é sempre `<projectDir>/design-system/<id>/` (id validado como nome de pasta).
 - `tokensParaCss(tokens)`: gera o `:root { --... }`, a única fonte das variáveis. Temas claro e escuro saem de `$extensions` do DTCG.
 - Rotas HTTP em `server.ts`: `GET/PUT /projects/:id/ds`, `PUT /projects/:id/ds/cards/:card`, `POST /projects/:id/ds/generate`, `POST /projects/:id/ds/cards/:card/feedback`, `POST /projects/:id/ds/resync`, `POST /projects/:id/ds/conformidade`.
 
@@ -105,6 +107,8 @@ Ferramentas MCP de DS duplicariam o que `claude`/`codex` já fazem, gerariam sup
 - `claude`: já roda com `--include-partial-messages`. Hoje `text_delta` é descartado em `parse-claude.ts:248` pra não duplicar o texto do `assistant`. É preciso um modo opt-in que emita os deltas **só** em turnos de DS, sem mudar o chat.
 - `codex`: `exec --json` só emite item completo (`parse-codex.ts`), então **não há streaming real**. Fallback de replay: o card chega inteiro e é montado com a mesma animação.
 - `api`: verificar na implementação se usa streaming. Se não usar, também cai no replay.
+
+**Coleta pelo Browser (módulo `coletaDesign`, Configurações → Módulos, ligado por padrão):** botão na barra do painel Browser roda `ds-extrator.js` na página aberta — estilo COMPUTADO de ~300 elementos visíveis (cores de fundo/texto/borda com peso por área, fontes, tamanhos, raios, sombras, espaçamentos, botões) e as variáveis CSS de `:root` (inclusive dentro de `@layer`, com cor em `lab()/oklch()` convertida pra hex) — e tira um print JPEG (≤1280px). Abre o "Gerar com IA" já com isso como referência; os dados entram no pedido do Diretor e o print vai como imagem no primeiro turno de cada conversa. Inspirado em extensões tipo "DESIGN.md inspector", mas sem a heurística fixa de papel de cor: quem interpreta é o Diretor, vendo o print.
 
 **Pipeline de geração:**
 
@@ -157,7 +161,7 @@ Ferramentas MCP de DS duplicariam o que `claude`/`codex` já fazem, gerariam sup
 ## Segurança
 
 - O HTML dos cards é gerado por LLM e roda num iframe `sandbox` sem `allow-scripts`: não executa JS, não navega, não abre popup, não carrega recurso externo fora da allowlist de fontes.
-- O caminho do DS é validado pra ficar dentro do projeto. O observador só vigia essa pasta.
+- O id do DS vira nome de pasta e é validado (a-z, 0-9, hífen); ponteiro com id inválido ou sem pasta no disco é ignorado. O observador só vigia a pasta do DS ativo.
 - "Aplicar" dos Controles escreve só valores que passam na validação do tipo do controle (número dentro de min/max ou token existente).
 
 ## Fases

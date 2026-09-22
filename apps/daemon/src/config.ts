@@ -61,6 +61,7 @@ export function loadConfig(home: string): NexoConfig {
     },
     accent: isHex(raw.accent) ? raw.accent : DEFAULT_CONFIG.accent,
     tema: isTema(raw.tema) ? raw.tema : DEFAULT_CONFIG.tema,
+    logoProjetos: raw.logoProjetos === undefined ? DEFAULT_CONFIG.logoProjetos : Boolean(raw.logoProjetos),
     repos: cleanRepos(raw.repos),
     hiddenRepos: cleanRepos(raw.hiddenRepos),
     lastProject: str(raw.lastProject),
@@ -103,6 +104,7 @@ function cleanModulos(value: unknown): NexoConfig["modulos"] {
     repoMapResumos: Boolean(o.repoMapResumos),
     repoMapProfileId: str(o.repoMapProfileId),
     quadroTarefas: o.quadroTarefas === undefined ? DEFAULT_CONFIG.modulos.quadroTarefas : Boolean(o.quadroTarefas),
+    coletaDesign: o.coletaDesign === undefined ? DEFAULT_CONFIG.modulos.coletaDesign : Boolean(o.coletaDesign),
   };
 }
 
@@ -175,6 +177,7 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
     pack: { ...current.pack, ...patch.pack },
     accent: isHex(patch.accent) ? patch.accent : current.accent,
     tema: isTema(patch.tema) ? patch.tema : current.tema,
+    logoProjetos: patch.logoProjetos === undefined ? current.logoProjetos : Boolean(patch.logoProjetos),
     repos: patch.repos === undefined ? current.repos : cleanRepos(patch.repos),
     hiddenRepos: patch.hiddenRepos === undefined ? current.hiddenRepos : cleanRepos(patch.hiddenRepos),
     lastProject: patch.lastProject === undefined ? current.lastProject : str(patch.lastProject),
@@ -211,6 +214,8 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
           : str(patch.modulos.repoMapProfileId),
       quadroTarefas:
         patch.modulos?.quadroTarefas === undefined ? current.modulos.quadroTarefas : Boolean(patch.modulos.quadroTarefas),
+      coletaDesign:
+        patch.modulos?.coletaDesign === undefined ? current.modulos.coletaDesign : Boolean(patch.modulos.coletaDesign),
     },
     windowsControlEnabled:
       patch.windowsControlEnabled === undefined ? current.windowsControlEnabled : Boolean(patch.windowsControlEnabled),

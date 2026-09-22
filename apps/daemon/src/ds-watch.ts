@@ -20,7 +20,7 @@ const porPasta = new Map<string, Entrada>();
 
 /** Temporário da gravação atômica (`design-system.ts`) e lixo de editor: não é mudança de conteúdo. */
 function ignorar(arquivo: string): boolean {
-  return /\.tmp$|~$|\.swp$|(^|\/)\.#/.test(arquivo);
+  return /\.tmp$|~$|\.swp$|(^|\/)\.#|(^|\/)\.versoes(\/|$)/.test(arquivo);
 }
 
 export function assinarDs(pasta: string, ouvinte: Ouvinte): () => void {

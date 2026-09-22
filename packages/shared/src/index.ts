@@ -289,6 +289,8 @@ export type NexoConfig = {
   accent: string;
   /** Perfil de cor da interface. Vale pro app e pro painel flutuante. */
   tema: Tema;
+  /** Barra lateral mostra o logo/ícone de cada projeto (achado no código) no lugar da pasta. */
+  logoProjetos: boolean;
   /**
    * Pastas abertas no app. Fica aqui, e não no localStorage, porque o
    * localStorage vive no userData do Electron — que muda conforme o app é
@@ -366,6 +368,8 @@ export type NexoConfig = {
     repoMapResumos: boolean;
     repoMapProfileId: string;
     quadroTarefas: boolean;
+    /** Botão no painel Browser que captura a página aberta como referência do design system. */
+    coletaDesign: boolean;
   };
   /**
    * Dá ao agente ferramentas `nexo_windows_*`: ver janelas/apps abertos, capturar
@@ -398,6 +402,7 @@ export const DEFAULT_CONFIG: NexoConfig = {
   // primeiro poll do config
   accent: "#7c5cbf",
   tema: "grafite",
+  logoProjetos: true,
   repos: [],
   hiddenRepos: [],
   lastProject: "",
@@ -415,6 +420,7 @@ export const DEFAULT_CONFIG: NexoConfig = {
     repoMapResumos: false,
     repoMapProfileId: "",
     quadroTarefas: true,
+    coletaDesign: true,
   },
   windowsControlEnabled: false,
   typesafe: { modo: "desligado" },
@@ -470,8 +476,46 @@ export type ThreadEvent =
        * falar: `claude` o arquivo, `codex` a URL com token no ambiente.
        */
       mcpRunId?: string;
+      /**
+       * Conversa criada pelo daemon com um pedido que ele mesmo monta (geração do design
+       * system): o roteador automático não pode trocar o agente dela no meio.
+       */
+      semRoteamento?: boolean;
+      /**
+       * Conversa de um passo de time chamado DE DENTRO de outro chat (menção, roteador aceito,
+       * `nexo_delegar`). Ela pertence àquele chat: some da barra lateral e é vista pela barra
+       * "trabalhando" acima do input do chat de origem.
+       */
+      origemThreadId?: string;
+      /** Conversa de trabalho do próprio Nexos (geração do design system): fora da barra lateral. */
+      oculta?: boolean;
     }
-  | { ts: string; type: "user"; threadId: string; text: string; attachments?: Attachment[] }
+  | {
+      ts: string;
+      type: "user";
+      threadId: string;
+      text: string;
+      attachments?: Attachment[];
+      /**
+       * Pedido montado pelo Nexos (passo de time, geração do DS), não digitado pela pessoa. A tela
+       * mostra recolhido ("passando contexto…"); o motor recebe igual.
+       */
+      automatico?: boolean;
+    }
+  /**
+   * Um time chamado deste chat terminou. Aparece como bolha no chat, e o trecho vai junto da
+   * próxima mensagem pro agente deste chat — sem isso ele não saberia o que o time fez.
+   */
+  | {
+      ts: string;
+      type: "run_resultado";
+      threadId: string;
+      runId: string;
+      titulo: string;
+      status: RunStatus;
+      texto: string;
+      arquivo?: string;
+    }
   | { ts: string; type: "assistant"; threadId: string; text: string }
   | {
       ts: string;
@@ -500,6 +544,12 @@ export type ThreadEvent =
       numero?: number;
       /** Quantas perguntas tem o lote em que esta entra — omitido quando é pergunta única. */
       total?: number;
+      /**
+       * Pergunta REPASSADA: quem perguntou foi um passo de time chamado deste chat (a conversa
+       * `deThreadId`, do agente `de`). A resposta dada aqui vai pra lá — é lá que o turno espera.
+       */
+      deThreadId?: string;
+      de?: string;
     }
   /** Resposta que destravou a `pergunta` de mesmo `id` — sempre depois dela, nunca sozinha. */
   | { ts: string; type: "pergunta_resposta"; threadId: string; id: string; resposta: string }
@@ -947,6 +997,8 @@ export type Run = {
    * gasto e uma retomada poderia custar tudo de novo sem estourar nada.
    */
   gastoAnterior?: number;
+  /** Chat que chamou o time (menção, roteador, `nexo_delegar`). Runs do mesmo chat rodam em fila. */
+  origemThreadId?: string;
 };
 
 export type RunEvent =

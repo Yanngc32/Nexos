@@ -12,6 +12,7 @@ import {
 import { getAgent } from "./agents.ts";
 import { runDir, runsRoot, tokenPath } from "./home.ts";
 import { newRunId } from "./ids.ts";
+import { sessionBus } from "./bus.ts";
 import { abortThread, engineKindOf, getLive, postMessage } from "./session.ts";
 import {
   lerDecisao,
@@ -29,7 +30,7 @@ import { configDeMcp, MCP_TOOLS, type Ferramentas } from "./mcp.ts";
 import { loadConfig } from "./config.ts";
 
 import { getTeam } from "./teams.ts";
-import { createThread, readThread, threadUsage } from "./threads.ts";
+import { appendEvent, createThread, readThread, threadUsage } from "./threads.ts";
 import { commitarTrabalho, criarWorktree, nomeDoBranch, podeIsolar, removerWorktree, temMudanca } from "./worktree.ts";
 
 /**
@@ -67,6 +68,10 @@ function badRequest(message: string): Error {
 function emit(run: Run, ev: RunEvent): void {
   runsBus.emit(run.id, ev);
   runsBus.emit("*", ev);
+  // o chat que chamou o time acompanha pelo MESMO stream dele (barra "trabalhando" acima do input)
+  if (run.origemThreadId) {
+    sessionBus.emit(run.origemThreadId, { type: "run_evento", threadId: run.origemThreadId, runId: run.id, ev });
+  }
 }
 
 /* ---------- persistência ---------- */
@@ -199,6 +204,8 @@ export type StartRunInput = {
   projectPath: string;
   goal: string;
   budget?: unknown;
+  /** Chat que chamou o time. Os passos ficam dentro dele (ver `thread_meta.origemThreadId`). */
+  origemThreadId?: unknown;
 };
 
 /** Monta o run parado, com todos os passos pendentes. Não executa nada. */
@@ -237,6 +244,14 @@ export function criarRun(input: StartRunInput, home: string): Run {
   };
   const budget = limparBudget(input.budget);
   if (budget) run.budget = budget;
+  // só vale se a conversa existe: origem inventada esconderia os passos de qualquer lista
+  if (typeof input.origemThreadId === "string" && input.origemThreadId) {
+    try {
+      if (readThread(input.origemThreadId, home).length) run.origemThreadId = input.origemThreadId;
+    } catch {
+      /* conversa não existe: run fica sem origem */
+    }
+  }
   saveRun(run, home);
   return run;
 }
@@ -466,6 +481,7 @@ async function executarPasso(
       // sem título, a lista mostraria o pedido inteiro do passo — várias linhas
       // idênticas começando em "# Objetivo do time"
       title: `${agente.name} · passo ${step.index + 1}`,
+      ...(run.origemThreadId ? { origemThreadId: run.origemThreadId } : {}),
     },
     home,
   );
@@ -476,7 +492,7 @@ async function executarPasso(
   emit(run, { type: "step_start", runId: run.id, index: step.index, agentId: step.agentId, threadId });
 
   try {
-    await postMessage(threadId, montarPedido(run, step, entradas), home);
+    await postMessage(threadId, montarPedido(run, step, entradas), home, [], { automatico: true });
   } catch (e) {
     return falharPasso(run, step, (e as Error).message || "falhou ao mandar o pedido", home);
   }
@@ -486,7 +502,8 @@ async function executarPasso(
   step.tokens = uso.input + uso.output;
 
   if (getLive(threadId)?.lastTerminal !== "done") {
-    return falharPasso(run, step, motivoDoFim(threadId, home), home);
+    const peloUsuario = paradosPelaPessoa.delete(threadId);
+    return falharPasso(run, step, peloUsuario ? "parado por você" : motivoDoFim(threadId, home), home);
   }
 
   const saida = saidaDaThread(threadId, home);
@@ -635,7 +652,7 @@ function anexarPasso(run: Run, agentId: string, papel: string | undefined, home:
  */
 async function turnoDoSupervisor(run: Run, step: RunStep, pedido: string, home: string): Promise<string | null> {
   try {
-    await postMessage(step.threadId as string, pedido, home);
+    await postMessage(step.threadId as string, pedido, home, [], { automatico: true });
   } catch (e) {
     step.error = (e as Error).message || "falhou ao pedir a decisão";
     return null;
@@ -745,6 +762,7 @@ async function rodarSupervisor(run: Run, teto: number, home: string): Promise<vo
           runStep: 0,
           runTitle: rotuloDoRun(run, home),
           title: `${agente.name} · supervisor`,
+          ...(run.origemThreadId ? { origemThreadId: run.origemThreadId } : {}),
         },
         home,
       ).id;
@@ -915,6 +933,7 @@ async function rodarSupervisorMcp(run: Run, teto: number, home: string, chefe: R
       runStep: 0,
       runTitle: rotuloDoRun(run, home),
       title: `${agente.name} · supervisor`,
+      ...(run.origemThreadId ? { origemThreadId: run.origemThreadId } : {}),
       mcpRunId: run.id,
       ...(arquivo ? { mcpConfig: arquivo, mcpTools: [...MCP_TOOLS] } : {}),
     },
@@ -927,7 +946,7 @@ async function rodarSupervisorMcp(run: Run, teto: number, home: string, chefe: R
   emit(run, { type: "step_start", runId: run.id, index: 0, agentId: chefe.agentId, threadId });
 
   try {
-    await postMessage(threadId, pedidoComFerramenta(run.goal, chefe.papel, membros, teto - 1), home);
+    await postMessage(threadId, pedidoComFerramenta(run.goal, chefe.papel, membros, teto - 1), home, [], { automatico: true });
   } catch (e) {
     fecharSupervisor(run, chefe, (e as Error).message || "falhou ao mandar o pedido", home);
     return true;
@@ -1080,10 +1099,109 @@ export async function executarRun(run: Run, home: string): Promise<Run> {
   return run;
 }
 
+/* ---------- time chamado de dentro de um chat ---------- */
+
+/** Fim da fila de cada chat: o próximo run daquele chat só começa quando este acabar. */
+const filaPorChat = new Map<string, Promise<unknown>>();
+/** Runs esperando a vez na fila do chat (ainda não começaram) — é o que dá pra cancelar antes. */
+const naFila = new Map<string, Run>();
+const canceladosNaFila = new Set<string>();
+/** Conversas de passo que a PESSOA parou: o passo falha com esse motivo, não "motor falhou". */
+const paradosPelaPessoa = new Set<string>();
+
+const TRECHO_RESULTADO = 1500;
+
+/** Saída do último passo que terminou — o que o time "respondeu". */
+function resultadoDoRun(run: Run): { texto: string; arquivo?: string } {
+  const passo = [...run.steps].reverse().find((s) => s.status === "done" && s.artifact);
+  const entrada = passo ? entradaGravada(passo) : null;
+  if (!entrada) return { texto: run.error ? `Sem saída: ${run.error}` : "Sem saída." };
+  const t = entrada.texto.trim();
+  return { texto: t.length > TRECHO_RESULTADO ? `${t.slice(0, TRECHO_RESULTADO)}…` : t, arquivo: entrada.arquivo };
+}
+
+/**
+ * Roda um run que um chat chamou, EM FILA com os outros runs daquele chat (dois times chamados
+ * seguidos não disputam o mesmo projeto ao mesmo tempo). Sem `origemThreadId`, é `executarRun`.
+ *
+ * `entregar`: grava o resultado no chat de origem (`run_resultado`) — pra menção e roteador, que
+ * não têm outro caminho de volta. O `nexo_delegar` NÃO entrega: o resultado dele já volta como
+ * `tool_result` da própria ferramenta.
+ */
+export function executarNoChat(run: Run, home: string, opts: { entregar: boolean }): Promise<Run> {
+  const origem = run.origemThreadId;
+  if (!origem) return executarRun(run, home);
+  const anterior = filaPorChat.get(origem) ?? Promise.resolve();
+  naFila.set(run.id, run);
+  const vez = anterior
+    .catch(() => {})
+    .then(async () => {
+      naFila.delete(run.id);
+      if (canceladosNaFila.delete(run.id)) {
+        // cancelado enquanto esperava: nem começa, e não há resultado pra entregar
+        run.status = "aborted";
+        run.error = "cancelado antes de começar";
+        run.endedAt = nowIso();
+        saveRun(run, home);
+        emit(run, { type: "run_end", runId: run.id, status: run.status, error: run.error });
+        return run;
+      }
+      const feito = await executarRun(run, home);
+      if (opts.entregar) {
+        const r = resultadoDoRun(feito);
+        const ev = {
+          ts: nowIso(),
+          type: "run_resultado" as const,
+          threadId: origem,
+          runId: feito.id,
+          titulo: rotuloDoRun(feito, home),
+          status: feito.status,
+          texto: r.texto,
+          ...(r.arquivo ? { arquivo: r.arquivo } : {}),
+        };
+        appendEvent(ev, home);
+        sessionBus.emit(origem, ev);
+      }
+      return feito;
+    });
+  filaPorChat.set(origem, vez);
+  // fila vazia não segura referência pra sempre
+  void vez.finally(() => {
+    if (filaPorChat.get(origem) === vez) filaPorChat.delete(origem);
+  });
+  return vez;
+}
+
+/** Runs chamados deste chat: os em curso e os últimos que terminaram. Pra barra "trabalhando". */
+export function runsDoChat(threadId: string, home: string, limite = 10): Run[] {
+  return listRuns(home, undefined, 200)
+    .filter((r) => r.origemThreadId === threadId)
+    .slice(0, limite);
+}
+
+/**
+ * Para UM agente do run: derruba só o turno daquele passo. O resto segue a regra da topologia —
+ * pipeline para (o próximo ficaria sem entrada), fan-in deixa os outros paralelos terminarem,
+ * supervisor recebe a falha e decide.
+ */
+export async function pararPasso(runId: string, index: number): Promise<boolean> {
+  const vivo = vivos.get(runId);
+  const passo = vivo?.run.steps[index];
+  if (!passo || passo.status !== "running" || !passo.threadId) return false;
+  paradosPelaPessoa.add(passo.threadId);
+  await abortThread(passo.threadId);
+  return true;
+}
+
 /** Para o run: marca a intenção e derruba o turno em voo do passo atual. */
 export async function abortarRun(id: string): Promise<boolean> {
   const vivo = vivos.get(id);
-  if (!vivo) return false;
+  if (!vivo) {
+    // ainda na fila do chat: cancela antes de começar (ver `executarNoChat`)
+    if (!naFila.has(id)) return false;
+    canceladosNaFila.add(id);
+    return true;
+  }
   vivo.abortado = true;
   // no fan-in há vários em voo ao mesmo tempo: derruba todos
   const emVoo = vivo.run.steps.filter((s) => s.status === "running" && s.threadId);
@@ -1094,4 +1212,7 @@ export async function abortarRun(id: string): Promise<boolean> {
 /** Só pra teste: zera o estado em memória entre casos. */
 export function resetRunsForTest(): void {
   vivos.clear();
+  naFila.clear();
+  canceladosNaFila.clear();
+  paradosPelaPessoa.clear();
 }

@@ -56,6 +56,8 @@
         </button>
       </div>
       <div id="repo-tree" class="repo-tree" role="tree"></div>
+      <!-- barra minimizada: um ícone por projeto (logo, ou a inicial) -->
+      <nav id="repo-mini" class="repo-mini" aria-label="Projetos"></nav>
       <p id="threads-empty" class="empty hidden">Nenhum repositório. + abre uma pasta.</p>
       <span id="project-path" class="hidden"></span>
       <div id="svc-strip" class="svc-strip hidden">
@@ -217,6 +219,20 @@
               <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                 <path d="M3 12h4M17 12h4M12 3v4M12 17v4" />
                 <rect x="7" y="7" width="10" height="10" rx="1.5" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              id="btn-browser-ds"
+              class="ghost ico-only hidden"
+              title="Capturar o design desta página pro Design System"
+              aria-label="Capturar o design desta página pro Design System"
+            >
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <circle cx="8" cy="8" r="3" />
+                <rect x="13" y="5" width="6" height="6" rx="1" />
+                <path d="M5 19h6M5 15h6" />
+                <path d="M16 14v6M13 17h6" />
               </svg>
             </button>
           </div>
@@ -680,12 +696,44 @@
               <button type="button" id="ds-ajustar" class="ghost" title="Ajustar à tela">Ajustar</button>
             </div>
             <div class="ds-novo-wrap">
+              <button type="button" id="ds-btn-gerar" class="primary">✦ Gerar com IA</button>
+              <div id="ds-gerar" class="ds-novo ds-gerar hidden">
+                <div class="ds-gerar-head">
+                  <strong>Gerar com IA</strong>
+                  <button type="button" id="ds-gerar-fechar" class="ghost" title="Fechar">✕</button>
+                </div>
+                <div id="ds-gerar-form" class="ds-gerar-form">
+                  <label>Conta<select id="ds-gerar-conta"></select></label>
+                  <p id="ds-gerar-sem-conta" class="ds-gerar-estimativa hidden">
+                    Nenhuma conta neste motor. Faça login em Configurações → Contas e volte aqui.
+                    (No <code>run.bat dev</code> o motor é separado do Nexos instalado, então precisa logar de novo.)
+                  </p>
+                  <label>Sobre o produto
+                    <textarea id="ds-gerar-brief" rows="3" placeholder="Ex.: painel interno de uma oficina mecânica; tom sério, grafite e vermelho da marca, bastante dado em tabela."></textarea>
+                  </label>
+                  <div id="ds-gerar-ref" class="ds-gerar-ref hidden">
+                    <img id="ds-gerar-ref-img" alt="Print da página de referência" />
+                    <div>
+                      <strong>Referência capturada no Browser</strong>
+                      <span id="ds-gerar-ref-txt"></span>
+                    </div>
+                    <button type="button" id="ds-gerar-ref-tirar" class="ghost" title="Não usar esta referência">✕</button>
+                  </div>
+                  <label>URL de referência (opcional)<input type="url" id="ds-gerar-url" placeholder="https://site-da-marca.com.br" /></label>
+                  <label class="ds-check"><input type="checkbox" id="ds-gerar-codigo" checked /><span>Ler o código do projeto (cores, fontes, logo)</span></label>
+                  <label class="ds-check"><input type="checkbox" id="ds-gerar-tokens" checked /><span>Gerar tokens e regras de uso</span></label>
+                  <fieldset class="ds-gerar-secoes"><legend>Seções</legend><div id="ds-gerar-secoes"></div></fieldset>
+                  <label class="ds-gerar-paralelo">Ao mesmo tempo<input type="number" id="ds-gerar-paralelo" min="1" max="6" value="3" /></label>
+                </div>
+                <p id="ds-gerar-estimativa" class="ds-gerar-estimativa"></p>
+                <p id="ds-gerar-err" class="ag-err"></p>
+                <button type="button" id="ds-gerar-ir" class="primary">Gerar</button>
+              </div>
+            </div>
+            <div class="ds-novo-wrap">
               <button type="button" id="ds-btn-novo" class="ghost">+ Novo</button>
               <div id="ds-novo" class="ds-novo hidden">
                 <label>Nome<input type="text" id="ds-novo-nome" placeholder="Design system" /></label>
-                <label>Pasta (dentro do projeto)
-                  <span class="ds-pasta-campo"><input type="text" id="ds-novo-pasta" value="design-system" /><button type="button" id="ds-novo-escolher" class="ghost">Escolher…</button></span>
-                </label>
                 <p id="ds-novo-err" class="ag-err"></p>
                 <button type="button" id="ds-novo-criar" class="primary">Criar</button>
               </div>
@@ -694,23 +742,29 @@
           <button type="button" id="btn-close-ds" class="ghost mod-close" title="Fechar (volta só pro chat)">✕</button>
         </header>
         <p id="ds-erro" class="ag-err ds-erro hidden"></p>
+        <div id="ds-progresso" class="ds-progresso hidden" role="status">
+          <strong id="ds-progresso-tit"></strong>
+          <div id="ds-progresso-etapas" class="ds-progresso-etapas"></div>
+          <p id="ds-progresso-erro" class="ag-err hidden"></p>
+          <button type="button" id="ds-progresso-cancelar" class="ghost">Cancelar</button>
+          <button type="button" id="ds-progresso-fechar" class="ghost hidden" title="Fechar">✕</button>
+        </div>
         <div class="ds-stage">
           <p id="ds-sem-projeto" class="tk-hint ds-centro hidden">Abra um projeto pra criar o design system dele.</p>
           <div id="ds-vazio" class="ds-vazio hidden">
             <h2>Crie o design system deste projeto</h2>
-            <p>Tokens, regras de uso e cards de componente viram arquivos numa pasta do projeto. Os agentes leem e editam direto; esta tela mostra e ajusta.</p>
+            <p>Tokens, regras de uso e cards de componente viram arquivos na pasta deste projeto no Nexos, junto da memória e do repo map. Os agentes leem e editam direto; esta tela mostra e ajusta.</p>
             <label>Nome<input type="text" id="ds-vazio-nome" placeholder="Design system" /></label>
-            <label>Pasta (dentro do projeto)
-              <span class="ds-pasta-campo"><input type="text" id="ds-vazio-pasta" value="design-system" /><button type="button" id="ds-vazio-escolher" class="ghost">Escolher…</button></span>
-            </label>
             <p id="ds-vazio-err" class="ag-err"></p>
             <button type="button" id="ds-vazio-criar" class="primary">Criar design system</button>
           </div>
           <div id="ds-viewport" class="ds-viewport hidden">
-            <div id="ds-board" class="ds-board"></div>
-            <svg id="ds-traco" class="ds-traco" aria-hidden="true"></svg>
-            <div id="ds-cursor" class="ds-cursor" aria-hidden="true">
-              <svg viewBox="0 0 16 16" width="18" height="18"><path d="M2 1.5 13.5 8 8.2 9.3 5.6 14.5Z" /></svg>
+            <div id="ds-board" class="ds-board">
+              <!-- dentro do board: acompanham pan e zoom junto com os cards -->
+              <svg id="ds-traco" class="ds-traco" aria-hidden="true"></svg>
+              <div id="ds-cursor" class="ds-cursor" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="18" height="18"><path d="M2 1.5 13.5 8 8.2 9.3 5.6 14.5Z" /></svg>
+              </div>
             </div>
           </div>
           <aside id="ds-painel" class="ds-painel hidden">
@@ -732,6 +786,7 @@
         <div id="split-chat" class="splitter" role="separator" aria-orientation="vertical" title="Arraste pra redimensionar"></div>
         <button type="button" id="btn-focus-exit" class="focus-exit hidden" title="Sair do foco (Esc)">⤡</button>
         <header class="chat-head" id="chat-head">
+          <button type="button" id="btn-voltar-origem" class="ghost crumb-voltar hidden" title="Voltar pro chat que chamou este time">↩ Voltar ao chat</button>
           <span class="crumb-ico" aria-hidden="true">▤</span>
           <button type="button" id="crumb-repo" class="crumb-repo" title="Ver este projeto na barra esquerda">
             Sem projeto
@@ -857,6 +912,8 @@
               data-state="off"
             ></canvas>
           </div>
+        <!-- times/subagentes que este chat chamou, trabalhando (chat-times.js) -->
+        <div id="times-bar" class="times-bar hidden" aria-live="polite"></div>
         <form id="composer">
           <div id="slash-menu" class="slash-menu hidden" role="listbox" aria-label="Comandos"></div>
           <div id="queue-strip" class="queue-strip hidden" aria-live="polite"></div>
@@ -1354,6 +1411,22 @@
                   </div>
                 </div>
               </div>
+              <p class="set-grupo-tit">Barra lateral</p>
+              <div class="set-grupo">
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Logo do projeto</h4>
+                    <p>
+                      Mostra o ícone de cada projeto (favicon ou logo achado no código) no lugar da
+                      pasta. Com a barra minimizada, os projetos viram só os ícones.
+                    </p>
+                    <p id="logo-projetos-err" class="set-err"></p>
+                  </div>
+                  <div class="set-ctl">
+                    <input id="logo-projetos" type="checkbox" aria-label="Mostrar logo do projeto na barra lateral" />
+                  </div>
+                </div>
+              </div>
             </section>
             <section class="set-sec hidden" data-panel="contas">
               <h3>Contas</h3>
@@ -1732,6 +1805,21 @@
                   </div>
                   <div class="set-ctl">
                     <input id="mod-quadro-tarefas" type="checkbox" aria-label="Ligar módulo Quadro de tarefas" />
+                  </div>
+                </div>
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Coleta de design pelo Browser</h4>
+                    <p>
+                      Botão na barra do Browser que lê o estilo da página aberta (cores, fontes,
+                      espaçamentos, variáveis CSS) e tira um print, e abre o "Gerar com IA" do Design
+                      System com isso como referência. Nada sai da máquina até você gerar.
+                      Ligado por padrão.
+                    </p>
+                    <p id="mod-coleta-design-err" class="set-err"></p>
+                  </div>
+                  <div class="set-ctl">
+                    <input id="mod-coleta-design" type="checkbox" aria-label="Ligar módulo Coleta de design pelo Browser" />
                   </div>
                 </div>
               </div>

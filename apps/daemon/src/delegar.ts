@@ -3,7 +3,7 @@ import type { DelegacaoModo, Run } from "@nexos/shared";
 import type { Conjunto } from "./mcp.ts";
 import { getAgent, listAgents } from "./agents.ts";
 import { getTeam, listTeams, upsertTimeDeMencao } from "./teams.ts";
-import { criarRun, executarRun } from "./runs.ts";
+import { criarRun, executarNoChat } from "./runs.ts";
 import { perguntar } from "./perguntas.ts";
 import { activeProfileId, readThread } from "./threads.ts";
 import { getProfile } from "./profiles.ts";
@@ -134,13 +134,14 @@ export function ferramentaDeDelegar(threadId: string, projectPath: string, modo:
           }
 
           contagemPorThread.set(threadId, n + 1);
-          const run = criarRun({ teamId: resolvedTeamId, projectPath, goal: pedido }, home);
+          const run = criarRun({ teamId: resolvedTeamId, projectPath, goal: pedido, origemThreadId: threadId }, home);
           // Pra tela abrir o subchat ao vivo (GET /v1/runs/:id/events) antes de o run terminar —
           // sem esperar o `tool_result`, que só chega no fim.
           const delegacaoEv = { type: "delegacao_run" as const, threadId, runId: run.id };
           sessionBus.emit(threadId, delegacaoEv);
           sessionBus.emit("*", delegacaoEv);
-          const feito = await executarRun(run, home);
+          // em fila com os outros times deste chat; o resultado volta pelo `tool_result` abaixo
+          const feito = await executarNoChat(run, home, { entregar: false });
           if (feito.status !== "done") {
             return { ok: false, texto: `delegação falhou (${feito.status}): ${feito.error ?? "sem detalhe"}` };
           }

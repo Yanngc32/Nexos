@@ -30,6 +30,12 @@ export type CreateThreadInput = {
   /** Branch fixa desta conversa; só grava algo se vier junto de `worktreeDir` (ver `createThreadNaBranch`). */
   branch?: string;
   worktreeDir?: string;
+  /** Ver `thread_meta.semRoteamento`. */
+  semRoteamento?: boolean;
+  /** Ver `thread_meta.origemThreadId`. */
+  origemThreadId?: string;
+  /** Ver `thread_meta.oculta`. */
+  oculta?: boolean;
 };
 
 export function createThread(input: CreateThreadInput, home: string, opts: { id?: string } = {}): CreatedThread {
@@ -52,6 +58,9 @@ export function createThread(input: CreateThreadInput, home: string, opts: { id?
     ...(input.mcpTools?.length ? { mcpTools: input.mcpTools } : {}),
     ...(input.mcpRunId ? { mcpRunId: input.mcpRunId } : {}),
     ...(input.branch && input.worktreeDir ? { branch: input.branch, worktreeDir: input.worktreeDir } : {}),
+    ...(input.semRoteamento ? { semRoteamento: true } : {}),
+    ...(input.origemThreadId ? { origemThreadId: input.origemThreadId } : {}),
+    ...(input.oculta ? { oculta: true } : {}),
   };
   appendEvent(meta, home);
   return { id };
@@ -284,6 +293,9 @@ export type ThreadHead = {
   /** Branch fixa desta conversa e a `git worktree` que a isola — ver `createThreadNaBranch`. */
   branch?: string;
   worktreeDir?: string;
+  /** Passo de time chamado de dentro deste chat — ver `thread_meta.origemThreadId`. */
+  origemThreadId?: string;
+  oculta?: boolean;
 };
 
 /** Cabeçalho de uma conversa só. `undefined` = arquivo ilegível ou sem meta. */
@@ -317,6 +329,10 @@ export function threadHead(id: string, home: string): ThreadHead | undefined {
     ...(meta.runTitle ? { runTitle: meta.runTitle } : {}),
     ...(meta.branch ? { branch: meta.branch } : {}),
     ...(meta.worktreeDir ? { worktreeDir: meta.worktreeDir } : {}),
+    ...(meta.origemThreadId ? { origemThreadId: meta.origemThreadId } : {}),
+    // `semRoteamento` também: só a geração do DS cria conversa assim, e as criadas antes do
+    // `oculta` existir não têm a marca nova
+    ...(meta.oculta || meta.semRoteamento ? { oculta: true } : {}),
   };
 }
 
@@ -330,6 +346,9 @@ export function listThreads(projectPath: string | undefined, home: string): Thre
     if (!file.endsWith(".jsonl")) continue;
     const head = threadHead(file.slice(0, -".jsonl".length), home);
     if (!head || head.projectPath !== projectPath) continue;
+    // passo de time chamado de um chat pertence àquele chat; conversa de trabalho do Nexos
+    // (geração do DS) pertence à tela dela — nenhuma das duas é conversa da pessoa
+    if (head.origemThreadId || head.oculta) continue;
     out.push(head);
   }
   out.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));

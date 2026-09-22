@@ -27,6 +27,7 @@ const modulos = (patch: Partial<{ repoMapResumos: boolean; repoMapProfileId: str
   repoMapResumos: false,
   repoMapProfileId: "",
   quadroTarefas: true,
+  coletaDesign: true,
   ...patch,
 });
 

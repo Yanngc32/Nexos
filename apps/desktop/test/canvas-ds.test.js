@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   agruparVars,
   ajustarATela,
-  baseHrefDaPasta,
+  baseHrefDoProjeto,
   cardsDeFundamentos,
+  cardsPendentes,
+  elementosParaConstruir,
+  urlsDeFontes,
   cssDoBruto,
   digitaisDe,
   elementosNovos,
@@ -150,9 +153,55 @@ describe("Fundamentos", () => {
   });
 });
 
-describe("baseHrefDaPasta", () => {
-  it("Windows e POSIX viram file:// com barra no fim", () => {
-    expect(baseHrefDaPasta("C:\\proj\\design system")).toBe("file:///C:/proj/design%20system/cards/");
-    expect(baseHrefDaPasta("/home/x/ds/")).toBe("file:///home/x/ds/cards/");
+describe("urlsDeFontes", () => {
+  it("uma URL por família (primeira de cada token de fonte), sem as do sistema", () => {
+    const urls = urlsDeFontes([
+      { nome: "--font-family-body", caminho: "font.family.body", tipo: "fontFamily", valor: '"IBM Plex Sans", system-ui' },
+      { nome: "--font-family-mono", caminho: "font.family.mono", tipo: "fontFamily", valor: "ui-monospace, monospace" },
+      { nome: "--font-family-display", caminho: "font.family.display", valor: "Archivo, sans-serif" },
+      { nome: "--color-bg", caminho: "color.bg", tipo: "color", valor: "#000" },
+    ]);
+    expect(urls).toEqual([
+      "https://fonts.googleapis.com/css?family=Archivo:400,500,600,700&display=swap",
+      "https://fonts.googleapis.com/css?family=IBM+Plex+Sans:400,500,600,700&display=swap",
+    ]);
+    expect(urlsDeFontes([{ nome: "--f", caminho: "font.family.x", valor: "system-ui" }])).toEqual([]);
+  });
+});
+
+describe("elementosParaConstruir", () => {
+  it("pai antes do filho; corta profundidade quando passa do teto", () => {
+    const d = document.createElement("div");
+    d.innerHTML = `<style>.x{}</style><section><h2>a</h2><div><p>b</p><p>c</p></div></section>`;
+    expect(elementosParaConstruir(d).map((e) => e.tagName)).toEqual(["SECTION", "H2", "DIV", "P", "P"]);
+    expect(elementosParaConstruir(d, 3).map((e) => e.tagName)).toEqual(["SECTION", "H2", "DIV"]);
+  });
+});
+
+describe("cardsPendentes", () => {
+  const geracao = {
+    status: "rodando",
+    etapas: [{ id: "core", status: "rodando", cards: ["core-logo", "core-botoes"] }],
+    plano: [
+      { id: "core-logo", titulo: "Logo", secao: "core" },
+      { id: "core-botoes", titulo: "Botões", secao: "core" },
+    ],
+  };
+
+  it("só o que ainda não está em disco, com o status da etapa", () => {
+    const p = cardsPendentes(geracao, [{ id: "core-botoes" }]);
+    expect(p).toEqual([expect.objectContaining({ id: "core-logo", pendente: true, etapaStatus: "rodando", html: "" })]);
+  });
+
+  it("geração parada não deixa esqueleto", () => {
+    expect(cardsPendentes({ ...geracao, status: "concluida" }, [])).toEqual([]);
+    expect(cardsPendentes(null, [])).toEqual([]);
+  });
+});
+
+describe("baseHrefDoProjeto", () => {
+  it("Windows e POSIX viram file:// da raiz do projeto, com barra no fim", () => {
+    expect(baseHrefDoProjeto("C:\\proj\\minha loja")).toBe("file:///C:/proj/minha%20loja/");
+    expect(baseHrefDoProjeto("/home/x/app/")).toBe("file:///home/x/app/");
   });
 });

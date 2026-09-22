@@ -11,6 +11,8 @@ import { createNewThreadModal } from "./new-thread-modal.js";
 import { diffDeFerramenta, nomeArquivo, renderDiff } from "./diff-view.js";
 import { createTarefasBoard } from "./tarefas-board.js";
 import { createDsCanvas } from "./canvas-ds.js";
+import { createBarraTimes } from "./chat-times.js";
+import { capturarReferencia } from "./ds-extrator.js";
 import { createDialogo } from "./dialogo.js";
 import { criarMenuContexto } from "./menu-contexto.js";
 import { lerEventos } from "./sse.js";
@@ -101,6 +103,10 @@ const state = {
   fpThreads: "",
   fpProfiles: "",
   view: "file",
+  /** Módulo "Coleta de design pelo Browser" — ligado por padrão, relido do config no poll. */
+  coletaDesign: true,
+  /** Aparência → Barra lateral → Logo do projeto. Ligado por padrão, relido do config no poll. */
+  logoProjetos: true,
   sideChat: false,
   paletteOpen: false,
   paletteIndex: 0,
@@ -1478,7 +1484,8 @@ function setChatHead() {
     return;
   }
   const primeira = state.events.find((e) => e.type === "user");
-  const titulo = found?.stub.preview || clip(primeira?.text ?? "", 80) || "Conversa nova";
+  // passo de time / conversa do DS não está na lista: o título vem do meta, não do pedido enorme
+  const titulo = found?.stub.preview || state.metaAtual?.title || clip(primeira?.text ?? "", 80) || "Conversa nova";
   // Conversa de agente personalizado diz de quem é: o modelo e as instruções são dele.
   const def = agentDef(state.agentId);
   const nome = def?.name || state.agentId;
@@ -1581,6 +1588,8 @@ function podeHistorico(el, metodo) {
 function atualizarChromeBrowser() {
   const http = /^https?:/i.test(state.browserUrl || "");
   $("btn-browser-popout").disabled = !http;
+  // módulo "Coleta de design pelo Browser" (Configurações → Módulos): só com página http aberta
+  $("btn-browser-ds").classList.toggle("hidden", !state.coletaDesign || !http);
   const el = guestVisivel();
   if (!el || typeof el.canGoBack !== "function") {
     $("btn-browser-back").disabled = true;
@@ -2525,6 +2534,14 @@ async function refreshDaemon() {
     const cfg = await req("/v1/config");
     if (cfg.accent) applyAccent(cfg.accent);
     if (cfg.tema) applyTema(cfg.tema);
+    state.coletaDesign = cfg.modulos?.coletaDesign !== false;
+    atualizarChromeBrowser();
+    const logos = cfg.logoProjetos !== false;
+    if (logos !== state.logoProjetos) {
+      state.logoProjetos = logos;
+      $("logo-projetos").checked = logos;
+      renderRepoTree();
+    }
     void celPintarUrl(cfg);
     // /v1/projects já vem com as pastas do config + as que as conversas revelam
     let fonte = cfg;
@@ -3348,8 +3365,93 @@ function renderRepoTree() {
     }
     det.append(sum, ul);
     tree.append(det);
+    pintarIconeDoRepo(ico, path);
   }
+  renderRepoMini();
   setChatHead();
+}
+
+/* ---------- logo do projeto na barra (Aparência → Barra lateral) ---------- */
+
+/** path normalizado → URL de objeto do logo, `null` (projeto sem logo) ou uma Promise em curso. */
+const logosDeProjeto = new Map();
+
+/** Logo do projeto pelo daemon (`/v1/projects/logo`). Pede uma vez por projeto; 404 fica guardado como "sem logo". */
+function logoDoRepo(path) {
+  const k = normPath(path);
+  if (logosDeProjeto.has(k)) return logosDeProjeto.get(k);
+  const p = reqBlob(`/v1/projects/logo?projectPath=${encodeURIComponent(path)}`)
+    .then((blob) => {
+      const url = blob && blob.size ? URL.createObjectURL(blob) : null;
+      logosDeProjeto.set(k, url);
+      return url;
+    })
+    .catch((e) => {
+      // 404 = projeto sem logo, guarda; motor fora do ar não: tenta de novo na próxima pintura
+      if (/\b404\b/.test(e?.message || "")) logosDeProjeto.set(k, null);
+      else logosDeProjeto.delete(k);
+      return null;
+    });
+  logosDeProjeto.set(k, p);
+  return p;
+}
+
+function imgDeLogo(url, classe) {
+  const img = document.createElement("img");
+  img.className = classe;
+  img.src = url;
+  img.alt = "";
+  img.draggable = false;
+  // arquivo que não abre (ico estranho, svg quebrado): volta pro ícone padrão
+  img.addEventListener("error", () => img.replaceWith(document.createRange().createContextualFragment(REPO_ICO_HTML)), { once: true });
+  return img;
+}
+
+/** Troca o ícone de pasta pelo logo quando ele existir. Com a opção desligada, fica a pasta. */
+function pintarIconeDoRepo(ico, path) {
+  if (!state.logoProjetos) return;
+  const aplicar = (url) => {
+    if (!url || !ico.isConnected) return;
+    ico.classList.add("tem-logo");
+    ico.replaceChildren(imgDeLogo(url, "repo-logo"));
+  };
+  const v = logoDoRepo(path);
+  if (v instanceof Promise) void v.then(aplicar);
+  else aplicar(v);
+}
+
+/** Barra minimizada: um botão por projeto, com o logo (ou a inicial). Clicar abre a última conversa. */
+function renderRepoMini() {
+  const mini = $("repo-mini");
+  if (!mini) return;
+  mini.replaceChildren();
+  for (const path of state.repos) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "repo-mini-item";
+    btn.dataset.on = samePath(path, state.projectPath) ? "1" : "0";
+    btn.title = folderName(path);
+    btn.setAttribute("aria-label", folderName(path));
+    const inicial = document.createElement("span");
+    inicial.className = "repo-mini-inicial";
+    inicial.textContent = (folderName(path).match(/[a-z0-9]/i)?.[0] || "?").toUpperCase();
+    btn.append(inicial);
+    if (state.logoProjetos) {
+      const aplicar = (url) => {
+        if (url && btn.isConnected) btn.replaceChildren(imgDeLogo(url, "repo-mini-logo"));
+      };
+      const v = logoDoRepo(path);
+      if (v instanceof Promise) void v.then(aplicar);
+      else aplicar(v);
+    }
+    btn.addEventListener("click", () => {
+      const ultima = (state.threadsByRepo[path] || [])[0];
+      if (ultima) void openThreadInRepo(path, ultima.id);
+      else void bindProject(path).then(() => renderRepoTree());
+    });
+    btn.addEventListener("contextmenu", (e) => menuDoRepo(e, path));
+    mini.append(btn);
+  }
 }
 
 async function openThreadInRepo(path, id) {
@@ -3439,7 +3541,7 @@ function renderEvents(events) {
 function atualizarHistoricoChat() {
   const rail = $("chat-history-rail");
   if (!rail) return;
-  const todas = [...$("log").querySelectorAll("li.you")];
+  const todas = [...$("log").querySelectorAll("li.you:not(.you-auto)")];
   const ultimas = todas.slice(-6);
   rail.replaceChildren();
   rail.classList.toggle("hidden", ultimas.length === 0);
@@ -3474,10 +3576,11 @@ function atualizarBotaoDescer() {
 }
 
 /**
- * Bolha "Trabalhando…"/"Lendo…"/"Editando…"/"Pensando…" que agrupa a sequência de ferramentas
- * e raciocínio de um turno — sem isso, uma volta com 10 `Bash` virava 10 linhas soltas na
- * conversa (ver captura do pedido original). Fechada por padrão; abrir mostra o passo a passo,
- * igual antes. O rótulo troca sozinho pro que está rolando agora.
+ * Bolha "Trabalhando…"/"Lendo…"/"Editando…"/"Pensando…" que agrupa ferramentas e raciocínio —
+ * sem isso, uma volta com 10 `Bash` virava 10 linhas soltas na conversa. UMA BOLHA POR FASE: trocou
+ * de fase (Lendo → Editando), a atual fecha e nasce outra, independente. Antes as fases do turno
+ * inteiro empilhavam na mesma caixa, e abrir uma abria todas. Fechada por padrão; abrir mostra os
+ * itens daquela fase, e cada item abre sozinho.
  */
 function workGroupAtual(log) {
   const li = log.lastElementChild;
@@ -3497,9 +3600,6 @@ const ROTULO_WORK_GROUP = {
   tool: "Trabalhando",
 };
 
-/** Rótulo do chip de edição (bolha da ferramenta), no passado — a mudança já aconteceu. */
-const ROTULO_CHIP_EDICAO = { Edit: "Editado", MultiEdit: "Editado", Write: "Escrito", NotebookEdit: "Editado" };
-
 /** Ferramenta padrão do Claude Code — nome fixo, ao contrário das MCP (que variam por engine/sufixo). */
 function classificarFerramenta(name) {
   if (name === "Read" || name === "NotebookRead") return "read";
@@ -3509,33 +3609,34 @@ function classificarFerramenta(name) {
 
 function ensureWorkGroup(log, kind) {
   let li = workGroupAtual(log);
+  // fase nova = bolha nova; a da fase anterior fica fechada e para de animar
+  if (li && li.dataset.kind !== kind) {
+    delete li.dataset.live;
+    li = null;
+  }
   if (!li) {
     li = document.createElement("li");
     li.className = "work-group";
     li.dataset.live = "1";
-    li.innerHTML = `<details class="work"><summary><ul class="work-fases"></ul></summary><ul class="work-body"></ul></details>`;
-    log.append(li);
-  }
-  /*
-   * Cada troca de fase ("Lendo…" → "Editando…" → "Pensando…") empilha uma linha nova em vez de
-   * sobrescrever a de antes — sem isto, o rótulo do turno inteiro ficava reduzido ao ÚLTIMO passo,
-   * e quem via a bolha fechada não fazia ideia de que o agente tinha lido e editado antes de
-   * pensar. Mesma fase repetida (dois `Read` seguidos) não empilha de novo: só a mais recente
-   * ganha os pontinhos animados, as anteriores ficam como texto simples.
-   */
-  if (li.dataset.kind !== kind) {
     li.dataset.kind = kind;
-    const fases = li.querySelector(".work-fases");
-    fases.lastElementChild?.classList.add("work-fase-feita");
-    const fase = document.createElement("li");
-    fase.className = "work-fase";
-    fase.innerHTML =
+    li.innerHTML =
+      `<details class="work-det"><summary><ul class="work-fases"><li class="work-fase">` +
       `<span class="work-fase-nome">${ROTULO_WORK_GROUP[kind] ?? ROTULO_WORK_GROUP.tool}</span>` +
-      `<span class="work-dots"><i></i><i></i><i></i></span>`;
-    fases.append(fase);
+      `<span class="work-fase-qtd"></span>` +
+      `<span class="work-dots"><i></i><i></i><i></i></span></li></ul></summary><ul class="work-body"></ul></details>`;
+    log.append(li);
   }
   return li.querySelector(".work-body");
 }
+
+/** Quantos itens a bolha tem, no rótulo fechado ("Lendo · 3"). */
+function contarNoWorkGroup(body) {
+  const qtd = body.closest(".work-group")?.querySelector(".work-fase-qtd");
+  if (qtd) qtd.textContent = body.children.length > 1 ? `· ${body.children.length}` : "";
+}
+
+/** Rótulo do chip de edição (bolha da ferramenta), no passado — a mudança já aconteceu. */
+const ROTULO_CHIP_EDICAO = { Edit: "Editado", MultiEdit: "Editado", Write: "Escrito", NotebookEdit: "Editado" };
 
 /** Só chega texto de raciocínio de motor que expõe isso (o CLI do Claude não expõe). */
 function appendThinking(text) {
@@ -3659,7 +3760,20 @@ function detalheAuto(ev, valor, rotular = (v) => v) {
 function appendEvent(ev, scroll = true) {
   const log = $("log");
   const li = document.createElement("li");
-  if (ev.type === "user") {
+  if (ev.type === "user" && ev.automatico) {
+    // pedido que o Nexos montou (passo de time, geração do DS): recolhido, abre no clique
+    li.className = "you you-auto";
+    li.innerHTML = `<details><summary><span class="who">Nexos</span><span class="you-auto-txt"></span></summary><div class="you-text"></div></details>`;
+    li.querySelector(".you-auto-txt").textContent = rotuloDoContexto();
+    li.querySelector(".you-text").textContent = ev.text;
+  } else if (ev.type === "run_resultado") {
+    li.className = "run-resultado";
+    li.dataset.status = ev.status;
+    const estado = ev.status === "done" ? "terminou" : ev.status === "aborted" ? "foi cancelado" : "falhou";
+    li.innerHTML = `<details><summary><span class="rr-tit"></span></summary><div class="md rr-texto"></div></details>`;
+    li.querySelector(".rr-tit").textContent = `${ev.titulo} ${estado}`;
+    renderMd(li.querySelector(".rr-texto"), ev.texto || "");
+  } else if (ev.type === "user") {
     li.className = "you";
     li.innerHTML = `<div class="who">Você</div><div class="you-text">${escapeHtml(ev.text)}</div>`;
     const shots = ev.previews ?? ev.attachments ?? [];
@@ -3719,12 +3833,13 @@ function appendEvent(ev, scroll = true) {
         iniciarSubchat(li, pendente);
       }
     }
-    // Foge da cauda compartilhada abaixo: a bolha entra dentro do grupo "Trabalhando…/Lendo…/
-    // Editando…", não solta direto no log.
+    // Foge da cauda compartilhada abaixo: a bolha entra na bolha da fase dela ("Lendo…",
+    // "Editando…"), não solta direto no log.
     const desceTool = pertoDoFimDoChat(log);
     const body = ensureWorkGroup(log, classificarFerramenta(ev.name));
     if (scroll) state.events = [...state.events, ev];
     body.append(li);
+    contarNoWorkGroup(body);
     if (!scroll) return;
     if (desceTool) log.scrollTop = log.scrollHeight;
     atualizarBotaoDescer();
@@ -3749,7 +3864,8 @@ function appendEvent(ev, scroll = true) {
     // texto livre em toda pergunta com opções; sem opções, o form já É o texto livre.
     li.className = scroll ? "pergunta pergunta-viva" : "pergunta";
     li.dataset.perguntaId = ev.id;
-    li.dataset.threadId = ev.threadId ?? state.threadId;
+    // repassada de um subagente/time deste chat: a resposta vai pra conversa DELE, onde o turno espera
+    li.dataset.threadId = ev.deThreadId ?? ev.threadId ?? state.threadId;
     if (ev.multiSelect) li.dataset.multi = "1";
     const opcoes = ev.opcoes ?? [];
     const outro =
@@ -3764,7 +3880,7 @@ function appendEvent(ev, scroll = true) {
       : `<form class="pergunta-form"><input type="text" placeholder="responder..." autocomplete="off" /><button type="submit">Enviar</button></form>`;
     const contagem = ev.total > 1 ? `${ev.numero}/${ev.total}` : "";
     li.innerHTML =
-      `<div class="who pergunta-who">Pergunta${contagem ? ` ${contagem}` : ""}</div>` +
+      `<div class="who pergunta-who">Pergunta${ev.de ? ` de ${escapeHtml(ev.de)}` : ""}${contagem ? ` ${contagem}` : ""}</div>` +
       `<div class="pergunta-texto">${escapeHtml(ev.texto ?? "")}</div>${corpo}`;
   } else if (ev.type === "pergunta_resposta") {
     const alvo = log.querySelector(`li.pergunta[data-pergunta-id="${CSS.escape(ev.id ?? "")}"]`);
@@ -3882,7 +3998,7 @@ function appendEvent(ev, scroll = true) {
   // mandar mensagem sua sempre desce (é ação sua, na hora); o resto só desce se você já
   // estava perto do fim — senão puxava o chat pra baixo enquanto lia algo lá em cima.
   const desce = ev.type === "user" || pertoDoFimDoChat(log);
-  encerrarWorkGroup(log); // esta bolha não é ferramenta/raciocínio: fecha o grupo "Trabalhando…" aberto
+  encerrarWorkGroup(log); // esta bolha não é ferramenta/raciocínio: fecha a bolha de fase aberta
   if (scroll) state.events = [...state.events, ev];
   log.append(li);
   if (!scroll) return;
@@ -4036,6 +4152,9 @@ async function openThread(id) {
   localStorage.setItem("nexo.thread", id);
   const events = await req(`/v1/threads/${id}`);
   const meta = events.find((e) => e.type === "thread_meta");
+  state.metaAtual = meta || null;
+  $("btn-voltar-origem").classList.toggle("hidden", !meta?.origemThreadId);
+  void barraTimes.carregar(id);
   const switched = [...events].reverse().find((e) => e.type === "switched");
   state.profileId = switched?.toProfileId || meta?.profileId || "";
   setVia();
@@ -4129,7 +4248,7 @@ function onLive(ev) {
     const desce = pertoDoFimDoChat(log);
     let last = log.lastElementChild;
     if (!last || last.dataset.stream !== "1") {
-      encerrarWorkGroup(log); // texto final chegando: fecha o grupo "Trabalhando…/Pensando…" do turno
+      encerrarWorkGroup(log); // texto final chegando: fecha a bolha de fase aberta
       last = document.createElement("li");
       last.className = "bot";
       last.dataset.stream = "1";
@@ -4214,6 +4333,8 @@ function onLive(ev) {
       numero: ev.numero,
       total: ev.total,
       threadId: ev.threadId,
+      deThreadId: ev.deThreadId,
+      de: ev.de,
     });
     return;
   }
@@ -4281,6 +4402,14 @@ function onLive(ev) {
         toggleRoteamentoDock(true);
       }
     })();
+    return;
+  }
+  if (ev.type === "run_evento") {
+    void barraTimes.aplicar(ev);
+    return;
+  }
+  if (ev.type === "run_resultado") {
+    appendEvent(ev);
     return;
   }
   if (ev.type === "delegacao_run") {
@@ -5031,8 +5160,35 @@ const dsCanvas = createDsCanvas({
   getProjectPath: () => state.projectPath,
   isOk: () => state.ok,
   lerEventos,
-  pickFolder: () => window.nexo.pickFolder(),
   avisar: (msg) => dialogo.avisar(msg),
+  getProfiles: () => state.profiles,
+  getProfileId: () => state.profileId,
+  aoAbrirConversa: (threadId) => void openThread(threadId),
+});
+
+/** Texto da mensagem automática recolhida: pra quem o Nexos está passando o contexto. */
+function rotuloDoContexto() {
+  // meta da conversa sendo pintada: `state.agentId` ainda é o da conversa anterior nesse ponto
+  const def = agentDef(state.metaAtual?.agentId);
+  return def?.name ? `Passando contexto ao ${def.name}` : "Passando contexto ao subagente ou time";
+}
+
+const barraTimes = createBarraTimes({
+  el: $,
+  req,
+  nomeDoAgente: (id) => agentDef(id)?.name || id,
+  nomeDoTime: (id) => {
+    // time oculto de menção (`mencao-<agente>`) aparece com o nome do agente
+    const m = /^mencao-(.+)$/.exec(id || "");
+    if (m) return agentDef(m[1])?.name || m[1];
+    return state.teams.find((t) => t.id === id)?.name || id;
+  },
+  aoAbrirPasso: (threadId) => void openThread(threadId),
+});
+
+$("btn-voltar-origem").addEventListener("click", () => {
+  const origem = state.metaAtual?.origemThreadId;
+  if (origem) void openThread(origem);
 });
 
 const teamStudio = createTeamStudio({
@@ -6817,8 +6973,14 @@ async function dispararMencoes(texto) {
     }
     try {
       const teamId = time ? time.id : (await req(`/v1/teams/mencao/${encodeURIComponent(id)}`, { method: "POST" })).id;
-      const run = await req("/v1/runs", { method: "POST", body: JSON.stringify({ teamId, projectPath, goal }) });
-      appendEvent({ type: "sys", message: `→ Run disparado: ${time?.name ?? agente.name} (${run.id})` });
+      const origemThreadId = state.threadId || undefined;
+      const run = await req("/v1/runs", { method: "POST", body: JSON.stringify({ teamId, projectPath, goal, origemThreadId }) });
+      appendEvent({
+        type: "sys",
+        message: origemThreadId
+          ? `→ @${id} trabalhando — acompanhe acima do campo de mensagem; o resultado volta aqui.`
+          : `→ Run disparado: ${time?.name ?? agente.name} (${run.id})`,
+      });
     } catch (err) {
       appendEvent({ type: "sys", message: `@${id} — run não disparou: ${err.message || "erro"}` });
     }
@@ -7114,6 +7276,7 @@ async function renderModulos() {
   $("mod-caveman").checked = Boolean(cfg.modulos?.caveman);
   $("mod-caveman-nivel").value = cfg.modulos?.cavemanNivel || "full";
   $("mod-quadro-tarefas").checked = cfg.modulos?.quadroTarefas !== false;
+  $("mod-coleta-design").checked = cfg.modulos?.coletaDesign !== false;
   $("mod-windows-control").checked = Boolean(cfg.windowsControlEnabled);
   atualizarBannerWindowsControl(Boolean(cfg.windowsControlEnabled));
 }
@@ -7142,6 +7305,32 @@ $("mod-caveman-nivel").addEventListener("change", (e) =>
 $("mod-quadro-tarefas").addEventListener("change", (e) =>
   void salvarModulo("quadroTarefas", e.target.checked, "mod-quadro-tarefas-err"),
 );
+$("mod-coleta-design").addEventListener("change", (e) => {
+  state.coletaDesign = e.target.checked;
+  atualizarChromeBrowser();
+  void salvarModulo("coletaDesign", e.target.checked, "mod-coleta-design-err");
+});
+
+/**
+ * Botão do Browser: lê o estilo computado da página aberta + print e abre o "Gerar com IA" do
+ * Design System com isso como referência (ds-extrator.js). A página precisa estar visível: o
+ * print sai do que está pintado.
+ */
+$("btn-browser-ds").addEventListener("click", async () => {
+  const btn = $("btn-browser-ds");
+  const webview = guestVisivel();
+  if (!webview) return;
+  btn.disabled = true;
+  try {
+    const ref = await capturarReferencia(webview);
+    setView("ds");
+    await dsCanvas.usarReferencia(ref);
+  } catch (e) {
+    await dialogo.avisar(`Não consegui capturar a página: ${e?.message || e}`);
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 /** Fora de `modulos`: é chave de topo do config (ver NexoConfig), não um módulo externo comum. */
 async function salvarControleDoWindows(valor) {
@@ -7760,6 +7949,18 @@ $("temas").addEventListener("click", (e) => {
 
 $("accent-picker").addEventListener("input", (e) => persistAccent(e.target.value));
 $("accent-hex").addEventListener("change", (e) => persistAccent(e.target.value.trim()));
+$("logo-projetos").checked = state.logoProjetos;
+$("logo-projetos").addEventListener("change", async (e) => {
+  state.logoProjetos = e.target.checked;
+  renderRepoTree();
+  $("logo-projetos-err").textContent = "";
+  try {
+    await req("/v1/config", { method: "PUT", body: JSON.stringify({ logoProjetos: state.logoProjetos }) });
+  } catch (err) {
+    $("logo-projetos-err").textContent = err.message || "Não gravou.";
+  }
+});
+
 $("accent-swatches").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-accent]");
   if (btn) persistAccent(btn.dataset.accent);

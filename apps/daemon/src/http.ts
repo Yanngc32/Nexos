@@ -88,7 +88,9 @@ import { ferramentasDeControleDoWindows } from "./windows-control.ts";
 import {
   abortarRun,
   criarRun,
-  executarRun,
+  executarNoChat,
+  runsDoChat,
+  pararPasso,
   ferramentasDoRun,
   getRun,
   listRuns,
@@ -134,6 +136,17 @@ import {
   salvarTokens,
 } from "./design-system.ts";
 import { assinarDs } from "./ds-watch.ts";
+import { logoDoProjeto } from "./project-logo.ts";
+import {
+  cancelarGeracao,
+  canalGeracao,
+  geracaoAtual,
+  geracaoBus,
+  iniciarGeracao,
+  motorPadrao,
+  PLANO_PADRAO,
+  type GerarInput,
+} from "./ds-gerar.ts";
 import { desligarRepoMapResumos, gerarResumosSobDemanda, sincronizarRepoMapResumos } from "./repo-map-auto.ts";
 import { statusDaMemoria, statusDaMemoriaGlobal } from "./memoria.ts";
 import { importarZip } from "./importadores/importar-zip.ts";
@@ -750,6 +763,9 @@ export function createApp(home: string, token: string): Hono {
     }
   });
 
+  /** Times chamados deste chat (em curso e recentes) — a barra "trabalhando" acima do input. */
+  app.get("/v1/threads/:id/runs", (c) => c.json(runsDoChat(c.req.param("id"), home)));
+
   app.get("/v1/threads/:id/usage", (c) => {
     try {
       return c.json(threadReport(c.req.param("id"), home));
@@ -868,6 +884,25 @@ export function createApp(home: string, token: string): Hono {
       fromConfig: doConfig,
       fromThreads: merged.length - doConfig,
     });
+  });
+
+  /** Logo/ícone do projeto pra barra lateral. 404 = sem logo (o app mostra o ícone de pasta). */
+  app.get("/v1/projects/logo", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    const logo = logoDoProjeto(projectPath);
+    if (!logo) return c.json({ error: "sem logo" }, 404);
+    try {
+      const corpo = readFileSync(logo.caminho);
+      return c.body(corpo, 200, {
+        "content-type": logo.mime,
+        // SVG de projeto é arquivo de terceiro: sem script nem recurso externo quando aberto direto
+        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+        "cache-control": "private, max-age=300",
+      });
+    } catch {
+      return c.json({ error: "sem logo" }, 404);
+    }
   });
 
   /* ---------- serviços locais do projeto ---------- */
@@ -1120,6 +1155,34 @@ export function createApp(home: string, token: string): Hono {
     }
   });
 
+  /** Plano padrão de seções/cards — o Canvas monta o formulário e a estimativa a partir dele. */
+  app.get("/v1/ds/gerar/plano", (c) =>
+    c.json({ secoes: PLANO_PADRAO.map((s) => ({ id: s.id, titulo: s.titulo, cards: s.cards.length })) }),
+  );
+
+  app.get("/v1/ds/gerar", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    return c.json({ geracao: geracaoAtual(projectPath) });
+  });
+
+  app.post("/v1/ds/gerar", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as GerarInput;
+      return c.json({ geracao: iniciarGeracao(projectPath, home, body) }, 202);
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  app.post("/v1/ds/gerar/cancelar", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    return c.json({ geracao: await cancelarGeracao(projectPath, motorPadrao(home)) });
+  });
+
   /** Mudança em disco na pasta do DS ativo. O Canvas relê `GET /v1/ds` e anima a diferença. */
   app.get("/v1/ds/events", (c) => {
     const projectPath = c.req.query("projectPath") || "";
@@ -1128,11 +1191,20 @@ export function createApp(home: string, token: string): Hono {
     if (!pasta) return c.json({ error: "este projeto não tem design system" }, 404);
     return streamSSE(c, async (stream) => {
       let sair: () => void = () => {};
+      // progresso da geração por IA vai no mesmo stream: o Canvas já está ouvindo este
+      const canal = canalGeracao(projectPath);
+      const onGeracao = (ev: unknown) => void stream.writeSSE({ data: JSON.stringify(ev) });
+      geracaoBus.on(canal, onGeracao);
       try {
-        sair = assinarDs(pasta, (ev) => {
+        const sairDoDisco = assinarDs(pasta, (ev) => {
           void stream.writeSSE({ data: JSON.stringify(ev) });
         });
+        sair = () => {
+          sairDoDisco();
+          geracaoBus.off(canal, onGeracao);
+        };
       } catch (e) {
+        geracaoBus.off(canal, onGeracao);
         // pasta sumiu do disco entre o ponteiro e o watch: o Canvas mostra o erro no GET
         await stream.writeSSE({ data: JSON.stringify({ type: "erro", message: (e as Error).message }) });
         return;
@@ -1505,6 +1577,8 @@ export function createApp(home: string, token: string): Hono {
       projectPath?: string;
       goal?: string;
       budget?: unknown;
+      /** Chat que chamou (menção): os passos ficam dentro dele e o resultado volta pra ele. */
+      origemThreadId?: string;
     };
     try {
       const run = criarRun(
@@ -1513,6 +1587,7 @@ export function createApp(home: string, token: string): Hono {
           projectPath: body.projectPath ?? "",
           goal: body.goal ?? "",
           budget: body.budget,
+          origemThreadId: body.origemThreadId,
         },
         home,
       );
@@ -1520,7 +1595,7 @@ export function createApp(home: string, token: string): Hono {
       // await e já marca o passo 1 como "running". Sem isso, o corpo da
       // resposta dependeria de onde a execução tivesse chegado ao serializar.
       const criado = structuredClone(run);
-      void executarRun(run, home);
+      void executarNoChat(run, home, { entregar: true });
       return c.json(criado, 201);
     } catch (e) {
       const err = e as Error & { status?: number };
@@ -1660,12 +1735,18 @@ export function createApp(home: string, token: string): Hono {
     try {
       const run = retomarRun(c.req.param("id"), home, body.budget);
       const retomado = structuredClone(run);
-      void executarRun(run, home);
+      void executarNoChat(run, home, { entregar: true });
       return c.json(retomado);
     } catch (e) {
       const err = e as Error & { status?: number };
       return c.json({ error: err.message }, (err.status ?? 400) as 400);
     }
+  });
+
+  /** Para um agente só do run (botão da barra "trabalhando"). */
+  app.post("/v1/runs/:id/steps/:index/parar", async (c) => {
+    const parou = await pararPasso(c.req.param("id"), Number(c.req.param("index")));
+    return parou ? c.json({ ok: true }) : c.json({ error: "esse agente não está trabalhando agora" }, 409);
   });
 
   app.post("/v1/runs/:id/abort", async (c) => {
@@ -1845,9 +1926,9 @@ export function createApp(home: string, token: string): Hono {
           // Delegar a time exige projeto real (Run.projectPath) — conversa global (sem projeto)
           // fica fora do escopo por enquanto.
           if (!projectPath) return c.json({ error: "sem projeto: essa conversa não pode virar run de time" }, 400);
-          const run = criarRun({ teamId: pendente.alvo, projectPath, goal: pendente.tarefa }, home);
+          const run = criarRun({ teamId: pendente.alvo, projectPath, goal: pendente.tarefa, origemThreadId: threadId }, home);
           viraRun = true;
-          void executarRun(run, home);
+          void executarNoChat(run, home, { entregar: true });
         }
       }
       appendEvent({ ts, type: "roteamento_decidido", threadId, aceito: Boolean(body.aceitar) }, home);

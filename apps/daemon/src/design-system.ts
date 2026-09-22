@@ -1,25 +1,26 @@
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { projectDir, projectDirSemCriar } from "./projeto-dir.ts";
 
 /**
  * Design system (DS) do projeto — o que a view "Design System" do desktop mostra e edita.
  * Spec: docs/superpowers/specs/2026-09-22-canvas-design-system-design.md.
  *
- * Os ARQUIVOS são a fonte da verdade e moram DENTRO do projeto, na pasta que o usuário
- * escolheu: o agente edita com as ferramentas nativas dele (Write/Edit/shell), sem ferramenta
- * MCP própria. Aqui só fica o que o daemon precisa pra servir o Canvas: ler, gravar com
- * checagem de conflito, virar tokens em CSS e passar o lint.
+ * Os ARQUIVOS são a fonte da verdade e moram na pasta do projeto DO NEXOS (`projectDir`, a mesma
+ * de memória, tarefas e repo map — dentro de `projetosDir`, que a pessoa já escolheu), em
+ * `design-system/<id>/`. Sem seletor de pasta: o lugar é sempre esse, e sincroniza entre máquinas
+ * junto com o resto da pasta do projeto. O agente edita com as ferramentas nativas dele
+ * (Write/Edit/shell), sem ferramenta MCP própria. Aqui só fica o que o daemon precisa pra servir o
+ * Canvas: ler, gravar com checagem de conflito, virar tokens em CSS e passar o lint.
  *
- * O ponteiro "quais DS este projeto tem e qual é o ativo" NÃO fica no projeto: fica na pasta
- * do projeto do Nexos (`projectDir`), com a pasta do DS relativa ao projeto — mesmo projeto em
- * outra máquina (outro caminho absoluto) continua achando o DS.
+ * Imagem relativa num card (o logo do projeto) é relativa à RAIZ DO PROJETO (repo), que o Canvas
+ * usa como `<base>` — `public/logo.svg`, não um caminho que dependa de onde o DS mora.
  */
 
 export type LintItem = { regra: string; msg: string; trecho?: string };
 
-export type DsSistema = { id: string; nome: string; pasta: string };
+export type DsSistema = { id: string; nome: string };
 
 export type DsCard = {
   id: string;
@@ -36,8 +37,10 @@ export type DsSecao = { id: string; titulo: string };
 export type DsVar = { nome: string; caminho: string; tipo?: string; valor: string; bruto: unknown };
 
 export type DsCompleto = DsSistema & {
-  /** Caminho absoluto — o Canvas usa como `<base>` pra imagem relativa (logo do projeto). */
+  /** Onde os arquivos do DS estão (pra mostrar e pro observador). */
   pastaAbs: string;
+  /** Raiz do projeto — o Canvas usa como `<base>` pra imagem relativa (logo do projeto). */
+  projetoAbs: string;
   tokens: unknown;
   tokensHash: string;
   tokensLint: LintItem[];
@@ -61,24 +64,30 @@ function hashDe(texto: string): string {
 }
 
 /* ---------------------------------------------------------------------------
- * Ponteiro por projeto
+ * Onde mora: <projectDir>/design-system.json (ponteiro) e <projectDir>/design-system/<id>/
  * ------------------------------------------------------------------------- */
 
 type Ponteiro = { sistemas: DsSistema[]; ativo: string | null };
 
+function raizDoProjetoNexos(projectPath: string, home: string, criar: boolean): string {
+  return criar ? projectDir(projectPath, home) : projectDirSemCriar(projectPath, home);
+}
+
 function ponteiroPath(projectPath: string, home: string, criar: boolean): string {
-  const dir = criar ? projectDir(projectPath, home) : projectDirSemCriar(projectPath, home);
-  return join(dir, "design-system.json");
+  return join(raizDoProjetoNexos(projectPath, home, criar), "design-system.json");
 }
 
 function lerPonteiro(projectPath: string, home: string): Ponteiro {
   try {
     const bruto = JSON.parse(readFileSync(ponteiroPath(projectPath, home, false), "utf8")) as Partial<Ponteiro>;
+    // id é nome de pasta: o que não passa no formato (arquivo editado à mão) some da lista, e o
+    // que não tem pasta no disco também (apagada à mão, ou ponteiro de um layout antigo)
+    const raiz = join(raizDoProjetoNexos(projectPath, home, false), "design-system");
     const sistemas = Array.isArray(bruto.sistemas)
-      ? bruto.sistemas.filter(
-          (s): s is DsSistema =>
-            !!s && typeof s.id === "string" && typeof s.nome === "string" && typeof s.pasta === "string",
-        )
+      ? bruto.sistemas
+          .filter((s): s is DsSistema => !!s && typeof s.id === "string" && ID_RE.test(s.id) && typeof s.nome === "string")
+          .filter((s) => existsSync(join(raiz, s.id)))
+          .map((s) => ({ id: s.id, nome: s.nome }))
       : [];
     const ativo = sistemas.some((s) => s.id === bruto.ativo) ? (bruto.ativo as string) : (sistemas[0]?.id ?? null);
     return { sistemas, ativo };
@@ -99,49 +108,9 @@ function escreverAtomico(caminho: string, conteudo: string): void {
   renameSync(tmp, caminho);
 }
 
-/* ---------------------------------------------------------------------------
- * Caminho da pasta: sempre DENTRO do projeto
- * ------------------------------------------------------------------------- */
-
-function dentro(raiz: string, alvo: string): boolean {
-  const rel = relative(raiz, alvo);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-}
-
-/** `realpath` do trecho que já existe + o resto — pasta nova ainda não existe no disco. */
-function realOuPai(alvo: string): string {
-  let atual = alvo;
-  const resto: string[] = [];
-  while (!existsSync(atual)) {
-    const pai = dirname(atual);
-    if (pai === atual) return alvo;
-    resto.unshift(atual.slice(pai.length + (pai.endsWith(sep) ? 0 : 1)));
-    atual = pai;
-  }
-  return join(realpathSync(atual), ...resto);
-}
-
-/**
- * Normaliza a pasta pedida (absoluta, do seletor de pasta, ou relativa ao projeto) pra um caminho
- * RELATIVO ao projeto, e recusa o que sai dele — inclusive por symlink.
- */
-export function pastaRelativa(projectPath: string, pasta: string): string {
-  const bruta = (pasta || "").trim();
-  if (!bruta) throw erro("pasta obrigatória");
-  const raiz = resolve(projectPath);
-  const alvo = resolve(raiz, bruta);
-  if (!dentro(raiz, alvo)) throw erro("a pasta do design system precisa ficar dentro do projeto");
-  if (existsSync(raiz) && !dentro(realpathSync(raiz), realOuPai(alvo))) {
-    throw erro("a pasta do design system aponta pra fora do projeto (symlink)");
-  }
-  const rel = relative(raiz, alvo).split(sep).join("/");
-  if (!rel) throw erro("escolha uma subpasta do projeto, não a raiz dele");
-  return rel;
-}
-
-export function pastaAbsoluta(projectPath: string, sistema: DsSistema): string {
-  // revalida a cada uso: o ponteiro é um arquivo editável à mão
-  return resolve(projectPath, pastaRelativa(projectPath, sistema.pasta));
+export function pastaAbsoluta(projectPath: string, home: string, sistema: DsSistema): string {
+  if (!ID_RE.test(sistema.id)) throw erro("id de design system inválido");
+  return join(raizDoProjetoNexos(projectPath, home, false), "design-system", sistema.id);
 }
 
 /* ---------------------------------------------------------------------------
@@ -393,8 +362,8 @@ function lerMeta(pasta: string): Meta {
   }
 }
 
-export function lerSistema(projectPath: string, sistema: DsSistema): DsCompleto {
-  const pastaAbs = pastaAbsoluta(projectPath, sistema);
+export function lerSistema(projectPath: string, home: string, sistema: DsSistema): DsCompleto {
+  const pastaAbs = pastaAbsoluta(projectPath, home, sistema);
   const tokensTexto = lerTexto(join(pastaAbs, "tokens.json")) ?? "";
   let tokens: unknown = {};
   const tokensLint: LintItem[] = [];
@@ -444,6 +413,7 @@ export function lerSistema(projectPath: string, sistema: DsSistema): DsCompleto 
   return {
     ...sistema,
     pastaAbs,
+    projetoAbs: resolve(projectPath),
     tokens,
     tokensHash: hashDe(tokensTexto),
     tokensLint,
@@ -458,7 +428,7 @@ export function lerSistema(projectPath: string, sistema: DsSistema): DsCompleto 
 export function estadoDs(projectPath: string, home: string): DsEstado {
   const p = lerPonteiro(projectPath, home);
   const sistema = p.sistemas.find((s) => s.id === p.ativo);
-  return { sistemas: p.sistemas, ativo: p.ativo, ds: sistema ? lerSistema(projectPath, sistema) : null };
+  return { sistemas: p.sistemas, ativo: p.ativo, ds: sistema ? lerSistema(projectPath, home, sistema) : null };
 }
 
 /** Pasta absoluta do DS ativo, ou `null` — pro observador. */
@@ -467,7 +437,7 @@ export function pastaDoAtivo(projectPath: string, home: string): string | null {
   const sistema = p.sistemas.find((s) => s.id === p.ativo);
   if (!sistema) return null;
   try {
-    return pastaAbsoluta(projectPath, sistema);
+    return pastaAbsoluta(projectPath, home, sistema);
   } catch {
     return null;
   }
@@ -494,10 +464,62 @@ function conferirBase(caminho: string, base: string | undefined): void {
 export function salvarTokens(projectPath: string, home: string, tokens: unknown, base?: string): DsCompleto {
   if (!tokens || typeof tokens !== "object" || Array.isArray(tokens)) throw erro("tokens precisa ser um objeto DTCG");
   const s = ativoOuErro(projectPath, home);
-  const caminho = join(pastaAbsoluta(projectPath, s), "tokens.json");
+  const caminho = join(pastaAbsoluta(projectPath, home, s), "tokens.json");
   conferirBase(caminho, base);
   escreverAtomico(caminho, `${JSON.stringify(tokens, null, 2)}\n`);
-  return lerSistema(projectPath, s);
+  return lerSistema(projectPath, home, s);
+}
+
+const VERSOES_POR_CARD = 10;
+
+/**
+ * Guarda a versão atual do card antes de sobrescrever — geração por IA reescreve card inteiro, e
+ * perder um card ajustado à mão por causa de um "gerar de novo" não pode acontecer. Fica em
+ * `.versoes/<id>/` dentro da pasta do DS (versionável junto no git, se a pessoa quiser).
+ */
+function guardarVersao(pasta: string, id: string): void {
+  const atual = lerTexto(join(pasta, "cards", `${id}.html`));
+  if (atual === null || !atual.trim()) return;
+  const dir = join(pasta, ".versoes", id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${new Date().toISOString().replace(/[:.]/g, "-")}.html`), atual, "utf8");
+  const velhas = readdirSync(dir).filter((f) => f.endsWith(".html")).sort();
+  for (const f of velhas.slice(0, Math.max(0, velhas.length - VERSOES_POR_CARD))) {
+    try {
+      rmSync(join(dir, f));
+    } catch {
+      /* segue */
+    }
+  }
+}
+
+export function salvarDesignMd(projectPath: string, home: string, texto: string): void {
+  const s = ativoOuErro(projectPath, home);
+  escreverAtomico(join(pastaAbsoluta(projectPath, home, s), "DESIGN.md"), texto.endsWith("\n") ? texto : `${texto}\n`);
+}
+
+/**
+ * Prepara o `meta.json` pra uma geração: garante as seções (sem apagar as que existem) e põe os
+ * cards do plano NA ORDEM DO PLANO — senão cada card entraria no fim, na ordem em que chegou.
+ * Entrada de card que ainda não tem arquivo é inofensiva: `lerSistema` só mostra o que existe.
+ * Card que já existe mantém título/subtítulo que alguém ajustou à mão.
+ */
+export function prepararMeta(
+  projectPath: string,
+  home: string,
+  secoes: DsSecao[],
+  plano: { id: string; titulo: string; subtitulo?: string; secao: string }[],
+): void {
+  const s = ativoOuErro(projectPath, home);
+  const pasta = pastaAbsoluta(projectPath, home, s);
+  const meta = lerMeta(pasta);
+  const atuais = (meta.secoes ?? []).filter((x) => x && typeof x.id === "string");
+  const faltando = secoes.filter((x) => !atuais.some((a) => a.id === x.id));
+  const existentes = new Map((meta.cards ?? []).filter((c) => c && typeof c.id === "string").map((c) => [c.id, c]));
+  const doPlano = plano.map((p) => ({ ...p, ...existentes.get(p.id), secao: p.secao }));
+  const idsPlano = new Set(plano.map((p) => p.id));
+  const cards = [...doPlano, ...(meta.cards ?? []).filter((c) => c && !idsPlano.has(c.id))];
+  escreverAtomico(join(pasta, "meta.json"), `${JSON.stringify({ ...meta, secoes: [...atuais, ...faltando], cards }, null, 2)}\n`);
 }
 
 export function salvarCard(
@@ -505,13 +527,15 @@ export function salvarCard(
   home: string,
   id: string,
   input: { html?: unknown; base?: string; titulo?: unknown; subtitulo?: unknown; secao?: unknown },
+  opts: { versionar?: boolean } = {},
 ): DsCompleto {
   if (!ID_RE.test(id)) throw erro("id de card inválido (a-z, 0-9 e hífen)");
   if (typeof input.html !== "string") throw erro("html obrigatório");
   const s = ativoOuErro(projectPath, home);
-  const pasta = pastaAbsoluta(projectPath, s);
+  const pasta = pastaAbsoluta(projectPath, home, s);
   const caminho = join(pasta, "cards", `${id}.html`);
   conferirBase(caminho, input.base);
+  if (opts.versionar) guardarVersao(pasta, id);
   escreverAtomico(caminho, input.html);
   if (typeof input.titulo === "string" || typeof input.secao === "string" || typeof input.subtitulo === "string") {
     const meta = lerMeta(pasta);
@@ -528,7 +552,7 @@ export function salvarCard(
     else cards.push(novo);
     escreverAtomico(join(pasta, "meta.json"), `${JSON.stringify({ ...meta, cards }, null, 2)}\n`);
   }
-  return lerSistema(projectPath, s);
+  return lerSistema(projectPath, home, s);
 }
 
 export function ativarDs(projectPath: string, home: string, id: string): DsEstado {
@@ -543,29 +567,35 @@ export function ativarDs(projectPath: string, home: string, id: string): DsEstad
  * criado à mão ou por agente, ou vindo de outra máquina); pasta vazia recebe o esqueleto inicial.
  * Nunca sobrescreve arquivo existente.
  */
-export function criarDs(projectPath: string, home: string, input: { nome?: unknown; pasta?: unknown }): DsEstado {
+/**
+ * Cria um DS em `<projectDir>/design-system/<id>/` com o esqueleto inicial. O id sai do nome.
+ * Pasta que já tem arquivos (ex.: sincronizada de outra máquina sem o ponteiro) é ADOTADA como
+ * está: esqueleto nunca sobrescreve arquivo existente.
+ */
+export function criarDs(projectPath: string, home: string, input: { nome?: unknown }): DsEstado {
   const nome = typeof input.nome === "string" && input.nome.trim() ? input.nome.trim().slice(0, 80) : "Design system";
-  const pasta = pastaRelativa(projectPath, typeof input.pasta === "string" ? input.pasta : "design-system");
   const p = lerPonteiro(projectPath, home);
-  const existente = p.sistemas.find((s) => s.pasta === pasta);
-  if (existente) {
-    salvarPonteiro(projectPath, home, { ...p, ativo: existente.id });
-    return estadoDs(projectPath, home);
-  }
-  const abs = resolve(projectPath, pasta);
+  let base = nome
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  if (!ID_RE.test(base)) base = "ds";
+  let id = base;
+  for (let n = 2; p.sistemas.some((s) => s.id === id); n++) id = `${base}-${n}`;
+  raizDoProjetoNexos(projectPath, home, true); // garante a pasta do projeto (com meta.json)
+  const abs = pastaAbsoluta(projectPath, home, { id, nome });
   for (const [arquivo, conteudo] of Object.entries(esqueleto(nome))) {
     const caminho = join(abs, arquivo);
     if (!existsSync(caminho)) escreverAtomico(caminho, conteudo);
   }
-  let base = pasta.split("/").pop()!.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "ds";
-  if (!ID_RE.test(base)) base = "ds";
-  let id = base;
-  for (let n = 2; p.sistemas.some((s) => s.id === id); n++) id = `${base}-${n}`;
-  salvarPonteiro(projectPath, home, { sistemas: [...p.sistemas, { id, nome, pasta }], ativo: id });
+  salvarPonteiro(projectPath, home, { sistemas: [...p.sistemas, { id, nome }], ativo: id });
   return estadoDs(projectPath, home);
 }
 
-/** Tira o DS da lista do projeto. Os arquivos ficam no disco — são do projeto, não do Nexos. */
+/** Tira o DS da lista do projeto. Os arquivos ficam no disco (dá pra recuperar à mão). */
 export function removerDs(projectPath: string, home: string, id: string): DsEstado {
   const p = lerPonteiro(projectPath, home);
   const sistemas = p.sistemas.filter((s) => s.id !== id);

@@ -15,6 +15,8 @@
  * teste com happy-dom.
  */
 
+import { resumoCurto } from "./ds-extrator.js";
+
 /* ---------------------------------------------------------------------------
  * Funções puras
  * ------------------------------------------------------------------------- */
@@ -283,19 +285,82 @@ body{padding:20px;box-sizing:border-box;min-height:40px;
 [data-ds-anim]{transition:opacity .28s ease,transform .28s ease}`;
 
 /** Esqueleto do documento do card. O conteúdo entra depois, por `body.innerHTML`. */
-export function montarSrcdoc({ css, baseHref }) {
+export function montarSrcdoc({ css, baseHref, fontes = [] }) {
   const base = baseHref ? `<base href="${esc(baseHref)}">` : "";
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">${base}
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">${base}${linksDeFontes(fontes)}
 <style id="ds-tokens">${css || ""}</style><style id="ds-base">${CSS_BASE}</style><style id="ds-override"></style>
 </head><body></body></html>`;
 }
 
-/** `file:///C:/…/pasta/cards/` — base pra imagem relativa do card (logo do projeto). */
-export function baseHrefDaPasta(pastaAbs) {
-  if (!pastaAbs) return "";
-  const p = String(pastaAbs).replace(/\\/g, "/").replace(/\/+$/, "");
+const FAMILIAS_DO_SISTEMA = new Set([
+  "system-ui", "sans-serif", "serif", "monospace", "cursive", "ui-sans-serif", "ui-serif", "ui-monospace",
+  "ui-rounded", "-apple-system", "blinkmacsystemfont", "segoe ui", "segoe ui variable text", "helvetica",
+  "helvetica neue", "arial", "consolas", "menlo", "monaco", "courier new", "sfmono-regular", "inherit",
+]);
+
+/**
+ * URLs do Google Fonts pras famílias dos tokens de fonte (a primeira de cada lista, se não for do
+ * sistema). UMA por família, na API v1: a css2 com pesos fixos derruba o pedido inteiro se uma
+ * família não tiver um dos pesos, e família que não existe no Google derrubaria as outras junto.
+ */
+export function urlsDeFontes(vars) {
+  const familias = new Set();
+  for (const v of vars || []) {
+    if (v.tipo !== "fontFamily" && !/family/i.test(v.caminho)) continue;
+    const primeira = String(v.valor).split(",")[0].trim().replace(/^["']|["']$/g, "");
+    if (!primeira || primeira.startsWith("var(") || FAMILIAS_DO_SISTEMA.has(primeira.toLowerCase())) continue;
+    familias.add(primeira);
+  }
+  return [...familias]
+    .sort()
+    .map((f) => `https://fonts.googleapis.com/css?family=${encodeURIComponent(f).replace(/%20/g, "+")}:400,500,600,700&display=swap`);
+}
+
+function linksDeFontes(urls) {
+  return urls.map((u) => `<link rel="stylesheet" data-ds-fonte href="${esc(u)}">`).join("");
+}
+
+/**
+ * Card que acabou de nascer: o que animar pra ele "se desenhar". Ordem do documento (pai antes do
+ * filho), até `max` elementos — se passar, corta a profundidade até caber.
+ */
+export function elementosParaConstruir(raiz, max = 40) {
+  const todos = [];
+  const andar = (el, nivel) => {
+    for (const filho of el.children) {
+      if (filho.tagName === "STYLE" || filho.tagName === "SCRIPT" || filho.tagName === "LINK") continue;
+      todos.push({ el: filho, nivel });
+      andar(filho, nivel + 1);
+    }
+  };
+  andar(raiz, 1);
+  for (let prof = 4; prof >= 1; prof--) {
+    const sel = todos.filter((t) => t.nivel <= prof);
+    if (sel.length <= max || prof === 1) return sel.slice(0, max).map((t) => t.el);
+  }
+  return [];
+}
+
+/** Cards do plano da geração que ainda não existem em disco: viram esqueleto no board. */
+export function cardsPendentes(geracao, cardsEmDisco) {
+  if (!geracao || geracao.status !== "rodando") return [];
+  const existentes = new Set((cardsEmDisco || []).map((c) => c.id));
+  const etapaDe = new Map();
+  for (const e of geracao.etapas || []) for (const id of e.cards || []) etapaDe.set(id, e);
+  return (geracao.plano || [])
+    .filter((c) => !existentes.has(c.id))
+    .map((c) => ({ ...c, html: "", lint: [], pendente: true, etapaStatus: etapaDe.get(c.id)?.status || "pendente" }));
+}
+
+/**
+ * `file:///C:/…/projeto/` — base pra imagem relativa do card. É a RAIZ DO PROJETO (repo), não a
+ * pasta do DS: o logo real do projeto entra como `public/logo.svg`, não importa onde o DS mora.
+ */
+export function baseHrefDoProjeto(projetoAbs) {
+  if (!projetoAbs) return "";
+  const p = String(projetoAbs).replace(/\\/g, "/").replace(/\/+$/, "");
   const comBarra = p.startsWith("/") ? p : `/${p}`;
-  return `file://${encodeURI(comBarra)}/cards/`;
+  return `file://${encodeURI(comBarra)}/`;
 }
 
 /* ---------------------------------------------------------------------------
@@ -312,9 +377,12 @@ export function createDsCanvas({
   getProjectPath,
   isOk = () => true,
   lerEventos,
-  pickFolder = async () => null,
   avisar = (msg) => Promise.resolve(window.alert(msg)),
   fetchImpl = (...a) => fetch(...a),
+  /** Contas pro formulário de geração, e a selecionada no app (vira a padrão). */
+  getProfiles = () => [],
+  getProfileId = () => "",
+  aoAbrirConversa = () => {},
   doc = document,
   win = window,
 }) {
@@ -327,6 +395,10 @@ export function createDsCanvas({
   const overrides = new Map();
   /** Card (id) aberto no painel de edição, ou null. */
   let editando = null;
+  /** Geração por IA em curso (ou a última), como o daemon manda. */
+  let geracao = null;
+  /** Plano do daemon (`/v1/ds/gerar/plano`), pra montar o formulário. */
+  let planoSecoes = null;
   let painelModo = "tokens"; // "tokens" | "avisos"
   let salvarTimer = 0;
   /** Hash dos tokens que NÓS acabamos de salvar — a volta pelo observador não pulsa card. */
@@ -364,6 +436,13 @@ export function createDsCanvas({
       limparFrames();
     }
     await recarregar({ animar: false });
+    try {
+      geracao = (await req(`/v1/ds/gerar?${qs()}`)).geracao;
+    } catch {
+      geracao = null;
+    }
+    pintarProgresso();
+    if (geracao?.status === "rodando" && estado.ds) pintar();
     ouvir();
   }
 
@@ -412,6 +491,10 @@ export function createDsCanvas({
       .then(async (res) => {
         if (!res.ok) return;
         await lerEventos(res, (ev) => {
+          if (ev.type === "geracao") {
+            aplicarGeracao(ev.geracao);
+            return;
+          }
           if (ev.type !== "changed") return;
           clearTimeout(recarregarTimer);
           recarregarTimer = setTimeout(() => void recarregar({ animar: true }), 120);
@@ -488,7 +571,8 @@ export function createDsCanvas({
     el("ds-toolbar").classList.toggle("hidden", !ds);
     el("ds-pasta").classList.toggle("hidden", !ds);
     el("ds-nome").textContent = ds ? ds.nome : "";
-    el("ds-pasta").textContent = ds ? ds.pasta : "";
+    // caminho completo no hover; na pílula só o fim, que é o que distingue um DS do outro
+    el("ds-pasta").textContent = ds ? ds.pastaAbs.replace(/\\/g, "/").split("/").slice(-2).join("/") : "";
     el("ds-pasta").title = ds ? ds.pastaAbs : "";
     const temas = ds ? temasDoCss(ds.css) : [];
     const tsel = el("ds-tema");
@@ -513,7 +597,9 @@ export function createDsCanvas({
   /** Todos os cards na ordem do board: Fundamentos (gerados), DESIGN.md e os de arquivo. */
   function cardsDoBoard(ds) {
     const fund = cardsDeFundamentos(ds.vars).map((c) => ({ ...c, secao: "fundamentos", gerado: true, lint: [] }));
-    return [...fund, ...ds.cards];
+    // esqueleto dos cards previstos entra na posição do plano, dentro da seção dele
+    const pendentes = cardsPendentes(geracao, ds.cards);
+    return [...fund, ...ds.cards, ...pendentes];
   }
 
   function secoesDoBoard(ds) {
@@ -612,7 +698,7 @@ export function createDsCanvas({
 
   /** Garante o documento base no iframe; resolve quando dá pra escrever nele. */
   function prepararFrame(f, ds) {
-    const base = baseHrefDaPasta(ds.pastaAbs);
+    const base = baseHrefDoProjeto(ds.projetoAbs);
     if (f.pronto && f.base === base) return f.pronto;
     f.base = base;
     f.pronto = new Promise((resolve) => {
@@ -624,7 +710,9 @@ export function createDsCanvas({
         resolve();
       };
       f.frame.addEventListener("load", pronto);
-      f.frame.srcdoc = montarSrcdoc({ css: ds.css, baseHref: base });
+      const fontes = urlsDeFontes(ds.vars);
+      f.fontes = fontes.join("|");
+      f.frame.srcdoc = montarSrcdoc({ css: ds.css, baseHref: base, fontes });
     });
     return f.pronto;
   }
@@ -679,6 +767,12 @@ export function createDsCanvas({
     }
     const o = d.getElementById("ds-override");
     if (o) o.textContent = overrides.size ? `:root{${[...overrides].map(([n, v]) => `${n}:${v}`).join(";")}}` : "";
+    const fontes = urlsDeFontes(ds.vars);
+    if (f.fontes !== fontes.join("|")) {
+      f.fontes = fontes.join("|");
+      for (const l of d.querySelectorAll("link[data-ds-fonte]")) l.remove();
+      d.head.insertAdjacentHTML("afterbegin", linksDeFontes(fontes));
+    }
     if (tema) d.documentElement.dataset.tema = tema;
     else delete d.documentElement.dataset.tema;
   }
@@ -692,6 +786,9 @@ export function createDsCanvas({
     lint.classList.toggle("hidden", !card.lint.length);
     f.cartao.classList.toggle("tem-aviso", card.lint.length > 0);
     f.cartao.classList.toggle("editando", editando === card.id);
+    f.cartao.classList.toggle("pendente", !!card.pendente);
+    f.cartao.dataset.etapa = card.pendente ? card.etapaStatus : "";
+    f.cartao.querySelector(".ds-card-edit").classList.toggle("hidden", !!card.pendente);
 
     await prepararFrame(f, ds);
     aplicarVarsNoFrame(f, ds);
@@ -708,7 +805,8 @@ export function createDsCanvas({
       f.hash = card.hash ?? html;
       medir(f);
       setTimeout(() => medir(f), 60);
-      if (animar && !primeira) enfileirar(f, elementosNovos(antigos, body));
+      // card que acabou de nascer (geração) se desenha inteiro; card que mudou anima só a diferença
+      if (animar && html) enfileirar(f, primeira ? elementosParaConstruir(body) : elementosNovos(antigos, body));
     } else if (animar && mudadas.size && [...tokensUsados(html)].some((n) => mudadas.has(n))) {
       pulsar(f);
     }
@@ -721,7 +819,8 @@ export function createDsCanvas({
     }
     frames.clear();
     const board = el("ds-board");
-    if (board) board.innerHTML = "";
+    // só as seções: cursor e camada de contorno moram no board e ficam
+    if (board) for (const s of board.querySelectorAll(":scope > .ds-secao")) s.remove();
     fila = [];
   }
 
@@ -747,12 +846,16 @@ export function createDsCanvas({
   const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
   /** Posição do elemento do card em coordenadas da camada de animação (sobre o viewport). */
-  function retanguloNaTela(f, alvo) {
-    const vp = el("ds-viewport").getBoundingClientRect();
+  /**
+   * Posição do elemento do card em coordenadas do BOARD (antes da escala) — cursor e contorno
+   * moram dentro do board, então acompanham pan e zoom sem recalcular.
+   */
+  function retanguloNoBoard(f, alvo) {
+    const b = el("ds-board").getBoundingClientRect();
     const fr = f.frame.getBoundingClientRect();
-    const k = f.frame.offsetWidth ? fr.width / f.frame.offsetWidth : 1;
-    const r = alvo.getBoundingClientRect();
-    return { x: fr.left - vp.left + r.left * k, y: fr.top - vp.top + r.top * k, w: r.width * k, h: r.height * k };
+    const r = alvo.getBoundingClientRect(); // em px do documento do card = px do board
+    const e = vista.escala || 1;
+    return { x: (fr.left - b.left) / e + r.left, y: (fr.top - b.top) / e + r.top, w: r.width, h: r.height };
   }
 
   async function rodarFila() {
@@ -765,8 +868,10 @@ export function createDsCanvas({
         if (!alvo.isConnected) continue;
         // fila grande acelera: o fim nunca atrasa muito do que já está em disco
         const passo = fila.length > 20 ? 40 : fila.length > 8 ? 70 : 110;
-        const r = retanguloNaTela(f, alvo);
-        cursor.style.transform = `translate(${r.x + Math.min(r.w, 24)}px, ${r.y + Math.min(r.h, 18)}px)`;
+        const r = retanguloNoBoard(f, alvo);
+        // contra-escala: o cursor mantém o tamanho na tela em qualquer zoom
+        const s = 1 / (vista.escala || 1);
+        cursor.style.transform = `translate(${r.x + Math.min(r.w, 24)}px, ${r.y + Math.min(r.h, 18)}px) scale(${s})`;
         cursor.classList.add("on");
         await esperar(passo);
         const rect = doc.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -1000,24 +1105,25 @@ export function createDsCanvas({
   /** `prefixo` = "ds-vazio" (estado vazio) ou "ds-novo" (popover do cabeçalho): mesmos campos. */
   async function criar(prefixo) {
     const nome = el(`${prefixo}-nome`).value.trim();
-    const pasta = el(`${prefixo}-pasta`).value.trim() || "design-system";
     el(`${prefixo}-err`).textContent = "";
     try {
-      estado = await req(`/v1/ds?${qs()}`, { method: "POST", body: JSON.stringify({ nome, pasta }) });
+      estado = await req(`/v1/ds?${qs()}`, { method: "POST", body: JSON.stringify({ nome }) });
       ajustouUmaVez = false;
       limparFrames();
       pintar();
       ouvir();
       el("ds-novo")?.classList.add("hidden");
+      // veio do botão do Browser sem DS no projeto: agora que existe, segue pra geração
+      if (referencia) {
+        el("ds-vazio-err").textContent = "";
+        await mostrarGerar();
+        el("ds-gerar-url").value = referencia.url || "";
+      }
     } catch (e) {
       el(`${prefixo}-err`).textContent = e.message;
     }
   }
 
-  async function escolherPasta(prefixo) {
-    const p = await pickFolder();
-    if (p) el(`${prefixo}-pasta`).value = p;
-  }
 
   async function trocarSistema(id) {
     try {
@@ -1102,9 +1208,21 @@ export function createDsCanvas({
     });
     for (const prefixo of ["ds-vazio", "ds-novo"]) {
       el(`${prefixo}-criar`).addEventListener("click", () => void criar(prefixo));
-      el(`${prefixo}-escolher`).addEventListener("click", () => void escolherPasta(prefixo));
     }
     el("ds-painel-fechar").addEventListener("click", fecharPainel);
+    el("ds-btn-gerar").addEventListener("click", () => void mostrarGerar());
+    el("ds-gerar-fechar").addEventListener("click", () => el("ds-gerar").classList.add("hidden"));
+    el("ds-gerar-ir").addEventListener("click", () => void gerar());
+    el("ds-gerar-form").addEventListener("change", pintarEstimativa);
+    el("ds-progresso-cancelar").addEventListener("click", () => void cancelarGeracao());
+    el("ds-gerar-ref-tirar").addEventListener("click", () => {
+      referencia = null;
+      pintarReferencia();
+    });
+    el("ds-progresso-fechar").addEventListener("click", () => {
+      el("ds-progresso").classList.add("hidden");
+      progressoDispensado = geracao?.id || "";
+    });
     el("ds-painel-tab-tokens").addEventListener("click", () => {
       painelModo = "tokens";
       pintarPainel();
@@ -1120,7 +1238,216 @@ export function createDsCanvas({
     parar();
     projetoCarregado = "";
     estado = { sistemas: [], ativo: null, ds: null };
+    geracao = null;
   }
 
-  return { abrir, recarregar, parar, trocouProjeto, ajustar, _estado: () => estado, _vista: () => vista };
+  /* ---------- geração por IA ---------- */
+
+  let progressoDispensado = "";
+
+  function aplicarGeracao(g) {
+    const antes = geracao;
+    geracao = g;
+    pintarProgresso();
+    // esqueleto dos cards previstos aparece/some com o plano e o fim da geração; no meio, só o
+    // status da etapa muda (sem repintar o board)
+    if (!estado.ds) return;
+    if (!antes || antes.id !== g.id || antes.status !== g.status) {
+      pintar();
+      return;
+    }
+    for (const f of frames.values()) {
+      if (!f.card?.pendente) continue;
+      const e = (g.etapas || []).find((x) => (x.cards || []).includes(f.card.id));
+      f.cartao.dataset.etapa = e?.status || "pendente";
+    }
+  }
+
+  const ROTULO_ETAPA = {
+    pendente: "na fila",
+    rodando: "gerando",
+    corrigindo: "corrigindo",
+    ok: "pronto",
+    erro: "erro",
+    cancelado: "cancelado",
+  };
+
+  function tituloDoProgresso(g) {
+    if (g.status === "rodando") {
+      const feitos = g.etapas.filter((e) => e.status === "ok").length;
+      return `Gerando com IA · ${feitos}/${g.etapas.length}`;
+    }
+    if (g.status === "concluida") return g.erro ? "Geração concluída com pendências" : "Geração concluída";
+    return g.status === "cancelada" ? "Geração cancelada" : "Geração falhou";
+  }
+
+  function pintarProgresso() {
+    const caixa = el("ds-progresso");
+    const rodando = geracao?.status === "rodando";
+    el("ds-btn-gerar").disabled = rodando;
+    if (!geracao || progressoDispensado === geracao.id) {
+      caixa.classList.add("hidden");
+      return;
+    }
+    caixa.classList.remove("hidden");
+    caixa.dataset.status = geracao.status;
+    el("ds-progresso-tit").textContent = tituloDoProgresso(geracao);
+    el("ds-progresso-cancelar").classList.toggle("hidden", !rodando);
+    el("ds-progresso-fechar").classList.toggle("hidden", rodando);
+    const lista = el("ds-progresso-etapas");
+    lista.innerHTML = "";
+    for (const e of geracao.etapas) {
+      // conversa da etapa não fica na barra lateral (é trabalho desta tela): o chip é o caminho
+      const chip = doc.createElement(e.threadId ? "button" : "span");
+      if (e.threadId) {
+        chip.type = "button";
+        chip.title = "Ver a conversa deste agente";
+        chip.addEventListener("click", () => aoAbrirConversa(e.threadId));
+      }
+      chip.className = "ds-etapa";
+      chip.dataset.status = e.status;
+      const total = e.cards?.length || 0;
+      const contagem = total ? ` ${e.prontos?.length || 0}/${total}` : "";
+      chip.textContent = `${e.titulo} · ${ROTULO_ETAPA[e.status] || e.status}${contagem}`;
+      if (e.erro) chip.title = e.erro;
+      lista.append(chip);
+    }
+    const erro = el("ds-progresso-erro");
+    erro.textContent = geracao.erro || "";
+    erro.classList.toggle("hidden", !geracao.erro);
+  }
+
+  async function mostrarGerar() {
+    const caixa = el("ds-gerar");
+    if (!caixa.classList.contains("hidden")) {
+      caixa.classList.add("hidden");
+      return;
+    }
+    el("ds-gerar-err").textContent = "";
+    const sel = el("ds-gerar-conta");
+    sel.innerHTML = "";
+    const perfis = getProfiles() || [];
+    // sem conta neste motor (ex.: `run.bat dev`, que tem motor próprio): explica em vez de lista vazia
+    el("ds-gerar-sem-conta").classList.toggle("hidden", perfis.length > 0);
+    sel.classList.toggle("hidden", perfis.length === 0);
+    for (const p of perfis) {
+      const o = doc.createElement("option");
+      o.value = p.id;
+      o.textContent = `${p.nickname || p.id} · ${p.engine}${p.status === "ready" ? "" : " (sem login)"}`;
+      o.selected = p.id === getProfileId();
+      sel.append(o);
+    }
+    if (!planoSecoes) {
+      try {
+        planoSecoes = (await req("/v1/ds/gerar/plano")).secoes;
+      } catch (e) {
+        el("ds-gerar-err").textContent = e.message;
+        planoSecoes = [];
+      }
+    }
+    const lista = el("ds-gerar-secoes");
+    lista.innerHTML = "";
+    for (const s of planoSecoes) {
+      const l = doc.createElement("label");
+      l.className = "ds-check";
+      l.innerHTML = `<input type="checkbox" checked /><span></span>`;
+      const input = l.querySelector("input");
+      input.value = s.id;
+      input.dataset.cards = String(s.cards);
+      l.querySelector("span").textContent = `${s.titulo} (${s.cards})`;
+      lista.append(l);
+    }
+    caixa.classList.remove("hidden");
+    pintarReferencia();
+    pintarEstimativa();
+    el("ds-gerar-brief").focus({ preventScroll: true });
+  }
+
+  function secoesMarcadas() {
+    return [...el("ds-gerar-secoes").querySelectorAll("input:checked")];
+  }
+
+  function pintarEstimativa() {
+    const marcadas = secoesMarcadas();
+    const conversas = marcadas.length + (el("ds-gerar-tokens").checked ? 1 : 0);
+    const cards = marcadas.reduce((n, i) => n + Number(i.dataset.cards || 0), 0);
+    const paralelo = Math.max(1, Math.min(6, Number(el("ds-gerar-paralelo").value) || 3));
+    el("ds-gerar-estimativa").textContent = conversas
+      ? `≈ ${conversas} conversa${conversas > 1 ? "s" : ""} com o agente e ${cards} card${cards === 1 ? "" : "s"}, até ${paralelo} ao mesmo tempo. Tudo gasta quota da conta escolhida.`
+      : "Escolha ao menos uma seção ou os tokens.";
+    el("ds-gerar-ir").disabled = conversas === 0 || !(getProfiles() || []).length;
+  }
+
+  /** Página capturada no Browser (ds-extrator.js), esperando virar referência da geração. */
+  let referencia = null;
+
+  function pintarReferencia() {
+    el("ds-gerar-ref").classList.toggle("hidden", !referencia);
+    if (!referencia) return;
+    el("ds-gerar-ref-txt").textContent = resumoCurto(referencia);
+    const img = el("ds-gerar-ref-img");
+    img.classList.toggle("hidden", !referencia.screenshot);
+    if (referencia.screenshot) img.src = `data:${referencia.screenshot.mime};base64,${referencia.screenshot.data}`;
+  }
+
+  /**
+   * Chamado pelo botão do Browser. Sem design system no projeto ainda, a referência espera: o
+   * formulário abre sozinho logo depois de criar.
+   */
+  async function usarReferencia(ref) {
+    referencia = ref;
+    await abrir();
+    if (!estado.ds) {
+      erroTopo("");
+      el("ds-vazio-err").textContent = "Crie o design system: a página capturada fica guardada pra geração.";
+      return;
+    }
+    el("ds-gerar").classList.add("hidden");
+    await mostrarGerar();
+    el("ds-gerar-url").value = ref.url || "";
+  }
+
+  async function gerar() {
+    const corpo = {
+      ...(referencia ? { referencia } : {}),
+      profileId: el("ds-gerar-conta").value,
+      brief: el("ds-gerar-brief").value,
+      usarCodigo: el("ds-gerar-codigo").checked,
+      url: el("ds-gerar-url").value.trim(),
+      gerarTokens: el("ds-gerar-tokens").checked,
+      secoes: secoesMarcadas().map((i) => i.value),
+      paralelo: Number(el("ds-gerar-paralelo").value) || 3,
+    };
+    el("ds-gerar-err").textContent = "";
+    try {
+      const r = await req(`/v1/ds/gerar?${qs()}`, { method: "POST", body: JSON.stringify(corpo) });
+      el("ds-gerar").classList.add("hidden");
+      progressoDispensado = "";
+      referencia = null;
+      aplicarGeracao(r.geracao);
+    } catch (e) {
+      el("ds-gerar-err").textContent = e.message;
+    }
+  }
+
+  async function cancelarGeracao() {
+    try {
+      const r = await req(`/v1/ds/gerar/cancelar?${qs()}`, { method: "POST", body: "{}" });
+      if (r.geracao) aplicarGeracao(r.geracao);
+    } catch (e) {
+      erroTopo(e.message);
+    }
+  }
+
+  return {
+    abrir,
+    recarregar,
+    parar,
+    trocouProjeto,
+    ajustar,
+    _estado: () => estado,
+    _vista: () => vista,
+    _geracao: () => geracao,
+    usarReferencia,
+  };
 }

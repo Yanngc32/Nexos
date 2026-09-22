@@ -1270,11 +1270,31 @@ function comSkill(text: string, live: Live, home: string, meta?: ThreadEvent): s
   return expandirSkill(text, home, live.profileId, projectPath);
 }
 
+/**
+ * Resultados de times chamados deste chat que chegaram DEPOIS da última mensagem: vão na frente
+ * do próximo pedido pro motor. Pack não basta — com `--resume` o `claude` não relê o histórico,
+ * e o agente deste chat nunca saberia o que o time fez.
+ */
+function resultadosPendentes(eventos: ThreadEvent[]): string {
+  let i = eventos.length - 1;
+  while (i >= 0 && eventos[i]!.type !== "user") i--;
+  const blocos: string[] = [];
+  for (const e of eventos.slice(i + 1)) {
+    if (e.type !== "run_resultado") continue;
+    const estado = e.status === "done" ? "terminou" : e.status === "aborted" ? "foi cancelado" : "falhou";
+    blocos.push(
+      `[O time "${e.titulo}" que você chamou ${estado}.${e.arquivo ? ` Saída completa em ${e.arquivo}.` : ""}]\n${e.texto}`,
+    );
+  }
+  return blocos.length ? `${blocos.join("\n\n")}\n\n---\n\n` : "";
+}
+
 export async function postMessage(
   threadId: string,
   text: string,
   home: string,
   images: IncomingImage[] = [],
+  opts: { automatico?: boolean } = {},
 ): Promise<void> {
   await withLocked(threadId, async () => {
     // Teto de `nexo_delegar` é POR TURNO: mensagem nova reabre a cota.
@@ -1291,14 +1311,22 @@ export async function postMessage(
      */
     const eventosAtuais = readThread(threadId, home);
     const meta = eventosAtuais.find((e) => e.type === "thread_meta");
-    const nasceuSemAgente = meta?.type === "thread_meta" && !meta.agentId;
+    const nasceuSemAgente = meta?.type === "thread_meta" && !meta.agentId && !meta.semRoteamento;
     const roteamento = nasceuSemAgente
       ? await talvezRotear(threadId, text, eventosAtuais, home)
       : { pendente: false };
     // Grava antes do turno: se o motor falhar, a imagem não se perde do histórico.
     const attachments = images.length > 0 ? saveImages(threadId, images, home) : [];
+    const resultados = resultadosPendentes(eventosAtuais);
     appendEvent(
-      { ts: nowIso(), type: "user", threadId, text, ...(attachments.length > 0 ? { attachments } : {}) },
+      {
+        ts: nowIso(),
+        type: "user",
+        threadId,
+        text,
+        ...(attachments.length > 0 ? { attachments } : {}),
+        ...(opts.automatico ? { automatico: true } : {}),
+      },
       home,
     );
     /*
@@ -1310,7 +1338,7 @@ export async function postMessage(
     if (roteamento.pendente) return;
     const live = await ensureLive(threadId, home);
     await aplicarOverridesDoTurno(threadId, text, eventosAtuais, live, home);
-    await dispatch(threadId, home, live, promptWithAttachments(comSkill(text, live, home, meta), attachments));
+    await dispatch(threadId, home, live, promptWithAttachments(resultados + comSkill(text, live, home, meta), attachments));
   });
 }
 
