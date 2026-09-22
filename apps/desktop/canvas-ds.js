@@ -98,6 +98,44 @@ export function cssDoBruto(bruto) {
   );
 }
 
+/**
+ * Seletor curto e legível pro agente achar o elemento no HTML do card: `#id`, senão tag + até 2
+ * classes, subindo até 3 ancestrais. É contexto, não uma query que precisa ser única.
+ */
+export function seletorDe(el) {
+  const partes = [];
+  let atual = el;
+  for (let i = 0; atual && atual.nodeType === 1 && i < 4; i++) {
+    const tag = atual.tagName.toLowerCase();
+    if (tag === "body" || tag === "html") break;
+    if (atual.id) {
+      partes.unshift(`${tag}#${atual.id}`);
+      break;
+    }
+    const classes = [...atual.classList].filter((c) => !c.startsWith("ds-")).slice(0, 2);
+    partes.unshift(classes.length ? `${tag}.${classes.join(".")}` : tag);
+    atual = atual.parentElement;
+  }
+  return partes.join(" > ");
+}
+
+/** O que vai pro agente de um elemento apontado: seletor, tag de abertura + um trecho, e o texto. */
+export function resumoDoElemento(el) {
+  const clone = el.cloneNode(true);
+  for (const n of [clone, ...clone.querySelectorAll("*")]) {
+    n.removeAttribute("data-ds-hover");
+    n.removeAttribute("data-ds-sel");
+    n.removeAttribute("data-ds-anim");
+  }
+  const html = clone.outerHTML.replace(/\s+/g, " ").slice(0, 300);
+  const texto = (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 150);
+  return { seletor: seletorDe(el), html, ...(texto ? { texto } : {}) };
+}
+
+export function ehVariante(id) {
+  return /-var-\d+$/.test(String(id || ""));
+}
+
 /** Zoom em torno de um ponto da tela: o ponto sob o cursor continua sob o cursor. */
 export function zoomEm(vista, px, py, fator, min = 0.2, max = 2.5) {
   const escala = Math.min(max, Math.max(min, vista.escala * fator));
@@ -399,7 +437,11 @@ export function createDsCanvas({
   let geracao = null;
   /** Plano do daemon (`/v1/ds/gerar/plano`), pra montar o formulário. */
   let planoSecoes = null;
-  let painelModo = "tokens"; // "tokens" | "avisos"
+  let painelModo = "tokens"; // "feedback" | "tokens" | "controles" | "versoes" | "avisos"
+  /** Feedback em curso: card e elementos apontados nele (seleção dentro do iframe). */
+  let selecao = null;
+  /** Valores dos Controles ainda não aplicados: var → valor. */
+  const valoresControle = new Map();
   let salvarTimer = 0;
   /** Hash dos tokens que NÓS acabamos de salvar — a volta pelo observador não pulsa card. */
   let hashSalvoPorMim = "";
@@ -691,11 +733,19 @@ export function createDsCanvas({
     cartao.innerHTML = `<header class="ds-card-head">
         <div class="ds-card-tit"><h3></h3><p></p></div>
         <button type="button" class="ds-card-lint hidden" title="Avisos do lint"></button>
+        <span class="ds-card-variante hidden">
+          <button type="button" class="primary ds-var-usar" title="Esta variante substitui o card original">Usar esta</button>
+          <button type="button" class="ghost ds-var-descartar">Descartar</button>
+        </span>
+        <button type="button" class="ghost ds-card-feedback">Feedback</button>
         <button type="button" class="ghost ds-card-edit">Editar</button>
       </header>
       <div class="ds-card-corpo"><iframe class="ds-card-frame" sandbox="allow-same-origin" tabindex="-1"></iframe></div>`;
     const frame = cartao.querySelector("iframe");
     cartao.querySelector(".ds-card-edit").addEventListener("click", () => abrirPainel(card.id, "tokens"));
+    cartao.querySelector(".ds-card-feedback").addEventListener("click", () => abrirPainel(card.id, "feedback"));
+    cartao.querySelector(".ds-var-usar").addEventListener("click", () => void acaoDeVariante(card.id, "usar"));
+    cartao.querySelector(".ds-var-descartar").addEventListener("click", () => void acaoDeVariante(card.id, "descartar"));
     cartao.querySelector(".ds-card-lint").addEventListener("click", () => abrirPainel(card.id, "avisos"));
     return { cartao, frame, hash: null, html: "", pronto: null, css: "" };
   }
@@ -724,6 +774,36 @@ export function createDsCanvas({
   /** Eventos do documento do card que o board precisa: roda do mouse (pan/zoom) e altura. */
   function ligarFrame(f) {
     const d = f.frame.contentDocument;
+    // Feedback: com a seleção ligada NESTE card, passar o mouse marca e clicar aponta/desaponta
+    const selecionando = () => selecao && selecao.card === f.card?.id;
+    d.addEventListener("mouseover", (e) => {
+      if (!selecionando() || e.target.nodeType !== 1 || e.target === d.body) return;
+      d.querySelectorAll("[data-ds-hover]").forEach((n) => n.removeAttribute("data-ds-hover"));
+      e.target.setAttribute("data-ds-hover", "");
+    });
+    d.addEventListener("mouseout", (e) => {
+      if (e.target.nodeType === 1) e.target.removeAttribute("data-ds-hover");
+    });
+    d.addEventListener(
+      "click",
+      (e) => {
+        if (!selecionando()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const alvo = e.target;
+        if (alvo.nodeType !== 1 || alvo === d.body) return;
+        if (alvo.hasAttribute("data-ds-sel")) {
+          alvo.removeAttribute("data-ds-sel");
+          selecao.itens = selecao.itens.filter((i) => i.el !== alvo);
+        } else {
+          alvo.setAttribute("data-ds-sel", String(selecao.itens.length + 1));
+          selecao.itens.push({ el: alvo, ...resumoDoElemento(alvo) });
+        }
+        numerarSelecao(d);
+        if (painelModo === "feedback") pintarListaSelecao();
+      },
+      true,
+    );
     d.addEventListener(
       "wheel",
       (e) => {
@@ -793,6 +873,10 @@ export function createDsCanvas({
     f.cartao.classList.toggle("pendente", !!card.pendente);
     f.cartao.dataset.etapa = card.pendente ? card.etapaStatus : "";
     f.cartao.querySelector(".ds-card-edit").classList.toggle("hidden", !!card.pendente);
+    // Fundamentos saem dos tokens: feedback neles é feedback nos tokens (aba Tokens)
+    f.cartao.querySelector(".ds-card-feedback").classList.toggle("hidden", !!card.pendente || !!card.gerado);
+    f.cartao.querySelector(".ds-card-variante").classList.toggle("hidden", !ehVariante(card.id) || !!card.pendente);
+    f.cartao.classList.toggle("variante", ehVariante(card.id));
 
     await prepararFrame(f, ds);
     aplicarVarsNoFrame(f, ds);
@@ -1078,14 +1162,21 @@ export function createDsCanvas({
   }
 
   function abrirPainel(id, modo) {
+    if (editando !== id) {
+      sairDaSelecao();
+      descartarControles();
+    }
     editando = id;
     painelModo = modo;
+    if (modo === "feedback") entrarNaSelecao(id);
     el("ds-painel").classList.remove("hidden");
     for (const f of frames.values()) f.cartao.classList.toggle("editando", f.card?.id === id);
     pintarPainel();
   }
 
   function fecharPainel() {
+    sairDaSelecao();
+    descartarControles();
     editando = null;
     el("ds-painel")?.classList.add("hidden");
     for (const f of frames.values()) f.cartao.classList.remove("editando");
@@ -1098,12 +1189,13 @@ export function createDsCanvas({
       return;
     }
     el("ds-painel-tit").textContent = card.titulo;
-    el("ds-painel-tab-tokens").dataset.on = painelModo === "tokens" ? "1" : "0";
-    el("ds-painel-tab-avisos").dataset.on = painelModo === "avisos" ? "1" : "0";
     const avisos = card.gerado ? estado.ds.tokensLint : card.lint;
-    el("ds-painel-tab-avisos").textContent = avisos.length ? `Avisos (${avisos.length})` : "Avisos";
+    pintarAbas(card, avisos);
     const corpo = el("ds-painel-corpo");
     corpo.innerHTML = "";
+    if (painelModo === "feedback") return pintarFeedback(corpo, card);
+    if (painelModo === "controles") return pintarControles(corpo, card);
+    if (painelModo === "versoes") return void pintarVersoes(corpo, card);
     if (painelModo === "avisos") {
       if (!avisos.length) {
         corpo.innerHTML = `<p class="ds-painel-vazio">Nenhum aviso do lint.</p>`;
@@ -1325,14 +1417,288 @@ export function createDsCanvas({
       el("ds-progresso").classList.add("hidden");
       progressoDispensado = geracao?.id || "";
     });
-    el("ds-painel-tab-tokens").addEventListener("click", () => {
-      painelModo = "tokens";
+
+  }
+
+  /* ---------- painel: abas ---------- */
+
+  function pintarAbas(card, avisos) {
+    const abas = el("ds-painel-abas");
+    abas.replaceChildren();
+    const lista = card.gerado
+      ? [["tokens", "Tokens"], ["avisos", avisos.length ? `Avisos (${avisos.length})` : "Avisos"]]
+      : [
+          ["feedback", "Feedback"],
+          ["tokens", "Tokens"],
+          ...(card.controles?.length ? [["controles", `Controles (${card.controles.length})`]] : []),
+          ["versoes", "Versões"],
+          ["avisos", avisos.length ? `Avisos (${avisos.length})` : "Avisos"],
+        ];
+    if (!lista.some(([id]) => id === painelModo)) painelModo = lista[0][0];
+    for (const [id, rotulo] of lista) {
+      const b = doc.createElement("button");
+      b.type = "button";
+      b.className = "ax-tab";
+      b.setAttribute("role", "tab");
+      b.dataset.on = id === painelModo ? "1" : "0";
+      b.textContent = rotulo;
+      b.addEventListener("click", () => {
+        if (id !== "feedback") sairDaSelecao();
+        if (id !== "controles") descartarControles();
+        painelModo = id;
+        if (id === "feedback") entrarNaSelecao(card.id);
+        pintarPainel();
+      });
+      abas.append(b);
+    }
+  }
+
+  /* ---------- feedback por elemento ---------- */
+
+  function frameDoCard(id) {
+    return frames.get(id)?.frame.contentDocument || null;
+  }
+
+  function entrarNaSelecao(id) {
+    if (selecao?.card === id) return;
+    sairDaSelecao();
+    selecao = { card: id, itens: [] };
+    const d = frameDoCard(id);
+    if (!d) return;
+    // cor de destaque do app dentro do card (o card não enxerga as variáveis do host)
+    const acento = getComputedStyle(doc.documentElement).getPropertyValue("--accent").trim() || "#7c5cbf";
+    let st = d.getElementById("ds-marcas");
+    if (!st) {
+      st = d.createElement("style");
+      st.id = "ds-marcas";
+      d.head.append(st);
+    }
+    st.textContent =
+      `*{cursor:crosshair!important}[data-ds-hover]{outline:1px dashed ${acento}!important;outline-offset:2px}` +
+      `[data-ds-sel]{outline:2px solid ${acento}!important;outline-offset:2px;position:relative}` +
+      `[data-ds-sel]::after{content:attr(data-ds-sel);position:absolute;top:-10px;left:-10px;min-width:16px;height:16px;` +
+      `padding:0 3px;border-radius:8px;background:${acento};color:#fff;font:600 10px/16px system-ui;text-align:center;z-index:9}`;
+    frames.get(id)?.cartao.classList.add("selecionando");
+  }
+
+  function numerarSelecao(d) {
+    selecao?.itens.forEach((it, i) => it.el.setAttribute("data-ds-sel", String(i + 1)));
+    void d;
+  }
+
+  function sairDaSelecao() {
+    if (!selecao) return;
+    const d = frameDoCard(selecao.card);
+    if (d) {
+      d.getElementById("ds-marcas")?.remove();
+      d.querySelectorAll("[data-ds-hover],[data-ds-sel]").forEach((n) => {
+        n.removeAttribute("data-ds-hover");
+        n.removeAttribute("data-ds-sel");
+      });
+    }
+    frames.get(selecao.card)?.cartao.classList.remove("selecionando");
+    selecao = null;
+  }
+
+  function pintarFeedback(corpo, card) {
+    corpo.innerHTML = `<p class="ds-painel-vazio">Clique nos elementos do card pra apontar o que mudar (opcional) e descreva o pedido. Um agente refaz só este card.</p>
+      <ol id="ds-fb-sel" class="ds-fb-sel"></ol>
+      <label class="ds-fb-campo">O que mudar<textarea id="ds-fb-texto" rows="4" placeholder="Ex.: botão primário maior e com ícone à esquerda; tirar a sombra do secundário."></textarea></label>
+      <label class="ds-fb-campo">Conta<select id="ds-fb-conta"></select></label>
+      <label class="ds-check"><input type="checkbox" id="ds-fb-variante" /><span>Como variante (mantém o card atual pra comparar)</span></label>
+      <p id="ds-fb-err" class="ag-err"></p>
+      <button type="button" id="ds-fb-enviar" class="primary">Enviar feedback</button>`;
+    const sel = corpo.querySelector("#ds-fb-conta");
+    for (const p of getProfiles() || []) {
+      const o = doc.createElement("option");
+      o.value = p.id;
+      o.textContent = `${p.nickname || p.id} · ${p.engine}`;
+      o.selected = p.id === getProfileId();
+      sel.append(o);
+    }
+    pintarListaSelecao();
+    corpo.querySelector("#ds-fb-enviar").addEventListener("click", () => void enviarFeedback(card.id));
+    if (geracao?.status === "rodando") {
+      corpo.querySelector("#ds-fb-enviar").disabled = true;
+      corpo.querySelector("#ds-fb-err").textContent = "Espere a geração em curso terminar.";
+    }
+  }
+
+  function pintarListaSelecao() {
+    const lista = el("ds-fb-sel");
+    if (!lista) return;
+    lista.replaceChildren();
+    for (const [i, it] of (selecao?.itens || []).entries()) {
+      const li = doc.createElement("li");
+      li.innerHTML = `<span class="ds-fb-num"></span><code></code><button type="button" class="ghost" title="Tirar">✕</button>`;
+      li.querySelector(".ds-fb-num").textContent = String(i + 1);
+      li.querySelector("code").textContent = it.texto ? `${it.seletor} — "${it.texto.slice(0, 40)}"` : it.seletor;
+      li.querySelector("button").addEventListener("click", () => {
+        it.el.removeAttribute("data-ds-sel");
+        selecao.itens = selecao.itens.filter((x) => x !== it);
+        numerarSelecao();
+        pintarListaSelecao();
+      });
+      lista.append(li);
+    }
+  }
+
+  async function enviarFeedback(id) {
+    const texto = el("ds-fb-texto").value.trim();
+    const err = el("ds-fb-err");
+    err.textContent = "";
+    if (!texto) {
+      err.textContent = "Escreva o que mudar.";
+      return;
+    }
+    const corpo = {
+      profileId: el("ds-fb-conta").value,
+      texto,
+      variante: el("ds-fb-variante").checked,
+      elementos: (selecao?.itens || []).map(({ seletor, html, texto: t }) => ({ seletor, html, ...(t ? { texto: t } : {}) })),
+    };
+    try {
+      const r = await req(`/v1/ds/cards/${encodeURIComponent(id)}/feedback?${qs()}`, { method: "POST", body: JSON.stringify(corpo) });
+      sairDaSelecao();
+      fecharPainel();
+      progressoDispensado = "";
+      aplicarGeracao(r.geracao);
+    } catch (e) {
+      err.textContent = e.message;
+    }
+  }
+
+  async function acaoDeVariante(id, acao) {
+    try {
+      const ds =
+        acao === "usar"
+          ? await req(`/v1/ds/cards/${encodeURIComponent(id)}/promover?${qs()}`, { method: "POST", body: "{}" })
+          : await req(`/v1/ds/cards/${encodeURIComponent(id)}?${qs()}`, { method: "DELETE" });
+      aplicarDs(ds);
+    } catch (e) {
+      erroTopo(e.message);
+    }
+  }
+
+  /* ---------- controles (sliders que o card declara) ---------- */
+
+  function pintarControles(corpo, card) {
+    const d = frameDoCard(card.id);
+    const raiz = d ? getComputedStyle(d.documentElement) : null;
+    for (const c of card.controles || []) {
+      const linha = doc.createElement("label");
+      linha.className = "ds-token";
+      linha.innerHTML = `<span class="ds-token-nome"></span><span class="ds-token-campos"></span>`;
+      linha.querySelector(".ds-token-nome").textContent = c.rotulo;
+      linha.querySelector(".ds-token-nome").title = c.var;
+      const campos = linha.querySelector(".ds-token-campos");
+      const atual = valoresControle.get(c.var) ?? (raiz?.getPropertyValue(c.var).trim() || "");
+      if (c.tipo === "range") {
+        const n = Number.parseFloat(atual);
+        const inicial = Number.isFinite(n) ? n : (c.padrao ?? c.min);
+        const r = doc.createElement("input");
+        r.type = "range";
+        r.min = String(c.min);
+        r.max = String(c.max);
+        r.step = String(c.passo);
+        r.value = String(inicial);
+        const valor = doc.createElement("span");
+        valor.className = "ds-ctl-valor";
+        valor.textContent = `${inicial}${c.unidade}`;
+        r.addEventListener("input", () => {
+          valor.textContent = `${r.value}${c.unidade}`;
+          mudarControle(card.id, c.var, Number(r.value), `${r.value}${c.unidade}`);
+        });
+        campos.append(r, valor);
+      } else {
+        const s = doc.createElement("select");
+        const opcoes = estado.ds.vars.filter((v) => v.caminho === c.grupo || v.caminho.startsWith(`${c.grupo}.`));
+        for (const v of opcoes) {
+          const o = doc.createElement("option");
+          o.value = v.nome;
+          o.textContent = `${v.caminho} (${v.valor})`;
+          o.selected = atual.includes(v.nome) || valoresControle.get(c.var) === v.nome;
+          s.append(o);
+        }
+        s.addEventListener("change", () => mudarControle(card.id, c.var, s.value, `var(${s.value})`));
+        campos.append(s);
+      }
+      corpo.append(linha);
+    }
+    const acoes = doc.createElement("div");
+    acoes.className = "ds-ctl-acoes";
+    acoes.innerHTML = `<p id="ds-ctl-err" class="ag-err"></p><button type="button" class="ghost" id="ds-ctl-descartar">Descartar</button><button type="button" class="primary" id="ds-ctl-aplicar">Aplicar</button>`;
+    acoes.querySelector("#ds-ctl-descartar").addEventListener("click", () => {
+      descartarControles();
       pintarPainel();
     });
-    el("ds-painel-tab-avisos").addEventListener("click", () => {
-      painelModo = "avisos";
-      pintarPainel();
-    });
+    acoes.querySelector("#ds-ctl-aplicar").addEventListener("click", () => void aplicarControlesNoCard(card));
+    corpo.append(acoes);
+  }
+
+  /** Ao vivo: muda a variável só no iframe deste card. Grava só no "Aplicar". */
+  function mudarControle(cardId, nome, valor, css) {
+    valoresControle.set(nome, valor);
+    valoresControle.set("__card", cardId);
+    frameDoCard(cardId)?.documentElement.style.setProperty(nome, css);
+  }
+
+  function descartarControles() {
+    const cardId = valoresControle.get("__card");
+    const d = cardId ? frameDoCard(cardId) : null;
+    for (const nome of valoresControle.keys()) if (nome !== "__card") d?.documentElement.style.removeProperty(nome);
+    valoresControle.clear();
+  }
+
+  async function aplicarControlesNoCard(card) {
+    const valores = Object.fromEntries([...valoresControle].filter(([k]) => k !== "__card"));
+    if (!Object.keys(valores).length) return;
+    try {
+      const ds = await req(`/v1/ds/cards/${encodeURIComponent(card.id)}/controles?${qs()}`, {
+        method: "POST",
+        body: JSON.stringify({ valores, base: card.hash }),
+      });
+      descartarControles();
+      aplicarDs(ds);
+    } catch (e) {
+      const err = el("ds-ctl-err");
+      if (err) err.textContent = /mudou desde a leitura/.test(e.message) ? "O card mudou no disco. Recarreguei — ajuste de novo." : e.message;
+      if (/mudou desde a leitura/.test(e.message)) await recarregar({ animar: false });
+    }
+  }
+
+  /* ---------- versões ---------- */
+
+  async function pintarVersoes(corpo, card) {
+    corpo.innerHTML = `<p class="ds-painel-vazio">Carregando…</p>`;
+    let lista = [];
+    try {
+      lista = await req(`/v1/ds/cards/${encodeURIComponent(card.id)}/versoes?${qs()}`);
+    } catch (e) {
+      corpo.innerHTML = `<p class="ag-err"></p>`;
+      corpo.querySelector("p").textContent = e.message;
+      return;
+    }
+    if (editando !== card.id || painelModo !== "versoes") return;
+    corpo.innerHTML = lista.length
+      ? `<p class="ds-painel-vazio">Versões anteriores deste card (as ${lista.length} mais recentes). Restaurar guarda a atual antes.</p>`
+      : `<p class="ds-painel-vazio">Nenhuma versão anterior ainda. Cada vez que a IA reescreve o card, a versão de antes fica aqui.</p>`;
+    for (const v of lista) {
+      const linha = doc.createElement("div");
+      linha.className = "ds-versao";
+      const quando = new Date(v.em);
+      linha.innerHTML = `<span></span><button type="button" class="ghost">Restaurar</button>`;
+      linha.querySelector("span").textContent = Number.isNaN(quando.getTime()) ? v.nome : quando.toLocaleString("pt-BR");
+      linha.querySelector("button").addEventListener("click", async () => {
+        try {
+          aplicarDs(await req(`/v1/ds/cards/${encodeURIComponent(card.id)}/restaurar?${qs()}`, { method: "POST", body: JSON.stringify({ versao: v.nome }) }));
+          pintarPainel();
+        } catch (e) {
+          erroTopo(e.message);
+        }
+      });
+      corpo.append(linha);
+    }
   }
 
   /** Troca de projeto: o SSE e os cards do projeto anterior não valem mais. */

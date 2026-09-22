@@ -127,9 +127,14 @@ import {
 } from "./tarefas.ts";
 import { commitsRelacionados } from "./tarefas-git.ts";
 import {
+  aplicarControles,
+  apagarCard,
   ativarDs,
   criarDs,
   estadoDs,
+  listarVersoes,
+  promoverVariante,
+  restaurarVersao,
   pastaDoAtivo,
   removerDs,
   salvarCard,
@@ -142,8 +147,10 @@ import {
   canalGeracao,
   geracaoAtual,
   geracaoBus,
+  iniciarFeedback,
   iniciarGeracao,
   motorPadrao,
+  type FeedbackInput,
   PLANO_PADRAO,
   type GerarInput,
 } from "./ds-gerar.ts";
@@ -1181,6 +1188,76 @@ export function createApp(home: string, token: string): Hono {
     const projectPath = c.req.query("projectPath") || "";
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
     return c.json({ geracao: await cancelarGeracao(projectPath, motorPadrao(home)) });
+  });
+
+  /* Fase 4: versões, variantes, controles e feedback por card */
+
+  app.get("/v1/ds/cards/:card/versoes", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      return c.json(listarVersoes(projectPath, home, c.req.param("card")));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  app.post("/v1/ds/cards/:card/restaurar", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { versao?: string };
+      return c.json(restaurarVersao(projectPath, home, c.req.param("card"), String(body.versao ?? "")));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  app.delete("/v1/ds/cards/:card", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      return c.json(apagarCard(projectPath, home, c.req.param("card")));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  app.post("/v1/ds/cards/:card/promover", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      return c.json(promoverVariante(projectPath, home, c.req.param("card")));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  /** "Aplicar" dos Controles: grava os valores no bloco `data-ds-controles-valores` do card. */
+  app.post("/v1/ds/cards/:card/controles", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { valores?: Record<string, unknown>; base?: string };
+      const ds = estadoDs(projectPath, home).ds;
+      const card = ds?.cards.find((x) => x.id === c.req.param("card"));
+      if (!ds || !card) return c.json({ error: "card não existe" }, 404);
+      const html = aplicarControles(card.html, body.valores ?? {}, ds.vars);
+      return c.json(salvarCard(projectPath, home, card.id, { html, base: body.base ?? card.hash }, { versionar: true }));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  app.post("/v1/ds/cards/:card/feedback", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as FeedbackInput;
+      return c.json({ geracao: iniciarFeedback(projectPath, home, c.req.param("card"), body) }, 202);
+    } catch (e) {
+      return dsErro(c, e);
+    }
   });
 
   /** Mudança em disco na pasta do DS ativo. O Canvas relê `GET /v1/ds` e anima a diferença. */

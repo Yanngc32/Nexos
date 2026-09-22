@@ -30,6 +30,8 @@ export type DsCard = {
   html: string;
   hash: string;
   lint: LintItem[];
+  /** Sliders que o card declarou (`data-ds-controles`) — ver `controlesDoCard`. */
+  controles: Controle[];
 };
 
 export type DsSecao = { id: string; titulo: string };
@@ -259,8 +261,93 @@ function urlExternaProibida(url: string): boolean {
  * Cor literal é acusada em QUALQUER lugar do card: card não define paleta, quem define é o
  * `tokens.json`. (Cor nomeada tipo `white` não é acusada — falso positivo demais em texto.)
  */
+/* ---------------------------------------------------------------------------
+ * Controles (spec §5): sliders que o card declara pras próprias variáveis
+ * ------------------------------------------------------------------------- */
+
+export type Controle =
+  | { var: string; rotulo: string; tipo: "range"; min: number; max: number; passo: number; unidade: string; padrao?: number }
+  | { var: string; rotulo: string; tipo: "token"; grupo: string; padrao?: string };
+
+const CONTROLES_RE = /<script\b[^>]*\bdata-ds-controles\b[^>]*>([\s\S]*?)<\/script>/i;
+const VAR_RE = /^--[a-zA-Z0-9_-]{1,60}$/;
+const CONTROLES_MAX = 8;
+
+/**
+ * Controles declarados no card (`<script type="application/json" data-ds-controles>`). O que não
+ * tiver a forma certa é ignorado: é texto que o agente escreveu, não dá pra confiar cegamente.
+ */
+export function controlesDoCard(html: string): Controle[] {
+  const m = CONTROLES_RE.exec(html);
+  if (!m) return [];
+  let bruto: unknown;
+  try {
+    bruto = JSON.parse(m[1]!);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(bruto)) return [];
+  const out: Controle[] = [];
+  for (const c of bruto.slice(0, CONTROLES_MAX)) {
+    if (!c || typeof c !== "object") continue;
+    const o = c as Record<string, unknown>;
+    if (typeof o.var !== "string" || !VAR_RE.test(o.var)) continue;
+    const rotulo = typeof o.rotulo === "string" && o.rotulo.trim() ? o.rotulo.trim().slice(0, 60) : o.var;
+    if (o.tipo === "token" && typeof o.grupo === "string" && /^[a-z0-9.-]{1,40}$/i.test(o.grupo)) {
+      out.push({ var: o.var, rotulo, tipo: "token", grupo: o.grupo, ...(typeof o.padrao === "string" ? { padrao: o.padrao } : {}) });
+      continue;
+    }
+    const min = Number(o.min);
+    const max = Number(o.max);
+    if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) continue;
+    const passo = Number(o.passo) > 0 ? Number(o.passo) : 1;
+    const unidade = typeof o.unidade === "string" && /^[a-z%]{0,4}$/i.test(o.unidade) ? o.unidade : "";
+    out.push({
+      var: o.var,
+      rotulo,
+      tipo: "range",
+      min,
+      max,
+      passo,
+      unidade,
+      ...(Number.isFinite(Number(o.padrao)) ? { padrao: Number(o.padrao) } : {}),
+    });
+  }
+  return out;
+}
+
+const VALORES_RE = /<style\b[^>]*\bdata-ds-controles-valores\b[^>]*>[\s\S]*?<\/style>\s*/i;
+
+/**
+ * Grava os valores escolhidos nos Controles dentro do próprio card, num bloco `<style
+ * data-ds-controles-valores>` que o Canvas é o único a escrever. Só aceita valor que cabe no
+ * controle: número dentro de min/max, ou token que existe no grupo pedido.
+ */
+export function aplicarControles(html: string, valores: Record<string, unknown>, vars: DsVar[]): string {
+  const controles = controlesDoCard(html);
+  const linhas: string[] = [];
+  for (const c of controles) {
+    const v = valores[c.var];
+    if (v === undefined || v === null || v === "") continue;
+    if (c.tipo === "range") {
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < c.min || n > c.max) throw erro(`${c.rotulo}: valor fora de ${c.min}–${c.max}`);
+      linhas.push(`  ${c.var}: ${n}${c.unidade};`);
+    } else {
+      const alvo = vars.find((x) => x.nome === v && (x.caminho === c.grupo || x.caminho.startsWith(`${c.grupo}.`)));
+      if (!alvo) throw erro(`${c.rotulo}: token ${String(v)} não existe no grupo ${c.grupo}`);
+      linhas.push(`  ${c.var}: var(${alvo.nome});`);
+    }
+  }
+  const semBloco = html.replace(VALORES_RE, "");
+  if (!linhas.length) return semBloco;
+  return `<style data-ds-controles-valores>\n:root {\n${linhas.join("\n")}\n}\n</style>\n${semBloco}`;
+}
+
 export function lintCard(html: string, varsConhecidas: Set<string>): LintItem[] {
   const itens: LintItem[] = [];
+  // variável de controle é do card: usada com fallback, e o valor escolhido vem do bloco de valores
+  const deControle = new Set(controlesDoCard(html).map((c) => c.var));
   const semControles = html.replace(/<script\b[^>]*\bdata-ds-controles\b[^>]*>[\s\S]*?<\/script>/gi, (m) =>
     /type\s*=\s*["']application\/json["']/i.test(m) ? "" : m,
   );
@@ -322,6 +409,7 @@ export function lintCard(html: string, varsConhecidas: Set<string>): LintItem[] 
     const nome = m[1]!;
     if (!varsConhecidas.has(nome) && !locais.has(nome)) faltando.add(nome);
   }
+  for (const nome of deControle) faltando.delete(nome);
   for (const nome of faltando) itens.push({ regra: "token-inexistente", msg: `token ${nome} não existe em tokens.json`, trecho: nome });
 
   return itens;
@@ -402,6 +490,7 @@ export function lerSistema(projectPath: string, home: string, sistema: DsSistema
       html,
       hash: hashDe(html),
       lint: lintCard(html, conhecidas),
+      controles: controlesDoCard(html),
     };
   });
 
@@ -593,6 +682,103 @@ export function criarDs(projectPath: string, home: string, input: { nome?: unkno
   }
   salvarPonteiro(projectPath, home, { sistemas: [...p.sistemas, { id, nome }], ativo: id });
   return estadoDs(projectPath, home);
+}
+
+/* ---------------------------------------------------------------------------
+ * Versões e variantes de card
+ * ------------------------------------------------------------------------- */
+
+export type VersaoCard = { nome: string; em: string; bytes: number };
+
+/** Versões guardadas de um card (`.versoes/<id>/`), da mais nova pra mais velha. */
+export function listarVersoes(projectPath: string, home: string, id: string): VersaoCard[] {
+  if (!ID_RE.test(id)) throw erro("id de card inválido");
+  const dir = join(pastaAbsoluta(projectPath, home, ativoOuErro(projectPath, home)), ".versoes", id);
+  let nomes: string[] = [];
+  try {
+    nomes = readdirSync(dir).filter((f) => /^[0-9TZ-]+\.html$/.test(f));
+  } catch {
+    return [];
+  }
+  return nomes
+    .sort()
+    .reverse()
+    .map((nome) => {
+      // nome é o ISO com ":" e "." trocados por "-" (ver guardarVersao): volta pro formato de data
+      const iso = nome.replace(/\.html$/, "").replace(/^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/, "$1:$2:$3.$4Z");
+      let bytes = 0;
+      try {
+        bytes = readFileSync(join(dir, nome)).length;
+      } catch {
+        /* segue */
+      }
+      return { nome, em: iso, bytes };
+    });
+}
+
+/** Volta o card pra uma versão guardada. A atual vira versão antes (dá pra desfazer o desfazer). */
+export function restaurarVersao(projectPath: string, home: string, id: string, nome: string): DsCompleto {
+  if (!ID_RE.test(id) || !/^[0-9TZ-]+\.html$/.test(nome)) throw erro("versão inválida");
+  const pasta = pastaAbsoluta(projectPath, home, ativoOuErro(projectPath, home));
+  const html = lerTexto(join(pasta, ".versoes", id, nome));
+  if (html === null) throw erro("versão não existe", 404);
+  return salvarCard(projectPath, home, id, { html }, { versionar: true });
+}
+
+/** Tira o card do DS (variante descartada, card que não serve). Versionado antes: recuperável. */
+export function apagarCard(projectPath: string, home: string, id: string): DsCompleto {
+  if (!ID_RE.test(id)) throw erro("id de card inválido");
+  const s = ativoOuErro(projectPath, home);
+  const pasta = pastaAbsoluta(projectPath, home, s);
+  const caminho = join(pasta, "cards", `${id}.html`);
+  if (!existsSync(caminho)) throw erro("card não existe", 404);
+  guardarVersao(pasta, id);
+  rmSync(caminho);
+  const meta = lerMeta(pasta);
+  if (meta.cards?.some((c) => c.id === id)) {
+    escreverAtomico(join(pasta, "meta.json"), `${JSON.stringify({ ...meta, cards: meta.cards.filter((c) => c.id !== id) }, null, 2)}\n`);
+  }
+  return lerSistema(projectPath, home, s);
+}
+
+/** Variante (`<id>-var-N`) vira o card original; a variante some. */
+export function promoverVariante(projectPath: string, home: string, idVariante: string): DsCompleto {
+  const m = /^(.+)-var-\d+$/.exec(idVariante);
+  if (!m || !ID_RE.test(idVariante)) throw erro("isso não é uma variante");
+  const original = m[1]!;
+  const pasta = pastaAbsoluta(projectPath, home, ativoOuErro(projectPath, home));
+  const html = lerTexto(join(pasta, "cards", `${idVariante}.html`));
+  if (html === null) throw erro("variante não existe", 404);
+  salvarCard(projectPath, home, original, { html }, { versionar: true });
+  return apagarCard(projectPath, home, idVariante);
+}
+
+/**
+ * Põe a entrada de um card no `meta.json` logo DEPOIS de outro (variante ao lado do original, não
+ * no fim da seção). Não cria o arquivo: quem grava o HTML é a geração.
+ */
+export function registrarCardDepois(
+  projectPath: string,
+  home: string,
+  novo: { id: string; titulo: string; subtitulo?: string; secao: string },
+  depoisDe: string,
+): void {
+  const pasta = pastaAbsoluta(projectPath, home, ativoOuErro(projectPath, home));
+  const meta = lerMeta(pasta);
+  const cards = (meta.cards ?? []).filter((c) => c && c.id !== novo.id);
+  const i = cards.findIndex((c) => c.id === depoisDe);
+  cards.splice(i >= 0 ? i + 1 : cards.length, 0, novo);
+  escreverAtomico(join(pasta, "meta.json"), `${JSON.stringify({ ...meta, cards }, null, 2)}\n`);
+}
+
+/** Próximo id livre de variante pra um card (`botoes-var-1`, `-var-2`…). */
+export function proximaVariante(projectPath: string, home: string, id: string): string {
+  const pasta = pastaAbsoluta(projectPath, home, ativoOuErro(projectPath, home));
+  for (let n = 1; n < 100; n++) {
+    const cand = `${id}-var-${n}`;
+    if (ID_RE.test(cand) && !existsSync(join(pasta, "cards", `${cand}.html`))) return cand;
+  }
+  throw erro("variantes demais pra este card");
 }
 
 /** Tira o DS da lista do projeto. Os arquivos ficam no disco (dá pra recuperar à mão). */

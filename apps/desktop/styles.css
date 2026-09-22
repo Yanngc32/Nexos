@@ -7297,3 +7297,22 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
 .ds-card.pendente.desenhando .ds-card-corpo { animation: none; min-height: 0; background: var(--bg); }
 .ds-card.desenhando { border-color: var(--accent-line); }
 .ds-card.pendente.desenhando .ds-card-tit p::after { content: " · desenhando…"; color: var(--accent-text); }
+
+/* --- Design System · Fase 4: feedback, controles, versões, variantes --- */
+.ds-card-variante { display: inline-flex; gap: var(--s-2); }
+.ds-card-variante.hidden { display: none; }
+.ds-card.variante { border-style: dashed; }
+.ds-card.selecionando { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ds-fb-sel { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-2); }
+.ds-fb-sel:empty { display: none; }
+.ds-fb-sel li { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-2) var(--s-3); border: 1px solid var(--line-2); border-radius: var(--r-md); }
+.ds-fb-sel code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--muted); }
+.ds-fb-num { flex: 0 0 18px; height: 18px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-size: var(--fs-2xs); font-weight: 600; display: grid; place-items: center; }
+.ds-fb-campo { display: flex; flex-direction: column; gap: var(--s-2); font-size: var(--fs-sm); color: var(--muted); }
+.ds-fb-campo textarea { resize: vertical; font: inherit; font-size: var(--fs-sm); }
+.ds-ctl-valor { min-width: 48px; text-align: right; font: var(--fs-xs) var(--font-mono); color: var(--muted); }
+.ds-token-campos input[type="range"] { flex: 1; }
+.ds-ctl-acoes { display: flex; align-items: center; justify-content: flex-end; gap: var(--s-3); flex-wrap: wrap; }
+.ds-ctl-acoes .ag-err { flex-basis: 100%; }
+.ds-versao { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); padding: var(--s-3) 0; border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
+.ds-versao:last-child { border-bottom: 0; }

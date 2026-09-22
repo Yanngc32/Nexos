@@ -6,6 +6,9 @@ import {
   baseHrefDoProjeto,
   cardsDeFundamentos,
   cardsPendentes,
+  ehVariante,
+  resumoDoElemento,
+  seletorDe,
   elementosParaConstruir,
   urlsDeFontes,
   cssDoBruto,
@@ -196,6 +199,26 @@ describe("cardsPendentes", () => {
   it("geração parada não deixa esqueleto", () => {
     expect(cardsPendentes({ ...geracao, status: "concluida" }, [])).toEqual([]);
     expect(cardsPendentes(null, [])).toEqual([]);
+  });
+});
+
+describe("feedback: seletor e resumo do elemento apontado", () => {
+  it("seletor curto com tag e até 2 classes, parando no #id", () => {
+    document.body.innerHTML = `<section id="topo"><div class="grade linha extra"><button class="btn primario ds-x">Salvar</button></div></section>`;
+    const b = document.querySelector("button");
+    expect(seletorDe(b)).toBe("section#topo > div.grade.linha > button.btn.primario");
+  });
+
+  it("resumo sem as marcas da seleção, com texto e trecho do HTML", () => {
+    document.body.innerHTML = `<button class="b" data-ds-sel="1" data-ds-hover="">Salvar  agora</button>`;
+    const r = resumoDoElemento(document.querySelector("button"));
+    expect(r.html).toBe('<button class="b">Salvar agora</button>');
+    expect(r.texto).toBe("Salvar agora");
+  });
+
+  it("reconhece variante pelo id", () => {
+    expect(ehVariante("core-botoes-var-2")).toBe(true);
+    expect(ehVariante("core-botoes")).toBe(false);
   });
 });
 

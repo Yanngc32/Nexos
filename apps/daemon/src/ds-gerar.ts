@@ -3,6 +3,8 @@ import { sessionBus } from "./bus.ts";
 import {
   estadoDs,
   prepararMeta,
+  proximaVariante,
+  registrarCardDepois,
   lintCard,
   salvarCard,
   salvarDesignMd,
@@ -421,10 +423,56 @@ ${cards}
 - Sem \`<script>\`, sem \`on*=\`, sem imagem/fonte/CSS externo. Ícone é SVG inline com \`stroke="currentColor"\`/\`fill="currentColor"\`.
 - Conteúdo realista em pt-BR, coerente com o produto (nada de "Lorem ipsum" nem "Button 1").
 - Mostre estados relevantes (hover/foco/desabilitado/erro) lado a lado, com rótulos pequenos.
+- Opcional, até 4 por card: ajustes finos que valem a pena mexer (padding, raio, tamanho) como controles. Declare assim e use a variável COM fallback, sem declará-la em outro lugar:
+  \`<script type="application/json" data-ds-controles>[{"var":"--btn-pad-x","rotulo":"Padding horizontal","tipo":"range","min":8,"max":32,"passo":2,"unidade":"px","padrao":16},{"var":"--btn-raio","rotulo":"Raio","tipo":"token","grupo":"radius"}]</script>\`
+  e no CSS \`padding: 0 var(--btn-pad-x, 16px); border-radius: var(--btn-raio, var(--radius-md));\`
 
 Formato (um bloco por card, na ordem):
 <ds-card id="${ctx.secao.cards[0]?.id ?? "id"}" titulo="..." subtitulo="..." secao="${ctx.secao.id}">
 <style>...</style>
+...
+</ds-card>
+
+${REGRAS_GERAIS}`;
+}
+
+export type ElementoSelecionado = { seletor: string; html: string; texto?: string };
+
+function pedidoDeFeedback(ctx: {
+  ds: DsCompleto;
+  original: DsCompleto["cards"][number];
+  alvo: PlanoCard;
+  texto: string;
+  elementos: ElementoSelecionado[];
+  variante: boolean;
+}): string {
+  const elementos = ctx.elementos.length
+    ? `## Elementos que a pessoa apontou no card\n${ctx.elementos
+        .map((e, i) => `${i + 1}. \`${e.seletor}\`${e.texto ? ` — "${e.texto}"` : ""}\n   \`\`\`html\n   ${e.html}\n   \`\`\``)
+        .join("\n")}\n\n`
+    : "";
+  return `Você ajusta o card "${ctx.original.titulo}" do design system "${ctx.ds.nome}" a partir do feedback de quem usa.
+
+${ctx.variante ? "Faça uma VARIANTE: uma abordagem diferente do card atual, que a pessoa vai comparar lado a lado. O card atual continua existindo.\n\n" : "Reescreva o card inteiro aplicando o feedback. Mantenha o que não foi citado.\n\n"}## Feedback
+${ctx.texto}
+
+${elementos}## Card atual
+\`\`\`html
+${ctx.original.html.slice(0, 20000)}
+\`\`\`
+
+## Regras de uso (DESIGN.md)
+${ctx.ds.designMd.slice(0, 6000)}
+
+## Tokens disponíveis (variáveis CSS já carregadas no card)
+${listaDeVars(ctx.ds)}
+
+## Como escrever o card
+- Fragmento HTML (\`<style>\` + marcação), cor/fonte/espaço/raio/sombra só por \`var(--token)\`, sem \`<script>\` (exceto o JSON de controles), sem \`on*=\`, sem recurso externo. Conteúdo em pt-BR.
+- Mantenha o bloco \`<script type="application/json" data-ds-controles>\` se o card tiver, e o \`<style data-ds-controles-valores>\` exatamente como está.
+
+Formato (um bloco só):
+<ds-card id="${ctx.alvo.id}" titulo="${ctx.alvo.titulo}" secao="${ctx.alvo.secao}">
 ...
 </ds-card>
 
@@ -542,17 +590,17 @@ async function rodarDiretor(ctx: Ctx, etapa: Etapa, coleta: string): Promise<voi
   ctx.salvar();
 }
 
-async function rodarSecao(ctx: Ctx, etapa: Etapa, secao: PlanoSecao): Promise<void> {
+async function rodarSecao(ctx: Ctx, etapa: Etapa, secao: PlanoSecao, pedidoInicial?: string): Promise<void> {
   const { g, home, motor } = ctx;
   if (cancelada(g)) return;
   const ds = estadoDs(g.projectPath, home).ds!;
   const conhecidas = new Set(ds.vars.map((v) => v.nome));
   const porId = new Map(secao.cards.map((c) => [c.id, c]));
-  etapa.threadId = motor.criarConversa(g.projectPath, ctx.profileId, `Design System · ${secao.titulo}`);
+  etapa.threadId = motor.criarConversa(g.projectPath, ctx.profileId, `Design System · ${etapa.titulo}`);
   etapa.status = "rodando";
   ctx.salvar();
 
-  let pedido = pedidoDaSecao({ ds, secao, brief: ctx.brief, logos: ctx.logos, temPrint: ctx.imagens.length > 0 });
+  let pedido = pedidoInicial ?? pedidoDaSecao({ ds, secao, brief: ctx.brief, logos: ctx.logos, temPrint: ctx.imagens.length > 0 });
   const pendentes = new Set(secao.cards.map((c) => c.id));
   const tx = criarTransmissor(g);
   const aoVivo = {
@@ -732,6 +780,95 @@ export function iniciarGeracao(projectPath: string, home: string, input: GerarIn
     }
   })();
 
+  return g;
+}
+
+export type FeedbackInput = {
+  profileId?: unknown;
+  texto?: unknown;
+  elementos?: unknown;
+  /** true = gera uma variante ao lado (`<id>-var-N`) e mantém o card atual. */
+  variante?: unknown;
+};
+
+function lerElementos(bruto: unknown): ElementoSelecionado[] {
+  if (!Array.isArray(bruto)) return [];
+  return bruto
+    .slice(0, 12)
+    .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
+    .map((e) => ({
+      seletor: String(e.seletor ?? "").slice(0, 200),
+      html: String(e.html ?? "").slice(0, 600),
+      ...(typeof e.texto === "string" && e.texto.trim() ? { texto: e.texto.trim().slice(0, 150) } : {}),
+    }))
+    .filter((e) => e.seletor || e.html);
+}
+
+/**
+ * Feedback num card (spec §5): um agente refaz SÓ aquele card, com o pedido da pessoa e os
+ * elementos que ela apontou. Mesma execução das seções (streaming, lint, correção automática),
+ * então aparece no Canvas igual à geração — barra de progresso e o card se redesenhando.
+ */
+export function iniciarFeedback(
+  projectPath: string,
+  home: string,
+  cardId: string,
+  input: FeedbackInput,
+  motor: Motor = motorPadrao(home),
+): Geracao {
+  const atual = geracaoAtual(projectPath);
+  if (atual?.status === "rodando") throw erro("já tem uma geração rodando neste projeto", 409);
+  const ds = estadoDs(projectPath, home).ds;
+  if (!ds) throw erro("este projeto não tem design system", 404);
+  const original = ds.cards.find((c) => c.id === cardId);
+  if (!original) throw erro("card não existe", 404);
+  const profileId = typeof input.profileId === "string" ? input.profileId : "";
+  if (!getProfile(profileId, home)) throw erro("escolha uma conta pra gerar");
+  const texto = typeof input.texto === "string" ? input.texto.trim().slice(0, 4000) : "";
+  if (!texto) throw erro("escreva o que mudar");
+  const elementos = lerElementos(input.elementos);
+  const variante = input.variante === true;
+
+  const alvo: PlanoCard = variante
+    ? { id: proximaVariante(projectPath, home, cardId), titulo: `${original.titulo} (variante)`, secao: original.secao }
+    : { id: cardId, titulo: original.titulo, secao: original.secao, ...(original.subtitulo ? { subtitulo: original.subtitulo } : {}) };
+  if (variante) registrarCardDepois(projectPath, home, alvo, cardId);
+
+  const g: Geracao = {
+    id: `fb-${Date.now().toString(36)}`,
+    projectPath,
+    status: "rodando",
+    inicio: new Date().toISOString(),
+    etapas: [
+      { id: `feedback-${alvo.id}`, titulo: `${variante ? "Variante" : "Feedback"} · ${original.titulo}`, status: "pendente", cards: [alvo.id], prontos: [] },
+    ],
+    plano: variante ? [alvo] : [],
+  };
+  porProjeto.set(projectKey(projectPath), g);
+  publicar(g);
+  const ctx: Ctx = { g, home, motor, profileId, brief: "", logos: [], imagens: [], salvar: () => publicar(g) };
+  const etapa = g.etapas[0]!;
+  const secao: PlanoSecao = { id: original.secao, titulo: etapa.titulo, cards: [alvo] };
+
+  void (async () => {
+    try {
+      await rodarSecao(ctx, etapa, secao, pedidoDeFeedback({ ds, original, alvo, texto, elementos, variante }));
+      g.status = etapa.status === "erro" ? "erro" : "concluida";
+      if (etapa.erro) g.erro = etapa.erro;
+    } catch (e) {
+      g.status = "erro";
+      g.erro = (e as Error).message;
+      etapa.status = "erro";
+    } finally {
+      if (cancelada(g)) {
+        g.status = "cancelada";
+        if (etapa.status !== "ok") etapa.status = "cancelado";
+        canceladas.delete(g.id);
+      }
+      g.fim = new Date().toISOString();
+      publicar(g);
+    }
+  })();
   return g;
 }
 
