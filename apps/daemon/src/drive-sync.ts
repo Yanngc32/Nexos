@@ -209,6 +209,11 @@ export async function criarPastaNexo(home: string): Promise<{ id: string; name: 
 
 /** Usa `id` como pasta dos projetos (escolhida no seletor do Google) e avisa os outros PCs. */
 export async function usarPastaDrive(home: string, id: string): Promise<{ id: string; name: string }> {
+  // a raiz do Meu Drive não aceita appProperties customizado (marcarRaizNexo falharia) — e sincronizar
+  // o Drive inteiro da pessoa seria um escopo bem diferente do pretendido aqui.
+  if (id === "root") {
+    throw Object.assign(new Error("não dá pra usar a raiz do Meu Drive — crie ou escolha uma subpasta"), { status: 400 });
+  }
   const pasta = await getFolder(home, id);
   await marcarRaizNexo(home, pasta.id);
   updateGoogleStore(home, { folderId: pasta.id, folderName: pasta.name });

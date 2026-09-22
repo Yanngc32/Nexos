@@ -253,18 +253,45 @@ describe("entrar com Google", () => {
     }
   });
 
-  it("login pede drive.file + drive.metadata.readonly com PKCE e cai direto na página 'onde guardar?'", async () => {
+  it("o <script> embutido na página 'onde guardar?' é JS válido", async () => {
+    // guarda contra escape de \ engolido pelo template literal do servidor (já aconteceu:
+    // \/ virou / e formou um "//" que comentou o resto da linha)
+    const home = tempHome();
+    const { pagina } = await logar(home);
+    const texto = await pagina.text();
+    const m = texto.match(/<script>([\s\S]*)<\/script>/);
+    if (!m) throw new Error("script não encontrado no HTML");
+    expect(() => new Function(m[1])).not.toThrow();
+  });
+
+  it("colar link de pasta do Drive extrai o id certo (idDaPastaNoLink)", async () => {
+    const home = tempHome();
+    const { pagina } = await logar(home);
+    const texto = await pagina.text();
+    const m = texto.match(/<script>([\s\S]*)<\/script>/)!;
+    // roda o script de verdade (mesmo bug de escape de \/ já pegou aqui antes) e pega a função de volta
+    const documentFake = { getElementById: () => ({ addEventListener() {}, style: {} }), querySelectorAll: () => [] };
+    const idDaPastaNoLink = new Function("document", "fetch", `${m[1]}\nreturn idDaPastaNoLink;`)(documentFake, () => {});
+    expect(idDaPastaNoLink("https://drive.google.com/drive/u/1/folders/1hnmxcBXvN7zndwc-up1_jlak_jXUpdUJ")).toBe(
+      "1hnmxcBXvN7zndwc-up1_jlak_jXUpdUJ",
+    );
+    expect(idDaPastaNoLink("https://drive.google.com/drive/folders/ABC123?usp=sharing")).toBe("ABC123");
+    expect(idDaPastaNoLink("https://drive.google.com/open?id=XYZ789")).toBe("XYZ789");
+    expect(idDaPastaNoLink("https://exemplo.com/folders/ABC123")).toBe(null); // domínio errado
+    expect(idDaPastaNoLink("não é um link")).toBe(null);
+  });
+
+  it("login pede o Drive completo com PKCE e cai direto na página 'onde guardar?'", async () => {
     const home = tempHome();
     const { loginId, u, pagina } = await logar(home);
-    expect(u.searchParams.get("scope")).toContain("auth/drive.file");
-    expect(u.searchParams.get("scope")).toContain("auth/drive.metadata.readonly");
+    expect(u.searchParams.get("scope")).toContain("auth/drive");
     expect(u.searchParams.get("code_challenge_method")).toBe("S256");
     expect(pagina.status).toBe(200);
     const texto = await pagina.text();
     expect(texto).toContain("Onde guardar seus projetos?");
     expect(texto).toContain("eu@exemplo.com");
     expect(texto).toContain("Criar a pasta");
-    expect(texto).toContain("Escolher outra pasta"); // navegador de pastas próprio, sem apiKey
+    expect(texto).toContain("Escolher outra pasta"); // navegador de pastas próprio
     expect(texto).not.toContain("Continuar em"); // conta sem pasta ainda
     expect(texto).not.toContain("at-fake"); // token nunca vai pro navegador — /pastas roda no daemon
     expect(googleLoginStatus(loginId).state).toBe("choosing");
@@ -338,7 +365,16 @@ describe("entrar com Google", () => {
     const l = await logar(home);
     const arq = novoArquivo("nota.txt", "root", Buffer.from("x"));
     const r = await escolher(l.base, l.state, { acao: "escolhida", id: arq.id });
-    expect(r.status).toBe(500);
+    expect(r.status).toBe(400);
+    expect(googleLoginStatus(l.loginId).state).toBe("choosing");
+  });
+
+  it("escolher a raiz do Meu Drive é recusado, com mensagem clara", async () => {
+    const home = tempHome();
+    const l = await logar(home);
+    const r = await escolher(l.base, l.state, { acao: "escolhida", id: "root" });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toMatch(/raiz do Meu Drive/);
     expect(googleLoginStatus(l.loginId).state).toBe("choosing");
   });
 

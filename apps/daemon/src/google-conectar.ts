@@ -18,10 +18,16 @@ import {
 /**
  * "Entrar com Google" de ponta a ponta, tudo no navegador da pessoa: consentimento do Google →
  * página "Onde guardar seus projetos?" (continuar na pasta que outro PC já usa, criar "Nexo" no
- * Meu Drive ou escolher outra no seletor do próprio Google) → "Pronto". O app só acompanha o estado.
+ * Meu Drive ou escolher outra no seletor de pastas próprio + link colado) → "Pronto". O app só
+ * acompanha o estado.
  *
  * Servidor HTTP efêmero em `127.0.0.1:<porta livre>` (RFC 8252), PKCE S256, e o mesmo `state`
  * aleatório protege o callback E as rotas da página de escolha — nada ali responde sem ele.
+ *
+ * Navegador de pastas caseiro em vez do Google Picker: testamos o Picker antes — ele não concede
+ * acesso a PASTA nenhuma (só a arquivo individual que a pessoa abre por ele), então não servia pra
+ * esse fluxo. Com escopo `drive` completo (ver google-auth.ts) não precisa de grant por item —
+ * daí dá pra listar/escolher direto.
  */
 const SESSION_TTL = 15 * 60 * 1000;
 
@@ -187,19 +193,25 @@ async function rotasEscolha(s: Sessao, req: IncomingMessage, res: ServerResponse
   if (req.method === "POST" && url.pathname === "/escolher") {
     const corpo = await lerJson(req);
     const id = typeof corpo.id === "string" ? corpo.id : "";
-    let pasta: { id: string; name: string };
-    if (corpo.acao === "criar") {
-      pasta = await criarPastaNexo(s.home);
-      updateGoogleStore(s.home, { folderId: pasta.id, folderName: pasta.name });
-    } else if ((corpo.acao === "escolhida" || corpo.acao === "existente") && id) {
-      pasta = await usarPastaDrive(s.home, id);
-    } else {
-      json(res, 400, { error: "escolha inválida" });
-      return;
+    try {
+      let pasta: { id: string; name: string };
+      if (corpo.acao === "criar") {
+        pasta = await criarPastaNexo(s.home);
+        updateGoogleStore(s.home, { folderId: pasta.id, folderName: pasta.name });
+      } else if ((corpo.acao === "escolhida" || corpo.acao === "existente") && id) {
+        pasta = await usarPastaDrive(s.home, id);
+      } else {
+        json(res, 400, { error: "escolha inválida" });
+        return;
+      }
+      s.folder = pasta;
+      s.state = "done";
+      json(res, 200, { ok: true, folder: pasta });
+    } catch (e) {
+      // erro real (ex.: raiz do Drive recusada) na resposta — sem isso o front só via
+      // a página HTML genérica do catch-all e mostrava sempre "Não deu certo. Tente de novo."
+      json(res, (e as { status?: number }).status ?? 500, { error: (e as Error).message });
     }
-    s.folder = pasta;
-    s.state = "done";
-    json(res, 200, { ok: true, folder: pasta });
     return;
   }
   res.writeHead(404).end();
@@ -264,7 +276,11 @@ button:disabled{opacity:.5;cursor:wait}
 #lista li:last-child{border-bottom:none}
 #lista li:hover{background:var(--ac);color:#fff}
 #lista .vazio{padding:14px;color:var(--mut);cursor:default}
-#lista .vazio:hover{background:none;color:var(--mut)}`;
+#lista .vazio:hover{background:none;color:var(--mut)}
+.ou{display:flex;align-items:center;gap:10px;margin:18px 0 10px;color:var(--mut);font-size:13px}
+.ou::before,.ou::after{content:"";flex:1;height:1px;background:var(--bd)}
+#linkPasta{width:100%;padding:11px 14px;border-radius:10px;border:1px solid var(--bd);background:transparent;color:var(--tx);font:inherit}
+#linkPasta:focus{outline:none;border-color:var(--ac)}`;
 
 function pagina(titulo: string, corpo: string): string {
   return `<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Nexo — ${esc(titulo)}</title><style>${ESTILO}</style><body><div class="card"><div class="marca">Nexo</div><h1>${esc(titulo)}</h1>${corpo}</div>`;
@@ -283,6 +299,11 @@ function paginaEscolha(s: Sessao, existente: { id: string; name: string } | unde
     "Onde guardar seus projetos?",
     `<p>${quem}Memória, tarefas e conversas ficam nessa pasta e aparecem iguais em todos os seus computadores.</p>
 <div id="botoes">${botoes}</div>
+<div class="ou" id="ouLink">ou</div>
+<div id="porLink">
+  <input type="text" id="linkPasta" spellcheck="false" placeholder="Cole o link de uma pasta do Google Drive" aria-label="Link da pasta do Google Drive" />
+  <button type="button" id="usarLink">Usar essa pasta</button>
+</div>
 <div id="navegador" style="display:none">
   <nav class="crumbs" id="crumbs"></nav>
   <ul id="lista"></ul>
@@ -308,14 +329,33 @@ async function escolher(corpo){
 }
 function abrirNavegador(){
   document.getElementById("botoes").style.display="none";
+  document.getElementById("ouLink").style.display="none";
+  document.getElementById("porLink").style.display="none";
   document.getElementById("navegador").style.display="block";
   carregar();
 }
 function fecharNavegador(){
   document.getElementById("navegador").style.display="none";
   document.getElementById("botoes").style.display="block";
+  document.getElementById("ouLink").style.display="flex";
+  document.getElementById("porLink").style.display="block";
   erro("");
 }
+/** Aceita link de pasta (.../folders/ID…) ou de arquivo (.../d/ID/…, pra dar erro claro); senão null. */
+function idDaPastaNoLink(texto){
+  let u;
+  try{ u=new URL(texto.trim()) }catch{ return null }
+  if(u.hostname!=="drive.google.com") return null;
+  const partes=u.pathname.split("/").filter(Boolean);
+  const i=partes.findIndex((p)=>p==="folders"||p==="d");
+  if(i!==-1&&partes[i+1]) return partes[i+1];
+  return u.searchParams.get("id");
+}
+document.getElementById("usarLink").addEventListener("click",()=>{
+  const id=idDaPastaNoLink(document.getElementById("linkPasta").value);
+  if(!id) return erro("Não achei o link de uma pasta do Drive aí — copie o link da pasta (compartilhar → copiar link) e tente de novo.");
+  escolher({acao:"escolhida",id});
+});
 function renderCrumbs(){
   const nav=document.getElementById("crumbs");
   nav.innerHTML="";
@@ -330,7 +370,9 @@ async function carregar(){
   travar(true);
   const atual=crumbs[crumbs.length-1];
   renderCrumbs();
-  document.getElementById("usarAtual").textContent="Usar “"+atual.name+"”";
+  const usarBtn=document.getElementById("usarAtual");
+  usarBtn.style.display=atual.id==="root"?"none":"";
+  usarBtn.textContent="Usar “"+atual.name+"”";
   try{
     const r=await fetch("/pastas?state="+STATE+"&parent="+encodeURIComponent(atual.id));
     const j=await r.json().catch(()=>({items:[]}));

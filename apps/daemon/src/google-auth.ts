@@ -7,11 +7,15 @@ import { ensureHome, googleAuthPath } from "./home.ts";
  * Conta Google única e global: refresh token, access token e o client do app. O fluxo de login
  * (navegador + escolha da pasta) mora em google-conectar.ts.
  *
- * Escopo `drive.file`: o Nexo só LÊ E ESCREVE o que ELE criou (ou a pasta que a pessoa escolher no
- * navegador de pastas — ver google-conectar.ts). `drive.metadata.readonly` é só pra listar nome e
- * subpastas na hora de escolher; sozinho não dá acesso a conteúdo nenhum.
+ * Escopo `drive` (completo): a pessoa escolhe QUALQUER pasta já existente no Drive dela (navegando
+ * ou colando um link — ver google-conectar.ts), não só pasta criada pelo próprio Nexo. Tentamos
+ * `drive.file` + Picker antes — não dá: Picker não concede acesso de leitura/escrita a PASTA
+ * nenhuma, só a arquivo individual que a pessoa abre por ele. Sem escopo completo, marcar uma
+ * pasta "de fora" como raiz (escrever `appProperties` nela) dá 404/403 mesmo ela existindo.
+ * Escopo `drive` é "restrito" pro Google — pode pedir avaliação de segurança (CASA) antes de sair
+ * do modo teste/100 usuários.
  */
-export const SCOPES = "openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly";
+export const SCOPES = "openid email https://www.googleapis.com/auth/drive";
 export function authUrl(): string {
   return process.env.NEXO_GOOGLE_AUTH_URL ?? "https://accounts.google.com/o/oauth2/v2/auth";
 }
