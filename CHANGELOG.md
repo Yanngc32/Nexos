@@ -8,6 +8,43 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Corrigido
 
+### Alterado
+
+### Segurança
+
+## [0.3.0] - 2026-09-22
+
+### Adicionado
+
+- **Design System** (novo módulo): board com pan/zoom que mostra e edita o design system do
+  projeto — tokens (W3C DTCG) viram CSS, Fundamentos gerados dos tokens, cards de componente em
+  iframe sem scripts, edição de token ao vivo, tema claro/escuro, lint (cor solta, script,
+  recurso externo, token inexistente) e animação só do que mudou em disco. Mora na pasta do
+  projeto no Nexos, junto de memória e repo map.
+- **Gerar com IA**: um agente "Diretor" define tokens e regras de uso, e um agente por seção
+  desenha os cards em paralelo; card com erro volta pro agente corrigir antes de ser dado como
+  pronto. Lê o código do projeto e uma URL de referência; a versão anterior de cada card fica
+  guardada.
+- **Coleta de design pelo Browser** (Configurações → Módulos): botão na barra do Browser que lê
+  o estilo da página aberta + print e abre o "Gerar com IA" com isso de referência.
+- **Logo do projeto na barra lateral** (Configurações → Aparência): favicon/logo achado no
+  código no lugar do ícone de pasta; com a barra minimizada, os projetos viram só os ícones.
+- **Times dentro do chat**: time chamado por `@menção`, pelo roteador ou por `nexo_delegar`
+  roda dentro do chat que o chamou — em fila, com barra "trabalhando" acima do input (parar por
+  time e por agente, cancelar o que está na fila), resultado de volta no chat e pergunta do
+  subagente repassada pra você. Os passos saem da barra lateral.
+- Pedido montado pelo Nexos (passo de time, geração do DS) aparece recolhido no chat.
+- Toda conversa pede ao agente um resumo curto no fim do turno que usou ferramenta.
+- `run.bat dev`: modo de teste isolado do Nexos instalado (motor e dados próprios) com recarga
+  automática ao salvar.
+
+### Alterado
+
+- Bolhas "Lendo / Editando / Pensando" agora são uma por fase, independentes (antes as fases
+  do turno empilhavam numa caixa só).
+
+### Corrigido
+
 - Update automático instalava mostrando o assistente do NSIS de novo (pedindo clique em
   "Concluir") em vez de instalar quieto e reabrir sozinho — faltava passar `isSilent: true,
   isForceRunAfter: true` pro `quitAndInstall` (main.cjs). Agora a atualização é realmente
@@ -17,10 +54,6 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   `.blockmap`), e `/releases/latest` podia apontar pra vazia. Já tinha acontecido em v0.1.0 e
   v0.2.0, corrigido à mão as duas vezes; agora o próprio workflow mantém a release com mais
   assets e apaga o resto.
-
-### Alterado
-
-### Segurança
 
 ## [0.2.0] - 2026-09-22
 

@@ -7280,3 +7280,14 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
 .work-det > summary { display: flex; width: fit-content; padding: 3px 8px; line-height: 1.3; }
 .work-det > summary::before { line-height: 1; }
 .work-body > li.tool { padding: 1px 0; }
+/* seta na mesma coluna do texto das mensagens (o recuo vira margem negativa, o hover continua
+   com respiro) e numa caixa fixa, centrada com o rótulo */
+.work-det > summary { margin-left: -8px; }
+.work-det > summary::before {
+  width: 10px;
+  height: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+.work-fase { line-height: 1.3; }

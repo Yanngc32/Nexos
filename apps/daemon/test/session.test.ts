@@ -421,6 +421,15 @@ describe("session", () => {
     await pending;
   });
 
+  it("toda conversa pede resumo curto no fim do turno que usou ferramenta", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    await postMessage(t.id, "oi", home);
+    const engine = getLive(t.id)?.engine as StubEngine;
+    expect(engine.lastStart?.contextPack).toContain("# Fechamento do turno");
+  });
+
   it("conversa sem agente não ganha cabeçalho de instruções", async () => {
     const home = tempHome();
     addProfile({ id: "p1", engine: "stub" }, home);

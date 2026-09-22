@@ -357,6 +357,15 @@ function withInstructions(agentId: string | undefined, projectPath: string | und
       "`nexo_perguntar` uma de cada vez (a próxima só depois da resposta da anterior) — nunca junte " +
       "todas numa lista de texto só esperando uma resposta que cubra tudo.",
   );
+  // Sem isso o turno às vezes termina numa frase de progresso ("agora vou ajustar X…") e a pessoa
+  // fica sem saber o que de fato mudou — o resumo é o que ela lê primeiro ao voltar pro chat.
+  blocos.push(
+    "# Fechamento do turno\nQuando o turno usou ferramentas (editou arquivo, rodou comando, " +
+      "delegou), a ÚLTIMA mensagem é um resumo curto pra quem pediu: o que mudou (arquivos/efeitos), " +
+      "o que foi verificado (teste, build) e o que ficou pendente ou precisa de decisão. Nunca termine " +
+      "o turno numa frase de progresso do tipo \"agora vou…\". Pergunta simples sem ferramenta não " +
+      "precisa de resumo.",
+  );
   // Vale em toda conversa com projeto, igual "Perguntar com opções" — quadro de tarefas só serve
   // pra coordenar times/humano se ele reflete trabalho real, não só o que foi planejado no início.
   // Toggle em Configurações → Módulos (`modulos.quadroTarefas`), ligado por padrão.
