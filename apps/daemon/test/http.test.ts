@@ -1,3 +1,4 @@
+import AdmZip from "adm-zip";
 import { describe, it, expect } from "vitest";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -834,6 +835,62 @@ describe("http", () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("POST /v1/import/zip", () => {
+  function zipDeExportClaude(): string {
+    const zip = new AdmZip();
+    zip.addFile(
+      "conversations.json",
+      Buffer.from(
+        JSON.stringify([{ name: "Importada", chat_messages: [{ sender: "human", text: "oi" }] }]),
+        "utf8",
+      ),
+    );
+    return zip.toBuffer().toString("base64");
+  }
+
+  it("zip reconhecido cria conversa global e devolve o resumo", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const app = createApp(home, token);
+    const res = await app.request("/v1/import/zip", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ zip: zipDeExportClaude(), profileId: "p1" }),
+    });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ threadsCriadas: 1, avisos: [] });
+
+    const globais = await app.request("/v1/threads", { headers: { authorization: `Bearer ${token}` } });
+    expect((await globais.json()).map((t: { preview: string }) => t.preview)).toContain("Importada");
+  });
+
+  it("perfil inexistente é recusado antes de abrir o zip", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const res = await app.request("/v1/import/zip", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ zip: zipDeExportClaude(), profileId: "nao-existe" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("zip sem formato reconhecido devolve 400 claro", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const app = createApp(home, token);
+    const zip = new AdmZip();
+    zip.addFile("nada.txt", Buffer.from("x", "utf8"));
+    const res = await app.request("/v1/import/zip", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ zip: zip.toBuffer().toString("base64"), profileId: "p1" }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/não reconhecido/);
   });
 });
 

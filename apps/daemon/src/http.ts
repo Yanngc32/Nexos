@@ -125,7 +125,8 @@ import {
 } from "./tarefas.ts";
 import { commitsRelacionados } from "./tarefas-git.ts";
 import { desligarRepoMapResumos, gerarResumosSobDemanda, sincronizarRepoMapResumos } from "./repo-map-auto.ts";
-import { statusDaMemoria } from "./memoria.ts";
+import { statusDaMemoria, statusDaMemoriaGlobal } from "./memoria.ts";
+import { importarZip } from "./importadores/importar-zip.ts";
 import { estadoAtual, melhorHost } from "./escuta.ts";
 import { abrirPareamento, fecharPareamento, pareamentoAberto, resgatar } from "./pair.ts";
 import { abrirDownload, downloadAberto, fecharDownload, resgatarDownload } from "./apk-share.ts";
@@ -1306,6 +1307,28 @@ export function createApp(home: string, token: string): Hono {
       hooksCount: regrasDoEscopo(listarRegras(home), projectPath).length,
       ...projectSlug(projectPath, home),
     });
+  });
+
+  /** Espelho de `/v1/projeto/status`, mas pro chat geral (sem projeto) — só memória, sem repo map/hooks de projeto. */
+  app.get("/v1/chat-geral/status", (c) => c.json({ memoria: statusDaMemoriaGlobal(home) }));
+
+  /**
+   * Importa um zip de export de outra ferramenta (hoje: Data export do Claude.ai) como
+   * conversas GLOBAIS (sem projeto) — cada conversa do zip vira uma thread no chat geral.
+   * Corpo em base64, mesmo padrão de `attachments.ts` (upload binário via JSON, sem multipart).
+   */
+  app.post("/v1/import/zip", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { zip?: string; profileId?: string };
+    if (typeof body.zip !== "string" || !body.zip) return c.json({ error: "zip (base64) obrigatório" }, 400);
+    if (!body.profileId) return c.json({ error: "profileId obrigatório" }, 400);
+    if (!getProfile(body.profileId, home)) return c.json({ error: `perfil não existe: ${body.profileId}` }, 400);
+    try {
+      const buffer = Buffer.from(body.zip, "base64");
+      const resultado = importarZip(buffer, body.profileId, home);
+      return c.json(resultado, 201);
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
   });
 
   /**
