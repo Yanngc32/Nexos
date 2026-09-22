@@ -828,6 +828,12 @@ export async function pingUsoDeTodasAsContas(home: string): Promise<void> {
 function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
   const live = lives.get(threadId);
   if (!live) return;
+  // resposta nascendo: canal próprio, fora do stream do chat (seria um evento por token pra tela
+  // que não usa) e fora do histórico (o texto inteiro ainda chega no `text`)
+  if (ev.type === "text_parcial") {
+    sessionBus.emit(`parcial:${threadId}`, { ...ev, threadId });
+    return;
+  }
   if (ev.type === "text") {
     live.assistantBuf += ev.text;
     emit(threadId, { ...ev, threadId });

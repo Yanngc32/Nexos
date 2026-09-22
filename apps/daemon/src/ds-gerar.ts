@@ -12,7 +12,7 @@ import {
   type LintItem,
 } from "./design-system.ts";
 import { coletaVazia, coletarDaUrl, coletarDoCodigo, resumoDaColeta } from "./ds-coleta.ts";
-import { criarLeitor, lerBlocos, semCerca, type Bloco } from "./ds-stream.ts";
+import { criarLeitor, lerBlocos, semCerca, type Bloco, type OuvintesLeitor } from "./ds-stream.ts";
 import { ATTACH_MAX_BYTES } from "@nexos/shared";
 import type { IncomingImage } from "./attachments.ts";
 import { projectKey } from "./home.ts";
@@ -216,6 +216,42 @@ export function canalGeracao(projectPath: string): string {
   return `ds-geracao:${projectKey(projectPath)}`;
 }
 
+/**
+ * O HTML de um card enquanto ele é escrito, pro Canvas desenhar ao vivo. Pedaço de `text_delta`
+ * é do tamanho de um token: junta o que chegar em ~40ms num evento só, senão seriam centenas de
+ * eventos por card no SSE.
+ */
+function criarTransmissor(g: Geracao) {
+  const canal = canalGeracao(g.projectPath);
+  const buffers = new Map<string, { html: string; timer: NodeJS.Timeout | null }>();
+  const enviar = (card: string) => {
+    const b = buffers.get(card);
+    if (!b || !b.html) return;
+    geracaoBus.emit(canal, { type: "ds_stream", fase: "pedaco", card, html: b.html });
+    b.html = "";
+    b.timer = null;
+  };
+  return {
+    abriu(card: string, titulo: string) {
+      buffers.set(card, { html: "", timer: null });
+      geracaoBus.emit(canal, { type: "ds_stream", fase: "abriu", card, titulo });
+    },
+    pedaco(card: string, html: string) {
+      const b = buffers.get(card);
+      if (!b) return;
+      b.html += html;
+      if (!b.timer) b.timer = setTimeout(() => enviar(card), 40);
+    },
+    /** Descarrega o que sobrou antes do card ir pro disco. */
+    fechar(card: string) {
+      const b = buffers.get(card);
+      if (b?.timer) clearTimeout(b.timer);
+      enviar(card);
+      buffers.delete(card);
+    },
+  };
+}
+
 function publicar(g: Geracao): void {
   geracaoBus.emit(canalGeracao(g.projectPath), { type: "geracao", geracao: g });
 }
@@ -260,13 +296,24 @@ export function motorPadrao(home: string): Motor {
       return createThread({ projectPath, profileId, title: titulo, semRoteamento: true, oculta: true }, home).id;
     },
     async turno(threadId, pedido, aoTexto, imagens = []) {
-      const ouvir = (ev: { type?: string; text?: string }) => {
-        if (ev?.type === "text" && typeof ev.text === "string") aoTexto(ev.text);
+      // Streaming real (Fase 3): o `claude` manda a resposta em pedaços (`text_parcial`) enquanto
+      // escreve. Chegou pedaço, o `text` inteiro do fim é ignorado — senão cada card viria duas
+      // vezes. Motor sem pedaço (codex, api) segue pelo `text`, que é o replay de sempre.
+      let aoVivo = false;
+      const ouvirParcial = (ev: { type?: string; text?: string }) => {
+        if (ev?.type !== "text_parcial" || typeof ev.text !== "string") return;
+        aoVivo = true;
+        aoTexto(ev.text);
       };
+      const ouvir = (ev: { type?: string; text?: string }) => {
+        if (!aoVivo && ev?.type === "text" && typeof ev.text === "string") aoTexto(ev.text);
+      };
+      sessionBus.on(`parcial:${threadId}`, ouvirParcial);
       sessionBus.on(threadId, ouvir);
       try {
         await postMessage(threadId, pedido, home, imagens, { automatico: true });
       } finally {
+        sessionBus.off(`parcial:${threadId}`, ouvirParcial);
         sessionBus.off(threadId, ouvir);
       }
       const terminal = getLive(threadId)?.lastTerminal;
@@ -288,8 +335,9 @@ async function turnoComBlocos(
   pedido: string,
   aoFechar: (b: Bloco) => void,
   imagens: IncomingImage[] = [],
+  aoVivo: Pick<OuvintesLeitor, "abriu" | "pedaco"> = {},
 ) {
-  const leitor = criarLeitor({ fechou: aoFechar });
+  const leitor = criarLeitor({ fechou: aoFechar, ...aoVivo });
   const r = await motor.turno(threadId, pedido, (t) => leitor.alimentar(t), imagens);
   leitor.terminar();
   if (leitor.fechados() === 0 && r.textoFinal) for (const b of lerBlocos(r.textoFinal)) aoFechar(b);
@@ -506,6 +554,16 @@ async function rodarSecao(ctx: Ctx, etapa: Etapa, secao: PlanoSecao): Promise<vo
 
   let pedido = pedidoDaSecao({ ds, secao, brief: ctx.brief, logos: ctx.logos, temPrint: ctx.imagens.length > 0 });
   const pendentes = new Set(secao.cards.map((c) => c.id));
+  const tx = criarTransmissor(g);
+  const aoVivo = {
+    abriu: (b: Bloco) => {
+      const id = b.attrs.id ?? "";
+      if (b.tipo === "card" && porId.has(id) && pendentes.has(id)) tx.abriu(id, b.attrs.titulo || porId.get(id)!.titulo);
+    },
+    pedaco: (b: Bloco, t: string) => {
+      if (b.tipo === "card") tx.pedaco(b.attrs.id ?? "", t);
+    },
+  };
   for (let tentativa = 0; tentativa <= TENTATIVAS; tentativa++) {
     if (cancelada(g)) return;
     const problemas = new Map<string, string[]>();
@@ -514,6 +572,7 @@ async function rodarSecao(ctx: Ctx, etapa: Etapa, secao: PlanoSecao): Promise<vo
       const id = b.attrs.id ?? "";
       const plano = porId.get(id);
       if (!plano || !pendentes.has(id)) return; // card fora do plano desta seção, ou já aceito
+      tx.fechar(id);
       const html = semCerca(b.conteudo);
       const lint = lintCard(html, conhecidas);
       // grava mesmo com erro: a pessoa vê o card (com o badge) enquanto o agente corrige
@@ -531,7 +590,7 @@ async function rodarSecao(ctx: Ctx, etapa: Etapa, secao: PlanoSecao): Promise<vo
         problemas.delete(id);
       }
       ctx.salvar();
-    }, tentativa === 0 ? ctx.imagens : []);
+    }, tentativa === 0 ? ctx.imagens : [], aoVivo);
     if (!r.ok) throw new Error(`${secao.titulo}: ${r.motivo}`);
     for (const id of pendentes) if (!problemas.has(id)) problemas.set(id, ["o card não veio na resposta"]);
     if (!problemas.size) break;

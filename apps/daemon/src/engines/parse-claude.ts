@@ -245,12 +245,16 @@ function thinkingEvent(d: StreamDelta): EngineEvent {
 }
 
 /**
- * Com --include-partial-messages o pensamento chega em delta. Só thinking interessa:
- * o texto da resposta vem inteiro no assistant, então text_delta duplicaria.
+ * Com --include-partial-messages o pensamento e o texto chegam em delta. O texto da resposta
+ * também vem inteiro no `assistant`, então o delta dele NÃO vira `text` (duplicaria o histórico):
+ * vira `text_parcial`, que só quem assina a resposta ao vivo usa (ver session.ts).
  * O CLI zera o campo `thinking` — o que dá pra mostrar é o progresso em tokens.
  */
 function streamEventToEvents(obj: Record<string, unknown>): EngineEvent[] {
-  const event = obj.event as { delta?: StreamDelta; content_block?: StreamDelta } | undefined;
+  const event = obj.event as { delta?: StreamDelta & { text?: string }; content_block?: StreamDelta } | undefined;
+  if (event?.delta?.type === "text_delta" && typeof event.delta.text === "string" && event.delta.text) {
+    return [{ type: "text_parcial", text: event.delta.text }];
+  }
   if (event?.delta?.type === "thinking_delta") return [thinkingEvent(event.delta)];
   if (event?.content_block?.type === "thinking") return [thinkingEvent(event.content_block)];
   return [];

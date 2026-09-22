@@ -7291,3 +7291,9 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
   justify-content: flex-start;
 }
 .work-fase { line-height: 1.3; }
+
+/* card sendo escrito ao vivo (Fase 3): mesmo o previsto (esqueleto) já mostra o iframe */
+.ds-card.pendente.desenhando .ds-card-frame { display: block; }
+.ds-card.pendente.desenhando .ds-card-corpo { animation: none; min-height: 0; background: var(--bg); }
+.ds-card.desenhando { border-color: var(--accent-line); }
+.ds-card.pendente.desenhando .ds-card-tit p::after { content: " · desenhando…"; color: var(--accent-text); }

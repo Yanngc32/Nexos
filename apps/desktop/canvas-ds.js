@@ -495,6 +495,10 @@ export function createDsCanvas({
             aplicarGeracao(ev.geracao);
             return;
           }
+          if (ev.type === "ds_stream") {
+            void receberStream(ev);
+            return;
+          }
           if (ev.type !== "changed") return;
           clearTimeout(recarregarTimer);
           recarregarTimer = setTimeout(() => void recarregar({ animar: true }), 120);
@@ -797,6 +801,19 @@ export function createDsCanvas({
     if (!body) return;
 
     const html = card.html;
+    // card que chegou ao vivo: o que está no iframe JÁ é esse HTML (escrito pedaço por pedaço) e
+    // já foi animado — só normaliza pro arquivo final, sem desenhar de novo
+    if (f.streaming) {
+      // recarga no meio do stream (outro card foi salvo) traz o HTML ANTIGO deste do disco:
+      // não pode cortar o que está sendo escrito. Só o arquivo novo encerra.
+      if (!html || html === f.htmlOrigem) return;
+      encerrarStream(f);
+      f.frame.contentDocument.body.innerHTML = html;
+      f.html = html;
+      f.hash = card.hash ?? html;
+      medir(f);
+      return;
+    }
     if (f.html !== html) {
       const primeira = f.hash === null;
       const antigos = primeira ? [] : digitaisDe(body);
@@ -809,6 +826,91 @@ export function createDsCanvas({
       if (animar && html) enfileirar(f, primeira ? elementosParaConstruir(body) : elementosNovos(antigos, body));
     } else if (animar && mudadas.size && [...tokensUsados(html)].some((n) => mudadas.has(n))) {
       pulsar(f);
+    }
+  }
+
+  /* ---------- streaming real (Fase 3) ---------- */
+
+  /**
+   * HTML do card chegando enquanto o agente escreve (`ds_stream` do daemon). `document.write` num
+   * documento aberto é o parser incremental do próprio navegador: HTML pela metade renderiza
+   * certo, sem parser nosso. Cada elemento que o parser cria passa pelo `MutationObserver` e
+   * entra na fila de animação (cursor + contorno + entrada) na hora em que nasce.
+   */
+  async function receberStream(ev) {
+    const f = frames.get(ev.card);
+    if (!f || !estado.ds) return; // card fora do board: o arquivo final chega pelo observador
+    if (ev.fase === "abriu") {
+      await iniciarStream(f);
+      return;
+    }
+    if (ev.fase !== "pedaco" || !ev.html) return;
+    if (!f.streaming) await iniciarStream(f);
+    if (f.filaStream) {
+      f.filaStream.push(ev.html); // documento ainda abrindo
+      return;
+    }
+    escreverStream(f, ev.html);
+  }
+
+  async function iniciarStream(f) {
+    if (f.streaming) return;
+    f.streaming = true;
+    f.filaStream = [];
+    f.htmlOrigem = f.html;
+    f.ro?.disconnect?.();
+    const ds = estado.ds;
+    await prepararFrame(f, ds);
+    const d = f.frame.contentDocument;
+    if (!d || !f.streaming) return;
+    f.cartao.classList.add("desenhando");
+    const fontes = urlsDeFontes(ds.vars);
+    d.open();
+    d.write(montarSrcdoc({ css: ds.css, baseHref: baseHrefDoProjeto(ds.projetoAbs), fontes }).replace("<body></body></html>", "<body>"));
+    f.css = ds.css;
+    f.fontes = fontes.join("|");
+    f.html = "";
+    // `document.open` tira os ouvintes do documento: religa roda/arrasto e a medida
+    ligarFrame(f);
+    aplicarVarsNoFrame(f, ds);
+    f.mo?.disconnect();
+    try {
+      f.mo = new win.MutationObserver((mudancas) => {
+        const novos = [];
+        for (const m of mudancas) {
+          for (const n of m.addedNodes) {
+            if (n.nodeType === 1 && !/^(STYLE|SCRIPT|LINK|META|BASE|HEAD|HTML|BODY)$/.test(n.tagName)) novos.push(n);
+          }
+        }
+        if (novos.length && animacaoLigada()) enfileirar(f, novos);
+        medir(f);
+      });
+      f.mo.observe(d.documentElement, { childList: true, subtree: true });
+    } catch {
+      /* sem observer cruzando documento: o card aparece, só não anima elemento por elemento */
+    }
+    const fila = f.filaStream;
+    f.filaStream = null;
+    for (const html of fila) escreverStream(f, html);
+  }
+
+  function escreverStream(f, html) {
+    const d = f.frame.contentDocument;
+    if (!d) return;
+    d.write(html);
+    medir(f);
+  }
+
+  function encerrarStream(f) {
+    f.streaming = false;
+    f.filaStream = null;
+    f.mo?.disconnect();
+    f.mo = null;
+    f.cartao.classList.remove("desenhando");
+    try {
+      f.frame.contentDocument?.close();
+    } catch {
+      /* já fechado */
     }
   }
 

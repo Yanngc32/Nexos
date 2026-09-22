@@ -108,8 +108,9 @@ function esperarFim(projectPath: string): Promise<Geracao> {
     const canal = canalGeracao(projectPath);
     const g = geracaoAtual(projectPath);
     if (g && g.status !== "rodando") return resolve(g);
-    const ouvir = (ev: { geracao: Geracao }) => {
-      if (ev.geracao.status !== "rodando") {
+    const ouvir = (ev: { type: string; geracao: Geracao }) => {
+      // o canal também leva o HTML ao vivo dos cards (`ds_stream`)
+      if (ev.type === "geracao" && ev.geracao.status !== "rodando") {
         geracaoBus.off(canal, ouvir);
         resolve(ev.geracao);
       }
@@ -176,6 +177,40 @@ describe("iniciarGeracao", () => {
     expect(correcao).toContain("cor fora de token");
     // o card sobrescrito do esqueleto ficou guardado em .versoes
     expect(readdirSync(join(estadoDs(proj, home).ds!.pastaAbs, ".versoes", "dados-campos")).length).toBeGreaterThan(0);
+  });
+
+  it("HTML do card vai pro Canvas enquanto é escrito (abriu → pedaços), e o card inteiro é igual ao gravado", async () => {
+    const card = `<ds-card id="dados-tabela" titulo="Tabela"><div style="color:var(--color-text)"><p>linha um</p><p>linha dois</p></div></ds-card>`;
+    const { motor } = motorFalso((titulo) =>
+      titulo.includes("Diretor")
+        ? `<ds-tokens>${TOKENS_OK}</ds-tokens><ds-design-md># Regras\\nUse o primário só em ação principal, nunca em fundo.</ds-design-md>`
+        : card,
+    );
+    // motor que manda token a token, como o text_delta do claude
+    const turnoOriginal = motor.turno;
+    motor.turno = async (id, pedido, aoTexto, imagens) => {
+      let resposta = "";
+      const r = await turnoOriginal(id, pedido, (t) => (resposta += t), imagens);
+      for (let i = 0; i < resposta.length; i += 7) aoTexto(resposta.slice(i, i + 7));
+      return r;
+    };
+    const vistos: { fase: string; card: string; html?: string }[] = [];
+    const canal = canalGeracao(proj);
+    const ouvir = (ev: { type: string; fase: string; card: string; html?: string }) => {
+      if (ev.type === "ds_stream") vistos.push(ev);
+    };
+    geracaoBus.on(canal, ouvir);
+    try {
+      iniciarGeracao(proj, home, { profileId: perfil, secoes: ["dados"], usarCodigo: false }, motor);
+      await esperarFim(proj);
+    } finally {
+      geracaoBus.off(canal, ouvir);
+    }
+    const doCard = vistos.filter((v) => v.card === "dados-tabela");
+    expect(doCard[0]).toMatchObject({ fase: "abriu" });
+    const html = doCard.filter((v) => v.fase === "pedaco").map((v) => v.html).join("");
+    expect(doCard.filter((v) => v.fase === "pedaco").length).toBeGreaterThan(0);
+    expect(html).toBe('<div style="color:var(--color-text)"><p>linha um</p><p>linha dois</p></div>');
   });
 
   it("tokens sem os obrigatórios: pede correção e para depois das tentativas", async () => {

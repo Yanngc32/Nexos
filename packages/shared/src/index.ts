@@ -705,6 +705,13 @@ export type EngineEvent =
   | { type: "text"; text: string }
   /** O CLI do Claude não expõe o texto do raciocínio: manda só progresso em tokens. */
   | { type: "thinking"; text?: string; tokens?: number }
+  /**
+   * Pedaço do texto da resposta ENQUANTO ela é escrita (`text_delta` do `claude` com
+   * `--include-partial-messages`). Não é histórico nem vai pro chat: o texto inteiro continua
+   * chegando no `text` de sempre. Serve a quem precisa ver a resposta nascer — a geração do
+   * design system desenha o card conforme o HTML chega (ver `sessionBus` canal `parcial:<thread>`).
+   */
+  | { type: "text_parcial"; text: string }
   | { type: "tool"; name: string; summary: string; id?: string; input?: unknown }
   | { type: "tool_result"; id: string; result: string; isError?: boolean }
   /** Contexto do ÚLTIMO request individual (não somado): o que ocupa a janela agora. */

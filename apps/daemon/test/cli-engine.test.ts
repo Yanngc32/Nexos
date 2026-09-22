@@ -379,7 +379,8 @@ describe("parseCliLine", () => {
         }),
       ),
     ).toEqual([{ type: "thinking" }]);
-    // text_delta é descartado: o texto final chega inteiro no assistant
+    // text_delta vira `text_parcial`, NÃO `text`: o texto final continua chegando inteiro no
+    // assistant, e é só ele que entra no histórico
     expect(
       parseCliLine(
         JSON.stringify({
@@ -387,7 +388,7 @@ describe("parseCliLine", () => {
           event: { type: "content_block_delta", delta: { type: "text_delta", text: "oi" } },
         }),
       ),
-    ).toEqual([]);
+    ).toEqual([{ type: "text_parcial", text: "oi" }]);
     // thinking do assistant completo não repete o progresso
     expect(
       parseCliLine(
