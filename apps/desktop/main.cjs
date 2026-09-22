@@ -1,4 +1,5 @@
 const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, nativeImage, shell } = require("electron");
+const { autoUpdater } = require("electron-updater");
 const { execFile, spawn } = require("node:child_process");
 const {
   closeSync,
@@ -127,6 +128,24 @@ async function daemonInfo() {
     ok = false;
   }
   return { port, token, ok, home: nexoHome() };
+}
+
+/**
+ * Existe turno de agente em voo agora, em qualquer conversa? Usado só pra decidir
+ * se dá pra aplicar update baixado (ver setupAutoUpdater) — daemon fora do ar
+ * conta como "sem turno" (não tem o que proteger).
+ */
+async function turnoAtivo() {
+  try {
+    const info = await daemonInfo();
+    if (!info.ok) return false;
+    const res = await fetch(`http://127.0.0.1:${info.port}/v1/status/turno-ativo`);
+    if (!res.ok) return false;
+    const json = await res.json();
+    return Boolean(json.ativo);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -436,6 +455,10 @@ function createWindow() {
       // diferente (http://127.0.0.1:porta vs file://) e a Same-Origin Policy bloqueia
       // acesso direto de fora. Ver browser-inspector-preload.cjs.
       webviewTag: true,
+      // Sem isso, o Chromium throttla os timers do renderer (poll do motor,
+      // setTimeout do stream) pra ~1/min quando a janela perde o foco — dava a
+      // impressão de resposta "travada" até o usuário focar a janela de novo.
+      backgroundThrottling: false,
     },
   });
   /*
@@ -633,6 +656,62 @@ function hideWidget() {
 function toggleWidget() {
   if (widget && !widget.isDestroyed() && widget.isVisible()) hideWidget();
   else showWidget();
+}
+
+/*
+ * Auto-update (Ticket G, Onda 2): electron-updater lê o feed do GitHub Releases
+ * (via `app-update.yml`, gerado pelo electron-builder a partir de `publish:` no
+ * electron-builder.yml — repo público, sem token) e baixa a versão nova em
+ * background. A instalação (`quitAndInstall`) nunca dispara sozinha: fica
+ * pendente até o app fechar com `turno-ativo: false` — ver o gate no listener
+ * de "before-quit", mais abaixo. Onda 3 cobre a UI (banner/progresso/"Sobre");
+ * aqui só o motor e a ponte de IPC pra ela consumir depois.
+ */
+let updateReady = false;
+let quittingForUpdate = false;
+/** Último evento do updater — a tela "Sobre" pergunta isto ao abrir (`update:status`),
+    já que pode ter perdido o evento ao vivo (aberta antes ou depois de ele acontecer). */
+let lastUpdateStatus = { state: "idle" };
+
+function sendUpdateStatus(payload) {
+  lastUpdateStatus = payload;
+  if (win && !win.isDestroyed()) win.webContents.send("update:status", payload);
+}
+
+function checarUpdate() {
+  return autoUpdater.checkForUpdates().catch((err) => {
+    console.error("[update] check falhou:", err?.message ?? err);
+  });
+}
+
+function setupAutoUpdater() {
+  // Sem app-update.yml em dev (só o build empacotado carrega esse recurso) —
+  // checkForUpdates lançaria erro de configuração ausente.
+  if (!app.isPackaged) return;
+  autoUpdater.autoDownload = true;
+  // Controlado na mão pelo gate de turno-ativo abaixo — sem isto o
+  // electron-updater instalaria sozinho ao fechar o app, ignorando o gate.
+  autoUpdater.autoInstallOnAppQuit = false;
+
+  autoUpdater.on("checking-for-update", () => sendUpdateStatus({ state: "checking" }));
+  autoUpdater.on("update-available", (info) => sendUpdateStatus({ state: "available", version: info.version }));
+  autoUpdater.on("update-not-available", () => sendUpdateStatus({ state: "not-available" }));
+  autoUpdater.on("download-progress", (p) =>
+    sendUpdateStatus({ state: "downloading", percent: p.percent, bytesPerSecond: p.bytesPerSecond }),
+  );
+  autoUpdater.on("update-downloaded", (info) => {
+    updateReady = true;
+    sendUpdateStatus({ state: "downloaded", version: info.version });
+  });
+  autoUpdater.on("error", (err) => {
+    console.error("[update] falhou:", err?.message ?? err);
+    sendUpdateStatus({ state: "error", message: err?.message ?? String(err) });
+  });
+
+  void checarUpdate();
+  // Cobre quem deixa o app aberto o dia todo sem reiniciar — sem isto, só o
+  // check do boot rodaria e updates saídos depois nunca seriam vistos.
+  setInterval(checarUpdate, 4 * 60 * 60 * 1000).unref();
 }
 
 function createTray() {
@@ -900,14 +979,51 @@ app.whenReady().then(() => {
     killShell();
     return { ok: true };
   });
+  handle("update:check", async () => {
+    if (!app.isPackaged) return { ok: false, error: "Update só roda em build empacotado" };
+    await checarUpdate();
+    return { ok: true };
+  });
+  handle("update:status", () => ({ ready: updateReady, ...lastUpdateStatus }));
+  handle("app:version", () => app.getVersion());
+  /**
+   * "Reiniciar agora" (Onda 3): só um `app.quit()` — o gate de "before-quit" já
+   * decide sozinho entre `quitAndInstall` (turno livre) e fechar normal (turno
+   * ativo, update fica pendente pro próximo fechamento). Sem update pendente,
+   * fecha o app como qualquer outro `app.quit()`.
+   */
+  handle("app:quit", () => {
+    app.quit();
+    return { ok: true };
+  });
   void ensureDaemon();
   createWindow();
   createTray();
+  setupAutoUpdater();
   // reabre onde estava: painel que some a cada reinício não serve de painel
   if (!SHOT && readWidgetState().aberto) showWidget();
 });
 
-app.on("before-quit", () => killShell());
+/**
+ * Gate do auto-update: sem update pendente (`updateReady`), fecha normal — é o
+ * caminho de sempre. Com update pendente, intercepta o primeiro `before-quit`
+ * pra checar `turno-ativo` (assíncrono, por isso o `preventDefault`): turno
+ * livre chama `quitAndInstall` (fecha, instala, reabre sozinho); turno ativo
+ * só deixa fechar normal — update fica pendente e o próximo boot já reencontra
+ * o instalador em cache (electron-updater não baixa de novo).
+ * `quittingForUpdate` evita loop: o `app.quit()` do ramo "turno ativo" reemite
+ * este mesmo evento, e da segunda vez ele precisa passar direto.
+ */
+app.on("before-quit", (event) => {
+  killShell();
+  if (!updateReady || quittingForUpdate) return;
+  event.preventDefault();
+  quittingForUpdate = true;
+  void (async () => {
+    if (await turnoAtivo()) app.quit();
+    else autoUpdater.quitAndInstall();
+  })();
+});
 app.on("window-all-closed", () => {
   killShell();
   if (process.platform !== "darwin") app.quit();

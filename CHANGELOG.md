@@ -6,6 +6,16 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+### Corrigido
+
+### Alterado
+
+### Segurança
+
+## [0.1.0] - 2026-09-22
+
+### Adicionado
+
 - Conversa sem projeto ("chat geral"): `POST /v1/threads` sem `projectPath` cria uma conversa
   global, fora de qualquer repositório — cwd cai em `~/.nexo/chat-geral`, memória lê/grava em
   `~/.nexo/memoria-global` (única, sem hash por projeto). Sem git/kanban/repo-map/delegar-a-time
@@ -15,10 +25,15 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   "Chat geral"): o Data export do Claude.ai vira uma thread global por conversa, evento por
   evento, na ordem original.
 - Empacotamento do desktop como instalador Windows (`electron-builder` + NSIS,
-  `pnpm --filter @nexo/desktop build`) e infraestrutura pro app se atualizar sozinho: rota
-  `GET /v1/status/turno-ativo` no daemon (pra o update nunca aplicar no meio de um agente
-  trabalhando) e `electron-updater` como dependência de runtime. Processo documentado em
-  `docs/RELEASE.md`. Sem assinatura de código por enquanto (decisão registrada no documento).
+  `pnpm --filter @nexo/desktop build`) e o app se atualizando sozinho: rota
+  `GET /v1/status/turno-ativo` no daemon e `electron-updater` integrado no processo main
+  (check no boot + a cada 4h, download em background, `quitAndInstall` só dispara com
+  `turno-ativo: false` — nunca interrompe um agente no meio de um turno; com turno ativo o
+  update fica pendente pro próximo fechamento). Banner no topo do chat mostra progresso do
+  download e "Reiniciar agora" quando pronto; Configurações → Sistema → Sobre mostra a
+  versão instalada e o status do updater. Processo documentado em `docs/RELEASE.md` (inclui
+  checklist de QA manual pra antes da primeira release pública). Sem assinatura de código
+  por enquanto (decisão registrada no documento).
 - Conversa agrupa a sequência de ferramentas/raciocínio de um turno numa bolha só —
   "Trabalhando…", "Lendo…" (`Read`), "Editando…" (`Edit`/`MultiEdit`/`Write`) ou "Pensando…"
   (raciocínio do motor), com 3 pontinhos sempre animados enquanto o turno roda, fechada por

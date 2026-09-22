@@ -1796,6 +1796,42 @@ body[data-focus="1"] .work #pane-chat {
   color: #e0b4b0;
 }
 
+/* Update baixado/baixando (electron-updater — ver main.cjs). Tom neutro/acento,
+   não o vermelho de aviso do `.banner` genérico: não é um problema, é uma notícia. */
+.banner-update {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface-3);
+  color: var(--text);
+}
+.banner-update-txt {
+  flex: 1;
+  min-width: 0;
+}
+.banner-update-bar {
+  flex: 0 0 120px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.banner-update-bar i {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width .2s;
+}
+.banner-update .primary {
+  flex: 0 0 auto;
+}
+
+.sobre-versao {
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+
 /* Linha de config de risco mais alto (controle do Windows) — mesma cor do .banner, pra a
    Config já avisar antes mesmo de ligar o interruptor. */
 .set-row-perigo {
@@ -2140,6 +2176,53 @@ li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
   font-size: var(--fs-2xs);
   color: var(--faint);
   flex: none;
+}
+
+/*
+ * Chip de edição (Edit/MultiEdit/Write/NotebookEdit): "Editado main.cjs +52 −0",
+ * em vez da linha "⚙ Edit {...}" genérica — nome do arquivo e tamanho da mudança
+ * são o que importa aqui, não o nome cru da ferramenta. Sem pílula (fundo/borda):
+ * só o agrupamento dos pedaços, no mesmo tom das outras linhas de ferramenta.
+ */
+.edit-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+.edit-chip-ico {
+  flex: none;
+  color: var(--accent-text);
+}
+.edit-chip-rotulo {
+  flex: none;
+}
+.edit-chip-arquivo {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+.edit-chip-add,
+.edit-chip-del {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+.edit-chip-add {
+  color: var(--ok);
+}
+.edit-chip-del {
+  color: var(--danger);
+}
+.edit-chip .tool-toggle {
+  opacity: 0.6;
 }
 .diff {
   font-family: var(--font-mono);

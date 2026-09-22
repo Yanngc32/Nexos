@@ -21,6 +21,12 @@ correção, `MAJOR` reservado pra mudança que quebra dado gravado em `~/.nexo` 
 Publish manual (sem esperar a tag), se precisar: `pnpm --filter @nexo/desktop build:publish`
 numa máquina Windows, com `GH_TOKEN` no ambiente (permissão de escrita em Releases do repo).
 
+**Build com `--dir` (sem instalador) não gera `app-update.yml`** — esse arquivo só sai no
+build completo (NSIS), então testar auto-update local exige `pnpm run build`, não
+`--dir`. Validado nesta sessão: instalador completo gerou `app-update.yml`, o app instalado
+alcançou o GitHub de verdade e tratou `No published versions on GitHub` (repo sem tag ainda)
+sem derrubar nada — erro só aparece na tela Sobre, banner fica escondido.
+
 **Build local numa pasta sincronizada pelo OneDrive falha com `EPERM: operation not permitted,
 rename ... win-unpacked.tmp -> win-unpacked`** — o OneDrive segura o diretório durante a
 extração do Electron. Não acontece no runner do GitHub Actions (não sincroniza nada) nem se o
@@ -29,12 +35,26 @@ repositório estiver fora de uma pasta sincronizada. Contorno local: apontar a s
 
 ## Como o app se atualiza sozinho
 
-`electron-updater` (Ticket G, Onda 2) consulta o feed do GitHub Releases do
-`Yanngc32/Nexos` (repositório público — sem token necessário pro feed) no boot e a cada
-intervalo. Update baixado não é aplicado na hora: `quitAndInstall` só dispara se
-`GET /v1/status/turno-ativo` (daemon) responder `{ ativo: false }` — nunca interrompe um
-agente no meio de um turno. Com turno ativo, o update fica pronto e é aplicado no próximo
-fechamento do app.
+`electron-updater` (Ticket G, Onda 2 — implementado em `main.cjs`) consulta o feed do
+GitHub Releases do `Yanngc32/Nexos` (repositório público — sem token necessário pro feed)
+no boot e a cada 4h enquanto o app fica aberto. `autoInstallOnAppQuit` é `false`: a
+instalação nunca dispara sozinha, só pelo gate no `before-quit`.
+
+Update baixado (`update-downloaded`) marca um flag; no próximo fechamento do app (janela
+fechada, tray "Sair" ou `window.nexo.quitApp()`), o listener de `before-quit` intercepta,
+consulta `GET /v1/status/turno-ativo` (daemon) de forma assíncrona e decide:
+- `{ ativo: false }` → `autoUpdater.quitAndInstall()` — fecha, instala, reabre sozinho.
+- `{ ativo: true }` → fecha normal, sem instalar — o update fica pendente. No próximo
+  boot o `electron-updater` reaproveita o instalador já baixado (não baixa de novo) e o
+  mesmo gate se repete no fechamento seguinte.
+
+Eventos do updater (`checking`, `available`, `not-available`, `downloading`, `downloaded`,
+`error`) chegam ao renderer via IPC `update:status` e pintam dois lugares a partir da mesma
+função (`pintarUpdateStatus`, `renderer.js`): o banner no topo do chat (barra de progresso
+em `downloading`, botão "Reiniciar agora" em `downloaded`) e a linha de status na tela
+Configurações → Sistema → Sobre (que também mostra a versão instalada, via IPC
+`app:version`). Sem modal de confirmação separado — o gate de turno-ativo já cobre o "não
+interromper o agente", um diálogo a mais seria fricção sem função.
 
 ## Assinatura de código
 
@@ -47,7 +67,40 @@ projeto. Revisitar se a base de instalação crescer o suficiente pra justificar
 
 - **Onda 1** — empacotamento sozinho (`electron-builder` + NSIS), este documento, rota
   `GET /v1/status/turno-ativo` no daemon.
-- **Onda 2** — empacotar o daemon junto do `.exe`, workflow de CI, `electron-updater` no
-  processo main.
-- **Onda 3** — UI de update (banner, progresso, modal de confirmação) e tela "Sobre".
-- **Onda 4** — checklist de QA manual ponta-a-ponta antes da primeira release pública.
+- **Onda 2** — empacotar o daemon junto do `.exe` (Ticket E), workflow de CI (Ticket F),
+  `electron-updater` no processo main com gate de turno-ativo (Ticket G).
+- **Onda 3** — UI de update (banner + progresso, tela "Sobre" com versão e status).
+- **Onda 4** — checklist de QA manual ponta-a-ponta antes da primeira release pública (ver
+  abaixo).
+
+## Checklist de QA manual (Onda 4)
+
+Roda numa máquina Windows limpa (sem o repo, sem Node — é exatamente o que valida o
+empacotamento). Precisa de uma release de verdade publicada (`git tag vX.Y.Z && git push
+origin vX.Y.Z`) e de uma versão anterior já instalada pra testar o update em cima.
+
+**Instalação do zero**
+- [ ] Baixar o `Nexo Setup X.Y.Z.exe` do GitHub Releases e rodar — o instalador NSIS abre
+      sem precisar de Node/pnpm na máquina.
+- [ ] SmartScreen mostra o aviso "Editor desconhecido" esperado (sem assinatura de código —
+      ver seção acima); "Mais informações" → "Executar assim mesmo" segue normal.
+- [ ] App abre, motor sobe sozinho (`ensureDaemon`), consegue logar uma conta e mandar
+      mensagem — confirma que `daemon-dist` empacotado funciona sem Node instalado à parte.
+
+**Auto-update**
+- [ ] Com uma versão anterior instalada, publicar uma release nova e abrir o app: o banner
+      de "Baixando atualização…" aparece com a barra de progresso subindo.
+- [ ] Terminado o download, o banner vira "Atualização pronta" com o botão "Reiniciar agora".
+- [ ] **Gate de turno ativo**: iniciar uma conversa (deixar o agente rodando um turno) e só
+      então clicar "Reiniciar agora" (ou fechar o app) — o app deve fechar SEM instalar (o
+      turno não pode ser interrompido). Reabrir e fechar de novo com o motor ocioso: agora
+      instala e reabre na versão nova.
+- [ ] Configurações → Sistema → Sobre mostra a versão certa antes e depois do update, e
+      "Verificar agora" funciona sem update pendente (mostra "você está na versão mais
+      recente").
+- [ ] Update falho (ex.: sem internet) não derruba o app — banner/Sobre mostram o erro e o
+      app segue funcionando normal.
+
+**Desinstalação**
+- [ ] Desinstalar pelo painel do Windows remove o app; `~/.nexo` (config, conversas, tokens)
+      continua no disco — desinstalar não é "esquecer" o usuário.

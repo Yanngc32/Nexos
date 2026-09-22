@@ -22,6 +22,15 @@ contextBridge.exposeInMainWorld("nexo", {
   saveFile: (name, content) => ipcRenderer.invoke("file:save", { name, content }),
   pickZipBase64: () => ipcRenderer.invoke("file:pickZipBase64"),
   killCommand: () => ipcRenderer.invoke("shell:kill"),
+  checkForUpdate: () => ipcRenderer.invoke("update:check"),
+  updateReady: () => ipcRenderer.invoke("update:status"),
+  quitApp: () => ipcRenderer.invoke("app:quit"),
+  appVersion: () => ipcRenderer.invoke("app:version"),
+  onUpdateStatus: (fn) => {
+    const h = (_e, payload) => fn(payload);
+    ipcRenderer.on("update:status", h);
+    return () => ipcRenderer.removeListener("update:status", h);
+  },
   onShellData: (fn) => {
     const h = (_e, text) => fn(text);
     ipcRenderer.on("shell:data", h);

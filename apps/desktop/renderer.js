@@ -8,7 +8,7 @@ import { createHooksStudio } from "./hooks-studio.js";
 import { createAutomacaoModal } from "./automacao-modal.js";
 import { createCloneModal } from "./clone-modal.js";
 import { createNewThreadModal } from "./new-thread-modal.js";
-import { diffDeFerramenta, renderDiff, resumoDoDiff } from "./diff-view.js";
+import { diffDeFerramenta, nomeArquivo, renderDiff } from "./diff-view.js";
 import { createTarefasBoard } from "./tarefas-board.js";
 import { createDialogo } from "./dialogo.js";
 import { criarMenuContexto } from "./menu-contexto.js";
@@ -3493,6 +3493,9 @@ const ROTULO_WORK_GROUP = {
   tool: "Trabalhando",
 };
 
+/** Rótulo do chip de edição (bolha da ferramenta), no passado — a mudança já aconteceu. */
+const ROTULO_CHIP_EDICAO = { Edit: "Editado", MultiEdit: "Editado", Write: "Escrito", NotebookEdit: "Editado" };
+
 /** Ferramenta padrão do Claude Code — nome fixo, ao contrário das MCP (que variam por engine/sufixo). */
 function classificarFerramenta(name) {
   if (name === "Read" || name === "NotebookRead") return "read";
@@ -3661,10 +3664,24 @@ function appendEvent(ev, scroll = true) {
      * As outras (Bash, Read, Grep…) seguem com o JSON, que ali ainda é o que há.
      */
     const diff = diffDeFerramenta(ev.name, ev.input);
-    const stat = diff ? `<span class="diff-stat">${escapeHtml(resumoDoDiff(diff))}</span>` : "";
+    /*
+     * Edição de arquivo vira um chip compacto ("Editado main.cjs +52 −0"), não a
+     * linha "⚙ Edit {...}" genérica — o nome do arquivo e o tamanho da mudança
+     * importam mais aqui do que o nome cru da ferramenta.
+     */
+    const linha = diff
+      ? `<div class="tool-line"><span class="edit-chip">` +
+        `<span class="edit-chip-ico">✎</span>` +
+        `<span class="edit-chip-rotulo">${ROTULO_CHIP_EDICAO[ev.name] ?? "Editado"}</span>` +
+        `<span class="edit-chip-arquivo">${escapeHtml(nomeArquivo(diff.arquivo) || "arquivo")}</span>` +
+        (diff.adicionadas ? `<span class="edit-chip-add">+${diff.adicionadas}</span>` : "") +
+        (diff.removidas ? `<span class="edit-chip-del">−${diff.removidas}</span>` : "") +
+        `<span class="tool-result-badge"></span><span class="tool-toggle">›</span>` +
+        `</span></div>`
+      : `<div class="tool-line"><span class="tool-ico">⚙</span><span class="tool-name">${escapeHtml(ev.name)}</span>${arg}` +
+        `<span class="tool-result-badge"></span><span class="tool-toggle">▾</span></div>`;
     li.innerHTML =
-      `<div class="tool-line"><span class="tool-ico">⚙</span><span class="tool-name">${escapeHtml(ev.name)}</span>${arg}${stat}` +
-      `<span class="tool-result-badge"></span><span class="tool-toggle">▾</span></div>` +
+      linha +
       subchat +
       `<div class="tool-detail hidden">` +
       (diff
@@ -7474,6 +7491,7 @@ $("btn-settings").addEventListener("click", () => {
   void renderRoteamento();
   void renderGithub();
   void renderGoogleDrive();
+  void renderSobre();
 });
 $("btn-settings-close").addEventListener("click", () => $("settings").classList.add("hidden"));
 $("settings").addEventListener("click", (e) => {
@@ -7826,6 +7844,76 @@ function handleMod(id) {
 }
 
 window.nexo.onMod?.((id) => handleMod(id));
+
+/*
+ * Auto-update (Ticket G/Onda 3): banner no topo do chat e a linha correspondente
+ * na tela "Sobre" pintam a partir do MESMO evento (`update:status`, ver
+ * `setupAutoUpdater` em main.cjs) — um só lugar decide o texto de cada estado.
+ */
+const ROTULO_UPDATE_STATUS = {
+  idle: "Nenhuma verificação ainda.",
+  checking: "Procurando atualização…",
+  "not-available": "Você está na versão mais recente.",
+};
+
+function pintarUpdateStatus(payload) {
+  const banner = $("update-banner");
+  const txt = $("update-banner-txt");
+  const bar = $("update-banner-bar");
+  const fill = $("update-banner-fill");
+  const btnBanner = $("btn-update-restart");
+
+  if (payload.state === "downloading") {
+    banner.classList.remove("hidden");
+    txt.textContent = `Baixando atualização${payload.version ? ` v${payload.version}` : ""}…`;
+    bar.classList.remove("hidden");
+    fill.style.width = `${Math.round(payload.percent ?? 0)}%`;
+    btnBanner.classList.add("hidden");
+  } else if (payload.state === "downloaded") {
+    banner.classList.remove("hidden");
+    txt.textContent = `Atualização${payload.version ? ` v${payload.version}` : ""} pronta.`;
+    bar.classList.add("hidden");
+    btnBanner.classList.remove("hidden");
+  } else {
+    banner.classList.add("hidden");
+  }
+
+  // Linha da tela "Sobre" — só existe se a tela de Configurações já montou o DOM.
+  const statusEl = document.getElementById("sobre-update-status");
+  const btnSobreRestart = document.getElementById("btn-sobre-restart");
+  if (!statusEl) return;
+  if (payload.state === "downloading") {
+    statusEl.textContent = `Baixando… ${Math.round(payload.percent ?? 0)}%`;
+  } else if (payload.state === "downloaded") {
+    statusEl.textContent = `Atualização${payload.version ? ` v${payload.version}` : ""} pronta — reinicie pra instalar.`;
+  } else if (payload.state === "error") {
+    statusEl.textContent = payload.message ? `Falha ao checar: ${payload.message}` : "Falha ao checar atualização.";
+  } else {
+    statusEl.textContent = ROTULO_UPDATE_STATUS[payload.state] ?? "";
+  }
+  btnSobreRestart?.classList.toggle("hidden", payload.state !== "downloaded");
+}
+
+window.nexo.onUpdateStatus?.((payload) => pintarUpdateStatus(payload));
+$("btn-update-restart").addEventListener("click", () => void window.nexo.quitApp?.());
+$("btn-sobre-restart").addEventListener("click", () => void window.nexo.quitApp?.());
+$("btn-sobre-check").addEventListener("click", () => void window.nexo.checkForUpdate?.());
+
+/** Versão instalada + último status do updater — perguntado de novo ao abrir a tela, pra
+    não depender de ter capturado o evento ao vivo (pode ter chegado antes de abrir). */
+async function renderSobre() {
+  try {
+    $("sobre-versao").textContent = (await window.nexo.appVersion?.()) || "dev";
+  } catch {
+    $("sobre-versao").textContent = "dev";
+  }
+  try {
+    const status = await window.nexo.updateReady?.();
+    if (status) pintarUpdateStatus(status);
+  } catch {
+    /* sem updater (build de dev): fica no texto padrão do HTML */
+  }
+}
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {

@@ -10,6 +10,23 @@ conversar do celular, pela interface web que o próprio daemon serve.
 Tudo é local: nenhum dado sai da máquina além do que a própria CLI do agente já manda pro
 provedor dela.
 
+## Instalar (Windows)
+
+Baixe o instalador em **[Releases](https://github.com/Yanngc32/Nexos/releases/latest)** —
+`Nexo Setup X.Y.Z.exe`, na seção Assets da release mais recente — e rode. Não precisa de
+Node, pnpm nem clonar o repositório: o daemon vai empacotado junto do app.
+
+O instalador não é assinado (ver [docs/RELEASE.md](docs/RELEASE.md#assinatura-de-código)),
+então o Windows SmartScreen mostra o aviso padrão de "Editor desconhecido" — clique em
+**Mais informações → Executar assim mesmo**.
+
+Depois de instalado, o app se atualiza sozinho: baixa a versão nova em segundo plano e
+avisa quando estiver pronta (Configurações → Sistema → Sobre mostra a versão atual). Nunca
+instala no meio de um agente trabalhando.
+
+Quem quer rodar a partir do código (outra plataforma, ou pra desenvolver) segue as seções
+abaixo.
+
 ## Requisitos
 
 - Node.js 20+

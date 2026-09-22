@@ -171,6 +171,13 @@ export function resumoDoDiff(diff) {
   return partes.join(" ");
 }
 
+/** Só o nome do arquivo (sem pasta) — o chip da ferramenta mostra isto, não o caminho inteiro. */
+export function nomeArquivo(caminho) {
+  if (!caminho) return "";
+  const partes = String(caminho).split(/[/\\]/);
+  return partes[partes.length - 1] || caminho;
+}
+
 function linhaEl(l) {
   const div = document.createElement("div");
   if (l.tipo === "…") {
