@@ -73,6 +73,27 @@ export async function criarWorktree(
 }
 
 /**
+ * Abre a árvore numa branch que JÁ EXISTE (ao contrário de `criarWorktree`,
+ * que sempre nasce uma nova a partir do HEAD) — é o que uma conversa com
+ * branch fixa escolhida pela pessoa precisa: `git worktree add <dir> <branch>`,
+ * sem `-b`.
+ *
+ * O git recusa isto se a branch já estiver em checkout noutra árvore viva
+ * (inclusive a pasta principal do projeto) — quem chama decide o que fazer
+ * com esse erro (threads.ts reaproveita a árvore existente quando é o caso).
+ */
+export async function abrirWorktree(
+  projectPath: string,
+  dir: string,
+  branch: string,
+): Promise<{ ok: true; wt: Worktree } | { ok: false; motivo: string }> {
+  const repo = resolve(projectPath);
+  const r = await git(["worktree", "add", dir, branch], repo, 10 * 60_000);
+  if (!r.ok) return { ok: false, motivo: r.saida || "git worktree add falhou" };
+  return { ok: true, wt: { dir, branch } };
+}
+
+/**
  * Tira a árvore do disco. O BRANCH FICA: é ele que guarda o que o agente fez, e
  * apagar trabalho sem alguém ter olhado é exatamente o que não se deve fazer.
  */

@@ -6,6 +6,31 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- Conversa agrupa a sequência de ferramentas/raciocínio de um turno numa bolha só —
+  "Trabalhando…", "Lendo…" (`Read`), "Editando…" (`Edit`/`MultiEdit`/`Write`) ou "Pensando…"
+  (raciocínio do motor), com 3 pontinhos sempre animados enquanto o turno roda, fechada por
+  padrão — antes cada `Bash`, `Read` etc. virava uma linha solta (uma volta com 10 chamadas
+  enchia a tela). Abrir mostra o passo a passo de sempre (clique em cada ferramenta continua
+  abrindo argumentos/resultado). O rótulo troca sozinho pro que está rolando agora, e os
+  pontinhos param de animar assim que o turno termina (mensagem final, sua próxima pergunta
+  etc.).
+- Google Drive sem o Drive para computador: Configurações → Google Drive tem um botão só,
+  "Entrar com Google". Todo o resto acontece no navegador: consentimento do Google (escopo
+  `drive.file` — o Nexo só enxerga o que cria ou o que a pessoa escolhe) e em seguida uma página
+  "Onde guardar seus projetos?" com "Continuar em …" (a pasta que outro PC da mesma conta já usa,
+  achada por uma marca em `appProperties`), "Criar a pasta Nexo no Meu Drive" ou "Escolher outra
+  pasta…" (seletor do próprio Google). Depois disso o daemon sincroniza `projetos/<slug>/` nos dois
+  sentidos, na subida, a cada 2min e no "Sincronizar agora"; "Trocar pasta" reabre só a escolha.
+  Fluxo de app instalado (RFC 8252): servidor efêmero em `127.0.0.1`, PKCE S256 e um `state`
+  aleatório que protege callback e página de escolha; só o refresh token fica no disco
+  (`google.json`, 0600). Conflito: arquivo comum vale o mais recente, conversa é mesclada linha a
+  linha; exclusão vai pra lixeira do Drive, e um lado esvaziado por acidente não apaga o outro.
+  Nenhum ID/chave aparece pra quem usa: o registro do app no Google Cloud vai embutido em
+  `google-client.ts` (preenchido uma vez por quem distribui o Nexo).
+- Conversas também são gravadas na pasta do projeto (`projetos/<slug>/conversas/<id>.jsonl`), ao
+  lado de memória, tarefas e repo map. `~/.nexo/threads` segue como fonte de verdade; a cópia é
+  best-effort. Conversa que chega de outra máquina pelo sync aparece na lista, reapontada pro
+  projeto e perfil daqui.
 - Cartão de agente mostra a que times ele pertence, em chip clicável que abre o time — de
   dentro do agente se chega no time que o usa, sem passar pela aba Times pra descobrir. Agente
   fora de qualquer time não ganha a linha: a ausência já diz isso. A aba Agentes passou a
@@ -329,6 +354,16 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Corrigido
 
+- Sync do Google Drive nunca estabilizava (subia arquivo de novo a cada ciclo de 2min, sem
+  parar) quando `projetosDir`/`memoriaDir`/`graphDir` apontavam pra dentro de uma pasta que o
+  Drive para computador já sincronizava sozinho (dois motores de sync na mesma pasta, um deles
+  varrendo cache de outra ferramenta que fica reescrevendo arquivo o tempo todo). O sync agora só
+  entra em pasta de projeto de verdade (tem `meta.json`) na raiz de `projetosDir`, ignorando
+  qualquer outra coisa que esteja lá.
+- "Trocar pasta" do Google Drive nunca abria o navegador: a página de escolha é servida pelo
+  próprio servidor efêmero do login (`http://127.0.0.1:<porta>`, RFC 8252), e o handler
+  `shell:external` só deixava abrir link `https://`. Agora aceita esse `http://` também, só em
+  loopback (127.0.0.1/::1/localhost) — link de fora continua exigindo https.
 - Rodapé da barra lateral em duas linhas (estado + ligar/desligar em cima, ícones de foco,
   painel e configurações embaixo): numa linha só o grupo de botões não cabia nos 252px e vazava
   por cima do painel ao lado, em qualquer tela. O fundo em pílula que os agrupava saiu, e Foco e

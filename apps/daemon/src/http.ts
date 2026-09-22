@@ -1,11 +1,22 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import type { SwitchReason } from "@nexo/shared";
 import { getAgent, listAgents, removeAgent, saveAgent, type AgentInput } from "./agents.ts";
 import { loadConfig, saveConfig } from "./config.ts";
 import { clearTypesafeApiKey, hasTypesafeApiKey, saveTypesafeApiKey, typesafeUsage } from "./typesafe.ts";
+import {
+  cancelGithubLogin,
+  disconnectGithub,
+  githubAccount,
+  githubLoginStatus,
+  startGithubLogin,
+} from "./github-auth.ts";
+import { listGithubBranches, listGithubRepos } from "./github-repos.ts";
+import { disconnectGoogle, googleAccount } from "./google-auth.ts";
+import { cancelGoogleLogin, googleLoginStatus, startEscolherPasta, startGoogleLogin } from "./google-conectar.ts";
+import { driveStatus, sincronizarDrive } from "./drive-sync.ts";
 import { projectKey, tokenPath } from "./home.ts";
 import { migrarProjeto, migrarRaizLegadaRemovida, projectSlug } from "./projeto-dir.ts";
 import {
@@ -38,7 +49,7 @@ import { cancelLogin, loginStatus, startLogin, submitCode } from "./login-sessio
 import {
   activeAgentId,
   appendEvent,
-  createThread,
+  createThreadNaBranch,
   listThreads,
   projectsFromThreads,
   projetosConhecidos,
@@ -612,13 +623,18 @@ export function createApp(home: string, token: string): Hono {
    * então é o último evento que diz se deu certo, não o código.
    */
   app.post("/v1/git/clone", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { url?: string; destinoPai?: string };
+    const body = (await c.req.json().catch(() => ({}))) as { url?: string; destinoPai?: string; branch?: string };
     return streamSSE(c, async (stream) => {
       const enviar = (ev: unknown) => stream.writeSSE({ data: JSON.stringify(ev) });
       try {
-        const { dir } = await clonar(body.url ?? "", body.destinoPai ?? "", (linha) => {
-          void enviar({ type: "progresso", linha });
-        });
+        const { dir } = await clonar(
+          body.url ?? "",
+          body.destinoPai ?? "",
+          (linha) => {
+            void enviar({ type: "progresso", linha });
+          },
+          { home, ...(body.branch ? { branch: body.branch } : {}) },
+        );
         await enviar({ type: "ok", dir });
       } catch (e) {
         await enviar({ type: "erro", message: (e as Error).message || "clone falhou" });
@@ -650,7 +666,7 @@ export function createApp(home: string, token: string): Hono {
   });
 
   app.post("/v1/threads", async (c) => {
-    const body = (await c.req.json()) as { projectPath: string; profileId?: string; agentId?: string };
+    const body = (await c.req.json()) as { projectPath: string; profileId?: string; agentId?: string; branch?: string };
     try {
       // Sem pasta a conversa nasce órfã: some da listagem (que filtra por
       // projectPath) e de /v1/projects, sem erro nenhum pra quem criou.
@@ -665,7 +681,11 @@ export function createApp(home: string, token: string): Hono {
       // teste de novidade não veria mais diferença nenhuma.
       const chave = projectKey(projectPath);
       const jaConhecido = projetosConhecidos(home).some((p) => projectKey(p) === chave);
-      const created = createThread({ projectPath, profileId, ...(def ? { agentId: def.id } : {}) }, home);
+      const branch = typeof body.branch === "string" ? body.branch.trim() : "";
+      const created = await createThreadNaBranch(
+        { projectPath, profileId, ...(def ? { agentId: def.id } : {}), ...(branch ? { branch } : {}) },
+        home,
+      );
       // Best-effort: cobre regra global criada antes deste projeto existir pro Nexo. Não pode
       // derrubar a criação da conversa por causa disto (ex.: pasta sem `.git` — sincronização já
       // ignora, mas por garantia extra contra qualquer outro erro imprevisto).
@@ -1550,6 +1570,90 @@ export function createApp(home: string, token: string): Hono {
     else if (antes) desligarRepoMapResumos(home);
     return c.json(next);
   });
+
+  app.post("/v1/github/login/start", async (c) => {
+    try {
+      return c.json(await startGithubLogin(home));
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.get("/v1/github/login/status", (c) => {
+    const loginId = c.req.query("loginId") ?? "";
+    if (!loginId) return c.json({ error: "loginId obrigatório" }, 400);
+    try {
+      return c.json(githubLoginStatus(loginId));
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.post("/v1/github/login/cancel", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { loginId?: string };
+    if (body.loginId) cancelGithubLogin(body.loginId);
+    return c.json({ ok: true });
+  });
+
+  // Conta única, global (não por perfil): ver github-auth.ts.
+  app.get("/v1/github", (c) => c.json(githubAccount(home)));
+  app.delete("/v1/github", (c) => {
+    disconnectGithub(home);
+    return c.json({ connected: false });
+  });
+
+  app.get("/v1/github/repos", async (c) => {
+    try {
+      return c.json(await listGithubRepos(home));
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  app.get("/v1/github/branches", async (c) => {
+    const repo = c.req.query("repo") ?? "";
+    if (!repo) return c.json({ error: "repo obrigatório" }, 400);
+    try {
+      return c.json(await listGithubBranches(home, repo));
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
+
+  /* ---------- Google Drive (conta única, global): login e escolha da pasta no navegador + sync ---------- */
+  const googleRota = async (c: Context, f: () => unknown | Promise<unknown>) => {
+    try {
+      return c.json((await f()) as object);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  };
+
+  app.get("/v1/google", (c) => c.json(googleAccount(home)));
+  app.delete("/v1/google", (c) => {
+    disconnectGoogle(home);
+    return c.json(googleAccount(home));
+  });
+  app.post("/v1/google/login/start", (c) => googleRota(c, () => startGoogleLogin(home)));
+  app.post("/v1/google/pasta/start", (c) => googleRota(c, () => startEscolherPasta(home)));
+  app.get("/v1/google/login/status", (c) => {
+    const loginId = c.req.query("loginId") ?? "";
+    if (!loginId) return c.json({ error: "loginId obrigatório" }, 400);
+    return googleRota(c, () => googleLoginStatus(loginId));
+  });
+  app.post("/v1/google/login/cancel", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { loginId?: string };
+    if (body.loginId) cancelGoogleLogin(body.loginId);
+    return c.json({ ok: true });
+  });
+
+  app.get("/v1/drive", (c) => c.json(driveStatus(home)));
+  app.post("/v1/drive/sync", (c) => googleRota(c, () => sincronizarDrive(home)));
 
   // Modo (desligado/automatico/perguntar) fica em /v1/config (não é segredo). A key
   // fica aqui, separada: GET nunca devolve o valor, só se está configurada.

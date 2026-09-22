@@ -222,7 +222,7 @@ export class CliEngine implements Engine {
     this.syncArgs();
     this.extra = engineEnv(profile, this.home);
     this.spawnEnv = engineSpawnEnv(profile, this.home);
-    this.cwd = spawnCwd(opts.projectPath);
+    this.cwd = opts.cwdOverride ? spawnCwd(opts.cwdOverride) : spawnCwd(opts.projectPath);
     this.bin = process.env[this.binEnv] ?? this.defaultBin;
     this.pack = opts.contextPack;
     this.threadId = opts.threadId;

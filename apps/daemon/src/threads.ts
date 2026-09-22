@@ -1,10 +1,13 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { dirname } from "node:path";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { ThreadEvent } from "@nexo/shared";
 import { loadConfig } from "./config.ts";
-import { ensureHome, threadPath } from "./home.ts";
-import { newThreadId } from "./ids.ts";
-import { getProfile } from "./profiles.ts";
+import { listarBranches } from "./git.ts";
+import { ensureHome, threadPath, threadWorktreeDir } from "./home.ts";
+import { assertSlug, newThreadId } from "./ids.ts";
+import { getProfile, listProfiles } from "./profiles.ts";
+import { projectDir, projectSlug, projetosRoot } from "./projeto-dir.ts";
+import { abrirWorktree, podeIsolar, removerWorktree } from "./worktree.ts";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -12,25 +15,27 @@ function nowIso(): string {
 
 export type CreatedThread = { id: string };
 
-export function createThread(
-  input: {
-    projectPath: string;
-    profileId: string;
-    title?: string;
-    agentId?: string;
-    runId?: string;
-    runStep?: number;
-    runTitle?: string;
-    mcpConfig?: string;
-    mcpTools?: string[];
-    mcpRunId?: string;
-  },
-  home: string,
-): CreatedThread {
+export type CreateThreadInput = {
+  projectPath: string;
+  profileId: string;
+  title?: string;
+  agentId?: string;
+  runId?: string;
+  runStep?: number;
+  runTitle?: string;
+  mcpConfig?: string;
+  mcpTools?: string[];
+  mcpRunId?: string;
+  /** Branch fixa desta conversa; só grava algo se vier junto de `worktreeDir` (ver `createThreadNaBranch`). */
+  branch?: string;
+  worktreeDir?: string;
+};
+
+export function createThread(input: CreateThreadInput, home: string, opts: { id?: string } = {}): CreatedThread {
   ensureHome(home);
   const profile = getProfile(input.profileId, home);
   if (!profile) throw new Error(`perfil não existe: ${input.profileId}`);
-  const id = newThreadId();
+  const id = opts.id ?? newThreadId();
   const meta: ThreadEvent = {
     ts: nowIso(),
     type: "thread_meta",
@@ -45,21 +50,212 @@ export function createThread(
     ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
     ...(input.mcpTools?.length ? { mcpTools: input.mcpTools } : {}),
     ...(input.mcpRunId ? { mcpRunId: input.mcpRunId } : {}),
+    ...(input.branch && input.worktreeDir ? { branch: input.branch, worktreeDir: input.worktreeDir } : {}),
   };
   appendEvent(meta, home);
   return { id };
 }
 
+/**
+ * Igual a `createThread`, mas com branch fixa: isola numa `git worktree`
+ * própria, senão um `git checkout` na pasta compartilhada mudaria a branch de
+ * TODA conversa aberta no mesmo projeto, não só desta (ver comentário de
+ * worktree.ts). Sem `input.branch`, é idêntico a `createThread`.
+ */
+export async function createThreadNaBranch(input: CreateThreadInput, home: string): Promise<CreatedThread> {
+  const branch = input.branch?.trim();
+  if (!branch) return createThread(input, home);
+
+  const check = await podeIsolar(input.projectPath);
+  if (!check.pode) throw Object.assign(new Error(`não deu pra fixar a branch: ${check.motivo}`), { status: 400 });
+
+  const atual = await listarBranches(input.projectPath);
+  if (atual.atual === branch) {
+    // já é a branch corrente da pasta principal: nada pra isolar, roda direto nela como sempre
+    return createThread(input, home);
+  }
+
+  // conversa irmã já isolada nesta mesma branch/projeto? reaproveita a árvore em vez de duplicar.
+  const irma = listThreads(input.projectPath, home).find((t) => t.branch === branch && t.worktreeDir);
+  if (irma?.worktreeDir) {
+    return createThread({ ...input, branch, worktreeDir: irma.worktreeDir }, home);
+  }
+
+  const id = newThreadId();
+  const dir = threadWorktreeDir(id, home);
+  const wt = await abrirWorktree(input.projectPath, dir, branch);
+  if (!wt.ok) {
+    throw Object.assign(new Error(`não deu pra isolar a branch \`${branch}\`: ${wt.motivo}`), { status: 400 });
+  }
+  return createThread({ ...input, branch, worktreeDir: dir }, home, { id });
+}
+
 export function appendEvent(event: ThreadEvent, home: string): void {
   const path = threadPath(event.threadId, home);
   mkdirSync(dirname(path), { recursive: true });
-  appendFileSync(path, `${JSON.stringify(event)}\n`, "utf8");
+  const linha = `${JSON.stringify(event)}\n`;
+  appendFileSync(path, linha, "utf8");
+  espelharNoProjeto(event, path, linha, home);
 }
 
-export function removeThread(id: string, home: string): void {
+/** threadId -> projectPath, pra não reler o arquivo da conversa a cada evento. */
+const projetoDaConversa = new Map<string, string>();
+
+/** Cópia da conversa em `projetos/<slug>/conversas/<id>.jsonl`, junto de memória/tarefas/repo-map. */
+export function conversaEspelhoPath(id: string, projectPath: string, home: string): string {
+  return join(projectDir(projectPath, home), "conversas", `${assertSlug(id)}.jsonl`);
+}
+
+/**
+ * União de duas versões de uma conversa `.jsonl` (cada linha é um evento com `ts`): sem linha
+ * repetida, em ordem de `ts`. Linha sem `ts` herda o da anterior pra não pular de lugar.
+ */
+export function mesclarJsonl(a: string, b: string): string {
+  const vistas = new Set<string>();
+  const itens: { linha: string; ts: string; ordem: number }[] = [];
+  let ordem = 0;
+  let tsAnterior = "";
+  for (const texto of [a, b]) {
+    for (const linha of texto.split("\n")) {
+      if (!linha.trim() || vistas.has(linha)) continue;
+      vistas.add(linha);
+      let ts = tsAnterior;
+      try {
+        const t = (JSON.parse(linha) as { ts?: unknown }).ts;
+        if (typeof t === "string") ts = t;
+      } catch {
+        // linha quebrada entra mesmo assim, no lugar da anterior
+      }
+      tsAnterior = ts;
+      itens.push({ linha, ts, ordem: ordem++ });
+    }
+  }
+  itens.sort((x, y) => (x.ts < y.ts ? -1 : x.ts > y.ts ? 1 : x.ordem - y.ordem));
+  return itens.length ? `${itens.map((i) => i.linha).join("\n")}\n` : "";
+}
+
+const ehMeta = (linha: string): boolean => {
+  try {
+    return (JSON.parse(linha) as { type?: unknown }).type === "thread_meta";
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * O `thread_meta` de uma conversa que nasceu em OUTRA máquina fala de caminhos e perfis de lá:
+ * reaponta pro projeto daqui, cai num perfil que existe aqui e larga o que só vale lá (worktree
+ * isolada, config de MCP temporário).
+ */
+function metaParaEstaMaquina(linha: string, projectPath: string, home: string): string {
+  try {
+    const m = JSON.parse(linha) as Record<string, unknown>;
+    if (m.type !== "thread_meta") return linha;
+    m.projectPath = projectPath;
+    for (const k of ["branch", "worktreeDir", "mcpConfig", "mcpTools"]) delete m[k];
+    if (typeof m.profileId !== "string" || !getProfile(m.profileId, home)) {
+      const primeiro = listProfiles(home)[0];
+      if (primeiro) m.profileId = primeiro.id;
+    }
+    return JSON.stringify(m);
+  } catch {
+    return linha;
+  }
+}
+
+/**
+ * Traz pra `~/.nexo/threads` as conversas que chegaram pela pasta do projeto (sync do Drive,
+ * ver drive-sync.ts) e ainda não estão — ou estão incompletas — nesta máquina. Só pra projeto que
+ * esta máquina conhece (é dele que sai o `projectPath` certo). Devolve quantas conversas mexeu.
+ * A fonte de verdade local segue sendo `threadPath`; o espelho só alimenta.
+ */
+export function importarConversas(home: string): number {
+  const root = projetosRoot(home);
+  if (!existsSync(root)) return 0;
+  const porSlug = new Map<string, string>();
+  for (const p of projetosConhecidos(home)) porSlug.set(projectSlug(p, home).slug, p);
+  let mexeu = 0;
+  for (const slug of readdirSync(root)) {
+    const projectPath = porSlug.get(slug);
+    const dir = join(root, slug, "conversas");
+    if (!projectPath || !existsSync(dir)) continue;
+    for (const arquivo of readdirSync(dir)) {
+      if (!arquivo.endsWith(".jsonl")) continue;
+      const id = arquivo.slice(0, -".jsonl".length);
+      try {
+        assertSlug(id);
+        const linhas = readFileSync(join(dir, arquivo), "utf8")
+          .split("\n")
+          .filter((l) => l.trim());
+        const alvo = threadPath(id, home);
+        if (!existsSync(alvo)) {
+          if (!linhas.some(ehMeta)) continue; // sem meta não é conversa que a gente consiga abrir
+          ensureHome(home);
+          writeFileSync(alvo, `${linhas.map((l) => metaParaEstaMaquina(l, projectPath, home)).join("\n")}\n`, "utf8");
+          mexeu++;
+          continue;
+        }
+        const atual = readFileSync(alvo, "utf8");
+        const conhecidas = new Set(atual.split("\n"));
+        const novas = linhas.filter((l) => !ehMeta(l) && !conhecidas.has(l));
+        if (!novas.length) continue;
+        writeFileSync(alvo, mesclarJsonl(atual, novas.join("\n")), "utf8");
+        mexeu++;
+      } catch (e) {
+        console.error(`nexo: falha ao importar conversa ${id}: ${(e as Error).message}`);
+      }
+    }
+  }
+  return mexeu;
+}
+
+/**
+ * Espelha o evento na pasta do projeto. A fonte de verdade continua sendo `threadPath`;
+ * o espelho existe pra viajar junto da pasta do projeto (sync entre máquinas). Conversa
+ * antiga sem espelho é copiada inteira no primeiro evento novo. Best-effort: nunca lança,
+ * senão uma pasta de projeto indisponível derrubaria o turno.
+ */
+function espelharNoProjeto(event: ThreadEvent, path: string, linha: string, home: string): void {
+  try {
+    let projectPath = projetoDaConversa.get(event.threadId);
+    if (!projectPath) {
+      const meta =
+        event.type === "thread_meta" ? event : readThread(event.threadId, home).find((e) => e.type === "thread_meta");
+      if (!meta || meta.type !== "thread_meta") return;
+      projectPath = meta.projectPath;
+      projetoDaConversa.set(event.threadId, projectPath);
+    }
+    const espelho = conversaEspelhoPath(event.threadId, projectPath, home);
+    mkdirSync(dirname(espelho), { recursive: true });
+    if (existsSync(espelho)) appendFileSync(espelho, linha, "utf8");
+    else copyFileSync(path, espelho);
+  } catch (e) {
+    console.error(`nexo: falha ao espelhar conversa ${event.threadId}: ${(e as Error).message}`);
+  }
+}
+
+/**
+ * Apaga a conversa e, se ela tinha uma `git worktree` isolada própria (branch
+ * fixa) que nenhuma OUTRA conversa ainda usa, tira a árvore do disco também
+ * (o branch em si fica — ver `removerWorktree`).
+ */
+export async function removeThread(id: string, home: string): Promise<void> {
   const path = threadPath(id, home);
   if (!existsSync(path)) throw new Error(`thread não existe: ${id}`);
+  const head = threadHead(id, home);
   rmSync(path);
+  if (head) {
+    projetoDaConversa.delete(id);
+    try {
+      rmSync(conversaEspelhoPath(id, head.projectPath, home), { force: true });
+    } catch {
+      // espelho é best-effort
+    }
+  }
+  if (head?.worktreeDir) {
+    const aindaUsada = listThreads(head.projectPath, home).some((t) => t.worktreeDir === head.worktreeDir);
+    if (!aindaUsada) await removerWorktree(head.projectPath, head.worktreeDir).catch(() => {});
+  }
 }
 
 export function readThread(id: string, home: string): ThreadEvent[] {
@@ -83,6 +279,9 @@ export type ThreadHead = {
   runId?: string;
   runStep?: number;
   runTitle?: string;
+  /** Branch fixa desta conversa e a `git worktree` que a isola — ver `createThreadNaBranch`. */
+  branch?: string;
+  worktreeDir?: string;
 };
 
 /** Cabeçalho de uma conversa só. `undefined` = arquivo ilegível ou sem meta. */
@@ -114,6 +313,8 @@ export function threadHead(id: string, home: string): ThreadHead | undefined {
     ...(meta.runId ? { runId: meta.runId } : {}),
     ...(meta.runStep === undefined ? {} : { runStep: meta.runStep }),
     ...(meta.runTitle ? { runTitle: meta.runTitle } : {}),
+    ...(meta.branch ? { branch: meta.branch } : {}),
+    ...(meta.worktreeDir ? { worktreeDir: meta.worktreeDir } : {}),
   };
 }
 

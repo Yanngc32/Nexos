@@ -36,6 +36,7 @@ import {
   WINDOW_KEY_RE,
 } from "@nexo/shared";
 import { loadConfig, saveConfig } from "./config.ts";
+import { githubToken } from "./github-auth.ts";
 import { assertSlug } from "./ids.ts";
 import { ensureHome, profileDir } from "./home.ts";
 
@@ -634,5 +635,20 @@ export function engineSpawnEnv(profile: Profile, home: string): NodeJS.ProcessEn
   const env: NodeJS.ProcessEnv = { ...process.env, ...engineEnv(profile, home) };
   if (profile.engine !== "claude") delete env.CLAUDE_CONFIG_DIR;
   if (profile.engine !== "codex") delete env.CODEX_HOME;
+
+  // Conta de GitHub é global (Configurações, não por perfil — ver github-auth.ts):
+  // todo agente de todo perfil enxerga o mesmo token, sem precisar logar de novo.
+  const gh = githubToken(home);
+  if (gh) {
+    env.GH_TOKEN = gh;
+    env.GITHUB_TOKEN = gh;
+    // Credential helper do git escopado a ESTE processo via env (não mexe no
+    // ~/.gitconfig real da máquina): delega pro próprio `gh`, que já sabe usar
+    // GH_TOKEN. Tem prioridade sobre qualquer helper global já configurado.
+    env.GIT_CONFIG_COUNT = "1";
+    env.GIT_CONFIG_KEY_0 = "credential.https://github.com.helper";
+    env.GIT_CONFIG_VALUE_0 = "!gh auth git-credential";
+  }
+
   return env;
 }

@@ -30,6 +30,7 @@ export function ensureHome(root = nexoHome()): string {
     join(root, "attachments"),
     join(root, "runs"),
     join(root, "skills"),
+    join(root, "worktrees"),
   ]) {
     mkdirSync(dir, { recursive: true });
   }
@@ -57,6 +58,16 @@ export function threadPath(id: string, root = nexoHome()): string {
  */
 export function claudeSessionPath(id: string, root = nexoHome()): string {
   return join(root, "threads", `${assertSlug(id)}.claude-session`);
+}
+
+/**
+ * `git worktree` isolada de uma conversa com branch fixa — ver
+ * `thread_meta.worktreeDir` e worktree.ts. Uma por thread, não por projeto:
+ * duas conversas na mesma branch reaproveitam a mesma pasta (ver threads.ts),
+ * mas o nome vem do id da thread que criou primeiro.
+ */
+export function threadWorktreeDir(id: string, root = nexoHome()): string {
+  return join(root, "worktrees", assertSlug(id));
 }
 
 export function attachmentsDir(threadId: string, root = nexoHome()): string {
@@ -88,6 +99,39 @@ export function teamsPath(root = nexoHome()): string {
 /** Pasta de um run: guarda a saída de cada passo como artefato. */
 export function runDir(id: string, root = nexoHome()): string {
   return join(root, "runs", assertSlug(id));
+}
+
+/**
+ * Token do GitHub (conta única, global — compartilhada por todo perfil/agente).
+ * Fora de `config.json` pelo mesmo motivo de `typesafePath`: `GET /v1/config`
+ * devolve o config inteiro pra UI, e o token vazaria pro renderer a cada carga.
+ */
+export function githubAuthPath(root = nexoHome()): string {
+  return join(root, "github-auth.json");
+}
+
+/**
+ * `GH_CONFIG_DIR` isolado e descartável pra cada tentativa de login: o `gh auth
+ * login` roda apontando pra cá (nunca pro `~/.config/gh` real da máquina), então
+ * nunca toca a sessão pessoal de `gh` que a pessoa já tem no terminal dela. O
+ * token final é extraído e guardado em `github-auth.json`; esta pasta é apagada
+ * logo em seguida (ver github-auth.ts).
+ */
+export function githubLoginRunDir(loginId: string, root = nexoHome()): string {
+  return join(root, "run", `gh-login-${assertSlug(loginId)}`);
+}
+
+/**
+ * Conta Google (refresh token) + client OAuth + pasta do Drive escolhida. Fora de `config.json`
+ * pelo mesmo motivo de `githubAuthPath`: o refresh token não pode ir pro renderer.
+ */
+export function googleAuthPath(root = nexoHome()): string {
+  return join(root, "google.json");
+}
+
+/** Estado LOCAL do sync com o Drive (o que já foi sincronizado, por arquivo) — cada máquina tem o seu. */
+export function driveSyncStatePath(root = nexoHome()): string {
+  return join(root, "drive-sync.json");
 }
 
 export function runsRoot(root = nexoHome()): string {

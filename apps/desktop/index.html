@@ -939,6 +939,31 @@
         </div>
       </div>
     </div>
+    <div id="github-login-modal" class="settings hidden" role="dialog" aria-labelledby="github-login-title">
+      <div class="settings-card">
+        <div class="settings-head">
+          <h2 id="github-login-title">Conectar GitHub</h2>
+          <button type="button" id="btn-github-login-close" class="ghost">Fechar</button>
+        </div>
+        <p id="github-login-step" class="login-step">
+          Copie o código, abra a página do GitHub e cole lá. Esta janela fecha sozinha assim que autorizar.
+        </p>
+        <label class="field">
+          <span>Código</span>
+          <div class="accent-row">
+            <input id="github-login-code" type="text" spellcheck="false" readonly />
+            <button type="button" id="btn-github-login-copiar" class="ghost">Copiar</button>
+          </div>
+        </label>
+        <div class="accent-row">
+          <button type="button" id="btn-github-login-open" class="ghost">Abrir github.com/login/device</button>
+        </div>
+        <p id="github-login-msg" class="login-msg hidden"></p>
+        <div class="accent-row">
+          <button type="button" id="btn-github-login-cancelar" class="ghost">Cancelar</button>
+        </div>
+      </div>
+    </div>
     <div id="tarefa-modal" class="settings hidden" role="dialog" aria-labelledby="tk-modal-title">
       <div class="settings-card">
         <div class="settings-head">
@@ -1093,6 +1118,22 @@
           <button type="button" id="btn-cl-fechar" class="ghost">Fechar</button>
         </div>
         <p class="mod-meta quebra">Usa as credenciais de git que já existem nesta máquina — repositório privado funciona igual.</p>
+        <div id="cl-github" class="hidden">
+          <label class="field">
+            <span>Meus repositórios (GitHub conectado)</span>
+            <div class="dropdown" id="cl-repo-dd">
+              <button type="button" class="dropdown-trigger" id="cl-repo-trigger">— colar link manualmente —</button>
+              <div class="dropdown-list hidden" id="cl-repo-list" role="listbox"></div>
+            </div>
+          </label>
+          <label class="field hidden" id="cl-branch-field">
+            <span>Branch</span>
+            <div class="dropdown" id="cl-branch-dd">
+              <button type="button" class="dropdown-trigger" id="cl-branch-trigger"></button>
+              <div class="dropdown-list hidden" id="cl-branch-list" role="listbox"></div>
+            </div>
+          </label>
+        </div>
         <label class="field">
           <span>Link do repositório</span>
           <input id="cl-url" type="text" placeholder="https://github.com/dono/projeto.git" />
@@ -1106,6 +1147,25 @@
         <p id="cl-err" class="login-msg hidden"></p>
         <div class="accent-row">
           <button type="button" id="btn-cl-clonar" class="primary">Clonar</button>
+        </div>
+      </div>
+    </div>
+    <div id="new-thread-modal" class="settings hidden" role="dialog" aria-labelledby="nt-title">
+      <div class="settings-card">
+        <div class="settings-head">
+          <h2 id="nt-title">Nova conversa</h2>
+          <button type="button" id="btn-nt-fechar" class="ghost">Fechar</button>
+        </div>
+        <label class="field hidden" id="nt-branch-field">
+          <span>Branch (fica fixa pro resto desta conversa)</span>
+          <div class="dropdown" id="nt-branch-dd">
+            <button type="button" class="dropdown-trigger" id="nt-branch-trigger"></button>
+            <div class="dropdown-list hidden" id="nt-branch-list" role="listbox"></div>
+          </div>
+        </label>
+        <p id="nt-err" class="login-msg hidden"></p>
+        <div class="accent-row">
+          <button type="button" id="btn-nt-criar" class="primary">Criar conversa</button>
         </div>
       </div>
     </div>
@@ -1141,6 +1201,13 @@
           </button>
           <button type="button" class="set-nav-item" data-panel="roteamento">
             <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="6" cy="12" r="2.4" /><circle cx="18" cy="6" r="2.4" /><circle cx="18" cy="18" r="2.4" /><path d="M8.4 11.2 15.6 6.8M8.4 12.8l7.2 4.4" /></svg>Roteamento IA
+          </button>
+          <p class="set-nav-group">Integrações</p>
+          <button type="button" class="set-nav-item" data-panel="github">
+            <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.93.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.95 0-1.09.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.03a9.4 9.4 0 0 1 5 0c1.91-1.3 2.75-1.03 2.75-1.03.55 1.38.2 2.4.1 2.65.64.7 1.03 1.6 1.03 2.69 0 3.85-2.34 4.7-4.57 4.95.36.31.68.92.68 1.85v2.75c0 .26.18.58.69.48A10 10 0 0 0 12 2Z" /></svg>GitHub
+          </button>
+          <button type="button" class="set-nav-item" data-panel="gdrive">
+            <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7.5 18.5h9a4 4 0 0 0 .7-7.94A5.5 5.5 0 0 0 6.6 9.4 4.6 4.6 0 0 0 7.5 18.5Z" /></svg>Google Drive
           </button>
           <p class="set-nav-group">Fora desta máquina</p>
           <button type="button" class="set-nav-item" data-panel="memoria">
@@ -1621,6 +1688,52 @@
                   </div>
                   <div class="set-ctl">
                     <span id="roteamento-uso" class="set-hint">—</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <section class="set-sec hidden" data-panel="github">
+              <h3>GitHub</h3>
+              <p class="set-grupo-tit">Conta conectada</p>
+              <div class="set-grupo">
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Acesso a repositórios</h4>
+                    <p>
+                      Conta única, global — loga uma vez aqui e todo perfil/agente já enxerga, sem repetir o
+                      login por conta. Separado do login de motor (Claude/Codex), que fica em
+                      <strong>Motor → Contas</strong> e é por perfil.
+                    </p>
+                    <p id="github-status" class="set-hint">Não conectado.</p>
+                    <p id="github-err" class="set-err"></p>
+                  </div>
+                  <div class="set-ctl">
+                    <button type="button" id="btn-github-conectar" class="primary">Conectar GitHub</button>
+                    <button type="button" id="btn-github-desconectar" class="ghost hidden">Desconectar</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <section class="set-sec hidden" data-panel="gdrive">
+              <h3>Google Drive</h3>
+              <div class="set-grupo">
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Seus projetos em todos os computadores</h4>
+                    <p>
+                      Memória, tarefas e conversas ficam numa pasta do seu Google Drive e aparecem iguais em
+                      qualquer PC onde você entrar. O Nexo só mexe na pasta que você escolher.
+                    </p>
+                    <p id="gdrive-status" class="set-hint">Não conectado.</p>
+                    <p id="gdrive-sync-status" class="set-hint"></p>
+                    <p id="gdrive-err" class="set-err"></p>
+                  </div>
+                  <div class="set-ctl">
+                    <button type="button" id="btn-gdrive-conectar" class="primary">Entrar com Google</button>
+                    <button type="button" id="btn-gdrive-cancelar" class="ghost hidden">Cancelar</button>
+                    <button type="button" id="btn-gdrive-sync" class="ghost hidden">Sincronizar agora</button>
+                    <button type="button" id="btn-gdrive-pasta" class="ghost hidden">Trocar pasta</button>
+                    <button type="button" id="btn-gdrive-desconectar" class="ghost hidden">Desconectar</button>
                   </div>
                 </div>
               </div>

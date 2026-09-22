@@ -2674,6 +2674,104 @@ li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
   font-style: italic;
 }
 
+/*
+ * Bolha que agrupa a sequência de ferramentas/raciocínio de um turno — "Trabalhando…" ou
+ * "Pensando…" com 3 pontinhos animados, fechada por padrão. Some 10 `Bash` soltos na conversa
+ * e vira 1 linha que abre pra ver o passo a passo.
+ */
+.log li.work-group {
+  padding: 0;
+}
+
+.work > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  list-style: none;
+  border-radius: var(--r-md);
+}
+
+.work > summary::-webkit-details-marker {
+  display: none;
+}
+
+.work > summary::before {
+  content: "▸";
+  flex: 0 0 auto;
+  font-size: var(--fs-2xs);
+  transition: transform var(--dur) var(--ease);
+}
+
+.work[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.work > summary:hover {
+  color: var(--text);
+  background: var(--elev);
+}
+
+.work-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.work-dots i {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+}
+
+.work-group[data-live="1"] .work-dots i {
+  animation: work-dot-bounce 1s ease-in-out infinite;
+}
+
+.work-group[data-live="1"] .work-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.work-group[data-live="1"] .work-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes work-dot-bounce {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .work-group[data-live="1"] .work-dots i {
+    animation: none;
+    opacity: 0.9;
+  }
+}
+
+.work-body {
+  margin: 0 0 2px 12px;
+  padding: 0;
+  border-left: 1px solid var(--line);
+  list-style: none;
+}
+
+.work-body > li.tool {
+  margin-left: 4px;
+}
+
 .log {
   flex: 1;
   /* nunca rola de lado: texto sem espaço (URL, path, token longo) tem que quebrar, não empurrar
@@ -3242,6 +3340,66 @@ button:disabled {
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   padding: 8px 10px;
+}
+
+/*
+ * Lista própria em vez de <select> nativo: no Electron, rolar o mouse com o
+ * popup nativo aberto fecha ele sozinho (rola a página por baixo). Um <div>
+ * comum com overflow-y não tem esse problema.
+ */
+.dropdown {
+  position: relative;
+}
+
+.dropdown-trigger {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.dropdown-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  margin-top: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--elev);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-2);
+  padding: 6px;
+  z-index: 30;
+}
+
+.dropdown-list.hidden {
+  display: none;
+}
+
+.dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: none;
+  border: none;
+  padding: 7px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.dropdown-item:hover {
+  background: var(--line-2);
 }
 
 .settings-card,

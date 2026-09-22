@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { githubToken } from "./github-auth.ts";
 
 /**
  * Git: um jeito só de chamar, pro daemon inteiro.
@@ -66,13 +67,14 @@ export function gitStream(
   cwd: string,
   onLinha?: (linha: string) => void,
   timeoutMs = TIMEOUT_MS,
+  extraEnv?: NodeJS.ProcessEnv,
 ): Promise<ResultadoGit> {
   return new Promise((resolvePromise) => {
     const child = spawn("git", args, {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
-      env: ambienteSemPrompt(),
+      env: { ...ambienteSemPrompt(), ...extraEnv },
     });
     let saida = "";
     let pendente = "";
@@ -276,7 +278,10 @@ export function validarUrlDeClone(bruta: string): UrlDeClone {
  *
  * Usa a credencial de git que já existe na máquina (chave SSH, credential
  * helper) — é o mesmo `git clone` que a pessoa rodaria no terminal, então repo
- * privado funciona sem o Nexo guardar token nenhum.
+ * privado funciona sem o Nexo guardar token nenhum. Se a conta de GitHub do
+ * Nexo (`github-auth.ts`, Configurações → GitHub) estiver conectada, o token
+ * dela tem prioridade — é o que faz repo privado clonar sem depender de
+ * `gh`/SSH já configurado na máquina.
  *
  * Nunca escreve por cima: pasta que já existe com conteúdo é recusa, não
  * merge. Clone longo é a regra, não a exceção — daí o teto de 30 min e o
@@ -286,6 +291,7 @@ export async function clonar(
   urlBruta: string,
   destinoPai: string,
   onProgresso?: (linha: string) => void,
+  opts: { home?: string; branch?: string } = {},
 ): Promise<{ dir: string }> {
   const { url, nome } = validarUrlDeClone(urlBruta);
   const pai = resolve(destinoPai || "");
@@ -295,8 +301,19 @@ export async function clonar(
     throw pedidoRuim(`já existe uma pasta \`${nome}\` com conteúdo em ${pai}`);
   }
 
+  const token = opts.home ? githubToken(opts.home) : undefined;
+  const extraEnv = token
+    ? {
+        GH_TOKEN: token,
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "credential.https://github.com.helper",
+        GIT_CONFIG_VALUE_0: "!gh auth git-credential",
+      }
+    : undefined;
+
   // `--` separa a URL dos argumentos: sem ele, link começando com `-` vira flag do git
-  const r = await gitStream(["clone", "--progress", "--", url, dir], pai, onProgresso, 30 * 60_000);
+  const args = ["clone", "--progress", ...(opts.branch ? ["--branch", opts.branch] : []), "--", url, dir];
+  const r = await gitStream(args, pai, onProgresso, 30 * 60_000, extraEnv);
   if (!r.ok) throw pedidoRuim(r.saida || "git clone falhou");
   return { dir };
 }

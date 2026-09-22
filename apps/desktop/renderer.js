@@ -7,6 +7,7 @@ import { createTeamStudio } from "./team-studio.js";
 import { createHooksStudio } from "./hooks-studio.js";
 import { createAutomacaoModal } from "./automacao-modal.js";
 import { createCloneModal } from "./clone-modal.js";
+import { createNewThreadModal } from "./new-thread-modal.js";
 import { diffDeFerramenta, renderDiff, resumoDoDiff } from "./diff-view.js";
 import { createTarefasBoard } from "./tarefas-board.js";
 import { createDialogo } from "./dialogo.js";
@@ -112,6 +113,8 @@ const state = {
   talking: false,
   think: { on: false, timer: null, start: 0, frame: 0, verb: 0, tokens: 0 },
   login: { id: "", profileId: "", url: "", poll: 0 },
+  githubLogin: { id: "", poll: 0 },
+  googleLogin: { id: "", poll: 0 },
   meter: {
     contextTokens: 0,
     contextWindow: 200_000,
@@ -3167,11 +3170,7 @@ async function criarConversaEmRepo(path) {
     return;
   }
   if (!samePath(state.projectPath, path)) await bindProject(path);
-  const t = await req("/v1/threads", {
-    method: "POST",
-    body: JSON.stringify({ projectPath: path, profileId }),
-  });
-  await openThread(t.id);
+  await newThreadModal.abrir({ projectPath: path, profileId });
 }
 
 async function removeRepo(path) {
@@ -3262,27 +3261,81 @@ function atualizarHistoricoChat() {
   });
 }
 
+/** A pessoa está a ~1 bolha do fim do chat (ou já no fim) — é quando o auto-scroll pode mexer. */
+function pertoDoFimDoChat(log) {
+  return log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+}
+
 /** Mostra a setinha de "ir pro fim" só quando a pessoa rolou pra cima e saiu do fim da conversa. */
 function atualizarBotaoDescer() {
   const log = $("log");
   const btn = $("btn-scroll-bottom");
   if (!log || !btn) return;
-  const faltam = log.scrollHeight - log.scrollTop - log.clientHeight;
-  btn.classList.toggle("hidden", faltam < 80);
+  btn.classList.toggle("hidden", pertoDoFimDoChat(log));
+}
+
+/**
+ * Bolha "Trabalhando…"/"Lendo…"/"Editando…"/"Pensando…" que agrupa a sequência de ferramentas
+ * e raciocínio de um turno — sem isso, uma volta com 10 `Bash` virava 10 linhas soltas na
+ * conversa (ver captura do pedido original). Fechada por padrão; abrir mostra o passo a passo,
+ * igual antes. O rótulo troca sozinho pro que está rolando agora.
+ */
+function workGroupAtual(log) {
+  const li = log.lastElementChild;
+  return li && li.classList.contains("work-group") && li.dataset.live === "1" ? li : null;
+}
+
+/** Nova bolha do turno terminou (texto final, mensagem sua, marca de sistema…): para a animação. */
+function encerrarWorkGroup(log) {
+  const li = workGroupAtual(log);
+  if (li) delete li.dataset.live;
+}
+
+const ROTULO_WORK_GROUP = {
+  think: "Pensando",
+  read: "Lendo",
+  edit: "Editando",
+  tool: "Trabalhando",
+};
+
+/** Ferramenta padrão do Claude Code — nome fixo, ao contrário das MCP (que variam por engine/sufixo). */
+function classificarFerramenta(name) {
+  if (name === "Read" || name === "NotebookRead") return "read";
+  if (name === "Edit" || name === "MultiEdit" || name === "Write" || name === "NotebookEdit") return "edit";
+  return "tool";
+}
+
+function ensureWorkGroup(log, kind) {
+  let li = workGroupAtual(log);
+  if (!li) {
+    li = document.createElement("li");
+    li.className = "work-group";
+    li.dataset.live = "1";
+    li.innerHTML =
+      `<details class="work"><summary><span class="work-label"></span>` +
+      `<span class="work-dots"><i></i><i></i><i></i></span></summary>` +
+      `<ul class="work-body"></ul></details>`;
+    log.append(li);
+  }
+  li.dataset.kind = kind;
+  li.querySelector(".work-label").textContent = ROTULO_WORK_GROUP[kind] ?? ROTULO_WORK_GROUP.tool;
+  return li.querySelector(".work-body");
 }
 
 /** Só chega texto de raciocínio de motor que expõe isso (o CLI do Claude não expõe). */
 function appendThinking(text) {
   const log = $("log");
-  let last = log.lastElementChild;
+  const desce = pertoDoFimDoChat(log);
+  const body = ensureWorkGroup(log, "think");
+  let last = body.lastElementChild;
   if (!last || last.dataset.think !== "1") {
     last = document.createElement("li");
     last.dataset.think = "1";
     last.innerHTML = `<details class="think" open><summary>Pensando…</summary><pre></pre></details>`;
-    log.append(last);
+    body.append(last);
   }
   last.querySelector("pre").textContent += text;
-  log.scrollTop = log.scrollHeight;
+  if (desce) log.scrollTop = log.scrollHeight;
 }
 
 /** Nome como o CLI reporta a ferramenta MCP — `mcp__nexo__nexo_delegar` no claude; sufixo cobre variação de motor. */
@@ -3437,6 +3490,16 @@ function appendEvent(ev, scroll = true) {
         iniciarSubchat(li, pendente);
       }
     }
+    // Foge da cauda compartilhada abaixo: a bolha entra dentro do grupo "Trabalhando…/Lendo…/
+    // Editando…", não solta direto no log.
+    const desceTool = pertoDoFimDoChat(log);
+    const body = ensureWorkGroup(log, classificarFerramenta(ev.name));
+    if (scroll) state.events = [...state.events, ev];
+    body.append(li);
+    if (!scroll) return;
+    if (desceTool) log.scrollTop = log.scrollHeight;
+    atualizarBotaoDescer();
+    return;
   } else if (ev.type === "tool_result") {
     // Não é bolha nova: anexa no `tool` de mesmo id, que já está no log (chega sempre depois).
     const alvo = log.querySelector(`li.tool[data-tool-id="${CSS.escape(ev.id ?? "")}"]`);
@@ -3538,11 +3601,12 @@ function appendEvent(ev, scroll = true) {
      */
     const anterior = log.lastElementChild;
     if (anterior?.dataset.autoExec === "modelo") {
+      const desce = pertoDoFimDoChat(log);
       anterior.dataset.autoExec = "modelo+esforco";
       anterior.querySelector(".stamp").insertAdjacentHTML("beforeend", ` · ${trecho}`);
       if (!scroll) return;
       state.events = [...state.events, ev];
-      log.scrollTop = log.scrollHeight;
+      if (desce) log.scrollTop = log.scrollHeight;
       atualizarBotaoDescer();
       return;
     }
@@ -3586,10 +3650,14 @@ function appendEvent(ev, scroll = true) {
   } else {
     return;
   }
+  // mandar mensagem sua sempre desce (é ação sua, na hora); o resto só desce se você já
+  // estava perto do fim — senão puxava o chat pra baixo enquanto lia algo lá em cima.
+  const desce = ev.type === "user" || pertoDoFimDoChat(log);
+  encerrarWorkGroup(log); // esta bolha não é ferramenta/raciocínio: fecha o grupo "Trabalhando…" aberto
   if (scroll) state.events = [...state.events, ev];
   log.append(li);
   if (!scroll) return;
-  log.scrollTop = log.scrollHeight;
+  if (desce) log.scrollTop = log.scrollHeight;
   if (ev.type === "user") atualizarHistoricoChat();
   atualizarBotaoDescer();
 }
@@ -3829,8 +3897,10 @@ function onLive(ev) {
   if (ev.type === "text") {
     setMotor(true, true);
     const log = $("log");
+    const desce = pertoDoFimDoChat(log);
     let last = log.lastElementChild;
     if (!last || last.dataset.stream !== "1") {
+      encerrarWorkGroup(log); // texto final chegando: fecha o grupo "Trabalhando…/Pensando…" do turno
       last = document.createElement("li");
       last.className = "bot";
       last.dataset.stream = "1";
@@ -3841,7 +3911,7 @@ function onLive(ev) {
     const live = state.events.at(-1);
     if (live?.type === "assistant") live.text += ev.text;
     scheduleStreamRender(last.querySelector(".stream"), live?.text ?? ev.text);
-    log.scrollTop = log.scrollHeight;
+    if (desce) log.scrollTop = log.scrollHeight;
     atualizarBotaoDescer();
     return;
   }
@@ -4697,11 +4767,18 @@ const cloneModal = createCloneModal({
   el: $,
   api,
   headers,
+  req,
   lerEventos,
   pickFolder: () => window.nexo.pickFolder(),
   // repositório clonado entra na lista e vira o projeto aberto, como se a
   // pessoa tivesse apontado a pasta — que é o que ela acabou de fazer
   aoClonar: (dir) => bindProject(dir),
+});
+
+const newThreadModal = createNewThreadModal({
+  el: $,
+  req,
+  aoCriar: (id) => openThread(id),
 });
 
 const dialogo = createDialogo({ el: $ });
@@ -5893,6 +5970,26 @@ $("btn-import-login").addEventListener("click", () => {
   if (id) void importClaudeLogin(id);
 });
 
+$("btn-gdrive-conectar").addEventListener("click", () => void startGoogleLogin("/v1/google/login/start"));
+$("btn-gdrive-cancelar").addEventListener("click", () => cancelGoogleLoginUi());
+$("btn-gdrive-desconectar").addEventListener("click", () => void disconnectGoogleUi());
+$("btn-gdrive-pasta").addEventListener("click", () => void startGoogleLogin("/v1/google/pasta/start"));
+$("btn-gdrive-sync").addEventListener("click", () => void syncDriveUi());
+$("btn-github-conectar").addEventListener("click", () => void startGithubLogin());
+$("btn-github-desconectar").addEventListener("click", () => void disconnectGithub());
+$("btn-github-login-close").addEventListener("click", () => closeGithubLoginModal());
+$("btn-github-login-cancelar").addEventListener("click", () => closeGithubLoginModal());
+$("btn-github-login-open").addEventListener("click", () => {
+  void window.nexo.openExternal("https://github.com/login/device").catch((e) => githubLoginMsg(e.message || "Não abriu o navegador."));
+});
+$("btn-github-login-copiar").addEventListener("click", () => {
+  const code = $("github-login-code").value.trim();
+  if (code) void copiarTexto(code, "Código");
+});
+$("github-login-modal").addEventListener("click", (e) => {
+  if (e.target === $("github-login-modal")) closeGithubLoginModal();
+});
+
 $("btn-folder").addEventListener("click", async () => {
   const path = await window.nexo.pickFolder();
   if (!path) return;
@@ -5924,11 +6021,7 @@ $("btn-new").addEventListener("click", async () => {
     setComposer(true);
     return;
   }
-  const t = await req("/v1/threads", {
-    method: "POST",
-    body: JSON.stringify({ projectPath: state.projectPath, profileId }),
-  });
-  await openThread(t.id);
+  await newThreadModal.abrir({ projectPath: state.projectPath, profileId });
 });
 
 /**
@@ -6906,6 +6999,218 @@ $("fallback-list").addEventListener("click", async (e) => {
   }
 });
 
+/* ---------- GitHub (conta única, global — não por perfil) ---------- */
+
+async function renderGithub() {
+  if (!state.ok) return;
+  try {
+    const acc = await req("/v1/github");
+    $("github-status").textContent = acc.connected ? `Conectado como @${acc.username || "?"}.` : "Não conectado.";
+    $("btn-github-conectar").classList.toggle("hidden", acc.connected);
+    $("btn-github-desconectar").classList.toggle("hidden", !acc.connected);
+  } catch {
+    /* fica no que já estava na tela */
+  }
+}
+
+function githubLoginMsg(text, ok = false) {
+  const el = $("github-login-msg");
+  el.textContent = text || "";
+  el.classList.toggle("hidden", !text);
+  el.classList.toggle("ok", ok);
+}
+
+function stopGithubLoginPoll() {
+  if (state.githubLogin.poll) clearInterval(state.githubLogin.poll);
+  state.githubLogin.poll = 0;
+}
+
+function closeGithubLoginModal(cancel = true) {
+  stopGithubLoginPoll();
+  if (cancel && state.githubLogin.id) {
+    void req("/v1/github/login/cancel", { method: "POST", body: JSON.stringify({ loginId: state.githubLogin.id }) }).catch(
+      () => {},
+    );
+  }
+  state.githubLogin = { id: "", poll: 0 };
+  $("github-login-code").value = "";
+  githubLoginMsg("");
+  $("github-login-modal").classList.add("hidden");
+}
+
+function watchGithubLogin() {
+  stopGithubLoginPoll();
+  state.githubLogin.poll = setInterval(async () => {
+    if (!state.githubLogin.id) return stopGithubLoginPoll();
+    let res;
+    try {
+      res = await req(`/v1/github/login/status?loginId=${encodeURIComponent(state.githubLogin.id)}`);
+    } catch {
+      return;
+    }
+    if (res.state === "waiting") return;
+    stopGithubLoginPoll();
+    if (res.state === "done") {
+      closeGithubLoginModal(false);
+      appendEvent({ type: "sys", message: `GitHub conectado${res.username ? ` como @${res.username}` : ""}.` });
+      await renderGithub();
+      return;
+    }
+    state.githubLogin.id = "";
+    githubLoginMsg(res.message || "O login falhou. Tente de novo.");
+  }, 1500);
+}
+
+async function startGithubLogin() {
+  if (!state.ok) return;
+  $("github-login-code").value = "";
+  githubLoginMsg("");
+  // Mesma classe .settings do modal de Configurações (mesmo z-index): fecha
+  // primeiro, senão o modal de login abre atrás dela — mesma convenção já usada
+  // no login de conta LLM (ver tentarCriarPerfil).
+  $("settings").classList.add("hidden");
+  $("github-login-modal").classList.remove("hidden");
+  try {
+    const r = await req("/v1/github/login/start", { method: "POST", body: JSON.stringify({}) });
+    state.githubLogin = { id: r.loginId, poll: 0 };
+    $("github-login-code").value = r.code;
+    watchGithubLogin();
+  } catch (e) {
+    githubLoginMsg(e.message || "Não deu pra começar o login.");
+  }
+}
+
+async function disconnectGithub() {
+  try {
+    await req("/v1/github", { method: "DELETE" });
+  } catch (e) {
+    appendEvent({ type: "error", message: e.message || "Não desconectou o GitHub." });
+    return;
+  }
+  await renderGithub();
+  appendEvent({ type: "sys", message: "GitHub desconectado." });
+}
+
+/* ---------- Google Drive (conta única, global; login pelo navegador + pasta de destino do sync) ---------- */
+
+function resumoSyncDrive(r) {
+  if (!r) return "Ainda não sincronizou nesta sessão.";
+  const partes = [];
+  if (r.subiu) partes.push(`${r.subiu} enviado(s)`);
+  if (r.baixou) partes.push(`${r.baixou} baixado(s)`);
+  if (r.mesclou) partes.push(`${r.mesclou} conversa(s) mesclada(s)`);
+  if (r.apagouLocal || r.apagouRemoto) partes.push(`${r.apagouLocal + r.apagouRemoto} apagado(s)`);
+  const quando = new Date(r.iniciouEm).toLocaleTimeString();
+  const base = partes.length ? partes.join(", ") : "tudo em dia";
+  return `Última rodada ${quando}: ${base}${r.erros.length ? ` — ${r.erros.length} erro(s): ${r.erros[0]}` : "."}`;
+}
+
+async function renderGoogleDrive() {
+  if (!state.ok) return;
+  try {
+    const [acc, drive] = await Promise.all([req("/v1/google"), req("/v1/drive")]);
+    const esperando = Boolean(state.googleLogin.id);
+    $("gdrive-status").textContent = esperando
+      ? "Continue no navegador: entre, autorize e escolha onde guardar."
+      : acc.connected
+        ? `Conectado${acc.email ? ` como ${acc.email}` : ""}${acc.folder ? ` · pasta “${acc.folder.name}”` : ""}.`
+        : acc.disponivel
+          ? "Não conectado."
+          : "Indisponível nesta versão do Nexo.";
+    $("btn-gdrive-conectar").classList.toggle("hidden", acc.connected || esperando);
+    $("btn-gdrive-conectar").disabled = !acc.disponivel;
+    $("btn-gdrive-cancelar").classList.toggle("hidden", !esperando);
+    for (const id of ["btn-gdrive-sync", "btn-gdrive-pasta", "btn-gdrive-desconectar"]) {
+      $(id).classList.toggle("hidden", !acc.connected || esperando);
+    }
+    $("btn-gdrive-sync").disabled = drive.running;
+    $("gdrive-sync-status").textContent =
+      !acc.connected || esperando ? "" : drive.running ? "Sincronizando…" : resumoSyncDrive(drive.last);
+  } catch {
+    /* fica no que já estava na tela */
+  }
+}
+
+function stopGoogleLoginPoll() {
+  if (state.googleLogin.poll) clearInterval(state.googleLogin.poll);
+  state.googleLogin.poll = 0;
+}
+
+function cancelGoogleLoginUi() {
+  stopGoogleLoginPoll();
+  if (state.googleLogin.id) {
+    void req("/v1/google/login/cancel", { method: "POST", body: JSON.stringify({ loginId: state.googleLogin.id }) }).catch(() => {});
+  }
+  state.googleLogin = { id: "", poll: 0 };
+  $("gdrive-err").textContent = "";
+  void renderGoogleDrive();
+}
+
+/**
+ * Login e escolha da pasta acontecem inteiros no navegador (ver google-conectar.ts no daemon);
+ * aqui só abre a página e acompanha até "done". `rota` = login novo ou só trocar a pasta.
+ */
+async function startGoogleLogin(rota) {
+  if (!state.ok) return;
+  $("gdrive-err").textContent = "";
+  try {
+    const r = await req(rota, { method: "POST", body: JSON.stringify({}) });
+    state.googleLogin = { id: r.loginId, poll: 0 };
+    await window.nexo.openExternal(r.url);
+  } catch (e) {
+    cancelGoogleLoginUi();
+    $("gdrive-err").textContent = e.message || "Não deu pra abrir o navegador.";
+    return;
+  }
+  await renderGoogleDrive();
+  state.googleLogin.poll = setInterval(async () => {
+    if (!state.googleLogin.id) return stopGoogleLoginPoll();
+    let res;
+    try {
+      res = await req(`/v1/google/login/status?loginId=${encodeURIComponent(state.googleLogin.id)}`);
+    } catch {
+      // sessão expirou (aba abandonada): a conta pode ter conectado mesmo assim, a tela reflete
+      stopGoogleLoginPoll();
+      state.googleLogin = { id: "", poll: 0 };
+      return void renderGoogleDrive();
+    }
+    if (res.state === "waiting" || res.state === "choosing") return;
+    stopGoogleLoginPoll();
+    state.googleLogin = { id: "", poll: 0 };
+    if (res.state === "done") {
+      appendEvent({ type: "sys", message: `Google Drive pronto${res.folder ? ` — pasta “${res.folder.name}”` : ""}.` });
+      await renderGoogleDrive();
+      return void syncDriveUi();
+    }
+    $("gdrive-err").textContent = res.message || "O login falhou. Tente de novo.";
+    await renderGoogleDrive();
+  }, 1500);
+}
+
+async function disconnectGoogleUi() {
+  try {
+    await req("/v1/google", { method: "DELETE" });
+  } catch (e) {
+    $("gdrive-err").textContent = e.message || "Não desconectou.";
+    return;
+  }
+  await renderGoogleDrive();
+  appendEvent({ type: "sys", message: "Google desconectado. Nada foi apagado do Drive nem daqui." });
+}
+
+async function syncDriveUi() {
+  $("gdrive-err").textContent = "";
+  $("btn-gdrive-sync").disabled = true;
+  $("gdrive-sync-status").textContent = "Sincronizando…";
+  try {
+    const r = await req("/v1/drive/sync", { method: "POST", body: JSON.stringify({}) });
+    $("gdrive-sync-status").textContent = resumoSyncDrive(r);
+  } catch (e) {
+    $("gdrive-sync-status").textContent = e.message || "Falhou.";
+  }
+  await renderGoogleDrive();
+}
+
 /** Nav e busca das Configurações: painel por vez, busca varre todos. */
 function showSetPanel(id) {
   state.setPanel = id;
@@ -6972,6 +7277,8 @@ $("btn-settings").addEventListener("click", () => {
   void renderMemoria();
   void renderModulos();
   void renderRoteamento();
+  void renderGithub();
+  void renderGoogleDrive();
 });
 $("btn-settings-close").addEventListener("click", () => $("settings").classList.add("hidden"));
 $("settings").addEventListener("click", (e) => {
@@ -7207,6 +7514,7 @@ dialogo.ligar();
 automacaoModal.ligar();
 cloneModal.ligar();
 $("btn-clonar").addEventListener("click", () => cloneModal.abrir());
+newThreadModal.ligar();
 $("btn-tk-automacao").addEventListener("click", () => void abrirAutomacao());
 
 $("btn-palette").addEventListener("click", () => handleMod("palette"));

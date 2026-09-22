@@ -14,6 +14,8 @@ import {
 } from "./profiles.ts";
 import { HOOK_EVENT_RE } from "./hooks.ts";
 import { ensureCavemanInstalled, ensureRtkInstalled } from "./modules.ts";
+import { sincronizarDrive } from "./drive-sync.ts";
+import { googleAccount } from "./google-auth.ts";
 import { migrarProjeto } from "./projeto-dir.ts";
 import { sincronizarRepoMapResumos } from "./repo-map-auto.ts";
 import { createThread, listThreads, projetosConhecidos, readThread } from "./threads.ts";
@@ -71,6 +73,21 @@ async function cmdUp(): Promise<void> {
   const pingUso = setInterval(() => {
     void pingUsoDeTodasAsContas(home).catch((e) => console.error("ping de uso:", (e as Error).message));
   }, PING_USO_MS);
+  /*
+   * Sync com o Drive (só se a conta está conectada; a pasta "Nexo" é criada/achada sozinha): uma vez na subida e a
+   * cada 2min. `sincronizarDrive` nunca lança (erro vai no resultado) e é single-flight, então
+   * um ciclo lento não empilha o próximo.
+   */
+  const SYNC_DRIVE_MS = 2 * 60_000;
+  const syncDrive = (): void => {
+    const acc = googleAccount(home);
+    if (!acc.connected) return;
+    void sincronizarDrive(home).then((r) => {
+      if (r.erros.length) console.error(`drive: ${r.erros.length} erro(s) no sync — ${r.erros[0]}`);
+    });
+  };
+  syncDrive();
+  const timerDrive = setInterval(syncDrive, SYNC_DRIVE_MS);
   for (const f of started.falhas) {
     // túnel fora do ar é normal e ele volta sozinho; dizer o motivo evita que
     // "o celular não conecta" vire caça ao tesouro
@@ -83,6 +100,7 @@ async function cmdUp(): Promise<void> {
   // serviço é filho nosso: não sobrevive ao daemon
   const shutdown = () => {
     clearInterval(pingUso);
+    clearInterval(timerDrive);
     stopAllServices();
     // os sockets extras seguram o event loop vivo: fechar só o principal
     // deixaria o processo pendurado pra sempre

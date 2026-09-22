@@ -428,6 +428,20 @@ export type ThreadEvent =
       projectPath: string;
       title?: string;
       profileId: string;
+      /**
+       * Branch escolhida na criação da conversa, fixa pro resto dela — só existe
+       * junto de `worktreeDir` (ver worktree.ts): sem isolamento de pasta um
+       * `git checkout` mudaria a branch de TODA conversa aberta no mesmo
+       * `projectPath`, não só desta.
+       */
+      branch?: string;
+      /**
+       * Árvore de trabalho isolada desta conversa (`git worktree`), na `branch`
+       * acima. Quando presente, é aqui que o motor roda — não em `projectPath`
+       * direto. `projectPath` continua sendo a identidade do projeto (repo-map,
+       * lista de conversas); só o cwd do processo muda.
+       */
+      worktreeDir?: string;
       /** Agente personalizado que rege a conversa; vazio = conta pura. */
       agentId?: string;
       /**
@@ -664,6 +678,13 @@ export type StartOpts = {
   profileId: string;
   contextPack: string;
   agentId?: string;
+  /**
+   * Cwd de verdade do processo, quando difere de `projectPath` — conversa com
+   * branch fixa roda numa `git worktree` isolada (ver `thread_meta.worktreeDir`
+   * em threads.ts). `projectPath` continua valendo pra tudo que é identidade do
+   * projeto (repo-map, URL de MCP); só o `cwd` do spawn muda.
+   */
+  cwdOverride?: string;
   /**
    * Arquivo de config MCP pro motor de CLI (`--mcp-config`). Dois usos: o
    * supervisor em canal `mcp`, que alcança os membros do time sem sair do

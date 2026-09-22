@@ -758,8 +758,17 @@ app.whenReady().then(() => {
   });
   handle("shell:external", async (_e, raw) => {
     const url = String(raw ?? "");
-    // só https: nada de file:, javascript: ou cmd disfarçado de link
-    if (!/^https:\/\//i.test(url)) throw new Error("URL inválida");
+    let u;
+    try {
+      u = new URL(url);
+    } catch {
+      throw new Error("URL inválida");
+    }
+    // https sempre; http só em loopback — é o servidor efêmero do próprio login OAuth
+    // (RFC 8252), nunca um link de fora. Fora isso: nada de file:, javascript: ou cmd
+    // disfarçado de link.
+    const loopback = u.protocol === "http:" && ["127.0.0.1", "::1", "localhost"].includes(u.hostname);
+    if (u.protocol !== "https:" && !loopback) throw new Error("URL inválida");
     await shell.openExternal(url);
     return { ok: true };
   });

@@ -519,6 +519,9 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
       // pack como system de verdade).
       contextPack: withInstructions(agentId, meta.projectPath, packed.text, home),
       ...(agentId ? { agentId } : {}),
+      // Conversa com branch fixa roda na `git worktree` isolada, não na pasta
+      // compartilhada do projeto — só o cwd do processo muda (ver StartOpts.cwdOverride).
+      ...(meta.worktreeDir ? { cwdOverride: meta.worktreeDir } : {}),
       ...mcpDaConversa(threadId, meta, p, home),
     },
     (ev) => onEngineEvent(threadId, home, ev),
@@ -1518,7 +1521,7 @@ export async function dropThread(threadId: string, home: string): Promise<void> 
   await abortThread(threadId);
   lives.delete(threadId);
   apagarSessaoClaude(threadId, home);
-  removeThread(threadId, home);
+  await removeThread(threadId, home);
   removeThreadAttachments(threadId, home);
 }
 

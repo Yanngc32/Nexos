@@ -354,6 +354,11 @@ export function probeUrl(raw: string): Promise<ProbeResult> {
     (err as Error & { status: number }).status = 400;
     return Promise.reject(err);
   }
+  // "localhost"/"0.0.0.0" deixa a resolução de DNS do Node escolher — em algumas
+  // máquinas ela pega ::1 primeiro, e se o servidor de dev só escuta IPv4 a sonda
+  // dá ECONNREFUSED enquanto o Chrome (happy eyeballs) abre normal. Já validamos
+  // acima que é loopback, então força IPv4 direto.
+  if (parsed.hostname === "localhost" || parsed.hostname === "0.0.0.0") parsed.hostname = "127.0.0.1";
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
   return fetch(parsed.href, { method: "GET", signal: ctrl.signal, redirect: "manual" })
