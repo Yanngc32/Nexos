@@ -133,6 +133,10 @@ const state = {
   /** Grupos de run abertos na lista. Só em memória: é estado da sessão, não preferência. */
   runsOpen: new Set(),
   threadsByRepo: {},
+  /** Conversas sem projeto (chat geral) — mesmo formato de `threadsByRepo[path]`. */
+  threadsGlobais: [],
+  /** Pasta "Chat geral" aberta/fechada na árvore — mesma ideia de `reposOpen`, sem chave de path. */
+  chatGeralOpen: true,
   setPanel: "aparencia",
   fileCache: null,
   termBuf: "",
@@ -1439,12 +1443,14 @@ function setProjectLabel() {
   setChatHead();
 }
 
-/** Em que repositório está a conversa `id`, segundo o último /v1/threads. */
+/** Em que repositório está a conversa `id`, segundo o último /v1/threads. `path: null` = chat geral. */
 function threadStub(id) {
   for (const path of state.repos) {
     const t = (state.threadsByRepo[path] || []).find((x) => x.id === id);
     if (t) return { path, stub: t };
   }
+  const global = state.threadsGlobais.find((x) => x.id === id);
+  if (global) return { path: null, stub: global };
   return null;
 }
 
@@ -1457,10 +1463,11 @@ function setChatHead() {
   const th = $("crumb-thread");
   if (!repoBtn || !th) return;
   const found = state.threadId ? threadStub(state.threadId) : null;
-  const path = found?.path || state.projectPath;
-  repoBtn.textContent = path ? folderName(path) : "Sem projeto";
-  repoBtn.title = path || "Nenhum projeto aberto";
-  repoBtn.disabled = !path;
+  const ehGlobal = Boolean(found && found.path === null);
+  const path = ehGlobal ? null : found?.path || state.projectPath;
+  repoBtn.textContent = ehGlobal ? "Chat geral" : path ? folderName(path) : "Sem projeto";
+  repoBtn.title = ehGlobal ? "Conversa sem projeto" : path || "Nenhum projeto aberto";
+  repoBtn.disabled = ehGlobal || !path;
   if (!state.threadId) {
     th.textContent = "Nenhuma conversa";
     th.title = "";
@@ -2803,24 +2810,34 @@ async function loadThreads() {
     return;
   }
   const packs = {};
-  await Promise.all(
-    state.repos.map(async (path) => {
+  let globais = state.threadsGlobais;
+  await Promise.all([
+    ...state.repos.map(async (path) => {
       try {
         packs[path] = await req(`/v1/threads?projectPath=${encodeURIComponent(path)}`);
       } catch {
         packs[path] = state.threadsByRepo[path] || [];
       }
     }),
-  );
+    (async () => {
+      try {
+        globais = await req("/v1/threads");
+      } catch {
+        // mantém a última lista conhecida
+      }
+    })(),
+  ]);
   const fp = JSON.stringify({
     repos: state.repos,
     packs,
+    globais,
     open: [...state.reposOpen].sort(),
     active: state.projectPath,
   });
   if (fp === state.fpThreads) return;
   state.fpThreads = fp;
   state.threadsByRepo = packs;
+  state.threadsGlobais = globais;
   renderRepoTree();
 }
 
@@ -2982,12 +2999,134 @@ function menuDaConversa(e, path, t) {
   ]);
 }
 
+/** Abre uma conversa do chat geral — sem `bindProject`, porque ela não pertence a repo nenhum. */
+async function openThreadInGlobal(id) {
+  await openThread(id);
+}
+
+/** Cria conversa sem projeto (chat geral). Mesmo formulário de sempre, só que sem `projectPath`. */
+async function criarConversaGeral() {
+  if (!state.ok) return;
+  const profileId = state.profileId || state.profiles.find((p) => p.status === "ready")?.id;
+  if (!profileId) {
+    appendEvent({ type: "error", message: "Nenhuma conta pronta. Configurações → Nova conta." });
+    state.sideChat = true;
+    applyWorkLayout();
+    setComposer(true);
+    return;
+  }
+  await newThreadModal.abrir({ profileId });
+}
+
+/** Botão direito numa conversa do chat geral. */
+function menuDaConversaGeral(e, t) {
+  menuContexto.abrir(e, [
+    { titulo: clip(t.preview || "Conversa nova", 40) },
+    { rotulo: "Abrir conversa", ico: "▸", onSelect: () => void openThreadInGlobal(t.id) },
+    { rotulo: "Nova conversa no chat geral", ico: "+", onSelect: () => void criarConversaGeral() },
+    { rotulo: "Copiar ID", ico: "⧉", onSelect: () => void copiarTexto(t.id, "ID da conversa") },
+    { separador: true },
+    { rotulo: "Apagar conversa", ico: "×", perigo: true, onSelect: () => void deleteThread(t.id) },
+  ]);
+}
+
+/**
+ * Seção "Chat geral" no topo da árvore: mesma forma visual de um repositório, mas sem git,
+ * kanban ou repo map — conversa sem projeto não tem nenhum dos três (ver session.ts).
+ */
+function montarSecaoChatGeral() {
+  const det = document.createElement("details");
+  det.className = "repo";
+  det.open = state.chatGeralOpen;
+  det.dataset.on = state.threadId && threadStub(state.threadId)?.path === null ? "1" : "0";
+  const sum = document.createElement("summary");
+  const ico = document.createElement("span");
+  ico.className = "repo-ico";
+  ico.innerHTML = REPO_ICO_HTML;
+  const name = document.createElement("span");
+  name.className = "repo-name";
+  name.textContent = "Chat geral";
+  name.title = "Conversas sem projeto";
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "ghost repo-add";
+  add.title = "Nova conversa no chat geral";
+  add.setAttribute("aria-label", "Nova conversa no chat geral");
+  add.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14" /></svg>';
+  add.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    void criarConversaGeral();
+  });
+  sum.append(ico, name, add);
+  det.addEventListener("toggle", () => {
+    state.chatGeralOpen = det.open;
+  });
+  const ul = document.createElement("ul");
+  const list = state.threadsGlobais;
+  const count = document.createElement("span");
+  count.className = "repo-count";
+  count.textContent = String(list.length);
+  count.title = list.length === 1 ? "1 conversa sem projeto" : `${list.length} conversas sem projeto`;
+  sum.insertBefore(count, add);
+  if (!list.length) {
+    const empty = document.createElement("li");
+    empty.className = "repo-empty";
+    empty.textContent = "Nenhuma conversa";
+    ul.append(empty);
+  }
+  if (list.some(isBusy)) {
+    det.dataset.busy = "1";
+    const dot = document.createElement("span");
+    dot.className = "run-dot";
+    dot.title = "Agente trabalhando no chat geral";
+    sum.insertBefore(dot, add);
+  }
+  for (const t of list) {
+    const li = document.createElement("li");
+    li.dataset.threadId = t.id;
+    li.dataset.on = t.id === state.threadId ? "1" : "0";
+    const busy = isBusy(t);
+    li.dataset.busy = busy ? "1" : "0";
+    const title = document.createElement("span");
+    title.className = "stub-title";
+    title.textContent = t.preview || "Conversa nova";
+    li.title = t.preview || "Conversa nova";
+    const meta = document.createElement("span");
+    meta.className = "stub-meta";
+    meta.textContent = busy ? "" : ago(t.updatedAt);
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "ghost thread-del";
+    del.title = "Apagar conversa";
+    del.innerHTML = ICO_X_HTML;
+    del.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void deleteThread(t.id);
+    });
+    li.append(title, meta, del);
+    if (busy) {
+      const dot = document.createElement("span");
+      dot.className = "run-dot";
+      dot.title = "Agente trabalhando nesta conversa";
+      li.prepend(dot);
+    }
+    li.addEventListener("click", () => void openThreadInGlobal(t.id));
+    li.addEventListener("contextmenu", (e) => menuDaConversaGeral(e, t));
+    ul.append(li);
+  }
+  det.append(sum, ul);
+  return det;
+}
+
 function renderRepoTree() {
   const tree = $("repo-tree");
   if (!tree) return;
   tree.replaceChildren();
   $("threads-empty").classList.toggle("hidden", state.repos.length > 0);
   updateChatEmptyState();
+  if (state.threadsGlobais.length || state.chatGeralOpen) tree.append(montarSecaoChatGeral());
   for (const path of state.repos) {
     const det = document.createElement("details");
     det.className = "repo";

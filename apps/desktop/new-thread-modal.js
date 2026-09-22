@@ -79,10 +79,10 @@ export function createNewThreadModal({ el, req, aoCriar }) {
       const t = await req("/v1/threads", {
         method: "POST",
         body: JSON.stringify({
-          projectPath: ctx.projectPath,
+          ...(ctx.projectPath ? { projectPath: ctx.projectPath } : {}),
           ...(ctx.profileId ? { profileId: ctx.profileId } : {}),
           ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
-          ...(escolhida && escolhida !== branchAtual ? { branch: escolhida } : {}),
+          ...(ctx.projectPath && escolhida && escolhida !== branchAtual ? { branch: escolhida } : {}),
         }),
       });
       fechar();
@@ -94,7 +94,7 @@ export function createNewThreadModal({ el, req, aoCriar }) {
     }
   }
 
-  /** `abrirCtx`: `{ projectPath, profileId?, agentId? }`. */
+  /** `abrirCtx`: `{ projectPath?, profileId?, agentId? }` — sem `projectPath`, cria no chat geral. */
   async function abrir(abrirCtx) {
     ctx = abrirCtx;
     erro("");
@@ -102,7 +102,8 @@ export function createNewThreadModal({ el, req, aoCriar }) {
     fecharDropdown();
     el("nt-branch-field")?.classList.add("hidden");
     el("new-thread-modal").classList.remove("hidden");
-    await carregarBranches(abrirCtx.projectPath);
+    if (abrirCtx.projectPath) await carregarBranches(abrirCtx.projectPath);
+    else branchAtual = "";
   }
 
   function fechar() {

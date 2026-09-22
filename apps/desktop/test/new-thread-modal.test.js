@@ -119,6 +119,24 @@ describe("carrega branches ao abrir", () => {
   });
 });
 
+describe("sem projeto (chat geral)", () => {
+  it("abre sem carregar branches e cria sem projectPath nem branch no corpo", async () => {
+    const req = vi.fn(async (path) => {
+      if (path.startsWith("/v1/git/branches")) throw new Error("não deveria consultar branches sem projeto");
+      return { id: "tg1" };
+    });
+    const { modal, $, aoCriar } = montar({ req });
+    await modal.abrir({ profileId: "p1" });
+    expect($("nt-branch-field").classList.contains("hidden")).toBe(true);
+
+    $("btn-nt-criar").click();
+    await vi.waitFor(() => expect(aoCriar).toHaveBeenCalled());
+    const [, opts] = req.mock.calls.find(([p]) => p === "/v1/threads");
+    expect(JSON.parse(opts.body)).toEqual({ profileId: "p1" });
+    expect(aoCriar).toHaveBeenCalledWith("tg1");
+  });
+});
+
 describe("abrir/fechar", () => {
   it("fechar não deixa ctx velho vazar pra próxima abertura", async () => {
     const req = vi.fn(async (path) => {
