@@ -3004,6 +3004,42 @@ async function openThreadInGlobal(id) {
   await openThread(id);
 }
 
+/**
+ * Importa um .zip de export de outra ferramenta (hoje: Data export do Claude.ai) pro chat
+ * geral — cada conversa do zip vira uma thread própria, sem projeto. Ver POST /v1/import/zip.
+ */
+async function importarZipGeral() {
+  if (!state.ok) return;
+  const profileId = state.profileId || state.profiles.find((p) => p.status === "ready")?.id;
+  if (!profileId) {
+    appendEvent({ type: "error", message: "Nenhuma conta pronta. Configurações → Nova conta." });
+    return;
+  }
+  let arquivo;
+  try {
+    arquivo = await window.nexo.pickZipBase64();
+  } catch (e) {
+    return dialogo.avisar(`Não deu pra escolher o arquivo: ${e.message}`);
+  }
+  if (!arquivo) return; // cancelou o seletor
+  try {
+    const r = await req("/v1/import/zip", {
+      method: "POST",
+      body: JSON.stringify({ zip: arquivo.base64, profileId }),
+    });
+    state.fpThreads = "";
+    await loadThreads();
+    const avisos = r.avisos?.length ? ` (${r.avisos.length} aviso(s))` : "";
+    await dialogo.avisar(
+      r.threadsCriadas
+        ? `${arquivo.name}: ${r.threadsCriadas} conversa(s) importada(s)${avisos}.`
+        : `${arquivo.name}: nenhuma conversa importada${avisos}.`,
+    );
+  } catch (e) {
+    await dialogo.avisar(`Importar: ${e.message}`);
+  }
+}
+
 /** Cria conversa sem projeto (chat geral). Mesmo formulário de sempre, só que sem `projectPath`. */
 async function criarConversaGeral() {
   if (!state.ok) return;
@@ -3024,6 +3060,7 @@ function menuDaConversaGeral(e, t) {
     { titulo: clip(t.preview || "Conversa nova", 40) },
     { rotulo: "Abrir conversa", ico: "▸", onSelect: () => void openThreadInGlobal(t.id) },
     { rotulo: "Nova conversa no chat geral", ico: "+", onSelect: () => void criarConversaGeral() },
+    { rotulo: "Importar zip (Claude.ai export)…", ico: "⇧", onSelect: () => void importarZipGeral() },
     { rotulo: "Copiar ID", ico: "⧉", onSelect: () => void copiarTexto(t.id, "ID da conversa") },
     { separador: true },
     { rotulo: "Apagar conversa", ico: "×", perigo: true, onSelect: () => void deleteThread(t.id) },
@@ -3059,7 +3096,26 @@ function montarSecaoChatGeral() {
     e.stopPropagation();
     void criarConversaGeral();
   });
-  sum.append(ico, name, add);
+  const importar = document.createElement("button");
+  importar.type = "button";
+  importar.className = "ghost repo-add";
+  importar.title = "Importar zip (Claude.ai export)";
+  importar.setAttribute("aria-label", "Importar zip");
+  importar.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3v12M7 8l5-5 5 5M5 21h14" /></svg>';
+  importar.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    void importarZipGeral();
+  });
+  sum.append(ico, name, importar, add);
+  sum.addEventListener("contextmenu", (e) => {
+    menuContexto.abrir(e, [
+      { titulo: "Chat geral" },
+      { rotulo: "Nova conversa", ico: "+", onSelect: () => void criarConversaGeral() },
+      { rotulo: "Importar zip (Claude.ai export)…", ico: "⇧", onSelect: () => void importarZipGeral() },
+    ]);
+  });
   det.addEventListener("toggle", () => {
     state.chatGeralOpen = det.open;
   });

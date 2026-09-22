@@ -803,6 +803,19 @@ app.whenReady().then(() => {
     writeFileSync(r.filePath, content, "utf8");
     return { ok: true, path: r.filePath };
   });
+  /**
+   * Escolhe um .zip (export de outra ferramenta, ver POST /v1/import/zip) e devolve o
+   * conteúdo já em base64 — o body de fetch é só JSON, sem multipart nesta API.
+   */
+  handle("file:pickZipBase64", async () => {
+    const r = await dialog.showOpenDialog(win, {
+      properties: ["openFile"],
+      filters: [{ name: "Zip", extensions: ["zip"] }],
+    });
+    if (r.canceled || !r.filePaths[0]) return null;
+    const buf = await readFile(r.filePaths[0]);
+    return { name: r.filePaths[0].split(sep).pop(), base64: buf.toString("base64") };
+  });
   handle("fs:list", async (_e, rel = ".") => {
     const dir = boundPath(rel);
     const st = await stat(dir);
