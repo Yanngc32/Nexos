@@ -25,6 +25,7 @@ import { syncRtkHook } from "../modules.ts";
 import { isNodeScript, spawnBin } from "../spawn-bin.ts";
 import { ENV_TOKEN_MCP, flagsDeMcpCodex, MCP_TOOLS } from "../mcp.ts";
 import { sessaoIdValido } from "../claude-session.ts";
+import { pastaDoAtivo } from "../design-system.ts";
 import { parseCliLine } from "./parse-claude.ts";
 import { parseCodexLine } from "./parse-codex.ts";
 
@@ -185,6 +186,7 @@ export class CliEngine implements Engine {
   private readonly parse: (linha: string) => EngineEvent[];
   private args: string[];
   private threadId = "";
+  private projectPath?: string;
   private agentId?: string;
   private mcpConfig?: string;
   private mcpTools?: string[];
@@ -215,6 +217,7 @@ export class CliEngine implements Engine {
     const profile = getProfile(this.profileId, this.home);
     if (!profile) throw new Error("perfil não existe");
     this.threadId = opts.threadId;
+    this.projectPath = opts.projectPath;
     this.agentId = opts.agentId;
     this.mcpConfig = opts.mcpConfig;
     this.mcpTools = opts.mcpTools;
@@ -348,7 +351,12 @@ export class CliEngine implements Engine {
     // a pasta só nasce quando a primeira imagem é salva; --add-dir em pasta que
     // não existe é recusado pelo CLI
     mkdirSync(dir, { recursive: true });
-    return ["--add-dir", dir];
+    const flags = ["--add-dir", dir];
+    // Design system do projeto mora na pasta do projeto NO NEXOS, fora do repo (design-system.ts):
+    // sem liberar, o agente lê o caminho no pack mas não consegue abrir nem editar os cards
+    const ds = this.projectPath ? pastaDoAtivo(this.projectPath, this.home) : null;
+    if (ds && existsSync(ds)) flags.push("--add-dir", ds);
+    return flags;
   }
 
   async send(text: string): Promise<void> {

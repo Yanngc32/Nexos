@@ -7316,3 +7316,37 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
 .ds-ctl-acoes .ag-err { flex-basis: 100%; }
 .ds-versao { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); padding: var(--s-3) 0; border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
 .ds-versao:last-child { border-bottom: 0; }
+
+/* --- Design System · Fase 5: ferramentas (conformidade, ressincronizar, exportar) --- */
+.ds-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--s-2));
+  z-index: 20;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--s-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-3);
+}
+.ds-menu.hidden { display: none; }
+.ds-menu button { text-align: left; padding: var(--s-3) var(--s-4); border: 0; border-radius: var(--r-md); background: none; color: var(--text); font-size: var(--fs-sm); cursor: pointer; }
+.ds-menu button:hover { background: var(--surface-3); }
+.ds-conf-resumo { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s-2); }
+.ds-conf-num { display: flex; flex-direction: column; gap: 2px; padding: var(--s-3); border: 1px solid var(--line-2); border-radius: var(--r-md); font-size: var(--fs-xs); color: var(--muted); }
+.ds-conf-num strong { font-size: var(--fs-2xl); color: var(--text); }
+.ds-conf-num[data-tipo="exato"] strong { color: var(--ok); }
+.ds-conf-num[data-tipo="perto"] strong { color: var(--warn); }
+.ds-conf-num[data-tipo="fora"] strong { color: var(--danger); }
+.ds-conf-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.ds-conf-lista li { display: flex; align-items: center; gap: var(--s-3); padding: 3px 0; font-size: var(--fs-xs); }
+.ds-conf-cor { flex: 0 0 14px; height: 14px; border-radius: 3px; border: 1px solid var(--line-3); }
+.ds-conf-onde { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); color: var(--muted); }
+.ds-conf-sug { font-family: var(--font-mono); color: var(--text); white-space: nowrap; }
+.ds-conf-lista li[data-tipo="fora"] .ds-conf-sug { color: var(--faint); }
+.ds-sync-tit { margin: var(--s-3) 0 0; font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
+.ds-exp-formatos { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.ds-exp-saida { width: 100%; min-height: 260px; resize: vertical; font: var(--fs-xs) / 1.5 var(--font-mono); white-space: pre; }

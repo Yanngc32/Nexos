@@ -5164,6 +5164,17 @@ const dsCanvas = createDsCanvas({
   getProfiles: () => state.profiles,
   getProfileId: () => state.profileId,
   aoAbrirConversa: (threadId) => void openThread(threadId),
+  // conformidade: o pedido vai pro campo do chat, sem mandar — a pessoa revisa antes
+  aoPedirNoChat: (texto) => {
+    if (!state.sideChat) {
+      state.sideChat = true;
+      applyWorkLayout();
+    }
+    const input = $("input");
+    input.value = texto;
+    input.dispatchEvent(new Event("input"));
+    input.focus();
+  },
 });
 
 /** Texto da mensagem automática recolhida: pra quem o Nexos está passando o contexto. */

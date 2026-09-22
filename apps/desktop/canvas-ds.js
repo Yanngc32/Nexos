@@ -421,6 +421,8 @@ export function createDsCanvas({
   getProfiles = () => [],
   getProfileId = () => "",
   aoAbrirConversa = () => {},
+  /** Põe um pedido pronto no campo do chat (sem mandar): "corrigir cores soltas" da conformidade. */
+  aoPedirNoChat = () => {},
   doc = document,
   win = window,
 }) {
@@ -594,7 +596,8 @@ export function createDsCanvas({
       for (const v of anterior.vars) if (!pendentes.has(v.caminho)) overrides.delete(v.nome);
     }
     pintarBoard(ds, { animar: animar && animacaoLigada(), mudadas });
-    if (editando) pintarPainel();
+    // ferramenta (conformidade etc.) não refaz a varredura a cada recarga do board
+    if (editando && editando !== FERRAMENTA) pintarPainel();
     if (!ajustouUmaVez) {
       ajustouUmaVez = true;
       requestAnimationFrame(() => ajustar());
@@ -1183,6 +1186,7 @@ export function createDsCanvas({
   }
 
   function pintarPainel() {
+    if (editando === FERRAMENTA) return pintarFerramenta();
     const card = cardPorId(editando);
     if (!card) {
       fecharPainel();
@@ -1405,6 +1409,10 @@ export function createDsCanvas({
     }
     el("ds-painel-fechar").addEventListener("click", fecharPainel);
     el("ds-btn-gerar").addEventListener("click", () => void mostrarGerar());
+    el("ds-btn-ferramentas").addEventListener("click", () => el("ds-ferramentas").classList.toggle("hidden"));
+    for (const b of el("ds-ferramentas").querySelectorAll("[data-ferramenta]")) {
+      b.addEventListener("click", () => abrirFerramenta(b.dataset.ferramenta));
+    }
     el("ds-gerar-fechar").addEventListener("click", () => el("ds-gerar").classList.add("hidden"));
     el("ds-gerar-ir").addEventListener("click", () => void gerar());
     el("ds-gerar-form").addEventListener("change", pintarEstimativa);
@@ -1418,6 +1426,225 @@ export function createDsCanvas({
       progressoDispensado = geracao?.id || "";
     });
 
+  }
+
+  /* ---------- ferramentas: conformidade, ressincronizar, exportar (Fase 5) ---------- */
+
+  const FERRAMENTA = "__ferramenta";
+  let ferramenta = "";
+
+  function abrirFerramenta(qual) {
+    el("ds-ferramentas").classList.add("hidden");
+    sairDaSelecao();
+    descartarControles();
+    for (const f of frames.values()) f.cartao.classList.remove("editando");
+    editando = FERRAMENTA;
+    ferramenta = qual;
+    el("ds-painel").classList.remove("hidden");
+    pintarPainel();
+  }
+
+  function pintarFerramenta() {
+    const titulos = { conformidade: "Conformidade do código", ressincronizar: "Ressincronizar com o código", exportar: "Exportar tokens" };
+    el("ds-painel-tit").textContent = titulos[ferramenta] || "";
+    el("ds-painel-abas").replaceChildren();
+    const corpo = el("ds-painel-corpo");
+    corpo.innerHTML = `<p class="ds-painel-vazio">Carregando…</p>`;
+    if (ferramenta === "conformidade") void pintarConformidade(corpo);
+    else if (ferramenta === "ressincronizar") void pintarRessincronia(corpo);
+    else pintarExportar(corpo);
+  }
+
+  function linhaTexto(classe, texto) {
+    const p = doc.createElement("p");
+    p.className = classe;
+    p.textContent = texto;
+    return p;
+  }
+
+  async function pintarConformidade(corpo) {
+    let r;
+    try {
+      r = await req(`/v1/ds/conformidade?${qs()}`);
+    } catch (e) {
+      corpo.replaceChildren(linhaTexto("ag-err", e.message));
+      return;
+    }
+    if (editando !== FERRAMENTA || ferramenta !== "conformidade") return;
+    corpo.replaceChildren();
+    corpo.append(
+      linhaTexto(
+        "ds-painel-vazio",
+        r.total
+          ? `${r.total} cor${r.total > 1 ? "es" : ""} solta${r.total > 1 ? "s" : ""} em ${r.porArquivo.length} arquivo(s) de ${r.arquivosLidos} lidos. ${r.exatos} já têm token igual, ${r.perto} ficam perto de um token, ${r.foraDaPaleta} estão fora da paleta.`
+          : `Nenhuma cor solta nos ${r.arquivosLidos} arquivos de front lidos.`,
+      ),
+    );
+    if (!r.total) return;
+    const resumo = doc.createElement("div");
+    resumo.className = "ds-conf-resumo";
+    for (const [rotulo, n, tipo] of [["trocar pelo token", r.exatos, "exato"], ["quase um token", r.perto, "perto"], ["fora da paleta", r.foraDaPaleta, "fora"]]) {
+      const b = doc.createElement("span");
+      b.className = "ds-conf-num";
+      b.dataset.tipo = tipo;
+      b.innerHTML = `<strong></strong><span></span>`;
+      b.querySelector("strong").textContent = String(n);
+      b.querySelector("span").textContent = rotulo;
+      resumo.append(b);
+    }
+    corpo.append(resumo);
+    const lista = doc.createElement("ol");
+    lista.className = "ds-conf-lista";
+    for (const a of r.achados.slice(0, 80)) {
+      const li = doc.createElement("li");
+      const tipo = a.exato ? "exato" : a.sugestao && a.sugestao.distancia <= 40 ? "perto" : "fora";
+      li.dataset.tipo = tipo;
+      li.innerHTML = `<span class="ds-conf-cor"></span><code class="ds-conf-onde"></code><span class="ds-conf-sug"></span>`;
+      li.querySelector(".ds-conf-cor").style.background = a.valor;
+      li.querySelector(".ds-conf-onde").textContent = `${a.arquivo}:${a.linha} ${a.valor}`;
+      li.querySelector(".ds-conf-sug").textContent = a.exato
+        ? `→ var(${a.exato})`
+        : a.sugestao
+          ? `≈ var(${a.sugestao.token})${tipo === "fora" ? " (longe)" : ""}`
+          : "";
+      lista.append(li);
+    }
+    corpo.append(lista);
+    if (r.achados.length > 80) corpo.append(linhaTexto("ds-painel-vazio", `… e mais ${r.achados.length - 80}.`));
+    const botao = doc.createElement("button");
+    botao.type = "button";
+    botao.className = "primary";
+    botao.textContent = "Pedir a correção no chat";
+    botao.title = "Monta o pedido no campo do chat — você revisa e manda";
+    botao.addEventListener("click", () => {
+      const itens = r.achados
+        .filter((a) => a.exato || (a.sugestao && a.sugestao.distancia <= 40))
+        .slice(0, 40)
+        .map((a) => `- ${a.arquivo}:${a.linha} ${a.valor} → var(${a.exato || a.sugestao.token})`);
+      const fora = r.achados.filter((a) => !a.exato && (!a.sugestao || a.sugestao.distancia > 40)).length;
+      aoPedirNoChat(
+        `Troque as cores soltas do front por tokens do design system "${estado.ds?.nome ?? ""}":\n${itens.join("\n")}` +
+          (fora ? `\n\nOutras ${fora} cores estão fora da paleta: me diga quais viram token novo (em tokens.json) e quais trocam por um token existente.` : ""),
+      );
+    });
+    corpo.append(botao);
+  }
+
+  async function pintarRessincronia(corpo) {
+    let r;
+    try {
+      r = await req(`/v1/ds/ressincronizar?${qs()}`);
+    } catch (e) {
+      corpo.replaceChildren(linhaTexto("ag-err", e.message));
+      return;
+    }
+    if (editando !== FERRAMENTA || ferramenta !== "ressincronizar") return;
+    corpo.replaceChildren();
+    const secao = (titulo, itens, pintarItem, vazio) => {
+      corpo.append(linhaTexto("ds-sync-tit", titulo));
+      if (!itens.length) {
+        corpo.append(linhaTexto("ds-painel-vazio", vazio));
+        return;
+      }
+      const ul = doc.createElement("ul");
+      ul.className = "ds-conf-lista";
+      for (const it of itens) ul.append(pintarItem(it));
+      corpo.append(ul);
+    };
+    const itemCor = (hex, texto) => {
+      const li = doc.createElement("li");
+      li.innerHTML = `<span class="ds-conf-cor"></span><code class="ds-conf-onde"></code>`;
+      li.querySelector(".ds-conf-cor").style.background = hex;
+      li.querySelector(".ds-conf-onde").textContent = texto;
+      return li;
+    };
+    secao(
+      "Cores que o código usa e o DS não tem",
+      r.coresNovas,
+      (c) => itemCor(c.hex, `${c.hex} · ${c.usos} usos${c.maisPerto ? ` · mais perto: ${c.maisPerto.token}` : ""}`),
+      "Nenhuma: toda cor frequente do código está coberta por um token.",
+    );
+    secao(
+      "Fontes do código fora do DS",
+      r.fontesNovas,
+      (f) => itemCor("transparent", `${f.familia} · ${f.usos} usos`),
+      "Nenhuma.",
+    );
+    secao(
+      "Tokens de cor que o código não usa",
+      r.coresSemUso,
+      (c) => itemCor(c.hex, `${c.token} ${c.hex}`),
+      "Todos aparecem no código.",
+    );
+    if (r.coresNovas.length || r.fontesNovas.length) {
+      const b = doc.createElement("button");
+      b.type = "button";
+      b.className = "primary";
+      b.textContent = "Atualizar tokens com IA";
+      b.title = "Abre o Gerar com IA só com 'tokens e regras', lendo o código de novo";
+      b.addEventListener("click", async () => {
+        fecharPainel();
+        await mostrarGerar();
+        for (const i of el("ds-gerar-secoes").querySelectorAll("input")) i.checked = false;
+        el("ds-gerar-tokens").checked = true;
+        el("ds-gerar-codigo").checked = true;
+        pintarEstimativa();
+      });
+      corpo.append(b);
+    }
+  }
+
+  function pintarExportar(corpo) {
+    corpo.replaceChildren(linhaTexto("ds-painel-vazio", "Os tokens no formato que o projeto usa. Copie pro código ou baixe o arquivo."));
+    const escolha = doc.createElement("div");
+    escolha.className = "ds-exp-formatos";
+    const saida = doc.createElement("textarea");
+    saida.className = "ds-exp-saida";
+    saida.readOnly = true;
+    saida.spellcheck = false;
+    const acoes = doc.createElement("div");
+    acoes.className = "ds-ctl-acoes";
+    acoes.innerHTML = `<button type="button" class="ghost" data-a="copiar" disabled>Copiar</button><button type="button" class="primary" data-a="baixar" disabled>Baixar</button>`;
+    let atual = null;
+    for (const [id, rotulo] of [["css", "CSS vars"], ["tailwind4", "Tailwind v4"], ["tailwind3", "Tailwind v3"], ["dtcg", "tokens.json"]]) {
+      const b = doc.createElement("button");
+      b.type = "button";
+      b.className = "ax-tab";
+      b.textContent = rotulo;
+      b.addEventListener("click", async () => {
+        for (const x of escolha.children) x.dataset.on = x === b ? "1" : "0";
+        try {
+          atual = await req(`/v1/ds/exportar?${qs()}&formato=${id}`);
+          saida.value = atual.texto;
+          for (const x of acoes.querySelectorAll("button")) x.disabled = false;
+        } catch (e) {
+          saida.value = e.message;
+        }
+      });
+      escolha.append(b);
+    }
+    acoes.querySelector('[data-a="copiar"]').addEventListener("click", async () => {
+      if (!atual) return;
+      try {
+        await win.navigator.clipboard.writeText(atual.texto);
+        acoes.querySelector('[data-a="copiar"]').textContent = "Copiado";
+      } catch {
+        saida.select();
+      }
+    });
+    acoes.querySelector('[data-a="baixar"]').addEventListener("click", () => {
+      if (!atual) return;
+      const url = URL.createObjectURL(new Blob([atual.texto], { type: atual.mime }));
+      const a = doc.createElement("a");
+      a.href = url;
+      a.download = atual.nome;
+      doc.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+    corpo.append(escolha, saida, acoes);
+    escolha.firstElementChild.click();
   }
 
   /* ---------- painel: abas ---------- */

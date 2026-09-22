@@ -141,6 +141,7 @@ import {
   salvarTokens,
 } from "./design-system.ts";
 import { assinarDs } from "./ds-watch.ts";
+import { conformidade, exportar, ressincronizar, type FormatoExport } from "./ds-sync.ts";
 import { logoDoProjeto } from "./project-logo.ts";
 import {
   cancelarGeracao,
@@ -1188,6 +1189,42 @@ export function createApp(home: string, token: string): Hono {
     const projectPath = c.req.query("projectPath") || "";
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
     return c.json({ geracao: await cancelarGeracao(projectPath, motorPadrao(home)) });
+  });
+
+  /* Fase 5: DS ↔ código */
+
+  /** Cor solta no front do projeto e qual token usar. Determinístico, sem LLM. */
+  app.get("/v1/ds/conformidade", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      return c.json(conformidade(projectPath, home));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  /** O que o código usa e o DS não tem (e o contrário). */
+  app.get("/v1/ds/ressincronizar", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      return c.json(ressincronizar(projectPath, home));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  app.get("/v1/ds/exportar", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    const formato = c.req.query("formato") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    if (!["css", "tailwind4", "tailwind3", "dtcg"].includes(formato)) return c.json({ error: "formato: css, tailwind4, tailwind3 ou dtcg" }, 400);
+    try {
+      return c.json(exportar(projectPath, home, formato as FormatoExport));
+    } catch (e) {
+      return dsErro(c, e);
+    }
   });
 
   /* Fase 4: versões, variantes, controles e feedback por card */

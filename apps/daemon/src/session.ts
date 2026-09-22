@@ -257,6 +257,7 @@ export function agentSnapshots(): AgentSnapshot[] {
 
 export { sessionBus } from "./bus.ts";
 import { sessionBus } from "./bus.ts";
+import { blocoDoDsParaPack } from "./ds-sync.ts";
 
 function emit(threadId: string, ev: SessionEvent): void {
   sessionBus.emit(threadId, ev);
@@ -328,7 +329,13 @@ export function engineKindOf(profileId: string, home: string): EngineKind {
  * atualizar o `MEMORIA.md` valem já na próxima mensagem, sem precisar trocar
  * de conta nem `/clear`.
  */
-function withInstructions(agentId: string | undefined, projectPath: string | undefined, packText: string, home: string): string {
+function withInstructions(
+  agentId: string | undefined,
+  projectPath: string | undefined,
+  packText: string,
+  home: string,
+  opts: { incluirDs?: boolean } = {},
+): string {
   const def = agentId ? getAgent(agentId, home) : undefined;
   const instrucoes = def?.instructions?.trim();
   const memoria = (projectPath ? readMemoria(projectPath, home) : readMemoriaGlobal(home)).trim();
@@ -380,6 +387,12 @@ function withInstructions(agentId: string | undefined, projectPath: string | und
         "Enquanto trabalha, vá atualizando o card da vez (checklist, comentário, coluna). Ao concluir " +
         "um pedido, mova o card dele pra coluna final e só então passe pro próximo.",
     );
+  }
+  // Design system ativo do projeto (Fase 5): é isto que faz o agente usar os tokens ao mexer no
+  // front. Fora das conversas de trabalho do próprio DS, que já recebem tudo no pedido delas.
+  if (projectPath && opts.incluirDs !== false) {
+    const ds = blocoDoDsParaPack(projectPath, home);
+    if (ds) blocos.push(ds);
   }
   if (instrucoes) blocos.push(`# Agente: ${def?.name ?? agentId}\n${instrucoes}`);
   if (memoria) blocos.push(`# Memória ${projectPath ? "do projeto" : "geral"}\n${memoria}`);
@@ -496,7 +509,7 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
 
   const existing = lives.get(threadId);
   if (existing && existing.profileId === p.id && existing.agentId === agentId) {
-    existing.engine.updatePack(withInstructions(agentId, meta.projectPath, packed.text, home));
+    existing.engine.updatePack(withInstructions(agentId, meta.projectPath, packed.text, home, { incluirDs: !(meta.oculta || meta.semRoteamento) }));
     // Mesma razão do updatePack: sem isto, mudar `delegacaoModo`/`allowedTools` só valeria depois
     // de um engine NOVO (troca de conta, /clear, reiniciar o motor) — aqui vale já no próximo envio.
     existing.engine.updateMcp(mcpDaConversa(threadId, meta, p, home));
@@ -527,7 +540,7 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
       // As instruções do agente e a memória do projeto abrem o pack: é o mais
       // perto de "system prompt" que o motor de CLI aceita (o `api` usa o
       // pack como system de verdade).
-      contextPack: withInstructions(agentId, meta.projectPath, packed.text, home),
+      contextPack: withInstructions(agentId, meta.projectPath, packed.text, home, { incluirDs: !(meta.oculta || meta.semRoteamento) }),
       ...(agentId ? { agentId } : {}),
       // Conversa com branch fixa roda na `git worktree` isolada, não na pasta
       // compartilhada do projeto — só o cwd do processo muda (ver StartOpts.cwdOverride).
