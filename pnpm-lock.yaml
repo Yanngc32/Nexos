@@ -31,6 +31,9 @@ importers:
       tree-sitter-wasms:
         specifier: 0.1.13
         version: 0.1.13
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.13
       web-tree-sitter:
         specifier: 0.25.9
         version: 0.25.9
@@ -41,9 +44,6 @@ importers:
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.1
-      tsx:
-        specifier: ^4.19.2
-        version: 4.23.13
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

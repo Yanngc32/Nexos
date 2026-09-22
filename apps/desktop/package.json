@@ -8,8 +8,9 @@
   "scripts": {
     "dev": "electron .",
     "test": "vitest run",
-    "build": "electron-builder --win",
-    "build:publish": "electron-builder --win --publish always"
+    "deploy:daemon": "pnpm --filter @nexo/daemon deploy --prod ./daemon-dist",
+    "build": "pnpm run deploy:daemon && electron-builder --win",
+    "build:publish": "pnpm run deploy:daemon && electron-builder --win --publish always"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",

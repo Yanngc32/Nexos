@@ -9,10 +9,18 @@ files:
   - "**/*"
   - "!test/**"
   - "!dist/**"
+  - "!daemon-dist/**"
   - "!**/*.test.js"
-# Empacotar o daemon (apps/daemon) junto do exe é o Ticket E (Onda 2) — precisa resolver como o
-# pnpm workspace hoisted/symlinked vira `extraResources` de verdade primeiro. Por ora este ticket
-# só entrega "comando gera .exe sem erro" pro desktop sozinho (critério de aceite do PM #1).
+# O daemon roda como processo filho do main, no PRÓPRIO binário do Electron em modo Node
+# (ELECTRON_RUN_AS_NODE — ver spawnNexo em main.cjs), então não depende de Node instalado na
+# máquina de quem instala. `daemon-dist` é gerado por `pnpm run deploy:daemon` (script `predeploy`
+# do `build`/`build:publish`): `pnpm deploy` resolve `@nexo/shared` (workspace:*) pra uma cópia de
+# verdade dentro do próprio `node_modules` do deploy, em vez do symlink pro monorepo que não
+# existe na máquina de quem instala. `tsx` é dependency (não devDependency) do daemon por isso —
+# precisa ir junto do `--prod` do deploy pra interpretar o TypeScript em runtime.
+extraResources:
+  - from: daemon-dist
+    to: daemon
 win:
   target: nsis
   icon: icons/app.png

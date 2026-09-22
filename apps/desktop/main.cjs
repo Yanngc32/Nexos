@@ -56,8 +56,14 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 const here = __dirname;
-const daemonRoot = join(here, "../daemon");
-const repoRoot = resolve(daemonRoot, "..", "..");
+/**
+ * Em dev, o daemon é a pasta do monorepo (`apps/daemon`), com `@nexo/shared` linkado pelo pnpm
+ * workspace. Empacotado, essa pasta não existe na máquina de quem instala — o daemon vira
+ * `daemon-dist` (gerado por `pnpm run deploy:daemon`, ver electron-builder.yml) e vai junto do
+ * `.exe` como `extraResources`, com `@nexo/shared` já copiado de verdade pra dentro dele.
+ */
+const daemonRoot = app.isPackaged ? join(process.resourcesPath, "daemon") : join(here, "../daemon");
+const repoRoot = app.isPackaged ? daemonRoot : resolve(daemonRoot, "..", "..");
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "target", ".next", "coverage", ".turbo", ".nexo-test"]);
 const BIN_EXT =
   /\.(png|jpe?g|gif|webp|ico|bmp|exe|dll|zip|gz|7z|rar|pdf|woff2?|ttf|otf|eot|mp[34]|wav|ogg|webm|mov|avi|node|wasm|bin|so|dylib|psd|sqlite3?)$/i;
@@ -163,6 +169,10 @@ function readLogTail(path, maxChars = 4000) {
  * vem com o Node — não depende do usuário ter pnpm instalado à parte.
  */
 function ensureDepsInstalled() {
+  // Empacotado, `daemon-dist` já sai instalado do `pnpm deploy` (ver electron-builder.yml) — não
+  // tem lockfile/workspace pra reinstalar, e rodar `pnpm install` ali só daria erro ou tentaria
+  // escrever na pasta de instalação do app, que não é gravável fora de admin.
+  if (app.isPackaged) return Promise.resolve({ ok: true });
   return new Promise((resolvePromise) => {
     execFile(
       "corepack",
@@ -180,7 +190,11 @@ function spawnNexoLogin(id) {
   const slug = String(id ?? "").trim();
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return { ok: false, error: "perfil inválido" };
   try {
-    const node = resolveNodeBin();
+    // Empacotado, sem Node garantido na máquina: usa o binário do Electron em modo Node, igual o
+    // daemon principal (`spawnNexo`) — só que aqui precisa de um console de VERDADE (o login
+    // mostra URL/código pra pessoa copiar), então o `.cmd` seta ELECTRON_RUN_AS_NODE antes de
+    // chamar, em vez de passar env só pro `spawn` (que aqui é do `cmd.exe`, não do node/electron).
+    const node = app.isPackaged ? process.execPath : resolveNodeBin();
     const tsx = resolveTsxCli(daemonRoot);
     const entry = nexoEntry(daemonRoot);
     if (process.platform === "win32") {
@@ -189,6 +203,7 @@ function spawnNexoLogin(id) {
         bat,
         [
           "@echo off",
+          ...(app.isPackaged ? ["set ELECTRON_RUN_AS_NODE=1"] : []),
           `cd /d "${daemonRoot}"`,
           `echo Nexo login  ${slug}`,
           `echo.`,
