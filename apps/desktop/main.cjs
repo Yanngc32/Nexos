@@ -1052,7 +1052,10 @@ app.on("before-quit", (event) => {
   quittingForUpdate = true;
   void (async () => {
     if (await turnoAtivo()) app.quit();
-    else autoUpdater.quitAndInstall();
+    // `quitAndInstall(isSilent, isForceRunAfter)`: sem os dois `true`, o NSIS abre o
+    // instalador visível de novo (assistente completo, pede clique em "Concluir") em vez de
+    // instalar quieto e reabrir sozinho — o oposto do que "atualização automática" promete.
+    else autoUpdater.quitAndInstall(true, true);
   })();
 });
 app.on("window-all-closed", () => {

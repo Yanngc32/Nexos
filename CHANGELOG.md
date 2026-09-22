@@ -8,6 +8,16 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Corrigido
 
+- Update automático instalava mostrando o assistente do NSIS de novo (pedindo clique em
+  "Concluir") em vez de instalar quieto e reabrir sozinho — faltava passar `isSilent: true,
+  isForceRunAfter: true` pro `quitAndInstall` (main.cjs). Agora a atualização é realmente
+  silenciosa, como o resto do fluxo (gate de turno-ativo) já prometia.
+- Workflow de release ganhou um passo que apaga release duplicada da mesma tag — o publish do
+  electron-builder às vezes cria duas releases pra uma tag só (uma com o `.exe`, outra só com o
+  `.blockmap`), e `/releases/latest` podia apontar pra vazia. Já tinha acontecido em v0.1.0 e
+  v0.2.0, corrigido à mão as duas vezes; agora o próprio workflow mantém a release com mais
+  assets e apaga o resto.
+
 ### Alterado
 
 ### Segurança

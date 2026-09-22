@@ -29,3 +29,39 @@ jobs:
       - run: pnpm --filter @nexos/desktop build:publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Bug conhecido do publish do electron-builder: às vezes cria DUAS releases pra mesma tag
+      # (uma com o .exe + latest.yml, outra só com o .blockmap) — /releases/latest (de onde o
+      # electron-updater lê) pode apontar pra qualquer uma das duas, inclusive a vazia. Já
+      # aconteceu em v0.1.0 e v0.2.0, corrigido à mão as duas vezes; este passo automatiza:
+      # mantém a release com mais assets pra esta tag, apaga o resto.
+      - name: Remove release duplicada pra esta tag
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          mapfile -t ids < <(gh api "repos/${{ github.repository }}/releases" --jq ".[] | select(.tag_name==\"$tag\") | .id")
+          if [ "${#ids[@]}" -le 1 ]; then
+            echo "uma release só (ou nenhuma) pra $tag — nada a limpar"
+            exit 0
+          fi
+          echo "achei ${#ids[@]} releases pra $tag — mantendo a com mais assets"
+          best_id=""
+          best_count=-1
+          for id in "${ids[@]}"; do
+            count=$(gh api "repos/${{ github.repository }}/releases/$id" --jq '.assets | length')
+            echo "release $id: $count asset(s)"
+            if [ "$count" -gt "$best_count" ]; then
+              best_count="$count"
+              best_id="$id"
+            fi
+          done
+          for id in "${ids[@]}"; do
+            if [ "$id" != "$best_id" ]; then
+              echo "apagando release duplicada $id"
+              gh api -X DELETE "repos/${{ github.repository }}/releases/$id"
+            fi
+          done
