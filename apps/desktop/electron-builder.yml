@@ -32,3 +32,7 @@ publish:
   provider: github
   owner: Yanngc32
   repo: Nexos
+  # Sem isto o electron-builder publica a release como RASCUNHO (draft) — invisível em
+  # /releases/latest, e é exatamente o que o electron-updater consulta (ver main.cjs). A
+  # release de v0.1.0 saiu em draft e precisou ser publicada à mão; isto evita repetir.
+  releaseType: release
