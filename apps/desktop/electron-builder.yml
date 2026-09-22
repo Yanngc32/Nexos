@@ -1,0 +1,26 @@
+# Config do electron-builder — gera o instalador Windows (NSIS) e publica no GitHub Releases,
+# que é de onde o electron-updater (ver main.cjs) lê a versão mais nova em produção.
+# Ver docs/RELEASE.md pro processo de corte de release.
+appId: br.com.2dconsultores.nexo
+productName: Nexo
+directories:
+  output: dist
+files:
+  - "**/*"
+  - "!test/**"
+  - "!dist/**"
+  - "!**/*.test.js"
+# Empacotar o daemon (apps/daemon) junto do exe é o Ticket E (Onda 2) — precisa resolver como o
+# pnpm workspace hoisted/symlinked vira `extraResources` de verdade primeiro. Por ora este ticket
+# só entrega "comando gera .exe sem erro" pro desktop sozinho (critério de aceite do PM #1).
+win:
+  target: nsis
+  icon: icons/app.png
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+publish:
+  provider: github
+  owner: Yanngc32
+  repo: Nexos

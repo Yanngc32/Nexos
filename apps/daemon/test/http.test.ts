@@ -572,6 +572,27 @@ describe("http accounts", () => {
   });
 });
 
+describe("GET /v1/status/turno-ativo", () => {
+  it("sem turno em voo: ativo false", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const res = await app.request("/v1/status/turno-ativo", { headers: { authorization: `Bearer ${token}` } });
+    expect(await res.json()).toEqual({ ativo: false });
+  });
+
+  it("com turno em voo em qualquer conversa: ativo true", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const app = createApp(home, token);
+    const t = createThread({ profileId: "p1" }, home);
+    const envio = postMessage(t.id, "SLOW", home); // StubEngine.SLOW demora ~400ms, dá tempo do turno ficar em voo
+    await new Promise((r) => setTimeout(r, 50));
+    const res = await app.request("/v1/status/turno-ativo", { headers: { authorization: `Bearer ${token}` } });
+    expect(await res.json()).toEqual({ ativo: true });
+    await envio;
+  });
+});
+
 describe("http", () => {
   it("rejeita bearer errado", async () => {
     const app = createApp(tempHome(), token);

@@ -537,6 +537,13 @@ export function createApp(home: string, token: string): Hono {
   });
 
   /**
+   * Existe turno de agente em voo em QUALQUER conversa agora? O instalador do app usa isto
+   * pra não aplicar update (`quitAndInstall`) no meio de um turno — nunca soube antes que
+   * update existia, então basta ser "tem gente trabalhando", sem importar em qual thread.
+   */
+  app.get("/v1/status/turno-ativo", (c) => c.json({ ativo: busyThreads().length > 0 }));
+
+  /**
    * Uma linha por conversa com motor de pé — conta, modelo, o que está escrevendo
    * agora. É o que o painel de agentes mostra quando há trabalho em paralelo.
    */

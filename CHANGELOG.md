@@ -6,6 +6,19 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- Conversa sem projeto ("chat geral"): `POST /v1/threads` sem `projectPath` cria uma conversa
+  global, fora de qualquer repositório — cwd cai em `~/.nexo/chat-geral`, memória lê/grava em
+  `~/.nexo/memoria-global` (única, sem hash por projeto). Sem git/kanban/repo-map/delegar-a-time
+  nela: exigem projeto real. Enviar `projectPath` vazio continua erro, pra não nascer global sem
+  querer. Desktop ganha seção "Chat geral" na árvore lateral e o modal de nova conversa aceita
+  abrir sem projeto. Junto veio um importador de zip (`POST /v1/import/zip`, botão na seção
+  "Chat geral"): o Data export do Claude.ai vira uma thread global por conversa, evento por
+  evento, na ordem original.
+- Empacotamento do desktop como instalador Windows (`electron-builder` + NSIS,
+  `pnpm --filter @nexo/desktop build`) e infraestrutura pro app se atualizar sozinho: rota
+  `GET /v1/status/turno-ativo` no daemon (pra o update nunca aplicar no meio de um agente
+  trabalhando) e `electron-updater` como dependência de runtime. Processo documentado em
+  `docs/RELEASE.md`. Sem assinatura de código por enquanto (decisão registrada no documento).
 - Conversa agrupa a sequência de ferramentas/raciocínio de um turno numa bolha só —
   "Trabalhando…", "Lendo…" (`Read`), "Editando…" (`Edit`/`MultiEdit`/`Write`) ou "Pensando…"
   (raciocínio do motor), com 3 pontinhos sempre animados enquanto o turno roda, fechada por

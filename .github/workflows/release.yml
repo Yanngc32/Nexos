@@ -1,0 +1,31 @@
+name: Release desktop
+
+# Dispara só em tag de versão (ver docs/RELEASE.md pro processo de corte). Push de código comum
+# passa pelo workflow CI (ci.yml); este aqui builda o instalador e publica no GitHub Releases.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write # electron-builder cria/anexa o Release usando GITHUB_TOKEN
+
+jobs:
+  build-publish:
+    # Só Windows: é o único target hoje (NSIS/.exe) — ver electron-builder.yml.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter @nexo/desktop build:publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
