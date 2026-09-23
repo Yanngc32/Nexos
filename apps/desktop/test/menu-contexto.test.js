@@ -146,3 +146,65 @@ describe("teclado", () => {
     expect(menuNaTela()).not.toBe(null);
   });
 });
+
+describe("submenu", () => {
+  const comSub = (visto) => [
+    { rotulo: "A", onSelect: () => visto.push("a") },
+    {
+      rotulo: "Git",
+      submenu: [
+        { rotulo: "Branch", onSelect: () => visto.push("branch") },
+        { rotulo: "Pull", onSelect: () => visto.push("pull") },
+      ],
+    },
+    { rotulo: "Vazio", submenu: [] },
+  ];
+  const subNaTela = () => document.querySelector(".ctx-sub");
+
+  it("hover no dono abre o submenu; clique no item dele escolhe e fecha tudo", () => {
+    const menu = criarMenuContexto({ doc: document });
+    const visto = [];
+    const el = menu.abrir(evento(), comSub(visto));
+    const git = itens(el)[1];
+    expect(git.querySelector(".ctx-atalho").textContent).toBe("›");
+    expect(subNaTela()).toBe(null);
+    git.dispatchEvent(new MouseEvent("mouseenter"));
+    expect(git.getAttribute("aria-expanded")).toBe("true");
+    itens(subNaTela())[1].click();
+    expect(visto).toEqual(["pull"]);
+    expect(menuNaTela()).toBe(null);
+  });
+
+  it("submenu vazio fica desativado", () => {
+    const menu = criarMenuContexto({ doc: document });
+    const el = menu.abrir(evento(), comSub([]));
+    expect(itens(el)[2].disabled).toBe(true);
+  });
+
+  it("teclado: → entra no submenu, ← volta pro dono, Enter escolhe dentro", () => {
+    const menu = criarMenuContexto({ doc: document });
+    const visto = [];
+    menu.abrir(evento(), comSub(visto));
+    tecla("ArrowDown");
+    tecla("ArrowDown"); // Git
+    tecla("ArrowRight");
+    expect(subNaTela()).not.toBe(null);
+    tecla("ArrowLeft");
+    expect(subNaTela()).toBe(null);
+    expect(menuNaTela()).not.toBe(null);
+    tecla("Enter"); // Enter no dono abre de novo, já com foco no primeiro
+    tecla("ArrowDown");
+    tecla("Enter");
+    expect(visto).toEqual(["pull"]);
+  });
+
+  it("Esc dentro do submenu fecha só ele", () => {
+    const menu = criarMenuContexto({ doc: document });
+    const el = menu.abrir(evento(), comSub([]));
+    itens(el)[1].click();
+    expect(subNaTela()).not.toBe(null);
+    tecla("Escape");
+    expect(subNaTela()).toBe(null);
+    expect(menuNaTela()).not.toBe(null);
+  });
+});

@@ -208,6 +208,9 @@ h4 {
 body {
   display: grid;
   grid-template-columns: var(--side-w, 252px) minmax(0, 1fr);
+  /* linha `auto` cresce com o conteúdo e a janela inteira rola; cada painel rola por dentro */
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
 }
 
 body[data-side-mini="1"] {
@@ -1035,11 +1038,13 @@ body[data-side-mini="1"] .foot-motor {
   transform: translateY(1px);
 }
 
-#btn-browser-inspect[aria-pressed="true"] {
+#btn-browser-inspect[aria-pressed="true"],
+#ds-btn-mira[aria-pressed="true"] {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
-#btn-browser-inspect[aria-pressed="true"] .ico {
+#btn-browser-inspect[aria-pressed="true"] .ico,
+#ds-btn-mira[aria-pressed="true"] .ico {
   color: var(--accent);
 }
 
@@ -1881,8 +1886,10 @@ body[data-focus="1"] .chat-head {
 }
 
 .crumb-ico {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
   color: var(--muted);
-  font-size: var(--fs-xs);
 }
 
 .crumb-repo {
@@ -4339,9 +4346,21 @@ button:disabled {
 
 .pal-ico {
   width: 28px;
+  display: inline-flex;
+  justify-content: center;
   color: var(--muted);
-  text-align: center;
-  font-size: var(--fs-md);
+}
+
+.pal-svg,
+.ctx-svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.ctx-ico:has(.ctx-svg) {
+  display: inline-flex;
+  justify-content: center;
 }
 
 .pal-name {
@@ -4926,7 +4945,8 @@ body[data-side-mini="1"] .svc-strip {
 
 /* Chips curtos ("div1", "button2") — o texto/HTML inteiro do elemento não aparece aqui,
  * só na mensagem final pro agente (montarMensagem em inspector-mensagem.js guarda tudo). */
-#inspector-list {
+#inspector-list,
+#ds-mira-lista {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -4935,7 +4955,8 @@ body[data-side-mini="1"] .svc-strip {
   gap: 6px;
 }
 
-#inspector-list li {
+#inspector-list li,
+#ds-mira-lista li {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -4946,12 +4967,14 @@ body[data-side-mini="1"] .svc-strip {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-#inspector-list .insp-rotulo {
+#inspector-list .insp-rotulo,
+#ds-mira-lista .insp-rotulo {
   font-family: var(--font-mono);
   color: var(--accent);
 }
 
-#inspector-list .insp-remover {
+#inspector-list .insp-remover,
+#ds-mira-lista .insp-remover {
   width: 16px;
   height: 16px;
   padding: 0;
@@ -4996,7 +5019,8 @@ body[data-side-mini="1"] .svc-strip {
   pointer-events: auto;
 }
 
-#inspector-pedido {
+#inspector-pedido,
+#ds-mira-pedido {
   font: inherit;
   color: var(--text);
   background: var(--surface-2);
@@ -5006,7 +5030,8 @@ body[data-side-mini="1"] .svc-strip {
   resize: vertical;
 }
 
-#inspector-pedido:focus {
+#inspector-pedido:focus,
+#ds-mira-pedido:focus {
   outline: none;
   border-color: var(--accent);
 }
@@ -6944,6 +6969,7 @@ body[data-compactando="1"] .ctx-dot::after {
 }
 
 .ctx-item[data-on="1"],
+.ctx-item[data-aberto="1"],
 .ctx-item:hover {
   background: color-mix(in srgb, var(--accent) 30%, transparent);
 }
@@ -7575,3 +7601,50 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
 .arm-opcao input { flex: 0 0 auto; width: auto; margin: 2px 0 0; }
 .arm-opcao span { display: flex; flex-direction: column; gap: 2px; }
 .arm-opcao small { color: var(--muted); font-size: var(--fs-sm); }
+
+/* --- Design System: seleção de elementos em qualquer card, pro chat (mesmo visual do inspector do Browser) --- */
+.ds-mira {
+  right: 16px;
+  bottom: 16px;
+  width: 280px;
+}
+
+.ds-mira .insp-vazio {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+#ds-mira-lista .insp-card {
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+}
+
+.ds-card-chat {
+  font-family: var(--font-mono);
+}
+
+/* --- Configurações → Skills: um chip-checkbox por projeto em cada skill --- */
+.skills-projetos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.skills-projeto {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.skills-projeto:has(input:not(:checked)) {
+  color: var(--muted);
+  border-style: dashed;
+}
+

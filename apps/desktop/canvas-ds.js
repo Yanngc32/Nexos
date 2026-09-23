@@ -16,6 +16,7 @@
  */
 
 import { resumoCurto } from "./ds-extrator.js";
+import { rotuloDoElemento } from "./inspector-mensagem.js";
 
 /* ---------------------------------------------------------------------------
  * Funções puras
@@ -339,6 +340,10 @@ export function createDsCanvas({
   aoAbrirConversa = () => {},
   /** Põe um pedido pronto no campo do chat (sem mandar): "corrigir cores soltas" da conformidade. */
   aoPedirNoChat = () => {},
+  /** Cita um card no campo do chat (acrescenta, sem mandar). */
+  aoMencionarNoChat = () => {},
+  /** Manda pro chat um pedido com elementos apontados nos cards (mesmo formato do inspector do Browser). */
+  aoMandarNoChat = () => {},
   doc = document,
   win = window,
 }) {
@@ -358,6 +363,8 @@ export function createDsCanvas({
   let painelModo = "tokens"; // "feedback" | "tokens" | "controles" | "versoes" | "avisos"
   /** Feedback em curso: card e elementos apontados nele (seleção dentro do iframe). */
   let selecao = null;
+  /** Seleção pro chat, em QUALQUER card: `{ itens: [{ card, el, seletor, html, texto? }] }`; null = desligada. */
+  let mira = null;
   /** Valores dos Controles ainda não aplicados: var → valor. */
   const valoresControle = new Map();
   let salvarTimer = 0;
@@ -736,6 +743,7 @@ export function createDsCanvas({
           <button type="button" class="primary ds-var-usar" title="Esta variante substitui o card original">Usar esta</button>
           <button type="button" class="ghost ds-var-descartar">Descartar</button>
         </span>
+        <button type="button" class="ghost ds-card-chat" title="Mencionar este card no chat">@ Chat</button>
         <button type="button" class="ghost ds-card-feedback">Feedback</button>
         <button type="button" class="ghost ds-card-edit">Editar</button>
       </header>
@@ -743,6 +751,9 @@ export function createDsCanvas({
     const frame = cartao.querySelector("iframe");
     cartao.querySelector(".ds-card-edit").addEventListener("click", () => abrirPainel(card.id, "tokens"));
     cartao.querySelector(".ds-card-feedback").addEventListener("click", () => abrirPainel(card.id, "feedback"));
+    cartao.querySelector(".ds-card-chat").addEventListener("click", () => {
+      aoMencionarNoChat(referenciaDoCard(frames.get(card.id)?.card || card));
+    });
     cartao.querySelector(".ds-var-usar").addEventListener("click", () => void acaoDeVariante(card.id, "usar"));
     cartao.querySelector(".ds-var-descartar").addEventListener("click", () => void acaoDeVariante(card.id, "descartar"));
     cartao.querySelector(".ds-card-lint").addEventListener("click", () => abrirPainel(card.id, "avisos"));
@@ -774,7 +785,9 @@ export function createDsCanvas({
   function ligarFrame(f) {
     const d = f.frame.contentDocument;
     // Feedback: com a seleção ligada NESTE card, passar o mouse marca e clicar aponta/desaponta
-    const selecionando = () => selecao && selecao.card === f.card?.id;
+    // Mira (seleção pro chat) vale em todos os cards ao mesmo tempo
+    const selecionando = () => !!mira || (selecao && selecao.card === f.card?.id);
+    if (mira) injetarMarcas(d);
     d.addEventListener("mouseover", (e) => {
       if (!selecionando() || e.target.nodeType !== 1 || e.target === d.body) return;
       d.querySelectorAll("[data-ds-hover]").forEach((n) => n.removeAttribute("data-ds-hover"));
@@ -791,6 +804,7 @@ export function createDsCanvas({
         e.stopPropagation();
         const alvo = e.target;
         if (alvo.nodeType !== 1 || alvo === d.body) return;
+        if (mira) return alternarNaMira(f.card?.id, alvo);
         if (alvo.hasAttribute("data-ds-sel")) {
           alvo.removeAttribute("data-ds-sel");
           selecao.itens = selecao.itens.filter((i) => i.el !== alvo);
@@ -873,6 +887,7 @@ export function createDsCanvas({
     f.cartao.classList.toggle("pendente", !!card.pendente);
     f.cartao.dataset.etapa = card.pendente ? card.etapaStatus : "";
     f.cartao.querySelector(".ds-card-edit").classList.toggle("hidden", !!card.pendente);
+    f.cartao.querySelector(".ds-card-chat").classList.toggle("hidden", !!card.pendente);
     // Fundamentos saem dos tokens: feedback neles é feedback nos tokens (aba Tokens)
     f.cartao.querySelector(".ds-card-feedback").classList.toggle("hidden", !!card.pendente || !!card.gerado);
     f.cartao.querySelector(".ds-card-variante").classList.toggle("hidden", !ehVariante(card.id) || !!card.pendente);
@@ -904,6 +919,7 @@ export function createDsCanvas({
       body.innerHTML = html;
       f.html = html;
       f.hash = card.hash ?? html;
+      if (mira) pintarMira();
       medir(f);
       setTimeout(() => medir(f), 60);
       // card que acabou de nascer (geração) se desenha inteiro; card que mudou anima só a diferença
@@ -1412,6 +1428,18 @@ export function createDsCanvas({
       if (e.code !== "Space") return;
       espacoApertado = false;
       vp.classList.remove("mao");
+    });
+    el("ds-btn-mira")?.addEventListener("click", () => (mira ? sairDaMira() : entrarNaMira()));
+    el("ds-mira-descartar")?.addEventListener("click", sairDaMira);
+    el("ds-mira-mandar")?.addEventListener("click", mandarMira);
+    el("ds-mira-pedido")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        mandarMira();
+      }
+    });
+    win.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && mira) sairDaMira();
     });
     el("ds-zoom-menos").addEventListener("click", () => zoomBotao(1 / 1.2));
     el("ds-zoom-mais").addEventListener("click", () => zoomBotao(1.2));
@@ -2120,17 +2148,14 @@ export function createDsCanvas({
 
   /* ---------- feedback por elemento ---------- */
 
-  function frameDoCard(id) {
-    return frames.get(id)?.frame.contentDocument || null;
+  /** Como o card aparece no chat: título + onde mora, pro agente achar o arquivo. */
+  function referenciaDoCard(card) {
+    const onde = card.gerado ? "fundamento gerado dos tokens" : `cards/${card.id}.html`;
+    return `card "${card.titulo}" do design system (${onde})`;
   }
 
-  function entrarNaSelecao(id) {
-    if (selecao?.card === id) return;
-    sairDaSelecao();
-    selecao = { card: id, itens: [] };
-    const d = frameDoCard(id);
-    if (!d) return;
-    // cor de destaque do app dentro do card (o card não enxerga as variáveis do host)
+  /** Contorno de hover/seleção dentro do card, na cor de destaque do app (o card não enxerga as variáveis do host). */
+  function injetarMarcas(d) {
     const acento = getComputedStyle(doc.documentElement).getPropertyValue("--accent").trim() || "#7c5cbf";
     let st = d.getElementById("ds-marcas");
     if (!st) {
@@ -2143,6 +2168,123 @@ export function createDsCanvas({
       `[data-ds-sel]{outline:2px solid ${acento}!important;outline-offset:2px;position:relative}` +
       `[data-ds-sel]::after{content:attr(data-ds-sel);position:absolute;top:-10px;left:-10px;min-width:16px;height:16px;` +
       `padding:0 3px;border-radius:8px;background:${acento};color:#fff;font:600 10px/16px system-ui;text-align:center;z-index:9}`;
+  }
+
+  function limparMarcas(d) {
+    d.getElementById("ds-marcas")?.remove();
+    d.querySelectorAll("[data-ds-hover],[data-ds-sel]").forEach((n) => {
+      n.removeAttribute("data-ds-hover");
+      n.removeAttribute("data-ds-sel");
+    });
+  }
+
+  /* ---------- mira: selecionar elementos de qualquer card e mandar pro chat ---------- */
+
+  function entrarNaMira() {
+    if (mira) return;
+    // o Feedback aponta num card só; as duas seleções juntas no mesmo iframe se atropelam
+    if (painelModo === "feedback" && editando && editando !== FERRAMENTA) fecharPainel();
+    sairDaSelecao();
+    mira = { itens: [] };
+    for (const f of frames.values()) {
+      const d = f.frame.contentDocument;
+      if (d?.head) injetarMarcas(d);
+    }
+    el("ds-btn-mira")?.setAttribute("aria-pressed", "true");
+    el("ds-mira-faixa")?.classList.remove("hidden");
+    pintarMira();
+  }
+
+  function sairDaMira() {
+    if (!mira) return;
+    mira = null;
+    for (const f of frames.values()) {
+      const d = f.frame.contentDocument;
+      if (d?.head) limparMarcas(d);
+    }
+    el("ds-btn-mira")?.setAttribute("aria-pressed", "false");
+    el("ds-mira-faixa")?.classList.add("hidden");
+    el("ds-mira")?.classList.add("hidden");
+    const pedido = el("ds-mira-pedido");
+    if (pedido) pedido.value = "";
+  }
+
+  function alternarNaMira(card, alvo) {
+    if (!mira || !card) return;
+    if (alvo.hasAttribute("data-ds-sel")) {
+      alvo.removeAttribute("data-ds-sel");
+      mira.itens = mira.itens.filter((i) => i.el !== alvo);
+    } else {
+      mira.itens.push({ card, el: alvo, ...resumoDoElemento(alvo) });
+    }
+    pintarMira();
+  }
+
+  /** Caixa flutuante com um chip por elemento; fica escondida enquanto não há nenhum (só a faixa aparece). */
+  function pintarMira() {
+    if (!mira) return;
+    // card redesenhado (agente editou, variante trocou) leva os elementos antigos junto
+    mira.itens = mira.itens.filter((it) => it.el.isConnected);
+    mira.itens.forEach((it, i) => it.el.setAttribute("data-ds-sel", String(i + 1)));
+    const caixa = el("ds-mira");
+    const lista = el("ds-mira-lista");
+    if (!caixa || !lista) return;
+    caixa.classList.toggle("hidden", !mira.itens.length);
+    lista.replaceChildren();
+    for (const [i, it] of mira.itens.entries()) {
+      const li = doc.createElement("li");
+      li.title = `${it.card}: ${it.texto ? `${it.seletor} — ${it.texto}` : it.seletor}`;
+      const rot = doc.createElement("span");
+      rot.className = "insp-rotulo";
+      rot.textContent = rotuloDoElemento(it.el.tagName.toLowerCase(), i);
+      const nome = doc.createElement("span");
+      nome.className = "insp-card";
+      nome.textContent = frames.get(it.card)?.card?.titulo || it.card;
+      const tirar = doc.createElement("button");
+      tirar.type = "button";
+      tirar.className = "ghost insp-remover";
+      tirar.title = "Remover";
+      tirar.setAttribute("aria-label", "Remover");
+      tirar.textContent = "✕";
+      tirar.addEventListener("click", () => {
+        it.el.removeAttribute("data-ds-sel");
+        mira.itens = mira.itens.filter((x) => x !== it);
+        pintarMira();
+      });
+      li.append(rot, nome, tirar);
+      lista.append(li);
+    }
+  }
+
+  function mandarMira() {
+    if (!mira) return;
+    const texto = (el("ds-mira-pedido")?.value || "").trim();
+    const elementos = mira.itens.map((it, i) => {
+      const c = frames.get(it.card)?.card;
+      return {
+        rotulo: rotuloDoElemento(it.el.tagName.toLowerCase(), i),
+        seletor: `${c ? referenciaDoCard(c) : it.card} → ${it.seletor}`,
+        ...(it.texto ? { texto: it.texto } : {}),
+        html: it.html,
+      };
+    });
+    if (!texto && !elementos.length) return;
+    sairDaMira();
+    aoMandarNoChat(texto, elementos);
+  }
+
+  function frameDoCard(id) {
+    return frames.get(id)?.frame.contentDocument || null;
+  }
+
+  function entrarNaSelecao(id) {
+    if (selecao?.card === id) return;
+    sairDaSelecao();
+    sairDaMira();
+    selecao = { card: id, itens: [] };
+    const d = frameDoCard(id);
+    if (!d) return;
+    injetarMarcas(d);
     frames.get(id)?.cartao.classList.add("selecionando");
   }
 
@@ -2154,13 +2296,7 @@ export function createDsCanvas({
   function sairDaSelecao() {
     if (!selecao) return;
     const d = frameDoCard(selecao.card);
-    if (d) {
-      d.getElementById("ds-marcas")?.remove();
-      d.querySelectorAll("[data-ds-hover],[data-ds-sel]").forEach((n) => {
-        n.removeAttribute("data-ds-hover");
-        n.removeAttribute("data-ds-sel");
-      });
-    }
+    if (d) limparMarcas(d);
     frames.get(selecao.card)?.cartao.classList.remove("selecionando");
     selecao = null;
   }

@@ -730,13 +730,26 @@
                 <button type="button" id="ds-gerar-ir" class="primary">Gerar</button>
               </div>
             </div>
+            <button
+              type="button"
+              id="ds-btn-mira"
+              class="ghost ico-only ico-inspect"
+              title="Selecionar elementos dos cards pra mandar pro chat"
+              aria-label="Selecionar elementos dos cards pra mandar pro chat"
+              aria-pressed="false"
+            >
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M3 12h4M17 12h4M12 3v4M12 17v4" />
+                <rect x="7" y="7" width="10" height="10" rx="1.5" />
+              </svg>
+            </button>
             <button type="button" id="ds-btn-card" class="ghost" title="Criar um card: cores, tipografia, espaçamento, raio &amp; sombra, componente ou livre">+ Card</button>
             <div class="ds-novo-wrap">
-              <button type="button" id="ds-btn-ferramentas" class="ghost" aria-haspopup="menu">Ferramentas ▾</button>
+              <button type="button" id="ds-btn-ferramentas" class="ghost" aria-haspopup="menu" title="Ligar o design system ao código do projeto">Ferramentas ▾</button>
               <div id="ds-ferramentas" class="ds-menu hidden" role="menu">
-                <button type="button" role="menuitem" data-ferramenta="conformidade">Conformidade do código</button>
-                <button type="button" role="menuitem" data-ferramenta="ressincronizar">Ressincronizar com o código</button>
-                <button type="button" role="menuitem" data-ferramenta="exportar">Exportar tokens</button>
+                <button type="button" role="menuitem" data-ferramenta="conformidade" title="Procura no front cor e tamanho escritos direto (sem token) e diz qual token usar no lugar. Sem IA, instantâneo.">Conformidade do código</button>
+                <button type="button" role="menuitem" data-ferramenta="ressincronizar" title="Compara código e design system: cores e fontes que o código usa e o DS não tem, tokens sem uso e valores diferentes. Você escolhe o que entra no tokens.json.">Ressincronizar com o código</button>
+                <button type="button" role="menuitem" data-ferramenta="exportar" title="Baixa os tokens pra usar no projeto: CSS vars, Tailwind v4, Tailwind v3 ou DTCG.">Exportar tokens</button>
               </div>
             </div>
             <div class="ds-novo-wrap">
@@ -788,6 +801,18 @@
               </div>
             </div>
           </div>
+          <div id="ds-mira-faixa" class="inspector-faixa hidden" data-fase="ligado" role="status">Modo seleção — clique nos elementos de qualquer card. Esc sai.</div>
+          <aside id="ds-mira" class="inspector-box ds-mira hidden" aria-label="Elementos selecionados no design system">
+            <header>
+              <h2>Elementos selecionados</h2>
+              <button type="button" id="ds-mira-descartar" class="ghost mod-close" title="Descartar seleção">✕</button>
+            </header>
+            <ul id="ds-mira-lista" class="inspector-lista"></ul>
+            <textarea id="ds-mira-pedido" rows="3" placeholder="O que fazer com esses elementos?"></textarea>
+            <div class="inspector-acts">
+              <button type="button" id="ds-mira-mandar" class="primary">Mandar</button>
+            </div>
+          </aside>
           <aside id="ds-painel" class="ds-painel hidden">
             <header class="ds-painel-head">
               <strong id="ds-painel-tit"></strong>
@@ -805,7 +830,9 @@
         <button type="button" id="btn-focus-exit" class="focus-exit hidden" title="Sair do foco (Esc)">⤡</button>
         <header class="chat-head" id="chat-head">
           <button type="button" id="btn-voltar-origem" class="ghost crumb-voltar hidden" title="Voltar pro chat que chamou este time">↩ Voltar ao chat</button>
-          <span class="crumb-ico" aria-hidden="true">▤</span>
+          <svg class="crumb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M4 20a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1Z" />
+          </svg>
           <button type="button" id="crumb-repo" class="crumb-repo" title="Ver este projeto na barra esquerda">
             Sem projeto
           </button>
@@ -1338,6 +1365,9 @@
           </button>
           <button type="button" class="set-nav-item" data-panel="modulos">
             <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6" /><rect x="13.5" y="3.5" width="7" height="7" rx="1.6" /><rect x="3.5" y="13.5" width="7" height="7" rx="1.6" /><rect x="13.5" y="13.5" width="7" height="7" rx="1.6" /></svg>Módulos
+          </button>
+          <button type="button" class="set-nav-item" data-panel="skills">
+            <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6Z" /></svg>Skills
           </button>
           <p class="set-nav-group">Motor</p>
           <button type="button" class="set-nav-item" data-panel="contas">
@@ -2021,6 +2051,12 @@
                   </div>
                 </div>
               </div>
+            </section>
+            <section class="set-sec hidden" data-panel="skills">
+              <h3>Skills</h3>
+              <p class="set-grupo-tit">Instaladas globalmente</p>
+              <div id="skills-cfg" class="set-grupo"></div>
+              <p id="skills-cfg-err" class="set-err"></p>
             </section>
             <section class="set-sec hidden" data-panel="roteamento">
               <h3>Roteamento IA</h3>

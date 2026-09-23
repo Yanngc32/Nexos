@@ -77,16 +77,25 @@ const MODULES = [
   { id: "side-chat", name: "Chat lateral", keys: "Ctrl+Shift+S", ico: "💬" },
 ];
 
-const ABA_ICO = {
-  ds: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><rect x="13" y="5" width="6" height="6" rx="1"/><path d="M5 19h6M5 15h6"/><rect x="13" y="14" width="6" height="5" rx="2.5"/></svg>',
-  file: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8Z"/><path d="M14 3v5h5"/></svg>',
-  terminal: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 8 4 4-4 4"/><path d="M13 16h4"/></svg>',
-  browser: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18"/></svg>',
-  canvas: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 4v16"/></svg>',
-  graph: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="12" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="18" cy="17" r="2"/><path d="M8 12h8M16.2 8.5 8.8 11.2M8.8 12.8l7.4 2.7"/></svg>',
-  agentes: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="14" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v2M9 14h.01M15 14h.01"/></svg>',
-  tarefas: '<svg class="work-tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="6" height="14" rx="1"/><rect x="14" y="5" width="6" height="14" rx="1"/></svg>',
+/** Traço de cada tela (24×24, stroke) — um desenho só pra aba, paleta e menu de botão direito. */
+const ICO_PATHS = {
+  ds: '<circle cx="8" cy="8" r="3"/><rect x="13" y="5" width="6" height="6" rx="1"/><path d="M5 19h6M5 15h6"/><rect x="13" y="14" width="6" height="5" rx="2.5"/>',
+  file: '<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8Z"/><path d="M14 3v5h5"/>',
+  terminal: '<path d="m7 8 4 4-4 4"/><path d="M13 16h4"/>',
+  browser: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18"/>',
+  canvas: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 4v16"/>',
+  graph: '<circle cx="6" cy="12" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="18" cy="17" r="2"/><path d="M8 12h8M16.2 8.5 8.8 11.2M8.8 12.8l7.4 2.7"/>',
+  agentes: '<rect x="5" y="9" width="14" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v2M9 14h.01M15 14h.01"/>',
+  tarefas: '<rect x="4" y="5" width="6" height="14" rx="1"/><rect x="14" y="5" width="6" height="14" rx="1"/>',
+  "side-chat": '<path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-4 3v-3H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/>',
 };
+
+/** SVG de traço fino da tela `id` (cai no de Arquivo se não houver desenho próprio). */
+function icoSvg(id, cls = "work-tab-ico") {
+  return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICO_PATHS[id] || ICO_PATHS.file}</svg>`;
+}
+
+const ABA_ICO = Object.fromEntries(Object.keys(ICO_PATHS).map((k) => [k, icoSvg(k)]));
 
 const state = {
   ok: false,
@@ -2401,7 +2410,7 @@ function renderPalette(rebuild = false) {
         ul.append(li);
         return;
       }
-      li.innerHTML = `<span class="pal-ico">${m.ico}</span><span class="pal-name">${m.name}</span><span class="pal-keys">${m.keys || ""}</span>`;
+      li.innerHTML = `<span class="pal-ico">${icoSvg(m.tipo === "mod" ? m.id : "browser", "pal-svg")}</span><span class="pal-name">${m.name}</span><span class="pal-keys">${m.keys || ""}</span>`;
       li.addEventListener("mouseenter", () => {
         state.paletteIndex = i;
         renderPalette(false);
@@ -2929,23 +2938,42 @@ function menuDoRepo(e, path) {
     { titulo: folderName(path) },
     { rotulo: "Nova conversa", ico: "+", onSelect: () => void criarConversaEmRepo(path) },
     { separador: true },
-    { titulo: "Telas" },
-    ...MODULES.map((m) => ({
-      rotulo: m.name,
-      ico: m.ico,
-      atalho: m.keys,
-      onSelect: () => void abrirModuloEmRepo(path, m.id),
-    })),
-    { separador: true },
+    {
+      rotulo: "Telas",
+      ico: "▦",
+      submenu: MODULES.map((m) => ({
+        rotulo: m.name,
+        icoSvg: icoSvg(m.id, "ctx-svg"),
+        atalho: m.keys,
+        onSelect: () => void abrirModuloEmRepo(path, m.id),
+      })),
+    },
     { rotulo: "Paleta", ico: "⌘", atalho: "Ctrl+P", onSelect: () => handleMod("palette") },
-    { rotulo: "Trocar de branch…", ico: "⑂", onSelect: () => void menuDeBranches(e, path) },
-    { rotulo: "Atualizar do remote", ico: "⟳", onSelect: () => void atualizarRepo(path) },
-    { rotulo: "Abrir PR no GitHub", ico: "↗", onSelect: () => void abrirPrNoGitHub(path) },
-    { rotulo: "Copiar caminho", ico: "⧉", onSelect: () => void copiarTexto(path, "Caminho") },
-    { rotulo: "Abrir a pasta no sistema", ico: "↗", onSelect: () => void abrirPastaNoSistema(path) },
-    { separador: true },
-    { rotulo: "Escolher ícone…", ico: "◧", onSelect: () => void escolherIconeDoRepo(path) },
-    { rotulo: "Voltar ao ícone automático", ico: "↺", onSelect: () => void iconeAutomaticoDoRepo(path) },
+    {
+      rotulo: "Git",
+      ico: "⑂",
+      submenu: [
+        { rotulo: "Trocar de branch…", ico: "⑂", onSelect: () => void menuDeBranches(e, path) },
+        { rotulo: "Atualizar do remote", ico: "⟳", onSelect: () => void atualizarRepo(path) },
+        { rotulo: "Abrir PR no GitHub", ico: "↗", onSelect: () => void abrirPrNoGitHub(path) },
+      ],
+    },
+    {
+      rotulo: "Pasta",
+      ico: "⧉",
+      submenu: [
+        { rotulo: "Copiar caminho", ico: "⧉", onSelect: () => void copiarTexto(path, "Caminho") },
+        { rotulo: "Abrir a pasta no sistema", ico: "↗", onSelect: () => void abrirPastaNoSistema(path) },
+      ],
+    },
+    {
+      rotulo: "Ícone",
+      ico: "◧",
+      submenu: [
+        { rotulo: "Escolher ícone…", ico: "◧", onSelect: () => void escolherIconeDoRepo(path) },
+        { rotulo: "Voltar ao ícone automático", ico: "↺", onSelect: () => void iconeAutomaticoDoRepo(path) },
+      ],
+    },
     { separador: true },
     { rotulo: "Tirar da lista", ico: "×", perigo: true, onSelect: () => void removeRepo(path) },
   ]);
@@ -5337,6 +5365,27 @@ const dsCanvas = createDsCanvas({
     input.dispatchEvent(new Event("input"));
     input.focus();
   },
+  // "@ Chat" do card: acrescenta a citação no que já está digitado, sem mandar
+  aoMencionarNoChat: (ref) => {
+    if (!state.sideChat) {
+      state.sideChat = true;
+      applyWorkLayout();
+    }
+    const input = $("input");
+    const antes = input.value.replace(/\s+$/, "");
+    input.value = `${antes ? `${antes} ` : ""}${ref} `;
+    input.dispatchEvent(new Event("input"));
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  },
+  // seleção nos cards: vai direto como mensagem com chips, igual ao "Mandar" do inspector do Browser
+  aoMandarNoChat: (texto, elementos) => {
+    if (!state.sideChat) {
+      state.sideChat = true;
+      applyWorkLayout();
+    }
+    void sendChatMessage(texto, null, { elementos });
+  },
 });
 
 /** Texto da mensagem automática recolhida: pra quem o Nexos está passando o contexto. */
@@ -7529,6 +7578,78 @@ async function renderModulos() {
   atualizarBannerWindowsControl(Boolean(cfg.windowsControlEnabled));
 }
 
+/* ---------- Configurações → Skills: cada skill global ligada/desligada por projeto ---------- */
+
+/** Mesma chave do `projectKey` do daemon (home.ts): barra normal, sem barra no fim, minúsculo. */
+const chaveDoProjeto = (p) => String(p).replace(/[\\]/g, "/").replace(/\/+$/, "").toLowerCase();
+
+async function renderSkillsConfig() {
+  if (!state.ok) return;
+  const box = $("skills-cfg");
+  let skills;
+  let cfg;
+  try {
+    // sem projeto e sem conta, o daemon devolve só as globais (`~/.nexos/skills`)
+    [skills, cfg] = await Promise.all([req("/v1/skills"), req("/v1/config")]);
+  } catch (e) {
+    $("skills-cfg-err").textContent = e.message || "Não carregou as skills.";
+    return;
+  }
+  $("skills-cfg-err").textContent = "";
+  const off = cfg.skillsDesligadas || {};
+  const projetos = state.repos || [];
+  box.replaceChildren();
+  const vazio = (texto) => {
+    const row = document.createElement("div");
+    row.className = "set-row";
+    row.innerHTML = `<div class="set-txt"><p></p></div>`;
+    row.querySelector("p").textContent = texto;
+    box.append(row);
+  };
+  if (!skills.length) return vazio("Nenhuma skill instalada globalmente ainda (pasta ~/.nexos/skills).");
+  for (const s of skills) {
+    const row = document.createElement("div");
+    row.className = "set-row col";
+    row.innerHTML = `<div class="set-txt"><h4></h4><p></p></div><div class="skills-projetos"></div>`;
+    row.querySelector("h4").textContent = s.name;
+    const desc = row.querySelector("p");
+    desc.textContent = s.description || "Sem descrição.";
+    desc.title = s.description || "";
+    const lista = row.querySelector(".skills-projetos");
+    if (!projetos.length) {
+      lista.textContent = "Abra um projeto pra escolher onde esta skill vale.";
+    }
+    const desligadaEm = new Set(off[s.name] || []);
+    for (const p of projetos) {
+      const lbl = document.createElement("label");
+      lbl.className = "skills-projeto";
+      lbl.title = p;
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = !desligadaEm.has(chaveDoProjeto(p));
+      cb.addEventListener("change", async () => {
+        $("skills-cfg-err").textContent = "";
+        try {
+          await req("/v1/skills/projeto", {
+            method: "PUT",
+            body: JSON.stringify({ nome: s.name, projectPath: p, ligada: cb.checked }),
+          });
+          // menu "/" do composer tem cache por projeto+conta: força varrer de novo na próxima vez
+          state.skills.key = "";
+        } catch (e) {
+          cb.checked = !cb.checked;
+          $("skills-cfg-err").textContent = e.message || "Não gravou.";
+        }
+      });
+      const nome = document.createElement("span");
+      nome.textContent = folderName(p);
+      lbl.append(cb, nome);
+      lista.append(lbl);
+    }
+    box.append(row);
+  }
+}
+
 /** Fica visível o tempo todo que a permissão estiver ligada — não só na aba Configurações. */
 function atualizarBannerWindowsControl(ligado) {
   $("windows-control-banner").classList.toggle("hidden", !ligado);
@@ -7957,6 +8078,7 @@ function abrirConfiguracoes(painel = "aparencia") {
   void renderFallback();
   void renderMemoria();
   void renderModulos();
+  void renderSkillsConfig();
   void renderRoteamento();
   void renderGithub();
   void renderGoogleDrive();
