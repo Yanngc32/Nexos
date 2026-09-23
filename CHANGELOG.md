@@ -12,6 +12,38 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Segurança
 
+## [0.5.0] - 2026-09-23
+
+### Adicionado
+
+- Canvas de Design System: board com os tokens, as regras e os cards de componente do
+  projeto, gerado por IA com streaming (o card se desenha enquanto chega). Feedback apontando
+  elemento no card, controles (sliders), versões, variantes e verificação automática antes de
+  mostrar.
+- Board com layout editável: largura por card (⅓, ½, ⅔, inteira), alinhamento por seção (topo,
+  mesma altura, alvenaria sem buracos), mover, apagar e ocultar. No chat, "alinha os cards" faz
+  o agente reorganizar sozinho.
+- "+ Card" por tipo: cores, tipografia, espaçamento e raio & sombra saem prontos marcando os
+  tokens; componente e livre a IA desenha. Todos com o mesmo visual dos Fundamentos.
+- Criar design system escolhendo a base: do zero, padrão do Nexos ou cópia de um que já existe
+  (de qualquer projeto).
+- Sincronia com o código: conformidade (cores e tamanhos soltos no front, com o token certo),
+  ressincronizar item por item e exportar (CSS, Tailwind v4/v3, tokens.json).
+- O agente vê o card renderizado (`nexo_ds_print`) e usa o design system em todo trabalho de
+  front do projeto.
+- Escolher o ícone do projeto pelo botão direito, quando o automático pega o arquivo errado.
+- Barra lateral minimizada organizada, com indicador por projeto: selecionado, com LLM
+  trabalhando (pulsando) e terminou sem você ver.
+- Picker do browser manda só o pedido no chat, com os elementos como chips.
+- Ferramentas do Nexos com nome legível no chat ("Navegando · lendo a página").
+- Motor `api` com streaming.
+
+### Corrigido
+
+- Medidor de contexto mostrava 200k: agora usa a janela real do modelo.
+- Resumo no fim do turno sumia a partir da segunda mensagem da conversa.
+- Logos não apareciam na barra lateral minimizada.
+
 ## [0.4.0] - 2026-09-22
 
 ### Adicionado
