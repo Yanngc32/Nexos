@@ -77,7 +77,9 @@ describe("TwaGenerator.createTwaProject com o manifest que apk-build.ts monta", 
       const mipmap = join(projeto, "app/src/main/res");
       expect(existsSync(mipmap)).toBe(true);
     } finally {
-      rmSync(projeto, { recursive: true, force: true });
+      // Windows (CI): antivírus/indexador segura arquivo recém-gerado por um instante e o rmdir
+      // dá ENOTEMPTY — tenta de novo em vez de falhar o teste pela faxina
+      rmSync(projeto, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     }
   });
 });
