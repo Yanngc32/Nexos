@@ -7512,3 +7512,24 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
   color: var(--accent);
   cursor: default;
 }
+
+/* DS sem nenhum card (criado do zero): por onde começar, no meio do board */
+.ds-quadro-vazio {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  width: min(440px, calc(100% - 48px));
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-6);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+  cursor: default;
+}
+.ds-quadro-vazio strong { font-size: var(--fs-lg); color: var(--text); }
+.ds-quadro-vazio p { margin: 0; color: var(--muted); font-size: var(--fs-sm); }
+

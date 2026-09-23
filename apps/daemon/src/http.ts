@@ -141,6 +141,7 @@ import {
   salvarCard,
   salvarTokens,
   criarCardDeTipo,
+  listarBases,
   mudarCard,
   mudarSecao,
   type MudancaDeCard,
@@ -1143,11 +1144,18 @@ export function createApp(home: string, token: string): Hono {
     }
   });
 
+  /** Pontos de partida pro DS novo: do zero, padrão do Nexos e os DS que já existem. */
+  app.get("/v1/ds/bases", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    return c.json(listarBases(projectPath, home));
+  });
+
   app.post("/v1/ds", async (c) => {
     const projectPath = c.req.query("projectPath") || "";
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
     try {
-      const body = (await c.req.json().catch(() => ({}))) as { nome?: unknown; pasta?: unknown };
+      const body = (await c.req.json().catch(() => ({}))) as { nome?: unknown; base?: unknown };
       return c.json(criarDs(projectPath, home, body), 201);
     } catch (e) {
       return dsErro(c, e);

@@ -743,6 +743,7 @@
               <button type="button" id="ds-btn-novo" class="ghost">+ Novo</button>
               <div id="ds-novo" class="ds-novo hidden">
                 <label>Nome<input type="text" id="ds-novo-nome" placeholder="Design system" /></label>
+                <label>Começar de<select id="ds-novo-base"></select></label>
                 <p id="ds-novo-err" class="ag-err"></p>
                 <button type="button" id="ds-novo-criar" class="primary">Criar</button>
               </div>
@@ -764,12 +765,21 @@
             <h2>Crie o design system deste projeto</h2>
             <p>Tokens, regras de uso e cards de componente viram arquivos na pasta deste projeto no Nexos, junto da memória e do repo map. Os agentes leem e editam direto; esta tela mostra e ajusta.</p>
             <label>Nome<input type="text" id="ds-vazio-nome" placeholder="Design system" /></label>
+            <label>Começar de<select id="ds-vazio-base"></select></label>
             <p id="ds-vazio-err" class="ag-err"></p>
             <button type="button" id="ds-vazio-criar" class="primary">Criar design system</button>
           </div>
           <div id="ds-viewport" class="ds-viewport hidden">
             <!-- fora do board: fica parada enquanto o board faz pan/zoom -->
             <nav id="ds-nav" class="ds-nav" aria-label="Seções do design system"></nav>
+            <div id="ds-quadro-vazio" class="ds-quadro-vazio hidden">
+              <strong>Design system vazio</strong>
+              <p>Comece pelos tokens: gere com IA a partir do projeto, de uma referência ou de um briefing — ou monte card a card.</p>
+              <div class="ds-ctl-acoes">
+                <button type="button" id="ds-vazio-gerar" class="primary">✦ Gerar com IA</button>
+                <button type="button" id="ds-vazio-card" class="ghost">+ Card</button>
+              </div>
+            </div>
             <div id="ds-board" class="ds-board">
               <!-- dentro do board: acompanham pan e zoom junto com os cards -->
               <svg id="ds-traco" class="ds-traco" aria-hidden="true"></svg>

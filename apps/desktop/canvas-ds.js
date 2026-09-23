@@ -496,7 +496,9 @@ export function createDsCanvas({
     const vazio = el("ds-vazio");
     const viewport = el("ds-viewport");
     el("ds-sem-projeto")?.classList.toggle("hidden", !!getProjectPath());
-    vazio.classList.toggle("hidden", !getProjectPath() || !!ds);
+    const mostrarVazio = !!getProjectPath() && !ds;
+    if (mostrarVazio && vazio.classList.contains("hidden")) void carregarBases("ds-vazio-base");
+    vazio.classList.toggle("hidden", !mostrarVazio);
     viewport.classList.toggle("hidden", !ds);
     pintarCabecalho();
     if (!ds) {
@@ -512,6 +514,8 @@ export function createDsCanvas({
       for (const v of anterior.vars) if (!pendentes.has(v.caminho)) overrides.delete(v.nome);
     }
     pintarBoard(ds, { animar: animar && animacaoLigada(), mudadas });
+    // DS do zero (ou tudo apagado): diz por onde começar em vez de mostrar um board em branco
+    el("ds-quadro-vazio")?.classList.toggle("hidden", cardsDoBoard(ds).length > 0);
     // ferramenta (conformidade etc.) não refaz a varredura a cada recarga do board
     if (editando && editando !== FERRAMENTA) pintarPainel();
     if (!ajustouUmaVez) {
@@ -1282,7 +1286,8 @@ export function createDsCanvas({
     const nome = el(`${prefixo}-nome`).value.trim();
     el(`${prefixo}-err`).textContent = "";
     try {
-      estado = await req(`/v1/ds?${qs()}`, { method: "POST", body: JSON.stringify({ nome }) });
+      const base = el(`${prefixo}-base`)?.value || "zero";
+      estado = await req(`/v1/ds?${qs()}`, { method: "POST", body: JSON.stringify({ nome, base }) });
       ajustouUmaVez = false;
       limparFrames();
       pintar();
@@ -1317,7 +1322,37 @@ export function createDsCanvas({
   function mostrarNovo() {
     const caixa = el("ds-novo");
     caixa.classList.toggle("hidden");
-    if (!caixa.classList.contains("hidden")) el("ds-novo-nome").focus();
+    if (!caixa.classList.contains("hidden")) {
+      void carregarBases("ds-novo-base");
+      el("ds-novo-nome").focus();
+    }
+  }
+
+  /**
+   * Combobox "Começar de": do zero (padrão da tela), o padrão do Nexos ou cópia de um DS que já
+   * existe em qualquer projeto. Recarrega a cada abertura — DS criado em outro projeto aparece.
+   */
+  async function carregarBases(idSelect) {
+    const sel = el(idSelect);
+    if (!sel) return;
+    let bases;
+    try {
+      bases = await req(`/v1/ds/bases?${qs()}`);
+    } catch {
+      bases = [{ id: "zero", nome: "Do zero (vazio)" }, { id: "padrao", nome: "Padrão do Nexos" }];
+    }
+    const antes = sel.value;
+    sel.replaceChildren();
+    const fixos = bases.filter((b) => !b.id.startsWith("copia:"));
+    const copias = bases.filter((b) => b.id.startsWith("copia:"));
+    for (const b of fixos) sel.append(Object.assign(doc.createElement("option"), { value: b.id, textContent: b.nome }));
+    if (copias.length) {
+      const g = doc.createElement("optgroup");
+      g.label = "Copiar um design system existente";
+      for (const b of copias) g.append(Object.assign(doc.createElement("option"), { value: b.id, textContent: `${b.nome} — ${b.projeto}` }));
+      sel.append(g);
+    }
+    sel.value = bases.some((b) => b.id === antes) ? antes : "zero";
   }
 
   /* ---------- ligar eventos (uma vez) ---------- */
@@ -1388,8 +1423,12 @@ export function createDsCanvas({
     el("ds-btn-gerar").addEventListener("click", () => void mostrarGerar());
     el("ds-btn-ferramentas").addEventListener("click", () => el("ds-ferramentas").classList.toggle("hidden"));
     el("ds-btn-card").addEventListener("click", () => abrirFerramenta("novo-card"));
+    el("ds-vazio-gerar")?.addEventListener("click", () => void mostrarGerar());
+    el("ds-vazio-card")?.addEventListener("click", () => abrirFerramenta("novo-card"));
     // a lista de seções fica por cima do board: roda e arrasto nela não podem virar pan/zoom
-    for (const tipo of ["wheel", "mousedown", "pointerdown"]) el("ds-nav").addEventListener(tipo, (e) => e.stopPropagation());
+    for (const id of ["ds-nav", "ds-quadro-vazio"]) {
+      for (const tipo of ["wheel", "mousedown", "pointerdown"]) el(id)?.addEventListener(tipo, (e) => e.stopPropagation());
+    }
     for (const b of el("ds-ferramentas").querySelectorAll("[data-ferramenta]")) {
       b.addEventListener("click", () => abrirFerramenta(b.dataset.ferramenta));
     }

@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { projectDir, projectDirSemCriar } from "./projeto-dir.ts";
+import { projectDir, projectDirSemCriar, projetosRoot } from "./projeto-dir.ts";
 import {
   ALINHAMENTOS,
   cardsDeFundamentos,
@@ -712,7 +712,72 @@ export function ativarDs(projectPath: string, home: string, id: string): DsEstad
  * Pasta que já tem arquivos (ex.: sincronizada de outra máquina sem o ponteiro) é ADOTADA como
  * está: esqueleto nunca sobrescreve arquivo existente.
  */
-export function criarDs(projectPath: string, home: string, input: { nome?: unknown }): DsEstado {
+/* ---------------------------------------------------------------------------
+ * Base do DS novo: do zero, o padrão do Nexos, ou cópia de um DS que já existe (qualquer projeto)
+ * ------------------------------------------------------------------------- */
+
+export type BaseDs = { id: string; nome: string; projeto?: string };
+
+/** Pasta de projeto no Nexos → os DS dela (pelo ponteiro, só os que têm pasta no disco). */
+function sistemasDaPasta(dirProjeto: string): { sistema: DsSistema; pasta: string }[] {
+  try {
+    const bruto = JSON.parse(readFileSync(join(dirProjeto, "design-system.json"), "utf8")) as Partial<Ponteiro>;
+    if (!Array.isArray(bruto.sistemas)) return [];
+    return bruto.sistemas
+      .filter((s): s is DsSistema => !!s && typeof s.id === "string" && ID_RE.test(s.id) && typeof s.nome === "string")
+      .map((s) => ({ sistema: { id: s.id, nome: s.nome }, pasta: join(dirProjeto, "design-system", s.id) }))
+      .filter((x) => existsSync(join(x.pasta, "tokens.json")));
+  } catch {
+    return [];
+  }
+}
+
+/** O que dá pra usar de ponto de partida ao criar um DS (o combobox do Canvas). */
+export function listarBases(projectPath: string, home: string): BaseDs[] {
+  const bases: BaseDs[] = [
+    { id: "zero", nome: "Do zero (vazio)" },
+    { id: "padrao", nome: "Padrão do Nexos" },
+  ];
+  const raiz = projetosRoot(home);
+  const atual = projectDirSemCriar(projectPath, home);
+  let dirs: string[] = [];
+  try {
+    dirs = readdirSync(raiz, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name)
+      .sort();
+  } catch {
+    dirs = [];
+  }
+  for (const slug of dirs) {
+    const dir = join(raiz, slug);
+    for (const { sistema } of sistemasDaPasta(dir)) {
+      bases.push({ id: `copia:${slug}/${sistema.id}`, nome: sistema.nome, projeto: resolve(dir) === resolve(atual) ? "este projeto" : slug });
+    }
+  }
+  return bases;
+}
+
+/** Arquivos de um DS vazio: sem token, sem card — a pessoa gera com IA ou monta com + Card. */
+function vazio(nome: string): Record<string, string> {
+  return {
+    "tokens.json": "{}\n",
+    "DESIGN.md": `# ${nome}\n`,
+    "meta.json": `${JSON.stringify({ secoes: [], cards: [] }, null, 2)}\n`,
+  };
+}
+
+/** Pasta do DS de origem de `copia:<slug-do-projeto>/<id>` — validada (nada de ".." no caminho). */
+function pastaDaCopia(base: string, home: string): string {
+  const m = /^copia:([a-z0-9][a-z0-9._-]{0,80})\/([a-z0-9][a-z0-9-]{0,63})$/.exec(base);
+  if (!m) throw erro("base inválida");
+  const dir = join(projetosRoot(home), m[1]!);
+  const achado = sistemasDaPasta(dir).find((x) => x.sistema.id === m[2]);
+  if (!achado) throw erro("o design system de origem não existe mais", 404);
+  return achado.pasta;
+}
+
+export function criarDs(projectPath: string, home: string, input: { nome?: unknown; base?: unknown }): DsEstado {
   const nome = typeof input.nome === "string" && input.nome.trim() ? input.nome.trim().slice(0, 80) : "Design system";
   const p = lerPonteiro(projectPath, home);
   let base = nome
@@ -727,9 +792,19 @@ export function criarDs(projectPath: string, home: string, input: { nome?: unkno
   for (let n = 2; p.sistemas.some((s) => s.id === id); n++) id = `${base}-${n}`;
   raizDoProjetoNexos(projectPath, home, true); // garante a pasta do projeto (com meta.json)
   const abs = pastaAbsoluta(projectPath, home, { id, nome });
-  for (const [arquivo, conteudo] of Object.entries(esqueleto(nome))) {
-    const caminho = join(abs, arquivo);
-    if (!existsSync(caminho)) escreverAtomico(caminho, conteudo);
+  // sem `base` = padrão do Nexos (quem chamava antes continua igual); o Canvas manda sempre
+  const escolhida = typeof input.base === "string" && input.base ? input.base : "padrao";
+  if (escolhida.startsWith("copia:")) {
+    const origem = pastaDaCopia(escolhida, home);
+    if (resolve(origem) === resolve(abs)) throw erro("não dá pra copiar um design system em cima dele mesmo");
+    // o histórico de versões é do DS de origem, não entra na cópia
+    cpSync(origem, abs, { recursive: true, force: false, errorOnExist: false, filter: (src) => !/[\\/]\.versoes([\\/]|$)/.test(src) });
+  } else {
+    if (escolhida !== "zero" && escolhida !== "padrao") throw erro("base inválida");
+    for (const [arquivo, conteudo] of Object.entries(escolhida === "zero" ? vazio(nome) : esqueleto(nome))) {
+      const caminho = join(abs, arquivo);
+      if (!existsSync(caminho)) escreverAtomico(caminho, conteudo);
+    }
   }
   salvarPonteiro(projectPath, home, { sistemas: [...p.sistemas, { id, nome }], ativo: id });
   garantirKit(abs);

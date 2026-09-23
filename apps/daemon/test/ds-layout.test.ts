@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { tempHome } from "./helpers.ts";
-import { criarCardDeTipo, criarDs, estadoDs, lintCard, mudarCard, mudarSecao } from "../src/design-system.ts";
+import { criarCardDeTipo, criarDs, estadoDs, lintCard, listarBases, mudarCard, mudarSecao } from "../src/design-system.ts";
 import { cardsDeFundamentos, KIT_MD } from "../src/ds-kit.ts";
 import { blocoDoDsParaPack } from "../src/ds-sync.ts";
 
@@ -108,5 +108,35 @@ describe("agente do chat", () => {
     expect(existsSync(kit)).toBe(true);
     expect(readFileSync(kit, "utf8")).toBe(KIT_MD);
     expect(KIT_MD).toContain('"alvenaria"');
+  });
+});
+
+describe("base do design system novo", () => {
+  it("do zero vem vazio; padrão vem com o esqueleto; copiar traz os arquivos de outro projeto sem .versoes", () => {
+    const outro = mkdtempSync(join(tmpdir(), "nexo-base-"));
+    const zero = criarDs(outro, home, { nome: "Limpo", base: "zero" }).ds!;
+    expect(zero.vars).toEqual([]);
+    expect(zero.cards).toEqual([]);
+    expect(zero.fundamentos).toEqual([]);
+    expect(zero.designMd.trim()).toBe("# Limpo");
+
+    // a lista mostra zero, padrão e os DS existentes (os dois projetos deste teste)
+    const bases = listarBases(outro, home);
+    expect(bases.slice(0, 2).map((b) => b.id)).toEqual(["zero", "padrao"]);
+    const doProj = bases.find((b) => b.nome === "Teste")!;
+    expect(doProj.id).toMatch(/^copia:.+\/teste$/);
+    expect(bases.find((b) => b.nome === "Limpo")?.projeto).toBe("este projeto");
+
+    // .versoes do original não vai junto
+    mudarCard(proj, home, "core-botoes", { largura: "1" });
+    criarCardDeTipo(proj, home, { tipo: "cores", titulo: "Marca" });
+    const copia = criarDs(outro, home, { nome: "Cópia", base: doProj.id }).ds!;
+    expect(copia.cards.map((c) => c.id)).toEqual(ds().cards.map((c) => c.id));
+    expect(copia.cards.find((c) => c.id === "core-botoes")?.largura).toBe("1");
+    expect(existsSync(join(copia.pastaAbs, ".versoes"))).toBe(false);
+
+    expect(() => criarDs(outro, home, { nome: "X", base: "copia:../../etc/x" })).toThrow(/base inválida/);
+    expect(() => criarDs(outro, home, { nome: "X", base: "copia:nao-existe/ds" })).toThrow(/não existe/);
+    expect(() => criarDs(outro, home, { nome: "X", base: "outra" })).toThrow(/base inválida/);
   });
 });
