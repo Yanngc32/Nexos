@@ -73,6 +73,7 @@ export function loadConfig(home: string): NexoConfig {
     projetosDir: str(raw.projetosDir),
     armazenamento: raw.armazenamento === "projeto" ? "projeto" : "pasta",
     slugOverrides: cleanSlugOverrides(raw.slugOverrides),
+    skillsDesligadas: cleanSkillsDesligadas(raw.skillsDesligadas),
     ...(isTetoTokens(raw.repoMapTetoTokens) ? { repoMapTetoTokens: raw.repoMapTetoTokens } : {}),
     modulos: cleanModulos(raw.modulos),
     windowsControlEnabled: Boolean(raw.windowsControlEnabled),
@@ -150,6 +151,21 @@ function cleanSlugOverrides(value: unknown): Record<string, string> {
   return out;
 }
 
+/** Skill → projetos onde está desligada: sem skill sem projeto, sem projeto repetido. */
+function cleanSkillsDesligadas(value: unknown): Record<string, string[]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    const nome = k.trim();
+    if (!nome || !Array.isArray(v)) continue;
+    const projetos = [...new Set(v.filter((p): p is string => typeof p === "string").map((p) => p.trim()).filter(Boolean))];
+    if (!projetos.length) continue;
+    out[nome] = projetos.slice(0, 200);
+    if (Object.keys(out).length >= 200) break;
+  }
+  return out;
+}
+
 /** Lista de pastas: sem vazio, sem repetido, teto pra não crescer sem fim. */
 function cleanRepos(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -195,6 +211,8 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
     // aqui) — quem quer só ACRESCENTAR uma entrada manda o mapa atual + a nova (a UI já lê o
     // config antes de patchar, então tem o mapa corrente em mãos).
     slugOverrides: patch.slugOverrides === undefined ? current.slugOverrides : cleanSlugOverrides(patch.slugOverrides),
+    skillsDesligadas:
+      patch.skillsDesligadas === undefined ? current.skillsDesligadas : cleanSkillsDesligadas(patch.skillsDesligadas),
     ...(patch.repoMapTetoTokens === undefined
       ? current.repoMapTetoTokens !== undefined
         ? { repoMapTetoTokens: current.repoMapTetoTokens }

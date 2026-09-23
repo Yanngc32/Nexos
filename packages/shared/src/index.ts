@@ -360,6 +360,11 @@ export type NexoConfig = {
    */
   slugOverrides: Record<string, string>;
   /**
+   * Skills globais (`~/.nexos/skills`) desligadas por projeto: nome da skill → `projectKey`s
+   * onde ela NÃO vale. Ausente = ligada em todo projeto (o padrão).
+   */
+  skillsDesligadas: Record<string, string[]>;
+  /**
    * Teto de tokens do índice (Camada 1 do repo map) injetado no prompt — ver
    * `repo-map-indice.ts`. Ausente = usa a constante padrão (1200).
    */
@@ -427,6 +432,7 @@ export const DEFAULT_CONFIG: NexoConfig = {
   projetosDir: "",
   armazenamento: "pasta",
   slugOverrides: {},
+  skillsDesligadas: {},
   modulos: {
     rtk: false,
     caveman: false,

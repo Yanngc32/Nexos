@@ -95,3 +95,21 @@ describe("expandirSkill", () => {
     expect(expandirSkill("veja a/b/c", home, undefined, undefined)).toBe("veja a/b/c");
   });
 });
+
+describe("skills globais por projeto", () => {
+  it("desligada num projeto some só dele — e do expandirSkill; religar volta", async () => {
+    const { definirSkillNoProjeto, skillsDesligadasNoProjeto } = await import("../src/skills.ts");
+    const home = tempHome();
+    criaSkillGlobal(home, "caveman");
+    const a = join(home, "proj-a");
+    const b = join(home, "proj-b");
+    definirSkillNoProjeto(home, "caveman", a, false);
+    expect(listSkills(home, undefined, a).map((s) => s.name)).not.toContain("caveman");
+    expect(listSkills(home, undefined, b).map((s) => s.name)).toContain("caveman");
+    expect(expandirSkill("/caveman oi", home, undefined, a)).toBe("/caveman oi");
+    // mesma pasta com outra caixa/barra é o mesmo projeto
+    expect(skillsDesligadasNoProjeto(home, a.toUpperCase()).has("caveman")).toBe(true);
+    definirSkillNoProjeto(home, "caveman", a, true);
+    expect(listSkills(home, undefined, a).map((s) => s.name)).toContain("caveman");
+  });
+});

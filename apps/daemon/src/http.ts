@@ -43,7 +43,7 @@ import {
   listarBranches,
   trocarBranch,
 } from "./git.ts";
-import { listSkills } from "./skills.ts";
+import { definirSkillNoProjeto, listSkills } from "./skills.ts";
 import { cliAuthStatus } from "./auth-status.ts";
 import { cancelLogin, loginStatus, startLogin, submitCode } from "./login-session.ts";
 import {
@@ -708,6 +708,17 @@ export function createApp(home: string, token: string): Hono {
     const projectPath = c.req.query("projectPath") || undefined;
     const profileId = c.req.query("profileId") || undefined;
     return c.json(listSkills(home, profileId, projectPath));
+  });
+
+  /** Configurações → Skills: liga/desliga uma skill global num projeto. */
+  app.put("/v1/skills/projeto", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { nome?: unknown; projectPath?: unknown; ligada?: unknown };
+    const nome = typeof body.nome === "string" ? body.nome.trim() : "";
+    const projectPath = typeof body.projectPath === "string" ? body.projectPath.trim() : "";
+    if (!nome || !projectPath || typeof body.ligada !== "boolean") {
+      return c.json({ error: "nome, projectPath e ligada (boolean) são obrigatórios" }, 400);
+    }
+    return c.json({ skillsDesligadas: definirSkillNoProjeto(home, nome, projectPath, body.ligada) });
   });
 
   /** Stream global: o "*" do bus recebe o evento de qualquer conversa. */

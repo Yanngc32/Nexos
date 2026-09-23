@@ -20,7 +20,7 @@ import { spawnCwd } from "../project-cwd.ts";
 import { agentOverrides } from "../agents.ts";
 import { loadConfig } from "../config.ts";
 import { engineEnv, engineSpawnEnv, getProfile } from "../profiles.ts";
-import { syncGlobalSkills } from "../skills.ts";
+import { skillsDesligadasNoProjeto, syncGlobalSkills } from "../skills.ts";
 import { syncRtkHook } from "../modules.ts";
 import { isNodeScript, spawnBin } from "../spawn-bin.ts";
 import { ENV_TOKEN_MCP, flagsDeMcpCodex, MCP_TOOLS } from "../mcp.ts";
@@ -303,6 +303,12 @@ export class CliEngine implements Engine {
     }
     this.args.push(...this.attachmentFlags(profile?.engine));
     this.args.push(...mcp.flags);
+    // A cópia da skill global no perfil é uma só pra todo projeto: o que desliga por projeto é
+    // negar a ferramenta Skill daquele nome neste turno (Configurações → Skills).
+    if (profile?.engine === "claude") {
+      const off = [...skillsDesligadasNoProjeto(this.home, this.projectPath)];
+      if (off.length) this.args.push("--disallowed-tools", ...off.map((n) => `Skill(${n})`));
+    }
     this.lastArgs = this.args;
     // Skill de `~/.nexos/skills` só chega no motor se estiver dentro do CLAUDE_CONFIG_DIR
     // isolado deste perfil — sincroniza a cada turno pra qualquer conta enxergar a mesma skill.

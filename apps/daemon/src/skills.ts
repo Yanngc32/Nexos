@@ -1,6 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { globalSkillsDir, profileDir } from "./home.ts";
+import { loadConfig, saveConfig } from "./config.ts";
+import { globalSkillsDir, profileDir, projectKey } from "./home.ts";
 import { assertSlug } from "./ids.ts";
 import { getProfile } from "./profiles.ts";
 
@@ -125,7 +126,39 @@ export function listSkills(home: string, profileId: string | undefined, projectP
   const profile = profileId ? getProfile(profileId, home) : undefined;
   if (profile) scanSkillsDir(join(profileDir(profile.id, home), "claude", "skills"), "perfil", seen, out);
   scanSkillsDir(globalSkillsDir(home), "global", seen, out);
-  return out.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  // Desligada no projeto some do menu e do `expandirSkill`. Vale também pra cópia dela dentro do
+  // perfil (`syncGlobalSkills`), que aparece como "perfil"; skill do próprio repo não se desliga aqui.
+  const off = skillsDesligadasNoProjeto(home, projectPath);
+  const visiveis = off.size ? out.filter((s) => s.scope === "projeto" || !off.has(s.name)) : out;
+  return visiveis.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+}
+
+/** Skills globais desligadas neste projeto (Configurações → Skills). Sem projeto = nenhuma. */
+export function skillsDesligadasNoProjeto(home: string, projectPath: string | undefined): Set<string> {
+  if (!projectPath) return new Set();
+  const chave = projectKey(projectPath);
+  const mapa = loadConfig(home).skillsDesligadas;
+  return new Set(Object.keys(mapa).filter((nome) => mapa[nome].includes(chave)));
+}
+
+/**
+ * Liga/desliga UMA skill em UM projeto, lendo e gravando o mapa aqui no daemon — a UI não manda o
+ * mapa inteiro, então dois cliques seguidos (ou duas janelas) não se atropelam.
+ */
+export function definirSkillNoProjeto(
+  home: string,
+  nome: string,
+  projectPath: string,
+  ligada: boolean,
+): Record<string, string[]> {
+  const chave = projectKey(projectPath);
+  const mapa = { ...loadConfig(home).skillsDesligadas };
+  const atual = new Set(mapa[nome] ?? []);
+  if (ligada) atual.delete(chave);
+  else atual.add(chave);
+  if (atual.size) mapa[nome] = [...atual];
+  else delete mapa[nome];
+  return saveConfig(home, { skillsDesligadas: mapa }).skillsDesligadas;
 }
 
 /** Corpo do `SKILL.md`, sem o frontmatter — que é metadado de listagem, não instrução. */
