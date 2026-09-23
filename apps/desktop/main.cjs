@@ -1073,6 +1073,16 @@ app.whenReady().then(() => {
     const buf = await readFile(r.filePaths[0]);
     return { name: r.filePaths[0].split(sep).pop(), base64: buf.toString("base64") };
   });
+  /** Imagem pro ícone do projeto (menu do projeto → "Escolher ícone…"), em base64 pro daemon guardar. */
+  handle("file:pickImageBase64", async () => {
+    const r = await dialog.showOpenDialog(win, {
+      properties: ["openFile"],
+      filters: [{ name: "Imagem", extensions: ["svg", "png", "ico", "webp", "jpg", "jpeg"] }],
+    });
+    if (r.canceled || !r.filePaths[0]) return null;
+    const buf = await readFile(r.filePaths[0]);
+    return { name: r.filePaths[0].split(sep).pop(), base64: buf.toString("base64") };
+  });
   handle("fs:list", async (_e, rel = ".") => {
     const dir = boundPath(rel);
     const st = await stat(dir);

@@ -1,6 +1,7 @@
-import { readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { projectKey } from "./home.ts";
+import { projectDir, projectDirSemCriar } from "./projeto-dir.ts";
 
 /**
  * Logo/ícone do projeto pra barra lateral do app (no lugar do ícone de pasta).
@@ -91,8 +92,48 @@ export function acharLogo(projectPath: string): LogoDoProjeto | null {
 
 const cache = new Map<string, { em: number; logo: LogoDoProjeto | null }>();
 
-/** Com cache curto: a barra pede o logo de cada projeto a cada repintura da lista. */
-export function logoDoProjeto(projectPath: string): LogoDoProjeto | null {
+/*
+ * Ícone escolhido à mão (menu do projeto → "Escolher ícone…"), pra quando o automático pega o
+ * arquivo errado. Fica COPIADO na pasta do projeto no Nexos (não aponta pro original): vai junto
+ * no sync entre máquinas e não quebra se o arquivo do repo mudar de lugar.
+ */
+const MANUAL = "icone-manual";
+
+function logoManual(projectPath: string, home: string): LogoDoProjeto | null {
+  const dir = projectDirSemCriar(projectPath, home);
+  for (const [ext, mime] of EXT) {
+    const caminho = join(dir, `${MANUAL}${ext}`);
+    if (existsSync(caminho)) return { caminho, mime };
+  }
+  return null;
+}
+
+function apagarManual(dir: string): void {
+  for (const ext of EXT.keys()) rmSync(join(dir, `${MANUAL}${ext}`), { force: true });
+}
+
+export function definirLogoManual(projectPath: string, home: string, nome: string, base64: string): LogoDoProjeto {
+  const ext = extname(nome).toLowerCase();
+  const mime = EXT.get(ext);
+  if (!mime) throw Object.assign(new Error("formato não suportado (svg, png, ico, webp, jpg)"), { status: 400 });
+  const corpo = Buffer.from(base64, "base64");
+  if (!corpo.length) throw Object.assign(new Error("arquivo vazio"), { status: 400 });
+  if (corpo.length > MAX_BYTES) throw Object.assign(new Error("imagem grande demais (máx. 512 KB)"), { status: 400 });
+  const dir = projectDir(projectPath, home);
+  apagarManual(dir);
+  const caminho = join(dir, `${MANUAL}${ext}`);
+  writeFileSync(caminho, corpo);
+  return { caminho, mime };
+}
+
+export function limparLogoManual(projectPath: string, home: string): void {
+  apagarManual(projectDirSemCriar(projectPath, home));
+}
+
+/** Manual primeiro; o automático tem cache curto (a barra pede o logo de cada projeto a cada repintura). */
+export function logoDoProjeto(projectPath: string, home: string): (LogoDoProjeto & { manual?: boolean }) | null {
+  const manual = logoManual(projectPath, home);
+  if (manual) return { ...manual, manual: true };
   const chave = projectKey(projectPath);
   const c = cache.get(chave);
   if (c && Date.now() - c.em < TTL_MS) return c.logo;

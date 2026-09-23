@@ -2942,6 +2942,9 @@ function menuDoRepo(e, path) {
     { rotulo: "Copiar caminho", ico: "⧉", onSelect: () => void copiarTexto(path, "Caminho") },
     { rotulo: "Abrir a pasta no sistema", ico: "↗", onSelect: () => void abrirPastaNoSistema(path) },
     { separador: true },
+    { rotulo: "Escolher ícone…", ico: "◧", onSelect: () => void escolherIconeDoRepo(path) },
+    { rotulo: "Voltar ao ícone automático", ico: "↺", onSelect: () => void iconeAutomaticoDoRepo(path) },
+    { separador: true },
     { rotulo: "Tirar da lista", ico: "×", perigo: true, onSelect: () => void removeRepo(path) },
   ]);
 }
@@ -3392,12 +3395,16 @@ function renderRepoTree() {
 
 /** path normalizado → URL de objeto do logo, `null` (projeto sem logo) ou uma Promise em curso. */
 const logosDeProjeto = new Map();
+/** path normalizado → quantas vezes o ícone foi trocado nesta sessão (ver `recarregarLogoDoRepo`). */
+const versaoDoLogo = new Map();
 
 /** Logo do projeto pelo daemon (`/v1/projects/logo`). Pede uma vez por projeto; 404 fica guardado como "sem logo". */
 function logoDoRepo(path) {
   const k = normPath(path);
   if (logosDeProjeto.has(k)) return logosDeProjeto.get(k);
-  const p = reqBlob(`/v1/projects/logo?projectPath=${encodeURIComponent(path)}`)
+  // `v` fura o cache HTTP (max-age=300) depois de trocar o ícone à mão
+  const v = versaoDoLogo.get(k) ?? 0;
+  const p = reqBlob(`/v1/projects/logo?projectPath=${encodeURIComponent(path)}${v ? `&v=${v}` : ""}`)
     .then((blob) => {
       const url = blob && blob.size ? URL.createObjectURL(blob) : null;
       logosDeProjeto.set(k, url);
@@ -3411,6 +3418,46 @@ function logoDoRepo(path) {
     });
   logosDeProjeto.set(k, p);
   return p;
+}
+
+/** Esquece o logo guardado do projeto e repinta a barra (cheia e minimizada). */
+function recarregarLogoDoRepo(path) {
+  const k = normPath(path);
+  const v = logosDeProjeto.get(k);
+  if (typeof v === "string") URL.revokeObjectURL(v);
+  logosDeProjeto.delete(k);
+  versaoDoLogo.set(k, (versaoDoLogo.get(k) ?? 0) + 1);
+  renderRepoTree(); // repinta a minimizada junto
+}
+
+/** Menu do projeto → "Escolher ícone…": pro caso de o automático pegar o arquivo errado. */
+async function escolherIconeDoRepo(path) {
+  let arquivo;
+  try {
+    arquivo = await window.nexo.pickImageBase64();
+  } catch (e) {
+    return dialogo.avisar(`Não deu pra escolher a imagem: ${e.message}`);
+  }
+  if (!arquivo) return; // cancelou o seletor
+  try {
+    await req(`/v1/projects/logo?projectPath=${encodeURIComponent(path)}`, {
+      method: "PUT",
+      body: JSON.stringify({ nome: arquivo.name, base64: arquivo.base64 }),
+    });
+  } catch (e) {
+    return dialogo.avisar(`Ícone: ${e.message}`);
+  }
+  if (!state.logoProjetos) await dialogo.avisar("Ícone salvo. Ele aparece quando \"Logo do projeto\" estiver ligado em Configurações → Aparência.");
+  recarregarLogoDoRepo(path);
+}
+
+async function iconeAutomaticoDoRepo(path) {
+  try {
+    await req(`/v1/projects/logo?projectPath=${encodeURIComponent(path)}`, { method: "DELETE" });
+  } catch (e) {
+    return dialogo.avisar(`Ícone: ${e.message}`);
+  }
+  recarregarLogoDoRepo(path);
 }
 
 function imgDeLogo(url, classe) {

@@ -142,7 +142,7 @@ import {
 } from "./design-system.ts";
 import { assinarDs } from "./ds-watch.ts";
 import { aplicarRessincronia, conformidade, exportar, ressincronizar, type FormatoExport, type ItemRessincronia } from "./ds-sync.ts";
-import { logoDoProjeto } from "./project-logo.ts";
+import { definirLogoManual, limparLogoManual, logoDoProjeto } from "./project-logo.ts";
 import {
   cancelarGeracao,
   canalGeracao,
@@ -894,11 +894,34 @@ export function createApp(home: string, token: string): Hono {
     });
   });
 
+  /** Ícone escolhido à mão (menu do projeto). Body: { nome, base64 } da imagem. */
+  app.put("/v1/projects/logo", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    const body = (await c.req.json().catch(() => ({}))) as { nome?: unknown; base64?: unknown };
+    if (typeof body.nome !== "string" || typeof body.base64 !== "string") return c.json({ error: "nome e base64 obrigatórios" }, 400);
+    try {
+      definirLogoManual(projectPath, home, body.nome, body.base64);
+      return c.json({ ok: true });
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 500) as 400);
+    }
+  });
+
+  /** Volta pro ícone automático. */
+  app.delete("/v1/projects/logo", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    limparLogoManual(projectPath, home);
+    return c.json({ ok: true });
+  });
+
   /** Logo/ícone do projeto pra barra lateral. 404 = sem logo (o app mostra o ícone de pasta). */
   app.get("/v1/projects/logo", (c) => {
     const projectPath = c.req.query("projectPath") || "";
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
-    const logo = logoDoProjeto(projectPath);
+    const logo = logoDoProjeto(projectPath, home);
     if (!logo) return c.json({ error: "sem logo" }, 404);
     try {
       const corpo = readFileSync(logo.caminho);
@@ -907,6 +930,7 @@ export function createApp(home: string, token: string): Hono {
         // SVG de projeto é arquivo de terceiro: sem script nem recurso externo quando aberto direto
         "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
         "cache-control": "private, max-age=300",
+        "x-nexos-logo": logo.manual ? "manual" : "auto",
       });
     } catch {
       return c.json({ error: "sem logo" }, 404);

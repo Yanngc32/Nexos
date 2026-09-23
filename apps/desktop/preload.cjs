@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld("nexo", {
   runCommand: (command) => ipcRenderer.invoke("shell:run", command),
   saveFile: (name, content) => ipcRenderer.invoke("file:save", { name, content }),
   pickZipBase64: () => ipcRenderer.invoke("file:pickZipBase64"),
+  pickImageBase64: () => ipcRenderer.invoke("file:pickImageBase64"),
   killCommand: () => ipcRenderer.invoke("shell:kill"),
   checkForUpdate: () => ipcRenderer.invoke("update:check"),
   updateReady: () => ipcRenderer.invoke("update:status"),
