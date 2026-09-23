@@ -2,6 +2,23 @@ import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { projectDir, projectDirSemCriar } from "./projeto-dir.ts";
+import {
+  ALINHAMENTOS,
+  cardsDeFundamentos,
+  garantirKit,
+  htmlDoTipo,
+  IDS_FUNDAMENTOS,
+  KIT_CSS,
+  LARGURAS,
+  TIPOS,
+  varsDoTipo,
+  type Alinhamento,
+  type CardFundamento,
+  type ConfigFundamento,
+  type Largura,
+  type TipoCard,
+  type TipoDeToken,
+} from "./ds-kit.ts";
 
 /**
  * Design system (DS) do projeto — o que a view "Design System" do desktop mostra e edita.
@@ -32,9 +49,12 @@ export type DsCard = {
   lint: LintItem[];
   /** Sliders que o card declarou (`data-ds-controles`) — ver `controlesDoCard`. */
   controles: Controle[];
+  /** Tipo do card (ver `TIPOS` em ds-kit.ts) e quanto da linha ele ocupa no board. */
+  tipo?: TipoCard;
+  largura?: Largura;
 };
 
-export type DsSecao = { id: string; titulo: string };
+export type DsSecao = { id: string; titulo: string; alinhamento?: Alinhamento };
 
 export type DsVar = { nome: string; caminho: string; tipo?: string; valor: string; bruto: unknown };
 
@@ -51,6 +71,10 @@ export type DsCompleto = DsSistema & {
   designMd: string;
   secoes: DsSecao[];
   cards: DsCard[];
+  /** Cards gerados dos tokens (sem arquivo), na ordem de `meta.fundamentos`. */
+  fundamentos: CardFundamento[];
+  /** Classes do kit que o Canvas injeta em todo card (ver ds-kit.ts). */
+  kitCss: string;
 };
 
 export type DsEstado = { sistemas: DsSistema[]; ativo: string | null; ds: DsCompleto | null };
@@ -431,7 +455,20 @@ function lintTokens(vars: DsVar[]): LintItem[] {
  * Leitura
  * ------------------------------------------------------------------------- */
 
-type Meta = { secoes?: DsSecao[]; cards?: { id: string; titulo?: string; subtitulo?: string; secao?: string }[] };
+type MetaCard = { id: string; titulo?: string; subtitulo?: string; secao?: string; tipo?: string; largura?: string };
+type Meta = { secoes?: DsSecao[]; cards?: MetaCard[]; fundamentos?: ConfigFundamento[] };
+
+const ehLargura = (v: unknown): v is Largura => typeof v === "string" && (LARGURAS as readonly string[]).includes(v);
+const ehAlinhamento = (v: unknown): v is Alinhamento => typeof v === "string" && (ALINHAMENTOS as readonly string[]).includes(v);
+const ehTipo = (v: unknown): v is TipoCard => typeof v === "string" && TIPOS.some((t) => t.id === v);
+
+/** `meta.fundamentos` validado — o arquivo é editado à mão e pelo agente. */
+function fundamentosDoMeta(meta: Meta): ConfigFundamento[] {
+  if (!Array.isArray(meta.fundamentos)) return [];
+  return meta.fundamentos
+    .filter((f) => f && typeof f.id === "string" && IDS_FUNDAMENTOS.includes(f.id))
+    .map((f) => ({ id: f.id, ...(ehLargura(f.largura) ? { largura: f.largura } : {}), ...(f.oculto === true ? { oculto: true } : {}) }));
+}
 
 function lerTexto(caminho: string): string | null {
   try {
@@ -491,10 +528,14 @@ export function lerSistema(projectPath: string, home: string, sistema: DsSistema
       hash: hashDe(html),
       lint: lintCard(html, conhecidas),
       controles: controlesDoCard(html),
+      ...(ehTipo(m?.tipo) ? { tipo: m.tipo } : {}),
+      ...(ehLargura(m?.largura) ? { largura: m.largura } : {}),
     };
   });
 
-  const secoes = (meta.secoes ?? []).filter((s) => s && typeof s.id === "string" && typeof s.titulo === "string");
+  const secoes: DsSecao[] = (meta.secoes ?? [])
+    .filter((s) => s && typeof s.id === "string" && typeof s.titulo === "string")
+    .map((s) => ({ id: s.id, titulo: s.titulo, ...(ehAlinhamento(s.alinhamento) ? { alinhamento: s.alinhamento } : {}) }));
   for (const c of cards) {
     if (!secoes.some((s) => s.id === c.secao)) secoes.push({ id: c.secao, titulo: c.secao === "outros" ? "Outros" : c.secao });
   }
@@ -511,6 +552,8 @@ export function lerSistema(projectPath: string, home: string, sistema: DsSistema
     designMd: lerTexto(join(pastaAbs, "DESIGN.md")) ?? "",
     secoes,
     cards,
+    fundamentos: cardsDeFundamentos(vars, fundamentosDoMeta(meta)),
+    kitCss: KIT_CSS,
   };
 }
 
@@ -615,7 +658,7 @@ export function salvarCard(
   projectPath: string,
   home: string,
   id: string,
-  input: { html?: unknown; base?: string; titulo?: unknown; subtitulo?: unknown; secao?: unknown },
+  input: { html?: unknown; base?: string; titulo?: unknown; subtitulo?: unknown; secao?: unknown; tipo?: unknown; largura?: unknown },
   opts: { versionar?: boolean } = {},
 ): DsCompleto {
   if (!ID_RE.test(id)) throw erro("id de card inválido (a-z, 0-9 e hífen)");
@@ -626,7 +669,13 @@ export function salvarCard(
   conferirBase(caminho, input.base);
   if (opts.versionar) guardarVersao(pasta, id);
   escreverAtomico(caminho, input.html);
-  if (typeof input.titulo === "string" || typeof input.secao === "string" || typeof input.subtitulo === "string") {
+  if (
+    typeof input.titulo === "string" ||
+    typeof input.secao === "string" ||
+    typeof input.subtitulo === "string" ||
+    ehTipo(input.tipo) ||
+    ehLargura(input.largura)
+  ) {
     const meta = lerMeta(pasta);
     const cards = meta.cards ?? [];
     const i = cards.findIndex((c) => c.id === id);
@@ -636,6 +685,8 @@ export function salvarCard(
       ...(typeof input.titulo === "string" ? { titulo: input.titulo } : {}),
       ...(typeof input.subtitulo === "string" ? { subtitulo: input.subtitulo } : {}),
       ...(typeof input.secao === "string" ? { secao: input.secao } : {}),
+      ...(ehTipo(input.tipo) ? { tipo: input.tipo } : {}),
+      ...(ehLargura(input.largura) ? { largura: input.largura } : {}),
     };
     if (i >= 0) cards[i] = novo;
     else cards.push(novo);
@@ -681,6 +732,7 @@ export function criarDs(projectPath: string, home: string, input: { nome?: unkno
     if (!existsSync(caminho)) escreverAtomico(caminho, conteudo);
   }
   salvarPonteiro(projectPath, home, { sistemas: [...p.sistemas, { id, nome }], ativo: id });
+  garantirKit(abs);
   return estadoDs(projectPath, home);
 }
 
@@ -779,6 +831,176 @@ export function proximaVariante(projectPath: string, home: string, id: string): 
     if (ID_RE.test(cand) && !existsSync(join(pasta, "cards", `${cand}.html`))) return cand;
   }
   throw erro("variantes demais pra este card");
+}
+
+/* ---------------------------------------------------------------------------
+ * Layout do board e cards novos (o agente faz o mesmo editando meta.json — ver KIT.md)
+ * ------------------------------------------------------------------------- */
+
+const ID_SECAO_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
+
+function slug(texto: string): string {
+  return texto
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+}
+
+/** Id livre pra um card novo, a partir do título (`cores-da-marca`, `-2`…). */
+export function idNovoDeCard(projectPath: string, home: string, titulo: string): string {
+  const pasta = pastaAbsoluta(projectPath, home, ativoOuErro(projectPath, home));
+  const meta = lerMeta(pasta);
+  let base = slug(titulo);
+  if (!ID_RE.test(base)) base = "card";
+  const ocupado = (id: string) =>
+    existsSync(join(pasta, "cards", `${id}.html`)) || IDS_FUNDAMENTOS.includes(id) || (meta.cards ?? []).some((c) => c?.id === id);
+  let id = base;
+  for (let n = 2; ocupado(id); n++) id = `${base}-${n}`;
+  return id;
+}
+
+/** Seção do card novo: id existente, ou título de seção nova (vira id e entra em `secoes`). */
+function secaoParaCard(pasta: string, bruto: unknown): string {
+  const texto = typeof bruto === "string" ? bruto.trim() : "";
+  if (!texto) return "outros";
+  const meta = lerMeta(pasta);
+  const secoes = meta.secoes ?? [];
+  if (secoes.some((s) => s?.id === texto) || texto === "outros") return texto;
+  const id = ID_SECAO_RE.test(texto) ? texto : slug(texto) || "outros";
+  if (!secoes.some((s) => s?.id === id)) {
+    escreverAtomico(join(pasta, "meta.json"), `${JSON.stringify({ ...meta, secoes: [...secoes, { id, titulo: texto.slice(0, 60) }] }, null, 2)}\n`);
+  }
+  return id;
+}
+
+export type NovoCardDeTipo = { tipo?: unknown; titulo?: unknown; subtitulo?: unknown; secao?: unknown; largura?: unknown; tokens?: unknown };
+
+/** Card de token (cores, tipografia, espaçamento, forma) montado do modelo, sem IA. */
+export function criarCardDeTipo(projectPath: string, home: string, input: NovoCardDeTipo): { ds: DsCompleto; id: string } {
+  const tipo = TIPOS.find((t) => t.id === input.tipo);
+  if (!tipo || tipo.daIa) throw erro("tipo de card sem modelo pronto (use cores, tipografia, espacamento ou forma)");
+  const titulo = typeof input.titulo === "string" && input.titulo.trim() ? input.titulo.trim().slice(0, 80) : tipo.titulo;
+  const s = ativoOuErro(projectPath, home);
+  const pasta = pastaAbsoluta(projectPath, home, s);
+  const ds = lerSistema(projectPath, home, s);
+  const doTipo = varsDoTipo(tipo.id as TipoDeToken, ds.vars);
+  const pedidos = Array.isArray(input.tokens) ? new Set(input.tokens.filter((t): t is string => typeof t === "string")) : null;
+  const vars = pedidos ? doTipo.filter((v) => pedidos.has(v.nome)) : doTipo;
+  if (!vars.length) throw erro("marque ao menos um token");
+  const id = idNovoDeCard(projectPath, home, titulo);
+  const novo = salvarCard(projectPath, home, id, {
+    html: htmlDoTipo(tipo.id as TipoDeToken, vars),
+    titulo,
+    ...(typeof input.subtitulo === "string" && input.subtitulo.trim() ? { subtitulo: input.subtitulo.trim().slice(0, 120) } : {}),
+    secao: secaoParaCard(pasta, input.secao),
+    tipo: tipo.id,
+    largura: ehLargura(input.largura) ? input.largura : "1/2",
+  });
+  return { ds: novo, id };
+}
+
+/** Reserva a entrada no meta.json de um card que a IA vai desenhar (o esqueleto já aparece no lugar). */
+export function registrarCardNovo(
+  projectPath: string,
+  home: string,
+  novo: { id: string; titulo: string; subtitulo?: string; secao: unknown; tipo?: TipoCard; largura?: unknown },
+): { id: string; titulo: string; subtitulo?: string; secao: string } {
+  const pasta = pastaAbsoluta(projectPath, home, ativoOuErro(projectPath, home));
+  const secao = secaoParaCard(pasta, novo.secao);
+  const meta = lerMeta(pasta);
+  const entrada: MetaCard = {
+    id: novo.id,
+    titulo: novo.titulo,
+    ...(novo.subtitulo ? { subtitulo: novo.subtitulo } : {}),
+    secao,
+    ...(novo.tipo ? { tipo: novo.tipo } : {}),
+    largura: ehLargura(novo.largura) ? novo.largura : "1/2",
+  };
+  const cards = [...(meta.cards ?? []).filter((c) => c && c.id !== novo.id), entrada];
+  escreverAtomico(join(pasta, "meta.json"), `${JSON.stringify({ ...meta, cards }, null, 2)}\n`);
+  return { id: novo.id, titulo: novo.titulo, ...(novo.subtitulo ? { subtitulo: novo.subtitulo } : {}), secao };
+}
+
+export type MudancaDeCard = { titulo?: unknown; subtitulo?: unknown; secao?: unknown; largura?: unknown; oculto?: unknown; mover?: unknown };
+
+/**
+ * Layout de um card pelo Canvas: título, seção, largura, posição (`mover` -1/+1 dentro da seção) e,
+ * pros Fundamentos (que não têm arquivo), `oculto`.
+ */
+export function mudarCard(projectPath: string, home: string, id: string, m: MudancaDeCard): DsCompleto {
+  const s = ativoOuErro(projectPath, home);
+  const pasta = pastaAbsoluta(projectPath, home, s);
+  const meta = lerMeta(pasta);
+  const ds = lerSistema(projectPath, home, s);
+  const mover = m.mover === -1 || m.mover === 1 ? m.mover : 0;
+
+  if (IDS_FUNDAMENTOS.includes(id)) {
+    // ordem completa dos fundamentos (inclusive os que o meta ainda não lista) pra dar pra mover
+    const lista: ConfigFundamento[] = ds.fundamentos.map((f) => fundamentosDoMeta(meta).find((c) => c.id === f.id) ?? { id: f.id });
+    const i = lista.findIndex((c) => c.id === id);
+    if (i < 0) throw erro("card não existe", 404);
+    const c = { ...lista[i]! };
+    if (ehLargura(m.largura)) c.largura = m.largura;
+    if (typeof m.oculto === "boolean") {
+      if (m.oculto) c.oculto = true;
+      else delete c.oculto;
+    }
+    lista[i] = c;
+    if (mover && lista[i + mover]) [lista[i], lista[i + mover]] = [lista[i + mover]!, lista[i]!];
+    escreverAtomico(join(pasta, "meta.json"), `${JSON.stringify({ ...meta, fundamentos: lista }, null, 2)}\n`);
+    return lerSistema(projectPath, home, s);
+  }
+
+  const card = ds.cards.find((c) => c.id === id);
+  if (!card) throw erro("card não existe", 404);
+  // meta com todos os cards do disco, na ordem do board (card sem entrada ganha uma)
+  const porId = new Map((meta.cards ?? []).filter((c) => c && typeof c.id === "string").map((c) => [c.id, c]));
+  const cards: MetaCard[] = ds.cards.map((c) => porId.get(c.id) ?? { id: c.id, titulo: c.titulo, secao: c.secao });
+  const semArquivo = (meta.cards ?? []).filter((c) => c && !ds.cards.some((x) => x.id === c.id));
+  const i = cards.findIndex((c) => c.id === id);
+  const e: MetaCard = { ...cards[i]! };
+  if (typeof m.titulo === "string" && m.titulo.trim()) e.titulo = m.titulo.trim().slice(0, 80);
+  if (typeof m.subtitulo === "string") {
+    if (m.subtitulo.trim()) e.subtitulo = m.subtitulo.trim().slice(0, 120);
+    else delete e.subtitulo;
+  }
+  if (typeof m.secao === "string" && m.secao.trim()) e.secao = secaoParaCard(pasta, m.secao);
+  if (ehLargura(m.largura)) e.largura = m.largura;
+  cards[i] = e;
+  if (mover) {
+    // vizinho na MESMA seção (é o que a pessoa vê lado a lado)
+    const secao = e.secao || "outros";
+    let j = i + mover;
+    while (j >= 0 && j < cards.length && (cards[j]!.secao || "outros") !== secao) j += mover;
+    if (j >= 0 && j < cards.length) [cards[i], cards[j]] = [cards[j]!, cards[i]!];
+  }
+  const metaAtual = lerMeta(pasta); // secaoParaCard pode ter acrescentado seção
+  escreverAtomico(join(pasta, "meta.json"), `${JSON.stringify({ ...metaAtual, cards: [...cards, ...semArquivo] }, null, 2)}\n`);
+  return lerSistema(projectPath, home, s);
+}
+
+/** Título e alinhamento de uma seção (inclusive "fundamentos", que não precisa estar em `secoes`). */
+export function mudarSecao(projectPath: string, home: string, id: string, m: { titulo?: unknown; alinhamento?: unknown }): DsCompleto {
+  if (!ID_SECAO_RE.test(id)) throw erro("id de seção inválido");
+  const s = ativoOuErro(projectPath, home);
+  const pasta = pastaAbsoluta(projectPath, home, s);
+  const meta = lerMeta(pasta);
+  const secoes = [...(meta.secoes ?? [])];
+  let i = secoes.findIndex((x) => x?.id === id);
+  if (i < 0) {
+    const titulo = id === "fundamentos" ? "Fundamentos" : id === "outros" ? "Outros" : id;
+    secoes.push({ id, titulo });
+    i = secoes.length - 1;
+  }
+  const atual = { ...secoes[i]! };
+  if (typeof m.titulo === "string" && m.titulo.trim()) atual.titulo = m.titulo.trim().slice(0, 60);
+  if (ehAlinhamento(m.alinhamento)) atual.alinhamento = m.alinhamento;
+  secoes[i] = atual;
+  escreverAtomico(join(pasta, "meta.json"), `${JSON.stringify({ ...meta, secoes }, null, 2)}\n`);
+  return lerSistema(projectPath, home, s);
 }
 
 /** Tira o DS da lista do projeto. Os arquivos ficam no disco (dá pra recuperar à mão). */

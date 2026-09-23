@@ -16,7 +16,7 @@ import {
   restaurarVersao,
   salvarCard,
 } from "../src/design-system.ts";
-import { canalGeracao, geracaoAtual, geracaoBus, iniciarFeedback, resetGeracaoForTest, type Geracao, type Motor } from "../src/ds-gerar.ts";
+import { canalGeracao, geracaoAtual, geracaoBus, iniciarFeedback, iniciarNovoCard, resetGeracaoForTest, type Geracao, type Motor } from "../src/ds-gerar.ts";
 
 const CONTROLES = `<script type="application/json" data-ds-controles>[
   {"var":"--btn-pad-x","rotulo":"Padding","tipo":"range","min":8,"max":32,"passo":2,"unidade":"px","padrao":16},
@@ -158,6 +158,24 @@ describe("feedback por card", () => {
     expect(ids.indexOf("core-botoes-var-1")).toBe(ids.indexOf("core-botoes") + 1);
     expect(ds.cards.find((c) => c.id === "core-botoes")!.html).toBe(antes);
     expect(ds.cards.find((c) => c.id === "core-botoes-var-1")!.titulo).toBe("Botões (variante)");
+  });
+
+  it("card novo pela IA: reserva o lugar no meta (tipo/largura/seção), pede com o kit e grava o card", async () => {
+    const { motor, pedidos } = motorQueResponde(
+      (p) => `<ds-card id="${/- id: (\S+)/.exec(p)![1]}"><div class="k-bloco"><p class="k-rotulo">Padrão</p><span style="color:var(--color-text)">Badge</span></div></ds-card>`,
+    );
+    iniciarNovoCard(proj, home, { profileId: perfil, texto: "badges de status", titulo: "Badges", secao: "core", tipo: "componente", largura: "1/3" }, motor);
+    // esqueleto: a entrada já está no meta antes do card chegar
+    expect(geracaoAtual(proj)!.plano.map((c) => c.id)).toEqual(["badges"]);
+    const g = await fim();
+    expect(g.status).toBe("concluida");
+    expect(pedidos[0]).toContain("Card de COMPONENTE");
+    expect(pedidos[0]).toContain(".k-demo");
+    const card = estadoDs(proj, home).ds!.cards.find((c) => c.id === "badges")!;
+    expect(card).toMatchObject({ tipo: "componente", largura: "1/3", secao: "core" });
+    expect(card.html).toContain("Badge");
+    const { motor: m2 } = motorQueResponde(() => "");
+    expect(() => iniciarNovoCard(proj, home, { profileId: perfil, texto: "" }, m2)).toThrow(/descreva/);
   });
 
   it("sem texto ou card inexistente dá erro", () => {

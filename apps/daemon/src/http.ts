@@ -139,7 +139,13 @@ import {
   removerDs,
   salvarCard,
   salvarTokens,
+  criarCardDeTipo,
+  mudarCard,
+  mudarSecao,
+  type MudancaDeCard,
+  type NovoCardDeTipo,
 } from "./design-system.ts";
+import { TIPOS, varsDoTipo, type TipoDeToken } from "./ds-kit.ts";
 import { assinarDs } from "./ds-watch.ts";
 import { aplicarRessincronia, conformidade, exportar, ressincronizar, type FormatoExport, type ItemRessincronia } from "./ds-sync.ts";
 import { definirLogoManual, limparLogoManual, logoDoProjeto } from "./project-logo.ts";
@@ -150,6 +156,8 @@ import {
   geracaoBus,
   iniciarFeedback,
   iniciarGeracao,
+  iniciarNovoCard,
+  type NovoCardInput,
   motorPadrao,
   type FeedbackInput,
   PLANO_PADRAO,
@@ -1319,6 +1327,70 @@ export function createApp(home: string, token: string): Hono {
       if (!ds || !card) return c.json({ error: "card não existe" }, 404);
       const html = aplicarControles(card.html, body.valores ?? {}, ds.vars);
       return c.json(salvarCard(projectPath, home, card.id, { html, base: body.base ?? card.hash }, { versionar: true }));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  /** Tipos de card e, pros de token, quais tokens o modelo pode mostrar (a lista pra marcar). */
+  app.get("/v1/ds/tipos", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    const ds = estadoDs(projectPath, home).ds;
+    if (!ds) return c.json({ error: "este projeto não tem design system" }, 404);
+    return c.json(
+      TIPOS.map((t) => ({
+        id: t.id,
+        titulo: t.titulo,
+        daIa: t.daIa,
+        tokens: t.daIa ? [] : varsDoTipo(t.id as TipoDeToken, ds.vars).map((v) => ({ nome: v.nome, caminho: v.caminho, valor: v.valor })),
+      })),
+    );
+  });
+
+  /** Card de token (cores, tipografia, espaçamento, forma) montado do modelo, sem IA. */
+  app.post("/v1/ds/cards", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as NovoCardDeTipo;
+      return c.json(criarCardDeTipo(projectPath, home, body), 201);
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  /** Card novo desenhado pela IA (componente, livre…), com streaming como a geração. */
+  app.post("/v1/ds/cards/novo-ia", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as NovoCardInput;
+      return c.json({ geracao: iniciarNovoCard(projectPath, home, body) }, 202);
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  /** Layout de um card: título, seção, largura, mover (-1/+1) e, nos Fundamentos, ocultar. */
+  app.patch("/v1/ds/cards/:card", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as MudancaDeCard;
+      return c.json(mudarCard(projectPath, home, c.req.param("card"), body));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  /** Título e alinhamento da seção (topo, esticar, alvenaria). */
+  app.patch("/v1/ds/secoes/:secao", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { titulo?: unknown; alinhamento?: unknown };
+      return c.json(mudarSecao(projectPath, home, c.req.param("secao"), body));
     } catch (e) {
       return dsErro(c, e);
     }

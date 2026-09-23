@@ -3,8 +3,10 @@ import { sessionBus } from "./bus.ts";
 import {
   estadoDs,
   prepararMeta,
+  idNovoDeCard,
   proximaVariante,
   registrarCardDepois,
+  registrarCardNovo,
   lintCard,
   salvarCard,
   salvarDesignMd,
@@ -14,6 +16,7 @@ import {
   type LintItem,
 } from "./design-system.ts";
 import { coletaVazia, coletarDaUrl, coletarDoCodigo, resumoDaColeta } from "./ds-coleta.ts";
+import { KIT_NO_PEDIDO, TIPOS, type TipoCard } from "./ds-kit.ts";
 import { criarLeitor, lerBlocos, semCerca, type Bloco, type OuvintesLeitor } from "./ds-stream.ts";
 import { ATTACH_MAX_BYTES } from "@nexos/shared";
 import type { IncomingImage } from "./attachments.ts";
@@ -416,6 +419,8 @@ ${logos}
 ## Cards desta seção
 ${cards}
 
+${KIT_NO_PEDIDO}
+
 ## Como escrever cada card
 - Um fragmento HTML: \`<style>\` + marcação. Sem \`<html>\`, \`<head>\` ou \`<body>\`. Largura útil ~720px.
 - Cor, fonte, espaço, raio e sombra SEMPRE por \`var(--token)\` da lista acima. Nunca hex, rgb(), hsl() nem cor nomeada.
@@ -467,9 +472,49 @@ ${ctx.ds.designMd.slice(0, 6000)}
 ## Tokens disponíveis (variáveis CSS já carregadas no card)
 ${listaDeVars(ctx.ds)}
 
+${KIT_NO_PEDIDO}
+
 ## Como escrever o card
 - Fragmento HTML (\`<style>\` + marcação), cor/fonte/espaço/raio/sombra só por \`var(--token)\`, sem \`<script>\` (exceto o JSON de controles), sem \`on*=\`, sem recurso externo. Conteúdo em pt-BR.
 - Mantenha o bloco \`<script type="application/json" data-ds-controles>\` se o card tiver, e o \`<style data-ds-controles-valores>\` exatamente como está.
+
+Formato (um bloco só):
+<ds-card id="${ctx.alvo.id}" titulo="${ctx.alvo.titulo}" secao="${ctx.alvo.secao}">
+...
+</ds-card>
+
+${REGRAS_GERAIS}`;
+}
+
+function pedidoDeNovoCard(ctx: { ds: DsCompleto; alvo: PlanoCard; tipo: TipoCard; texto: string }): string {
+  const tipo = TIPOS.find((t) => t.id === ctx.tipo)!;
+  const doTipo =
+    ctx.tipo === "componente"
+      ? "Card de COMPONENTE: variações e estados lado a lado (\`.k-bloco\` + \`.k-rotulo\` + \`.k-demo\`), com \`<style>\` próprio pro componente."
+      : ctx.tipo === "livre"
+        ? "Card LIVRE: siga o pedido; use as classes do kit onde fizer sentido pra manter o visual do board."
+        : `Card de ${tipo.titulo.toUpperCase()}: use SÓ as classes do kit (mesmo visual dos Fundamentos).`;
+  return `Você cria UM card novo no design system "${ctx.ds.nome}".
+
+## O card
+- id: ${ctx.alvo.id}
+- título: ${ctx.alvo.titulo}${ctx.alvo.subtitulo ? `\n- subtítulo: ${ctx.alvo.subtitulo}` : ""}
+- tipo: ${tipo.titulo}. ${doTipo}
+
+## Pedido
+${ctx.texto}
+
+## Regras de uso (DESIGN.md)
+${ctx.ds.designMd.slice(0, 6000)}
+
+## Tokens disponíveis (variáveis CSS já carregadas no card)
+${listaDeVars(ctx.ds)}
+
+${KIT_NO_PEDIDO}
+
+## Como escrever o card
+- Fragmento HTML (\`<style>\` + marcação), sem \`<html>\`/\`<head>\`/\`<body>\`. Largura útil ~720px.
+- Cor, fonte, espaço, raio e sombra só por \`var(--token)\`. Sem \`<script>\`, sem \`on*=\`, sem recurso externo. Conteúdo realista em pt-BR.
 
 Formato (um bloco só):
 <ds-card id="${ctx.alvo.id}" titulo="${ctx.alvo.titulo}" secao="${ctx.alvo.secao}">
@@ -853,6 +898,78 @@ export function iniciarFeedback(
   void (async () => {
     try {
       await rodarSecao(ctx, etapa, secao, pedidoDeFeedback({ ds, original, alvo, texto, elementos, variante }));
+      g.status = etapa.status === "erro" ? "erro" : "concluida";
+      if (etapa.erro) g.erro = etapa.erro;
+    } catch (e) {
+      g.status = "erro";
+      g.erro = (e as Error).message;
+      etapa.status = "erro";
+    } finally {
+      if (cancelada(g)) {
+        g.status = "cancelada";
+        if (etapa.status !== "ok") etapa.status = "cancelado";
+        canceladas.delete(g.id);
+      }
+      g.fim = new Date().toISOString();
+      publicar(g);
+    }
+  })();
+  return g;
+}
+
+export type NovoCardInput = {
+  profileId?: unknown;
+  texto?: unknown;
+  titulo?: unknown;
+  subtitulo?: unknown;
+  secao?: unknown;
+  tipo?: unknown;
+  largura?: unknown;
+};
+
+/**
+ * Card novo desenhado pela IA (tipo componente/livre, ou de token com pedido especial). Reserva o
+ * lugar no meta.json antes — o esqueleto aparece no board na hora — e roda igual a uma seção:
+ * streaming, lint e correção automática.
+ */
+export function iniciarNovoCard(projectPath: string, home: string, input: NovoCardInput, motor: Motor = motorPadrao(home)): Geracao {
+  const atual = geracaoAtual(projectPath);
+  if (atual?.status === "rodando") throw erro("já tem uma geração rodando neste projeto", 409);
+  const ds = estadoDs(projectPath, home).ds;
+  if (!ds) throw erro("este projeto não tem design system", 404);
+  const profileId = typeof input.profileId === "string" ? input.profileId : "";
+  if (!getProfile(profileId, home)) throw erro("escolha uma conta pra gerar");
+  const texto = typeof input.texto === "string" ? input.texto.trim().slice(0, 4000) : "";
+  if (!texto) throw erro("descreva o que o card mostra");
+  const tipo = (TIPOS.find((t) => t.id === input.tipo)?.id ?? "livre") as TipoCard;
+  const titulo = typeof input.titulo === "string" && input.titulo.trim() ? input.titulo.trim().slice(0, 80) : "Card novo";
+  const subtitulo = typeof input.subtitulo === "string" && input.subtitulo.trim() ? input.subtitulo.trim().slice(0, 120) : undefined;
+  const alvo: PlanoCard = registrarCardNovo(projectPath, home, {
+    id: idNovoDeCard(projectPath, home, titulo),
+    titulo,
+    ...(subtitulo ? { subtitulo } : {}),
+    secao: input.secao,
+    tipo,
+    largura: input.largura,
+  });
+
+  const g: Geracao = {
+    id: `novo-${Date.now().toString(36)}`,
+    projectPath,
+    status: "rodando",
+    inicio: new Date().toISOString(),
+    etapas: [{ id: `novo-${alvo.id}`, titulo: `Card novo · ${titulo}`, status: "pendente", cards: [alvo.id], prontos: [] }],
+    plano: [alvo],
+  };
+  porProjeto.set(projectKey(projectPath), g);
+  publicar(g);
+  const ctx: Ctx = { g, home, motor, profileId, brief: "", logos: [], imagens: [], salvar: () => publicar(g) };
+  const etapa = g.etapas[0]!;
+  const secao: PlanoSecao = { id: alvo.secao, titulo: etapa.titulo, cards: [alvo] };
+
+  void (async () => {
+    try {
+      await rodarSecao(ctx, etapa, secao, pedidoDeNovoCard({ ds, alvo, tipo, texto }));
       g.status = etapa.status === "erro" ? "erro" : "concluida";
       if (etapa.erro) g.erro = etapa.erro;
     } catch (e) {
