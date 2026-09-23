@@ -112,7 +112,8 @@ body:not([data-aberto="1"]) .pilula {
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 body[data-aberto="1"] .pilula {
-  --curva: 12px;
+  /* curva longa: o preto começa a abrir bem antes de encostar na borda */
+  --curva: 24px;
   opacity: 1;
 }
 .miolo {
