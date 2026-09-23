@@ -6,7 +6,8 @@ import { tempHome } from "./helpers.ts";
 
 const JDK = process.env.JAVA_HOME;
 
-describe.runIf(JDK)("garantirKeystore (JDK real via JAVA_HOME)", () => {
+// carregar a @bubblewrap/core de verdade leva ~20s (googleapis e cia.) na primeira vez do processo
+describe.runIf(JDK)("garantirKeystore (JDK real via JAVA_HOME)", { timeout: 60_000 }, () => {
   it("gera um keystore novo com keytool de verdade, e nunca em texto plano no disco fora do arquivo 0600", async () => {
     const home = tempHome();
     const info = await garantirKeystore(home, JDK as string);

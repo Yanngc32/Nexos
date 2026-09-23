@@ -11,7 +11,8 @@ const JDK = process.env.JAVA_HOME;
  * dá pra testar com keytool de verdade (é ele que extrai o fingerprint do
  * keystore), então roda só onde há JAVA_HOME.
  */
-describe.runIf(JDK)("gerarAssetLinks (JDK real via JAVA_HOME)", () => {
+// carregar a @bubblewrap/core de verdade leva ~20s (googleapis e cia.) na primeira vez do processo
+describe.runIf(JDK)("gerarAssetLinks (JDK real via JAVA_HOME)", { timeout: 60_000 }, () => {
   it("gera um assetlinks.json válido, com o fingerprint SHA-256 de verdade do keystore", async () => {
     const home = tempHome();
     const conteudo = await gerarAssetLinks(home, JDK as string, "app.nexo.mobile");

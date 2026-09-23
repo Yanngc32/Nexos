@@ -36,9 +36,15 @@ function aqui(): string {
   return dirname(fileURLToPath(import.meta.url));
 }
 
-/** Onde o `dotnet build -c Release` deixa o `.exe` — ver `garantirHelperCompilado`. */
+/**
+ * Fonte C# do helper (`src/windows-control/native`), a partir da raiz do daemon — e não do
+ * arquivo atual: empacotado, o motor roda do bundle `dist/nexos.mjs`, e "ao lado de mim" viraria
+ * `dist/native`. A raiz é a primeira pasta acima com `package.json`.
+ */
 export function nativeDir(): string {
-  return join(aqui(), "native");
+  let dir = aqui();
+  for (let i = 0; i < 6 && !existsSync(join(dir, "package.json")); i++) dir = dirname(dir);
+  return join(dir, "src", "windows-control", "native");
 }
 
 export function helperExePath(): string {

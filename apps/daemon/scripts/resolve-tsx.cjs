@@ -44,15 +44,27 @@ function findNodeOnPath() {
   }
 }
 
+/**
+ * Como rodar o motor: com o fonte presente (desenvolvimento), `tsx src/index.ts` — mudança no
+ * código vale sem compilar; sem ele (instalador), o bundle `dist/nexos.mjs` direto, sem tsx.
+ */
+function motorArgs(root = daemonRoot()) {
+  const fonte = nexoEntry(root);
+  const bundle = join(root, "dist", "nexos.mjs");
+  if (existsSync(fonte)) return [resolveTsxCli(root), fonte];
+  if (existsSync(bundle)) return [bundle];
+  throw new Error(`motor não encontrado: nem ${fonte} nem ${bundle}`);
+}
+
 function spawnNexoProcess(args, opts = {}) {
   const root = opts.daemonRoot ?? daemonRoot();
   const { daemonRoot: _ignored, nodeBin, ...spawnOpts } = opts;
   const bin = nodeBin ?? resolveNodeBin();
-  return spawn(bin, [resolveTsxCli(root), nexoEntry(root), ...args], {
+  return spawn(bin, [...motorArgs(root), ...args], {
     cwd: root,
     env: process.env,
     ...spawnOpts,
   });
 }
 
-module.exports = { daemonRoot, resolveTsxCli, nexoEntry, resolveNodeBin, spawnNexoProcess };
+module.exports = { daemonRoot, resolveTsxCli, nexoEntry, motorArgs, resolveNodeBin, spawnNexoProcess };

@@ -21,11 +21,16 @@ const here = fileURLToPath(new URL(".", import.meta.url));
 const desktopDir = join(here, "..");
 const daemonDistDir = join(desktopDir, "daemon-dist");
 
-/** Presença disto = deploy utilizável, independente do que o pnpm achou do resto. */
+/**
+ * Presença disto = deploy utilizável, independente do que o pnpm achou do resto. O motor vai
+ * COMPILADO (`dist/nexos.mjs`, ver apps/daemon/scripts/build-bundle.mjs): no node_modules só fica o
+ * que o bundle não embute (tree-sitter e as gramáticas). O gerador de APK é baixado sob demanda.
+ */
 const MARCADORES = [
   join(daemonDistDir, "package.json"),
-  join(daemonDistDir, "node_modules", "tsx", "dist", "cli.mjs"),
-  join(daemonDistDir, "node_modules", "@nexos", "shared"),
+  join(daemonDistDir, "dist", "nexos.mjs"),
+  join(daemonDistDir, "node_modules", "web-tree-sitter", "package.json"),
+  join(daemonDistDir, "node_modules", "tree-sitter-wasms", "package.json"),
 ];
 
 function tentativa() {
@@ -45,6 +50,9 @@ function tentativa() {
 function completo() {
   return MARCADORES.every((m) => existsSync(m));
 }
+
+// bundle antes do deploy: o `files` do daemon aponta pra ele
+execFileSync(process.execPath, [join(desktopDir, "..", "daemon", "scripts", "build-bundle.mjs")], { stdio: "inherit" });
 
 const MAX_TENTATIVAS = 3;
 for (let i = 1; i <= MAX_TENTATIVAS; i++) {

@@ -10,6 +10,13 @@ importers:
 
   apps/daemon:
     dependencies:
+      tree-sitter-wasms:
+        specifier: 0.1.13
+        version: 0.1.13
+      web-tree-sitter:
+        specifier: 0.25.9
+        version: 0.25.9
+    devDependencies:
       '@bubblewrap/core':
         specifier: ^1.25.0
         version: 1.25.0
@@ -19,31 +26,27 @@ importers:
       '@nexos/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@typesafe-ai/sdk':
-        specifier: ^0.5.0
-        version: 0.5.7
-      adm-zip:
-        specifier: ^0.6.1
-        version: 0.6.1
-      hono:
-        specifier: ^4.6.14
-        version: 4.13.5
-      tree-sitter-wasms:
-        specifier: 0.1.13
-        version: 0.1.13
-      tsx:
-        specifier: ^4.19.2
-        version: 4.23.13
-      web-tree-sitter:
-        specifier: 0.25.9
-        version: 0.25.9
-    devDependencies:
       '@types/adm-zip':
         specifier: ^0.5.8
         version: 0.5.8
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.1
+      '@typesafe-ai/sdk':
+        specifier: ^0.5.0
+        version: 0.5.7
+      adm-zip:
+        specifier: ^0.6.1
+        version: 0.6.1
+      esbuild:
+        specifier: ~0.28.2
+        version: 0.28.2
+      hono:
+        specifier: ^4.6.14
+        version: 4.13.5
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.13
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

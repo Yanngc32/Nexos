@@ -16,9 +16,9 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { AndroidSdkTools, Config, ConsoleLog, GradleWrapper, JdkHelper, TwaGenerator, TwaManifest } from "@bubblewrap/core";
-import { BUILD_TOOLS_VERSION } from "@bubblewrap/core/dist/lib/androidSdk/AndroidSdkTools.js";
+import type { JdkHelper } from "@bubblewrap/core";
 import type { TwaManifestJson } from "@bubblewrap/core/dist/lib/TwaManifest.js";
+import { carregarBubblewrap } from "./apk-deps.ts";
 import { garantirKeystore, gerarAssetLinks } from "./apk-keystore.ts";
 
 /**
@@ -177,6 +177,7 @@ async function comNoDefaultCurrentDirectoryInExePathDesligada<T>(fn: () => Promi
  * https://issuetracker.google.com/issues/150888434 e continua valendo.
  */
 async function assinarApk(
+  buildTools: string,
   jdkHelper: JdkHelper,
   androidHome: string,
   keystore: { path: string; alias: string; senha: string },
@@ -184,7 +185,7 @@ async function assinarApk(
   saida: string,
 ): Promise<void> {
   const java = join(jdkHelper.getJavaHome(), "bin", process.platform === "win32" ? "java.exe" : "java");
-  const jar = join(androidHome, "build-tools", BUILD_TOOLS_VERSION, "lib", "apksigner.jar");
+  const jar = join(androidHome, "build-tools", buildTools, "lib", "apksigner.jar");
   await promisify(execFile)(
     java,
     [
@@ -248,6 +249,15 @@ async function rodar(home: string, https: { hostname: string; port: number }): P
       motivo: "SDK do Android não encontrado — defina JAVA_HOME e ANDROID_HOME (ou ANDROID_SDK_ROOT) e tente de novo.",
     };
   }
+
+  // a bubblewrap não vem no instalador (ver apk-deps.ts): na 1ª vez baixa, depois fica em ~/.nexos
+  estado = { fase: "construindo", etapa: "preparando o gerador de APK" };
+  const { AndroidSdkTools, BUILD_TOOLS_VERSION, Config, ConsoleLog, GradleWrapper, JdkHelper, TwaGenerator, TwaManifest } =
+    await carregarBubblewrap(home, {
+      aoBaixar: () => {
+        estado = { fase: "construindo", etapa: "baixando o gerador de APK (só na primeira vez)" };
+      },
+    });
 
   estado = { fase: "construindo", etapa: "gerando chave de assinatura" };
   const keystore = await garantirKeystore(home, sdk.jdkPath);
@@ -324,7 +334,7 @@ async function rodar(home: string, https: { hostname: string; port: number }): P
     copyFileSync(semAssinar, alinhado);
 
     const assinado = join(projeto, "app-release-signed.apk");
-    await assinarApk(jdkHelper, sdk.androidSdkPath, keystore, alinhado, assinado);
+    await assinarApk(BUILD_TOOLS_VERSION, jdkHelper, sdk.androidSdkPath, keystore, alinhado, assinado);
 
     estado = { fase: "construindo", etapa: "salvando" };
     const destDir = join(buildsDir(home), `${Date.now()}-${randomUUID().slice(0, 8)}`);

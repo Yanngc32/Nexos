@@ -17,7 +17,7 @@ const {
 const { readdir, readFile, rm, stat, writeFile } = require("node:fs/promises");
 const { homedir, tmpdir } = require("node:os");
 const { dirname, join, resolve, sep } = require("node:path");
-const { nexoEntry, resolveNodeBin, resolveTsxCli, spawnNexoProcess } = require("../daemon/scripts/resolve-tsx.cjs");
+const { motorArgs, resolveNodeBin, spawnNexoProcess } = require("../daemon/scripts/resolve-tsx.cjs");
 // guest-relayout.js é ESM (precisa ser, pro <script type="module"> do renderer
 // conseguir importá-lo de volta — ver o comentário no topo daquele arquivo).
 // main.cjs é CJS, então entra por import() dinâmico em vez de require().
@@ -264,8 +264,7 @@ function spawnNexoLogin(id) {
     // mostra URL/código pra pessoa copiar), então o `.cmd` seta ELECTRON_RUN_AS_NODE antes de
     // chamar, em vez de passar env só pro `spawn` (que aqui é do `cmd.exe`, não do node/electron).
     const node = app.isPackaged ? process.execPath : resolveNodeBin();
-    const tsx = resolveTsxCli(daemonRoot);
-    const entry = nexoEntry(daemonRoot);
+    const motor = motorArgs(daemonRoot).map((a) => `"${a}"`).join(" ");
     if (process.platform === "win32") {
       const bat = join(tmpdir(), `nexo-login-${slug}.cmd`);
       writeFileSync(
@@ -276,7 +275,7 @@ function spawnNexoLogin(id) {
           `cd /d "${daemonRoot}"`,
           `echo Nexos login  ${slug}`,
           `echo.`,
-          `"${node}" "${tsx}" "${entry}" login ${slug}`,
+          `"${node}" ${motor} login ${slug}`,
           "if errorlevel 1 (",
           "  echo.",
           "  echo Login falhou. Le o erro acima.",

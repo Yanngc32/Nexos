@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Config, DigitalAssetLinks, JdkHelper, KeyTool } from "@bubblewrap/core";
+import { carregarBubblewrap } from "./apk-deps.ts";
 
 /**
  * Keystore de assinatura do APK — gerado UMA VEZ e reusado pra sempre depois.
@@ -52,6 +52,7 @@ export async function garantirKeystore(home: string, jdkPath: string): Promise<K
 
   const senha = randomBytes(24).toString("hex");
   const alias = "nexo";
+  const { Config, JdkHelper, KeyTool } = await carregarBubblewrap(home);
   const jdkHelper = new JdkHelper(process, new Config(jdkPath, ""));
   const keyTool = new KeyTool(jdkHelper);
   await keyTool.createSigningKey({
@@ -88,6 +89,7 @@ export function assetLinksPath(home: string): string {
  */
 export async function gerarAssetLinks(home: string, jdkPath: string, applicationId: string): Promise<string> {
   const info = await garantirKeystore(home, jdkPath);
+  const { Config, DigitalAssetLinks, JdkHelper, KeyTool } = await carregarBubblewrap(home);
   const jdkHelper = new JdkHelper(process, new Config(jdkPath, ""));
   const keyTool = new KeyTool(jdkHelper);
   const { fingerprints } = await keyTool.keyInfo({

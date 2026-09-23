@@ -33,6 +33,27 @@ extração do Electron. Não acontece no runner do GitHub Actions (não sincroni
 repositório estiver fora de uma pasta sincronizada. Contorno local: apontar a saída pra fora da
 árvore sincronizada, ex. `pnpm exec electron-builder --win --config.directories.output=C:\build`.
 
+## O que vai no instalador (e o que não vai)
+
+O motor vai **compilado**: `apps/daemon/scripts/build-bundle.mjs` junta `src/` + `@nexos/shared` +
+as dependências JS em `dist/nexos.mjs` (o `deploy:daemon` roda isso antes do `pnpm deploy`). No
+`node_modules` do pacote só ficam `web-tree-sitter` e `tree-sitter-wasms` (carregam `.wasm` do
+disco). Resultado: ~120 arquivos em vez de ~10.000 — a atualização troca arquivo em segundos.
+
+O **gerador de APK** (`@bubblewrap/core` + ~240 dependências) NÃO vai no instalador: na primeira
+geração de APK o daemon baixa `apk-deps-<v>.zip` e guarda em `~/.nexos/apk-deps/v<v>/`
+(`src/apk-deps.ts`). O zip mora numa release própria, fora do ciclo das versões do app. Só muda
+quando a versão da bubblewrap mudar:
+
+```bash
+# 1) suba APK_DEPS_VERSAO em apps/daemon/src/apk-deps.ts
+node apps/daemon/scripts/build-apk-deps.mjs
+# 2) --latest=false é OBRIGATÓRIO: o electron-updater lê a release "latest" — se ela virasse a
+#    do zip, o auto-update do app quebraria
+gh release create apk-deps-<v> apps/daemon/dist/apk-deps-<v>.zip --latest=false \
+  --title "Dependências do gerador de APK <v>" --notes "Baixado sob demanda pelo Nexos."
+```
+
 ## Como o app se atualiza sozinho
 
 `electron-updater` (Ticket G, Onda 2 — implementado em `main.cjs`) consulta o feed do
