@@ -22,7 +22,13 @@ vi.mock("../src/tls-tailscale.ts", () => ({
  */
 vi.mock("../src/enderecos.ts", async (importOriginal) => {
   const real = await importOriginal<typeof import("../src/enderecos.ts")>();
-  return { ...real, classificar: (host: string, iface?: string) => (host === HOST_TUNEL ? "tunel" : real.classificar(host, iface)) };
+  return {
+    ...real,
+    classificar: (host: string, iface?: string) => (host === HOST_TUNEL ? "tunel" : real.classificar(host, iface)),
+    // interfaces de verdade fora: numa máquina com Tailscale ligado o IP 100.x real virava o "túnel"
+    // no lugar do HOST_TUNEL e três casos quebravam só nela. Aqui só existe o que o teste liga.
+    enderecosDaMaquina: () => [],
+  };
 });
 
 const { estadoAtual, religar, resetEscutaForTest, tentarHttps } = await importEscuta();

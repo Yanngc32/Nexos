@@ -10,6 +10,9 @@ import type { EngineEvent } from "@nexos/shared";
 
 const fake = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-claude.mjs");
 
+/** Espera do fim do turno — abaixo do testTimeout (vitest.config.ts) pra falhar com mensagem clara. */
+const ESPERA_MS = 12_000;
+
 /** argv sem o par --add-dir <caminho>: o caminho varia por home/thread. */
 function semAddDir(args: string[]): string[] {
   const i = args.indexOf("--add-dir");
@@ -18,7 +21,7 @@ function semAddDir(args: string[]): string[] {
 
 function waitDone(events: EngineEvent[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error("timeout")), 5000);
+    const t = setTimeout(() => reject(new Error("timeout")), ESPERA_MS);
     const i = setInterval(() => {
       if (events.some((e) => e.type === "done" || e.type === "quota" || e.type === "error" || e.type === "auth")) {
         clearTimeout(t);
