@@ -105,6 +105,12 @@ export type Tema = "grafite" | "preto";
 export const TEMAS: Tema[] = ["grafite", "preto"];
 
 /** Imagem colada ou arrastada no chat. Vive no home do nexo, nunca na pasta do projeto. */
+/**
+ * Elemento que a pessoa apontou no preview (picker do browser). O chat mostra só o `rotulo` como
+ * chip ("div1", "svg2"); seletor, texto e HTML vão pro motor junto da mensagem.
+ */
+export type ElementoDoPreview = { rotulo: string; seletor: string; texto?: string; html: string };
+
 export type Attachment = {
   /** Nome do arquivo no disco; identidade dentro da thread. */
   file: string;
@@ -496,6 +502,8 @@ export type ThreadEvent =
       threadId: string;
       text: string;
       attachments?: Attachment[];
+      /** Elementos do preview apontados junto (ver `ElementoDoPreview`). */
+      elementos?: ElementoDoPreview[];
       /**
        * Pedido montado pelo Nexos (passo de time, geração do DS), não digitado pela pessoa. A tela
        * mostra recolhido ("passando contexto…"); o motor recebe igual.

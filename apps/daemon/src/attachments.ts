@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ATTACH_MAX_BYTES, ATTACH_MAX_PER_MESSAGE, IMAGE_MIMES, type Attachment } from "@nexos/shared";
+import { ATTACH_MAX_BYTES, ATTACH_MAX_PER_MESSAGE, IMAGE_MIMES, type Attachment, type ElementoDoPreview } from "@nexos/shared";
 import { attachmentsDir } from "./home.ts";
 
 /** O que o cliente manda junto da mensagem: bytes em base64, sem caminho nenhum. */
@@ -84,4 +84,31 @@ export function promptWithAttachments(text: string, attachments: Attachment[]): 
   if (attachments.length === 0) return text;
   const lines = attachments.map((a) => `- ${a.path}`).join("\n");
   return `${text}\n\nImagens anexadas nesta mensagem (abra cada arquivo pra ver):\n${lines}`.trim();
+}
+
+const MAX_ELEMENTOS = 20;
+
+/** Elementos do picker vindos do app, com o tamanho de cada campo limitado. */
+export function lerElementos(bruto: unknown): ElementoDoPreview[] {
+  if (!Array.isArray(bruto)) return [];
+  return bruto
+    .slice(0, MAX_ELEMENTOS)
+    .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
+    .map((e) => ({
+      rotulo: String(e.rotulo ?? "").slice(0, 40),
+      seletor: String(e.seletor ?? "").slice(0, 300),
+      ...(typeof e.texto === "string" && e.texto.trim() ? { texto: e.texto.trim().slice(0, 200) } : {}),
+      html: String(e.html ?? "").slice(0, 4000),
+    }))
+    .filter((e) => e.seletor || e.html);
+}
+
+/** O que o motor recebe: o pedido + o detalhe de cada elemento (o chat mostra só os chips). */
+export function textoComElementos(text: string, elementos: ElementoDoPreview[] | undefined): string {
+  if (!elementos?.length) return text;
+  const linhas = elementos.map((e, i) => {
+    const rotulo = e.texto ? `${e.seletor} — "${e.texto}"` : e.seletor;
+    return `${i + 1}. [${e.rotulo || `elemento${i + 1}`}] ${rotulo}\n   ${e.html}`;
+  });
+  return `${text.trim() || "(sem pedido escrito)"}\n\nElementos do preview apontados nesta mensagem:\n${linhas.join("\n")}`;
 }

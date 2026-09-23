@@ -1,4 +1,5 @@
 import type { PackConfig, ThreadEvent } from "@nexos/shared";
+import { textoComElementos } from "./attachments.ts";
 
 export type PackResult = {
   text: string;
@@ -17,11 +18,13 @@ function render(event: ThreadEvent): string | undefined {
     case "compacted":
     case "usage":
       return undefined;
-    case "user":
+    case "user": {
       // O caminho da imagem entra no pack: nos turnos seguintes o motor ainda sabe abrir.
+      const texto = textoComElementos(event.text, event.elementos);
       return event.attachments?.length
-        ? [`User: ${event.text}`, ...event.attachments.map((a) => `[imagem anexada: ${a.path}]`)].join("\n")
-        : `User: ${event.text}`;
+        ? [`User: ${texto}`, ...event.attachments.map((a) => `[imagem anexada: ${a.path}]`)].join("\n")
+        : `User: ${texto}`;
+    }
     case "assistant":
       return `Assistant: ${event.text}`;
     case "tool":

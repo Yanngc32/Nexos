@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { EngineEvent, EngineKind, EngineOverrides, Profile, SwitchReason, ThreadEvent } from "@nexos/shared";
+import type { ElementoDoPreview, EngineEvent, EngineKind, EngineOverrides, Profile, SwitchReason, ThreadEvent } from "@nexos/shared";
 import { ESFORCO_AUTO, MODELO_AUTO, MODELO_AUTO_FALLBACK, TURNO_TETO_MS } from "@nexos/shared";
 import { agentOverrides, getAgent } from "./agents.ts";
 import { readMemoria, readMemoriaGlobal } from "./memoria.ts";
-import { promptWithAttachments, removeThreadAttachments, saveImages, type IncomingImage } from "./attachments.ts";
+import { promptWithAttachments, removeThreadAttachments, saveImages, textoComElementos, type IncomingImage } from "./attachments.ts";
 import { loadConfig } from "./config.ts";
 import { globalChatDir, projectKey, tokenPath } from "./home.ts";
 import { configDeMcpAutoria, MCP_TOOLS_AUTORIA, urlDeMcpAutoria, urlDeMcpDeRun } from "./mcp.ts";
@@ -1322,7 +1322,7 @@ export async function postMessage(
   text: string,
   home: string,
   images: IncomingImage[] = [],
-  opts: { automatico?: boolean } = {},
+  opts: { automatico?: boolean; elementos?: ElementoDoPreview[] } = {},
 ): Promise<void> {
   await withLocked(threadId, async () => {
     // Teto de `nexo_delegar` é POR TURNO: mensagem nova reabre a cota.
@@ -1353,6 +1353,7 @@ export async function postMessage(
         threadId,
         text,
         ...(attachments.length > 0 ? { attachments } : {}),
+        ...(opts.elementos?.length ? { elementos: opts.elementos } : {}),
         ...(opts.automatico ? { automatico: true } : {}),
       },
       home,
@@ -1366,7 +1367,7 @@ export async function postMessage(
     if (roteamento.pendente) return;
     const live = await ensureLive(threadId, home);
     await aplicarOverridesDoTurno(threadId, text, eventosAtuais, live, home);
-    await dispatch(threadId, home, live, promptWithAttachments(resultados + comSkill(text, live, home, meta), attachments));
+    await dispatch(threadId, home, live, promptWithAttachments(resultados + comSkill(textoComElementos(text, opts.elementos), live, home, meta), attachments));
   });
 }
 
@@ -1381,7 +1382,7 @@ export async function retomarTurnoPendente(threadId: string, home: string): Prom
     const ultima = [...events].reverse().find((e) => e.type === "user");
     if (!ultima || ultima.type !== "user") return;
     const live = await ensureLive(threadId, home);
-    await dispatch(threadId, home, live, promptWithAttachments(ultima.text, ultima.attachments ?? []));
+    await dispatch(threadId, home, live, promptWithAttachments(textoComElementos(ultima.text, ultima.elementos), ultima.attachments ?? []));
   });
 }
 

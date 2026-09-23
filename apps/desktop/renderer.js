@@ -54,7 +54,7 @@ import { criarBrowserPool } from "./browser-pool.js";
 import { qrSvg } from "./qr.js";
 import { celAlcance, celAviso } from "./celular.js";
 import { extrairMencoes } from "./mention.js";
-import { montarMensagem } from "./inspector-mensagem.js";
+import { montarMensagem, rotuloDoElemento } from "./inspector-mensagem.js";
 import { criarInspectorHost } from "./inspector-host.js";
 import { FASE } from "./inspector-estado.js";
 import { criarNavegadorHost } from "./navegador-host.js";
@@ -1964,7 +1964,7 @@ function renderInspectorBox(fase) {
     li.title = s.texto ? `${s.seletor} — ${s.texto}` : s.seletor;
     const rotulo = document.createElement("span");
     rotulo.className = "insp-rotulo";
-    rotulo.textContent = `${s.tag}${i + 1}`;
+    rotulo.textContent = rotuloDoElemento(s.tag, i);
     li.append(rotulo);
     const remover = document.createElement("button");
     remover.type = "button";
@@ -2163,9 +2163,10 @@ function enviarInspector() {
     appendEvent({ type: "error", message: "Abre uma conversa primeiro." });
     return;
   }
-  const texto = montarMensagem(state.inspector.selecionados, $("inspector-pedido").value);
+  const { texto, elementos } = montarMensagem(state.inspector.selecionados, $("inspector-pedido").value);
+  if (!texto && !elementos.length) return;
   inspectorHost.desligar();
-  void sendChatMessage(texto);
+  void sendChatMessage(texto, null, { elementos });
 }
 
 $("btn-inspector-send").addEventListener("click", enviarInspector);
@@ -3856,6 +3857,8 @@ function appendEvent(ev, scroll = true) {
   } else if (ev.type === "user") {
     li.className = "you";
     li.innerHTML = `<div class="who">Você</div><div class="you-text">${escapeHtml(ev.text)}</div>`;
+    if (!ev.text) li.querySelector(".you-text").remove();
+    if (ev.elementos?.length) li.append(chipsDeElementos(ev.elementos));
     const shots = ev.previews ?? ev.attachments ?? [];
     if (shots.length) li.append(shotsRow(shots, ev.threadId ?? state.threadId));
   } else if (ev.type === "assistant") {
@@ -6991,7 +6994,7 @@ function paintQueue() {
     chip.className = "queue-chip";
     const txt = document.createElement("span");
     txt.className = "queue-text";
-    txt.textContent = item.text || `(${item.images.length} imagem(ns))`;
+    txt.textContent = item.text || (item.elementos?.length ? `(${item.elementos.length} elemento(s) do preview)` : `(${item.images.length} imagem(ns))`);
     txt.title = item.text;
     const x = document.createElement("button");
     x.type = "button";
@@ -7022,8 +7025,8 @@ function paintQueue() {
 }
 
 /** Guarda o texto e as imagens que estavam no composer, sem mandar ainda. */
-function enfileirar(text, images) {
-  filaDa().push({ text, images });
+function enfileirar(text, images, elementos = []) {
+  filaDa().push({ text, images, ...(elementos.length ? { elementos } : {}) });
   paintQueue();
 }
 
@@ -7038,7 +7041,7 @@ async function enviarProximoDaFila() {
   const item = fila.shift();
   paintQueue();
   if (!item) return;
-  await sendChatMessage(item.text, item.images);
+  await sendChatMessage(item.text, item.images, { elementos: item.elementos ?? [] });
 }
 
 /**
@@ -7079,11 +7082,25 @@ async function dispararMencoes(texto) {
 }
 
 /** Caminho real de envio: usado tanto pelo composer quanto pelos comandos de tarefa (/init, /review…). */
-async function sendChatMessage(text, pendentes = null) {
+/** Elementos do preview apontados na mensagem: um chip por elemento, detalhe no hover. */
+function chipsDeElementos(elementos) {
+  const row = document.createElement("div");
+  row.className = "you-elementos";
+  for (const e of elementos) {
+    const chip = document.createElement("span");
+    chip.className = "you-elemento";
+    chip.textContent = e.rotulo;
+    chip.title = e.texto ? `${e.seletor} — ${e.texto}` : e.seletor;
+    row.append(chip);
+  }
+  return row;
+}
+
+async function sendChatMessage(text, pendentes = null, { elementos = [] } = {}) {
   if (!state.threadId) return;
   // Ocupado não descarta: enfileira. Antes a mensagem sumia sem aviso nenhum.
   if (state.talking) {
-    enfileirar(text, pendentes ?? takePending());
+    enfileirar(text, pendentes ?? takePending(), elementos);
     return;
   }
   if (needsLogin()) {
@@ -7100,12 +7117,12 @@ async function sendChatMessage(text, pendentes = null) {
     return;
   }
   const previews = itens.map((item) => ({ url: item.url, name: item.name }));
-  appendEvent({ type: "user", text, previews });
+  appendEvent({ type: "user", text, previews, ...(elementos.length ? { elementos } : {}) });
   void dispararMencoes(text);
   try {
     await req(`/v1/threads/${state.threadId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ text, ...(images.length ? { images } : {}) }),
+      body: JSON.stringify({ text, ...(images.length ? { images } : {}), ...(elementos.length ? { elementos } : {}) }),
     });
   } catch (err) {
     appendEvent({ type: "error", message: err.message || "Falha ao enviar." });

@@ -33,7 +33,7 @@ import {
   updateProfile,
   type AddProfileInput,
 } from "./profiles.ts";
-import { readAttachment, type IncomingImage } from "./attachments.ts";
+import { lerElementos, readAttachment, type IncomingImage } from "./attachments.ts";
 import { installEngine } from "./install-engine.ts";
 import {
   alvoDePullRequest,
@@ -799,13 +799,14 @@ export function createApp(home: string, token: string): Hono {
   });
 
   app.post("/v1/threads/:id/messages", async (c) => {
-    const body = (await c.req.json()) as { text?: string; images?: IncomingImage[] };
+    const body = (await c.req.json()) as { text?: string; images?: IncomingImage[]; elementos?: unknown };
     const text = typeof body.text === "string" ? body.text : "";
     const images = Array.isArray(body.images) ? body.images : [];
-    // Mensagem só de imagem vale; vazia de tudo, não.
-    if (!text.trim() && images.length === 0) return c.json({ error: "mensagem vazia" }, 400);
+    const elementos = lerElementos(body.elementos);
+    // Mensagem só de imagem (ou só de elementos do preview) vale; vazia de tudo, não.
+    if (!text.trim() && images.length === 0 && elementos.length === 0) return c.json({ error: "mensagem vazia" }, 400);
     try {
-      await postMessage(c.req.param("id"), text, home, images);
+      await postMessage(c.req.param("id"), text, home, images, elementos.length ? { elementos } : {});
       return c.json({ ok: true });
     } catch (e) {
       const status = (e as Error & { status?: number }).status ?? 400;
