@@ -18,7 +18,7 @@ import { disconnectGoogle, googleAccount } from "./google-auth.ts";
 import { cancelGoogleLogin, googleLoginStatus, startEscolherPasta, startGoogleLogin } from "./google-conectar.ts";
 import { driveStatus, sincronizarDrive } from "./drive-sync.ts";
 import { projectKey, tokenPath } from "./home.ts";
-import { migrarProjeto, migrarRaizLegadaRemovida, projectSlug } from "./projeto-dir.ts";
+import { migrarArmazenamento, migrarProjeto, migrarRaizLegadaRemovida, projectSlug } from "./projeto-dir.ts";
 import {
   accountInfo,
   addProfile,
@@ -2029,6 +2029,10 @@ export function createApp(home: string, token: string): Hono {
       if (cfgAntes[campo] && !next[campo]) {
         migrarRaizLegadaRemovida(campo, cfgAntes[campo], projetosConhecidos(home), home);
       }
+    }
+    // pasta ↔ projeto: os dados de cada projeto vêm junto (cópia; o lugar antigo fica de backup)
+    if (cfgAntes.armazenamento !== next.armazenamento) {
+      migrarArmazenamento(cfgAntes.armazenamento, next.armazenamento, projetosConhecidos(home), home);
     }
     // Efeito colateral do toggle: liga (ou reconfere, se só a conta trocou) o agente + a regra do
     // módulo "Resumos por IA" sem esperar reiniciar o daemon. Só DESLIGA na transição true→false —

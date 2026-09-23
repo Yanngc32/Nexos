@@ -1762,6 +1762,23 @@
               <h3>Pastas compartilhadas</h3>
               <div class="shared-card">
                 <div class="shared-card-head">
+                  <h4>Dados de cada projeto</h4>
+                  <p>
+                    Memória, tarefas, repo map e design system de cada projeto. Agentes, times, hooks e skills
+                    são gerais e ficam sempre na pasta do Nexos.
+                  </p>
+                </div>
+                <div class="shared-card-ctl arm-opcoes" role="radiogroup" aria-label="Onde salvar os dados de cada projeto">
+                  <label class="arm-opcao"><input type="radio" name="armazenamento" value="pasta" />
+                    <span><strong>Na pasta do Nexos</strong><small>Uma pasta por projeto, junto do resto (a do Google Drive, se estiver conectado).</small></span></label>
+                  <label class="arm-opcao"><input type="radio" name="armazenamento" value="projeto" />
+                    <span><strong>No próprio projeto</strong><small>Em <code>.nexos/</code> na raiz do projeto, já no <code>.gitignore</code>.</small></span></label>
+                </div>
+                <p id="armazenamento-msg" class="shared-msg"></p>
+              </div>
+              <p id="projetos-dir-drive" class="set-hint hidden"></p>
+              <div id="projetos-dir-card" class="shared-card">
+                <div class="shared-card-head">
                   <h4>Projetos <span id="projetos-dir-badge" class="shared-badge" data-on="0">só nesta máquina</span></h4>
                   <p>
                     Onde fica a pasta de CADA projeto (memória, tarefas e repo map, tudo dentro

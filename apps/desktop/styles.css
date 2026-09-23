@@ -7533,3 +7533,19 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
 .ds-quadro-vazio strong { font-size: var(--fs-lg); color: var(--text); }
 .ds-quadro-vazio p { margin: 0; color: var(--muted); font-size: var(--fs-sm); }
 
+
+/* Ajustes → Pastas compartilhadas: onde salvar os dados de cada projeto */
+.arm-opcoes { flex-direction: column; align-items: stretch; gap: var(--s-2); }
+.arm-opcao {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  cursor: pointer;
+}
+.arm-opcao:has(input:checked) { border-color: var(--accent-line); background: var(--accent-soft); }
+.arm-opcao input { flex: 0 0 auto; width: auto; margin: 2px 0 0; }
+.arm-opcao span { display: flex; flex-direction: column; gap: 2px; }
+.arm-opcao small { color: var(--muted); font-size: var(--fs-sm); }

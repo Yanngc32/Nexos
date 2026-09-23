@@ -71,6 +71,7 @@ export function loadConfig(home: string): NexoConfig {
     graphDir: str(raw.graphDir),
     tarefasDir: str(raw.tarefasDir),
     projetosDir: str(raw.projetosDir),
+    armazenamento: raw.armazenamento === "projeto" ? "projeto" : "pasta",
     slugOverrides: cleanSlugOverrides(raw.slugOverrides),
     ...(isTetoTokens(raw.repoMapTetoTokens) ? { repoMapTetoTokens: raw.repoMapTetoTokens } : {}),
     modulos: cleanModulos(raw.modulos),
@@ -188,6 +189,8 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
     graphDir: patch.graphDir === undefined ? current.graphDir : str(patch.graphDir),
     tarefasDir: patch.tarefasDir === undefined ? current.tarefasDir : str(patch.tarefasDir),
     projetosDir: patch.projetosDir === undefined ? current.projetosDir : str(patch.projetosDir),
+    armazenamento:
+      patch.armazenamento === undefined ? current.armazenamento : patch.armazenamento === "projeto" ? "projeto" : "pasta",
     // Merge raso: um PATCH de slugOverrides SUBSTITUI o mapa inteiro (igual todo outro campo
     // aqui) — quem quer só ACRESCENTAR uma entrada manda o mapa atual + a nova (a UI já lê o
     // config antes de patchar, então tem o mapa corrente em mãos).

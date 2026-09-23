@@ -1,12 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { saveConfig } from "../src/config.ts";
-import { projectKey } from "../src/home.ts";
-import { migrarProjeto, migrarRaizLegadaRemovida, projectDir, projectSlug, projetosRoot } from "../src/projeto-dir.ts";
+import { googleAuthPath, projectKey } from "../src/home.ts";
+import { migrarArmazenamento, migrarProjeto, migrarRaizLegadaRemovida, projectDir, projectSlug, projetosRoot } from "../src/projeto-dir.ts";
 import { tempHome } from "./helpers.ts";
 
 function tempProjeto(): string {
@@ -235,3 +235,56 @@ describe("projectDir", () => {
     expect(p2).toBe(p1);
   });
 });
+
+describe("Google Drive conectado", () => {
+  it("a raiz passa a ser a pasta do Nexos e a pasta manual não vale (dois sincronizadores no mesmo lugar)", () => {
+    const home = tempHome();
+    saveConfig(home, { projetosDir: "G:\Meu Drive\Nexos" });
+    expect(projetosRoot(home)).toBe("G:\Meu Drive\Nexos");
+    writeFileSync(googleAuthPath(home), JSON.stringify({ refreshToken: "rt", email: "a@b" }));
+    expect(projetosRoot(home)).toBe(join(home, "drive"));
+  });
+});
+
+describe("armazenamento no próprio projeto", () => {
+  function repoGit(): string {
+    const p = mkdtempSync(join(tmpdir(), "nexo-arm-"));
+    execFileSync("git", ["init", "-q"], { cwd: p });
+    return p;
+  }
+
+  it("modo projeto: dados em <projeto>/.nexos, .nexos/ no .gitignore (uma vez só, sem apagar o que havia)", () => {
+    const home = tempHome();
+    const p = repoGit();
+    writeFileSync(join(p, ".gitignore"), "node_modules");
+    saveConfig(home, { armazenamento: "projeto" });
+    expect(projectDir(p, home)).toBe(join(p, ".nexos"));
+    expect(existsSync(join(p, ".nexos", "meta.json"))).toBe(true);
+    const gi = readFileSync(join(p, ".gitignore"), "utf8");
+    expect(gi.startsWith("node_modules\n")).toBe(true);
+    expect(gi.match(/^\.nexos\/$/gm)).toHaveLength(1);
+    rmSyncSeguro(join(p, ".nexos"));
+    projectDir(p, home); // cria de novo: não duplica a linha
+    expect(readFileSync(join(p, ".gitignore"), "utf8").match(/^\.nexos\/$/gm)).toHaveLength(1);
+  });
+
+  it("trocar de modo copia os dados de cada projeto e mantém o antigo de backup", () => {
+    const home = tempHome();
+    const p = repoGit();
+    const naPasta = projectDir(p, home);
+    mkdirSync(join(naPasta, "memoria"), { recursive: true });
+    writeFileSync(join(naPasta, "memoria", "MEMORIA.md"), "lembrete");
+    expect(migrarArmazenamento("pasta", "projeto", [p], home)).toBe(1);
+    expect(readFileSync(join(p, ".nexos", "memoria", "MEMORIA.md"), "utf8")).toBe("lembrete");
+    expect(existsSync(join(naPasta, "memoria", "MEMORIA.md"))).toBe(true);
+    expect(readFileSync(join(p, ".gitignore"), "utf8")).toContain(".nexos/");
+    // de novo: destino já tem dados, não sobrescreve
+    writeFileSync(join(p, ".nexos", "memoria", "MEMORIA.md"), "editado no projeto");
+    expect(migrarArmazenamento("pasta", "projeto", [p], home)).toBe(0);
+    expect(readFileSync(join(p, ".nexos", "memoria", "MEMORIA.md"), "utf8")).toBe("editado no projeto");
+  });
+});
+
+function rmSyncSeguro(dir: string): void {
+  rmSync(dir, { recursive: true, force: true });
+}

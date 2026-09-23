@@ -7433,6 +7433,40 @@ async function renderMemoria() {
   }
   $("projetos-dir").value = cfg.projetosDir || "";
   pintarBadgePasta("projetos-dir-badge", cfg.projetosDir);
+  for (const r of document.querySelectorAll('input[name="armazenamento"]')) r.checked = r.value === (cfg.armazenamento || "pasta");
+  // Google Drive conectado: a pasta manual não vale mais (o sync pela API cuida) — some da tela
+  let conectado = false;
+  try {
+    conectado = Boolean((await req("/v1/google")).connected);
+  } catch {
+    conectado = false;
+  }
+  $("projetos-dir-card").classList.toggle("hidden", conectado);
+  $("projetos-dir-drive").classList.toggle("hidden", !conectado);
+  $("projetos-dir-drive").textContent = conectado
+    ? "Com o Google Drive conectado, o Nexos guarda e sincroniza tudo sozinho — não precisa de pasta manual. Pra usar uma pasta sua, desconecte o Google Drive."
+    : "";
+}
+
+for (const r of document.querySelectorAll('input[name="armazenamento"]')) {
+  r.addEventListener("change", async () => {
+    if (!r.checked) return;
+    mostrarMsgPasta("armazenamento-msg", "", "");
+    try {
+      const next = await req("/v1/config", { method: "PUT", body: JSON.stringify({ armazenamento: r.value }) });
+      if (next.armazenamento !== r.value) throw new Error("O daemon não gravou. Desliga e liga o motor pra carregar a versão nova.");
+      mostrarMsgPasta(
+        "armazenamento-msg",
+        r.value === "projeto"
+          ? "Salvo. Os dados de cada projeto foram copiados pra .nexos/ dentro dele (a cópia antiga fica de backup)."
+          : "Salvo. Os dados voltaram pra pasta do Nexos (a .nexos/ dos projetos fica de backup).",
+        "ok",
+      );
+    } catch (err) {
+      mostrarMsgPasta("armazenamento-msg", err.message || "Não gravou.", "erro");
+      void renderMemoria();
+    }
+  });
 }
 
 /**

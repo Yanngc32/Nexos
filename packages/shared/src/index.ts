@@ -347,6 +347,13 @@ export type NexoConfig = {
    */
   projetosDir: string;
   /**
+   * Onde ficam os dados DE PROJETO (memória, tarefas, repo map, design system, ícone):
+   * - "pasta": numa pasta por projeto dentro da raiz (`projetosDir`, a do Google Drive ou a padrão);
+   * - "projeto": em `<pasta do projeto>/.nexos/` (com `.nexos/` no `.gitignore`).
+   * O que é geral (agentes, times, hooks, skills, biblioteca) fica sempre na raiz.
+   */
+  armazenamento: "pasta" | "projeto";
+  /**
    * Override manual do nome de pasta de um projeto dentro de `projetosDir`, chaveado por
    * `projectKey(projectPath)`. Sem entrada aqui, o nome vem do remote git (`owner-repo`) ou,
    * na falta de remote, do nome da própria pasta local (ver `projectSlug` em `projeto-dir.ts`).
@@ -418,6 +425,7 @@ export const DEFAULT_CONFIG: NexoConfig = {
   graphDir: "",
   tarefasDir: "",
   projetosDir: "",
+  armazenamento: "pasta",
   slugOverrides: {},
   modulos: {
     rtk: false,

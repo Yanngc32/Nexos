@@ -4,6 +4,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, r
 import { basename, dirname, join } from "node:path";
 import type { NexoConfig } from "@nexos/shared";
 import { loadConfig } from "./config.ts";
+import { readGoogleStore } from "./google-auth.ts";
 import { projectKey } from "./home.ts";
 
 /**
@@ -16,10 +17,67 @@ import { projectKey } from "./home.ts";
 
 export type OrigemSlug = "manual" | "git" | "pasta";
 
-/** Raiz de todas as pastas de projeto. Configurável pra apontar numa pasta já sincronizada. */
+/**
+ * Raiz de todas as pastas de projeto (e da `_biblioteca/` geral).
+ *
+ * Com o Google Drive CONECTADO, é uma pasta do próprio Nexos (`<home>/drive`) e a pasta manual
+ * (`projetosDir`) não vale: quem replica é o sync pela API (drive-sync.ts). Antes as duas
+ * conviviam — a pasta manual apontando pro `G:\Meu Drive\…` que o Drive para desktop já espelhava
+ * e o sync pela API mexendo na mesma pasta: dois sincronizadores no mesmo lugar. Trocar a raiz é
+ * seguro: o sync recomeça a base e baixa tudo, sem apagar nada (ver `rodar` em drive-sync.ts).
+ */
 export function projetosRoot(home: string): string {
+  if (readGoogleStore(home).refreshToken) return join(home, "drive");
   const cfg = loadConfig(home);
   return cfg.projetosDir || join(home, "projetos");
+}
+
+export type ModoArmazenamento = "pasta" | "projeto";
+
+/** Pasta dos dados de UM projeto no modo dado (padrão: o da config). Não cria nada. */
+export function dirDoProjeto(projectPath: string, home: string, modo: ModoArmazenamento = loadConfig(home).armazenamento): string {
+  if (modo === "projeto") return join(projectPath, ".nexos");
+  return join(projetosRoot(home), projectSlug(projectPath, home).slug);
+}
+
+/**
+ * Modo "projeto": `.nexos/` entra no `.gitignore` do repo (memória, conversa exportada e repo map
+ * não são código). Só em repo git; nunca duplica a linha. Best-effort: nunca lança.
+ */
+export function garantirGitignore(projectPath: string): void {
+  try {
+    if (!existsSync(join(projectPath, ".git"))) return;
+    const arq = join(projectPath, ".gitignore");
+    const atual = existsSync(arq) ? readFileSync(arq, "utf8") : "";
+    if (/^\/?\.nexos\/?\s*$/m.test(atual)) return;
+    const sep = atual && !atual.endsWith("\n") ? "\n" : "";
+    writeFileSync(arq, `${atual}${sep}${atual ? "\n" : ""}# Nexos: memória, tarefas, repo map e design system deste projeto\n.nexos/\n`, "utf8");
+  } catch (e) {
+    console.error(`nexo: não consegui ajustar o .gitignore de ${projectPath}: ${(e as Error).message}`);
+  }
+}
+
+/**
+ * Trocou o modo de armazenamento: COPIA os dados de cada projeto do lugar antigo pro novo (só
+ * quando o novo ainda não tem nada) — o antigo fica como estava, de backup. Best-effort.
+ */
+export function migrarArmazenamento(de: ModoArmazenamento, para: ModoArmazenamento, projetos: string[], home: string): number {
+  if (de === para) return 0;
+  let n = 0;
+  for (const projectPath of projetos) {
+    try {
+      const origem = dirDoProjeto(projectPath, home, de);
+      const destino = dirDoProjeto(projectPath, home, para);
+      if (!existsSync(origem) || existsSync(join(destino, "meta.json"))) continue;
+      mkdirSync(destino, { recursive: true });
+      cpSync(origem, destino, { recursive: true, force: false, errorOnExist: false });
+      if (para === "projeto") garantirGitignore(projectPath);
+      n += 1;
+    } catch (e) {
+      console.error(`nexo: falha ao mover os dados de ${projectPath}: ${(e as Error).message}`);
+    }
+  }
+  return n;
 }
 
 function normalizarSlug(bruto: string): string {
@@ -116,17 +174,19 @@ export function projectSlug(projectPath: string, home: string): { slug: string; 
  * projeto que nunca vai ter memória/tarefa/repo-map nenhum).
  */
 export function projectDirSemCriar(projectPath: string, home: string): string {
-  return join(projetosRoot(home), projectSlug(projectPath, home).slug);
+  return dirDoProjeto(projectPath, home);
 }
 
 /** Pasta de UM projeto. Cria (com o `meta.json`) se ainda não existir. */
 export function projectDir(projectPath: string, home: string): string {
   const { slug, origem } = projectSlug(projectPath, home);
-  const dir = join(projetosRoot(home), slug);
+  const modo = loadConfig(home).armazenamento;
+  const dir = dirDoProjeto(projectPath, home, modo);
   const metaPath = join(dir, "meta.json");
   if (!existsSync(metaPath)) {
     mkdirSync(dir, { recursive: true });
     writeFileSync(metaPath, JSON.stringify({ projectPath, slug, origem }, null, 2), "utf8");
+    if (modo === "projeto") garantirGitignore(projectPath);
   }
   return dir;
 }
