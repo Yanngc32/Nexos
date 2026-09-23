@@ -13,6 +13,11 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   foi gravado direto nela. Agora o que falta vem de lá uma vez (sem sobrescrever nada; a pasta
   antiga fica intacta) e sobe pro Drive.
 - O traço do painel de borda recolhido quase não aparecia em fundo escuro.
+- Atualização precisava de dois reinícios: o motor continuava de pé e o instalador não trocava os
+  arquivos dele. Agora o motor para antes de instalar, e um motor que ficou de uma versão anterior
+  é trocado sozinho quando o app abre.
+- A atualização instalava mesmo com agente trabalhando: a checagem de "turno ativo" era recusada
+  pelo motor (sem token) e sempre respondia "livre".
 
 ### Alterado
 

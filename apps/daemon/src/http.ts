@@ -243,8 +243,11 @@ export function createApp(home: string, token: string): Hono {
     }),
   );
 
-  app.get("/health", (c) => c.json({ ok: true }));
-  app.get("/v1/health", (c) => c.json({ ok: true }));
+  // `app`: versão do Nexos que subiu este motor (env do main.cjs). O app compara na subida e troca
+  // o motor que ficou de pé de uma versão anterior (ele sobrevive ao fechamento do app).
+  const saude = { ok: true, app: process.env.NEXOS_APP_VERSION ?? "" };
+  app.get("/health", (c) => c.json(saude));
+  app.get("/v1/health", (c) => c.json(saude));
 
   /*
    * `POST /pair` é do CELULAR e NÃO é autenticada, porque o ponto dela é

@@ -279,6 +279,20 @@ describe("http agents", () => {
   });
 });
 
+describe("http health", () => {
+  it("diz qual versão do app subiu o motor (o app troca motor de versão anterior)", async () => {
+    const antes = process.env.NEXOS_APP_VERSION;
+    process.env.NEXOS_APP_VERSION = "9.9.9";
+    try {
+      const app = createApp(tempHome(), "t");
+      expect(await (await app.request("/health")).json()).toEqual({ ok: true, app: "9.9.9" });
+    } finally {
+      if (antes === undefined) delete process.env.NEXOS_APP_VERSION;
+      else process.env.NEXOS_APP_VERSION = antes;
+    }
+  });
+});
+
 describe("http limites da conta (painel de borda)", () => {
   const auth = { authorization: "Bearer t" };
 

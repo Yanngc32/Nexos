@@ -190,7 +190,11 @@ async function turnoAtivo() {
   try {
     const info = await daemonInfo();
     if (!info.ok) return false;
-    const res = await fetch(`http://127.0.0.1:${info.port}/v1/status/turno-ativo`);
+    // rota autenticada: sem o token dava 401 e isto respondia "sem turno" sempre — o gate do
+    // update instalava com agente no meio do trabalho
+    const res = await fetch(`http://127.0.0.1:${info.port}/v1/status/turno-ativo`, {
+      headers: { authorization: `Bearer ${info.token}` },
+    });
     if (!res.ok) return false;
     const json = await res.json();
     return Boolean(json.ativo);
@@ -209,7 +213,7 @@ function spawnNexo(args, extra = {}) {
   return spawnNexoProcess(args, {
     daemonRoot,
     nodeBin: process.execPath,
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NEXOS_APP_VERSION: app.getVersion() },
     detached: true,
     stdio: "ignore",
     windowsHide: true,
@@ -448,6 +452,28 @@ function esperarSair(child, ms) {
 
 let motorReiniciando = null;
 
+/**
+ * Derruba o motor e espera ele sair de verdade (`nexo down` só manda o sinal). O instalador não
+ * troca arquivo de processo vivo: com o motor de pé, a atualização falhava calada e o app voltava
+ * na versão velha — era preciso "reiniciar duas vezes".
+ */
+async function pararMotor(ms = 8000) {
+  await esperarSair(spawnNexo(["down"]), 5000);
+  const ate = Date.now() + ms;
+  while (Date.now() < ate && (await daemonInfo()).ok) await new Promise((r) => setTimeout(r, 250));
+}
+
+/** Versão do app que subiu o motor de pé ("" = motor de antes desta checagem). */
+async function versaoDoMotor() {
+  try {
+    const res = await fetch(`http://127.0.0.1:${readPort()}/health`);
+    const json = await res.json();
+    return typeof json?.app === "string" ? json.app : "";
+  } catch {
+    return "";
+  }
+}
+
 /** Só em dev: derruba e sobe o motor pra pegar o código novo do daemon. */
 function reiniciarMotorDev() {
   if (motorReiniciando) return motorReiniciando;
@@ -536,7 +562,16 @@ let motorErro = "";
 function subirMotor({ timeoutMs = 60_000, deps = false } = {}) {
   if (motorSubindo) return motorSubindo;
   motorSubindo = (async () => {
-    if ((await daemonInfo()).ok) return { ok: true };
+    if ((await daemonInfo()).ok) {
+      /*
+       * O motor sobrevive ao fechamento do app. Depois de atualizar, o que responde pode ser o da
+       * versão anterior — o app novo conversaria com o motor velho até alguém reiniciar de novo.
+       * Troca, a não ser que tenha agente trabalhando (aí fica pro próximo boot).
+       */
+      if (!app.isPackaged || (await versaoDoMotor()) === app.getVersion() || (await turnoAtivo())) return { ok: true };
+      console.log("[motor] de outra versão do app — reiniciando");
+      await pararMotor();
+    }
     if (deps) {
       const r = await ensureDepsInstalled();
       if (!r.ok) return { ok: false, error: `Não consegui instalar dependências:\n${r.log}`.trim() };
@@ -1462,8 +1497,10 @@ app.on("before-quit", (event) => {
     // `quitAndInstall(isSilent, isForceRunAfter)`: sem os dois `true`, o NSIS abre o
     // instalador visível de novo (assistente completo, pede clique em "Concluir") em vez de
     // instalar quieto e reabrir sozinho — o oposto do que "atualização automática" promete.
-    // O respiro deixa a notificação sair antes do processo morrer.
-    setTimeout(() => autoUpdater.quitAndInstall(true, true), 400);
+    // O motor sai antes: com ele de pé o instalador não troca os arquivos dele (ver pararMotor).
+    // O mínimo de 400ms deixa a notificação sair antes do processo morrer.
+    await Promise.all([pararMotor(), new Promise((r) => setTimeout(r, 400))]);
+    autoUpdater.quitAndInstall(true, true);
   })();
 });
 app.on("window-all-closed", () => {
