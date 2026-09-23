@@ -55,6 +55,7 @@ import { qrSvg } from "./qr.js";
 import { celAlcance, celAviso } from "./celular.js";
 import { extrairMencoes } from "./mention.js";
 import { montarMensagem, rotuloDoElemento } from "./inspector-mensagem.js";
+import { rotuloDaFerramenta } from "./rotulos-ferramenta.js";
 import { criarInspectorHost } from "./inspector-host.js";
 import { FASE } from "./inspector-estado.js";
 import { criarNavegadorHost } from "./navegador-host.js";
@@ -3878,6 +3879,8 @@ function appendEvent(ev, scroll = true) {
      * As outras (Bash, Read, Grep…) seguem com o JSON, que ali ainda é o que há.
      */
     const diff = diffDeFerramenta(ev.name, ev.input);
+    // ferramenta do próprio Nexos: "Navegando · lendo a página" no lugar de mcp__nexo__nexo_navegador_ler
+    const rotulo = diff ? null : rotuloDaFerramenta(ev.name);
     /*
      * Edição de arquivo vira um chip compacto ("Editado main.cjs +52 −0"), não a
      * linha "⚙ Edit {...}" genérica — o nome do arquivo e o tamanho da mudança
@@ -3892,6 +3895,9 @@ function appendEvent(ev, scroll = true) {
         (diff.removidas ? `<span class="edit-chip-del">−${diff.removidas}</span>` : "") +
         `<span class="tool-result-badge"></span><span class="tool-toggle">›</span>` +
         `</span></div>`
+      : rotulo
+        ? `<div class="tool-line" title="${escapeHtml(ev.name)}"><span class="tool-ico">${rotulo.ico}</span><span class="tool-name tool-name-nexos">${escapeHtml(rotulo.texto)}</span>${arg}` +
+          `<span class="tool-result-badge"></span><span class="tool-toggle">▾</span></div>`
       : `<div class="tool-line"><span class="tool-ico">⚙</span><span class="tool-name">${escapeHtml(ev.name)}</span>${arg}` +
         `<span class="tool-result-badge"></span><span class="tool-toggle">▾</span></div>`;
     li.innerHTML =
