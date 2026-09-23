@@ -12,7 +12,7 @@ import {
   TOOL_PATTERN_RE,
 } from "@nexos/shared";
 import type { Engine, EngineHandler, EngineMcp } from "./types.ts";
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { attachmentsDir, enginePidPath, globalChatDir, globalSkillsDir, instrucoesPath } from "../home.ts";
 import { killTree } from "../kill-tree.ts";
@@ -28,6 +28,7 @@ import { sessaoIdValido } from "../claude-session.ts";
 import { pastaDoAtivo } from "../design-system.ts";
 import { parseCliLine } from "./parse-claude.ts";
 import { parseCodexLine } from "./parse-codex.ts";
+import { atualizacaoDasRegras } from "./regras-da-sessao.ts";
 
 /** Título do bloco no pack (session.ts `withInstructions`) e a linha que o lembra nos turnos com --resume. */
 export const FECHAMENTO_NO_PACK = "# Fechamento do turno";
@@ -401,8 +402,22 @@ export class CliEngine implements Engine {
       this.args = [...this.args, "--append-system-prompt-file", arquivo];
       this.lastArgs = this.args;
     }
+    // Retomada do `claude`: o que mudou nas regras desde que a sessão as recebeu vai junto (ver
+    // regras-da-sessao.ts) — ex.: DS criado depois da conversa começar, memória atualizada.
+    let atualizacao = "";
+    if (resumindo && getProfile(this.profileId, this.home)?.engine === "claude" && this.partes?.instrucoes) {
+      const arquivo = instrucoesPath(this.threadId, this.home);
+      let sabido: string | null = null;
+      try {
+        sabido = readFileSync(arquivo, "utf8");
+      } catch {
+        sabido = null;
+      }
+      atualizacao = atualizacaoDasRegras(sabido, this.partes.instrucoes);
+      if (atualizacao) writeFileSync(arquivo, this.partes.instrucoes, "utf8");
+    }
     const full = resumindo
-      ? `${text}${lembrete}`
+      ? `${atualizacao}${text}${lembrete}`
       : [sistema ? sistema.historico : this.pack, text].filter(Boolean).join("\n\n");
     this.lastPayload = full;
     let suppressClose = false;

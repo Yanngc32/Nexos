@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { tempHome } from "./helpers.ts";
 import { sessionBus } from "../src/bus.ts";
-import { criarDs } from "../src/design-system.ts";
+import { criarDs, estadoDs } from "../src/design-system.ts";
 import { ferramentaDePrintDoDs, resetPrintForTest, responderPrint } from "../src/ds-print.ts";
 
 afterEach(() => resetPrintForTest());
@@ -19,6 +19,8 @@ describe("nexo_ds_print", () => {
     expect(f!.name).toBe("nexo_ds_print");
 
     const lista = await f!.executar({});
+    expect(lista.texto).toContain(`pasta: ${estadoDs(proj, home).ds!.pastaAbs}`);
+    expect(lista.texto).toContain("KIT.md");
     expect(lista.texto).toContain("- fund-cores · fundamentos");
     expect(lista.texto).toContain("- core-botoes · core");
     expect((await f!.executar({ card: "nada" })).ok).toBe(false);

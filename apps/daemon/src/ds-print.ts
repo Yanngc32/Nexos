@@ -66,7 +66,8 @@ export function ferramentaDePrintDoDs(threadId: string, projectPath: string, hom
         description:
           "Print do card do design system RENDERIZADO (como aparece no Canvas: tokens, fontes e classes do kit aplicados). " +
           "Use depois de criar ou editar um card pra conferir o visual antes de dizer que ficou pronto. " +
-          "Sem `card`, devolve a lista de cards (id, seção, largura, avisos do lint). `tema` opcional (tema de tokens.json).",
+          "Sem `card`, devolve a PASTA do design system e a lista de cards (id, seção, largura, avisos do lint) — chame assim " +
+          "antes de procurar arquivo do DS no disco. `tema` opcional (tema de tokens.json).",
         inputSchema: {
           type: "object",
           properties: {
@@ -83,9 +84,14 @@ export function ferramentaDePrintDoDs(threadId: string, projectPath: string, hom
           ];
           const card = typeof args.card === "string" ? args.card.trim() : "";
           if (!card) {
+            // a pasta vai junto: conversa que começou antes do DS existir não tem ela nas regras e o
+            // agente saía varrendo o disco atrás dos arquivos (o DS mora na pasta do projeto no Nexos)
             return {
               ok: true,
-              texto: `Cards do DS "${atual.nome}":\n${todos.map((c) => `- ${c.id} · ${c.secao} · ${c.largura}${c.avisos ? ` · ${c.avisos} aviso(s)` : ""}`).join("\n")}`,
+              texto:
+                `Design system "${atual.nome}" — pasta: ${atual.pastaAbs}\n` +
+                "Arquivos: tokens.json, DESIGN.md, meta.json (layout) e cards/<id>.html. Pra criar/editar card, leia KIT.md nessa pasta.\n\n" +
+                `Cards:\n${todos.map((c) => `- ${c.id} · ${c.secao} · ${c.largura}${c.avisos ? ` · ${c.avisos} aviso(s)` : ""}`).join("\n")}`,
             };
           }
           if (!todos.some((c) => c.id === card)) return { ok: false, texto: `card "${card}" não existe. Chame sem \`card\` pra ver a lista.` };

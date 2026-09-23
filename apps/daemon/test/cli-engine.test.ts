@@ -156,6 +156,21 @@ describe("CliEngine --resume", () => {
       await waitDone(events);
       expect(engine.lastArgs).not.toContain("--append-system-prompt-file");
       expect(engine.lastPayload.startsWith("segunda")).toBe(true);
+
+      // DS criado no meio da conversa: a retomada seguinte leva só o bloco novo, uma vez
+      events.length = 0;
+      engine.updatePack("REGRAS\n\n# Design system do projeto: X\nPasta: G:/ds\n\nUser: antes", {
+        instrucoes: "REGRAS\n\n# Design system do projeto: X\nPasta: G:/ds",
+        historico: "User: antes",
+      });
+      await engine.send("terceira");
+      await waitDone(events);
+      expect(engine.lastPayload).toContain("Pasta: G:/ds");
+      expect(engine.lastPayload).toContain("terceira");
+      events.length = 0;
+      await engine.send("quarta");
+      await waitDone(events);
+      expect(engine.lastPayload).not.toContain("Pasta: G:/ds");
     } finally {
       delete process.env.NEXOS_CLAUDE_BIN;
     }
