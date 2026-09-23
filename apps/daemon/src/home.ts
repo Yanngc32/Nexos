@@ -163,6 +163,11 @@ export function driveSyncStatePath(root = nexoHome()): string {
   return join(root, "drive-sync.json");
 }
 
+/** Estado LOCAL da conciliação da biblioteca (agentes/times/hooks/skills ↔ espelho, ver biblioteca.ts). */
+export function bibliotecaSyncStatePath(root = nexoHome()): string {
+  return join(root, "biblioteca-sync.json");
+}
+
 export function runsRoot(root = nexoHome()): string {
   return join(root, "runs");
 }

@@ -1832,6 +1832,29 @@ body[data-focus="1"] .work #pane-chat {
   color: var(--muted);
 }
 
+/* Notas da versão (CHANGELOG.md): o "### Adicionado" vira h4 e herdaria o título da linha. */
+.sobre-novidades {
+  margin-top: var(--s-3);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-ui);
+  color: var(--muted);
+}
+
+.set-txt .sobre-novidades h4 {
+  margin: var(--s-4) 0 var(--s-1);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.sobre-novidades ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.sobre-novidades li + li {
+  margin-top: var(--s-1);
+}
+
 /* Linha de config de risco mais alto (controle do Windows) — mesma cor do .banner, pra a
    Config já avisar antes mesmo de ligar o interruptor. */
 .set-row-perigo {

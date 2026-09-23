@@ -22,6 +22,7 @@ import { fmtDuracao } from "./agent-trace.js";
 import { agruparConversas } from "./thread-groups.js";
 import { marcarLinhaAtiva } from "./thread-mark.js";
 import { escapeHtml, renderMd } from "./markdown.js";
+import { secaoDaVersao } from "./changelog.js";
 import {
   ago,
   clip,
@@ -1232,6 +1233,20 @@ function bannerPadrao() {
   $("banner").textContent = BANNER_PADRAO;
 }
 
+/**
+ * Motor fora do ar: subindo (boot ou botão) é "Ligando", não "Desligado" — senão a
+ * primeira abertura parece quebrada e convida a clicar em Ligar no meio da subida.
+ */
+function avisoMotorFora(info) {
+  if (info.starting) {
+    $("motor-status").textContent = "Ligando…";
+    $("motor-label").textContent = "Ligando…";
+    $("banner").textContent = "Ligando o motor…";
+  } else if (info.erro) {
+    bannerErro(info.erro);
+  }
+}
+
 function setMotor(on, live = false) {
   const was = state.talking;
   state.talking = Boolean(on && live);
@@ -1899,12 +1914,13 @@ async function conferirPreview(href) {
   });
 }
 
-function hidratarOuMigrar(seedView) {
+// Sessão vazia fica vazia: abrir o painel de Arquivos sozinho tirava a tela inicial
+// ("Escolhe uma conversa") do primeiro boot. Só migra a URL do Browser de antes das abas.
+function hidratarOuMigrar() {
   const s = sessaoWork();
   if (s.tabs.length) return;
   const legado = localStorage.getItem(storeKey("browser"));
   if (legado && legado !== "about:blank") abrirAba(s, "browser", { url: legado });
-  if (seedView && seedView !== "none" && !s.tabs.some((t) => t.kind === seedView)) abrirAba(s, seedView);
   if (s.tabs.length) persistirWork();
 }
 
@@ -2525,6 +2541,7 @@ async function refreshDaemon() {
   setMotor(info.ok, info.ok && state.talking);
   if (!info.ok) {
     state.sseOn = false;
+    avisoMotorFora(info);
     return;
   }
   // Rede de segurança: stream morto por qualquer motivo, o poll reabre. Sem isso
@@ -8169,11 +8186,22 @@ $("btn-sobre-check").addEventListener("click", () => void window.nexo.checkForUp
 /** Versão instalada + último status do updater — perguntado de novo ao abrir a tela, pra
     não depender de ter capturado o evento ao vivo (pode ter chegado antes de abrir). */
 async function renderSobre() {
+  let versao = "";
   try {
-    $("sobre-versao").textContent = (await window.nexo.appVersion?.()) || "dev";
+    versao = (await window.nexo.appVersion?.()) || "";
   } catch {
-    $("sobre-versao").textContent = "dev";
+    versao = "";
   }
+  $("sobre-versao").textContent = versao || "dev";
+  const novidades = $("sobre-novidades");
+  let md = "";
+  try {
+    md = versao ? secaoDaVersao(await window.nexo.appChangelog?.(), versao) : "";
+  } catch {
+    md = "";
+  }
+  if (md) renderMd(novidades, md);
+  else novidades.textContent = "Sem notas pra esta versão.";
   try {
     const status = await window.nexo.updateReady?.();
     if (status) pintarUpdateStatus(status);
@@ -8298,7 +8326,7 @@ hydrateRepos();
 syncApiFields();
 setProjectLabel();
 setComposer(Boolean(state.threadId));
-hidratarOuMigrar(state.threadId ? "" : "file");
+hidratarOuMigrar();
 aplicarSessaoWork();
 updatePalTerm();
 paintAgents();
@@ -8314,7 +8342,7 @@ void (async () => {
       state.threadId = "";
       localStorage.removeItem("nexo.thread");
       setComposer(false);
-      hidratarOuMigrar("file");
+      hidratarOuMigrar();
       aplicarSessaoWork();
     }
   }

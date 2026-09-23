@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld("nexo", {
   updateReady: () => ipcRenderer.invoke("update:status"),
   quitApp: () => ipcRenderer.invoke("app:quit"),
   appVersion: () => ipcRenderer.invoke("app:version"),
+  appChangelog: () => ipcRenderer.invoke("app:changelog"),
   onUpdateStatus: (fn) => {
     const h = (_e, payload) => fn(payload);
     ipcRenderer.on("update:status", h);
