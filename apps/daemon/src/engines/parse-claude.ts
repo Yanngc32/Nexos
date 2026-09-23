@@ -286,6 +286,25 @@ function windowEvents(obj: Record<string, unknown>): EngineEvent[] {
   return janela > 0 ? [{ type: "window", contextWindow: janela }] : [];
 }
 
+/**
+ * `result.modelUsage[modelo].contextWindow`: a janela real, por modelo, em todo fim de turno.
+ * O `autocompact_state` deixou de vir no stream (CLI atual), e sem isto a janela caía no palpite
+ * pelo nome — "claude-opus-5-5" vira 200k no medidor mesmo rodando com mais. Com subagente no
+ * turno vem mais de um modelo: vale o que mais consumiu entrada (é o da conversa).
+ */
+function janelaDoResult(obj: Record<string, unknown>): EngineEvent[] {
+  const uso = obj.modelUsage as Record<string, Record<string, unknown>> | undefined;
+  if (!uso || typeof uso !== "object") return [];
+  let melhor: { janela: number; peso: number } | null = null;
+  for (const m of Object.values(uso)) {
+    const janela = int(m?.contextWindow);
+    if (!janela) continue;
+    const peso = int(m.inputTokens) + int(m.cacheReadInputTokens) + int(m.cacheCreationInputTokens);
+    if (!melhor || peso > melhor.peso) melhor = { janela, peso };
+  }
+  return melhor ? [{ type: "window", contextWindow: melhor.janela }] : [];
+}
+
 function int(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0;
 }
@@ -396,7 +415,7 @@ export function parseClaudeJson(obj: Record<string, unknown>): EngineEvent[] {
       if (isLimitText(msg)) return [quotaEvent(prettyQuota(msg))];
       return [{ type: "error", message: msg }];
     }
-    return usageEvents(obj);
+    return [...janelaDoResult(obj), ...usageEvents(obj)];
   }
   if (type === "error") {
     const msg = cap(flat) || "erro no motor";

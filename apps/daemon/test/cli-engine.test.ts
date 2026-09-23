@@ -676,6 +676,23 @@ describe("janela da sessão", () => {
     expect(parseCliLine(linha)).toEqual([{ type: "window", contextWindow: 980_000 }]);
   });
 
+  it("result.modelUsage traz a janela real (CLI atual não manda mais autocompact_state)", () => {
+    const linha = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 100 },
+      modelUsage: {
+        // subagente leve no mesmo turno: não é a janela da conversa
+        "claude-haiku-4-5": { inputTokens: 50, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, contextWindow: 200_000 },
+        "claude-opus-5-5": { inputTokens: 10, cacheReadInputTokens: 9000, cacheCreationInputTokens: 100, contextWindow: 1_000_000 },
+      },
+    });
+    const evs = parseCliLine(linha);
+    expect(evs[0]).toEqual({ type: "window", contextWindow: 1_000_000 });
+    expect(evs[1]?.type).toBe("usage");
+    expect(parseCliLine(JSON.stringify({ type: "result", subtype: "success", usage: { input_tokens: 1 } })).map((e) => e.type)).toEqual(["usage"]);
+  });
+
   it("sem janela no payload não inventa evento", () => {
     expect(parseCliLine(JSON.stringify({ type: "autocompact_state", value: { enabled: false } }))).toEqual([]);
     expect(parseCliLine(JSON.stringify({ type: "autocompact_state", value: { effective_window: 0 } }))).toEqual([]);
