@@ -175,7 +175,7 @@ Ferramentas MCP de DS duplicariam o que `claude`/`codex` já fazem, gerariam sup
 ## Riscos / em aberto
 
 - **Custo:** um DS completo tem ~25–35 cards e ~8 agentes em paralelo. Mitigação: estimativa antes de gerar e geração por seção.
-- **Streaming no `api`**: depende de o motor usar SSE. A verificar na fase 3.
+- **Streaming no `api`**: resolvido — o motor usa SSE (`stream: true`) e emite `text_parcial` como o CLI; cai pra JSON se o provedor ignorar o stream.
 - **Tamanho do pack:** um DESIGN.md grande infla todo turno de front. Limitar o tamanho e resumir.
 - **`fs.watch` recursivo**: é estável no Windows/macOS. No Linux depende da versão do Node (recursivo nativo a partir do 20). Hoje o alvo é Windows.
 - **Edição do agente e do Canvas ao mesmo tempo:** o Canvas grava por cima só se o arquivo não mudou desde a leitura (compara mtime/hash). Se mudou, recarrega e avisa.

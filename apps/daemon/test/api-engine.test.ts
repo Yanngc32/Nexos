@@ -74,4 +74,53 @@ describe("ApiEngine", () => {
     const events = await collect(engine);
     expect(events[0]?.type).toBe("quota");
   });
+
+  it("stream (SSE): cada delta vira text_parcial e o texto inteiro fecha como text", async () => {
+    const home = tempHome();
+    addProfile({ id: "api-1", engine: "api", api: { provider: "anthropic", model: "x" } }, home, { apiKey: "k" });
+    let pediu: { stream?: boolean; max_tokens?: number } = {};
+    await listen((req, res) => {
+      let corpo = "";
+      req.on("data", (c) => (corpo += c));
+      req.on("end", () => {
+        pediu = JSON.parse(corpo);
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const ev = (o: unknown) => `event: x
+data: ${JSON.stringify(o)}
+
+`;
+        res.write(ev({ type: "message_start" }));
+        res.write(ev({ type: "content_block_delta", delta: { type: "text_delta", text: "<ds-card " } }));
+        // bloco partido entre dois pedaços da rede
+        const meio = ev({ type: "content_block_delta", delta: { type: "text_delta", text: 'id="a">' } });
+        res.write(meio.slice(0, 20));
+        setTimeout(() => {
+          res.write(meio.slice(20));
+          res.end(ev({ type: "message_stop" }));
+        }, 10);
+      });
+    });
+    const events = await collect(new ApiEngine({ home, profileId: "api-1" }));
+    expect(pediu.stream).toBe(true);
+    expect(pediu.max_tokens).toBeGreaterThan(1024);
+    expect(events).toEqual([
+      { type: "text_parcial", text: "<ds-card " },
+      { type: "text_parcial", text: 'id="a">' },
+      { type: "text", text: '<ds-card id="a">' },
+      { type: "done" },
+    ]);
+  });
+
+  it("erro no meio do stream vira error (rate limit vira quota)", async () => {
+    const home = tempHome();
+    addProfile({ id: "api-1", engine: "api", api: { provider: "anthropic", model: "x" } }, home, { apiKey: "k" });
+    await listen((_req, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.end(`data: ${JSON.stringify({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } })}
+
+`);
+    });
+    const events = await collect(new ApiEngine({ home, profileId: "api-1" }));
+    expect(events).toEqual([{ type: "error", message: "api: Overloaded" }]);
+  });
 });

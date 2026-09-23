@@ -72,7 +72,10 @@ export class ApiEngine implements Engine {
       },
       body: JSON.stringify({
         model: modeloEfetivo(this.overridesDoTurno.model ?? profile.api.model),
-        max_tokens: 1024,
+        // 1024 cortava resposta longa no meio (um card do DS sozinho passa disso); o limite só corta,
+        // a cobrança é pelo que sair
+        max_tokens: 8192,
+        stream: true,
         system: this.opts?.contextPack || undefined,
         messages: [{ role: "user", content: text }],
       }),
@@ -90,12 +93,75 @@ export class ApiEngine implements Engine {
       return;
     }
     if (this.aborted) return;
-    const body = (await res.json()) as { content?: { type: string; text?: string }[] };
+    let out: string;
+    if ((res.headers.get("content-type") ?? "").includes("text/event-stream") && res.body) {
+      const lido = await this.lerStream(res.body);
+      if (lido === null) return;
+      out = lido;
+    } else {
+      // provedor/proxy que ignora `stream` e devolve a mensagem inteira
+      const body = (await res.json()) as { content?: { type: string; text?: string }[] };
+      out = body.content?.filter((c) => c.type === "text").map((c) => c.text ?? "").join("") ?? "";
+    }
     if (this.aborted || this.finished) return;
-    const out = body.content?.filter((c) => c.type === "text").map((c) => c.text ?? "").join("") ?? "";
     if (out) this.handler({ type: "text", text: out });
     this.finished = true;
     this.handler({ type: "done" });
+  }
+
+  /**
+   * SSE da Messages API: cada `text_delta` vira `text_parcial` (resposta ao vivo — o Canvas do DS
+   * desenha o card enquanto chega) e o texto inteiro volta pra virar o `text` final, igual ao CLI.
+   * `null` = abortado ou erro já emitido.
+   */
+  private async lerStream(corpo: ReadableStream<Uint8Array>): Promise<string | null> {
+    const leitor = corpo.getReader();
+    const dec = new TextDecoder();
+    let resto = "";
+    let out = "";
+    try {
+      for (;;) {
+        const { value, done } = await leitor.read();
+        if (this.aborted) {
+          void leitor.cancel().catch(() => {});
+          return null;
+        }
+        if (done) break;
+        resto += dec.decode(value, { stream: true });
+        let fim: number;
+        while ((fim = resto.indexOf("\n\n")) >= 0) {
+          const bloco = resto.slice(0, fim);
+          resto = resto.slice(fim + 2);
+          const dados = bloco
+            .split(/\r?\n/)
+            .filter((l) => l.startsWith("data:"))
+            .map((l) => l.slice(5).trim())
+            .join("");
+          if (!dados) continue;
+          let ev: { type?: string; delta?: { type?: string; text?: string }; error?: { type?: string; message?: string } };
+          try {
+            ev = JSON.parse(dados);
+          } catch {
+            continue;
+          }
+          if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta" && ev.delta.text) {
+            out += ev.delta.text;
+            this.handler!({ type: "text_parcial", text: ev.delta.text });
+          } else if (ev.type === "error") {
+            this.finished = true;
+            if (ev.error?.type === "rate_limit_error") this.handler!({ type: "quota" });
+            else this.handler!({ type: "error", message: `api: ${ev.error?.message ?? ev.error?.type ?? "erro no stream"}` });
+            return null;
+          }
+        }
+      }
+    } catch (e) {
+      if (this.aborted) return null;
+      this.finished = true;
+      this.handler!({ type: "error", message: `api: stream caiu (${(e as Error).message})` });
+      return null;
+    }
+    return out;
   }
 
   async abort(): Promise<void> {
