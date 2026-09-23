@@ -15,6 +15,7 @@ import { MCP_TOOLS_VEREDITO } from "./veredito.ts";
 import { MCP_TOOLS_PERGUNTAR } from "./perguntas.ts";
 import { MCP_TOOLS_DELEGAR, resetContadorDeDelegacao } from "./delegar.ts";
 import { MCP_TOOLS_NAVEGADOR } from "./navegador.ts";
+import { MCP_TOOLS_DS_PRINT } from "./ds-print.ts";
 import { MCP_TOOLS_WINDOWS_CONTROL } from "./windows-control.ts";
 import { MCP_TOOLS_TAREFA } from "./tarefas.ts";
 import { expandirSkill } from "./skills.ts";
@@ -614,6 +615,8 @@ function mcpDaConversa(
     ...(!meta.runId && perfil.delegacaoModo && perfil.delegacaoModo !== "negado" ? MCP_TOOLS_DELEGAR : []),
     // Só em conversa NORMAL — não existe <webview> num run headless (ver navegador.ts).
     ...(!meta.runId && perfil.navegadorModo && perfil.navegadorModo !== "negado" ? MCP_TOOLS_NAVEGADOR : []),
+    // print do card do design system renderizado (ds-print.ts): conversa normal de projeto
+    ...(!meta.runId && meta.projectPath ? MCP_TOOLS_DS_PRINT : []),
     // Gate GLOBAL, não por conta (ver windows-control.ts): mexe em QUALQUER app da máquina, não
     // só o Nexos. `profileFlags` em engines/cli.ts filtra de novo, incondicional — esta linha só
     // evita listar a ferramenta quando já se sabe de antemão que a chamada vai ser barrada.

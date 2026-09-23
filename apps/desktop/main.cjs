@@ -14,7 +14,7 @@ const {
   rmSync,
   writeFileSync,
 } = require("node:fs");
-const { readdir, readFile, stat } = require("node:fs/promises");
+const { readdir, readFile, rm, stat, writeFile } = require("node:fs/promises");
 const { homedir, tmpdir } = require("node:os");
 const { dirname, join, resolve, sep } = require("node:path");
 const { nexoEntry, resolveNodeBin, resolveTsxCli, spawnNexoProcess } = require("../daemon/scripts/resolve-tsx.cjs");
@@ -1082,6 +1082,37 @@ app.whenReady().then(() => {
     if (r.canceled || !r.filePaths[0]) return null;
     const buf = await readFile(r.filePaths[0]);
     return { name: r.filePaths[0].split(sep).pop(), base64: buf.toString("base64") };
+  });
+  /**
+   * Print de um card do design system pro agente (`nexo_ds_print`): janela INVISÍVEL, sem node,
+   * sandbox, e o documento já vem com CSP sem script. Vai por arquivo temporário (não data:) pra
+   * `<base href="file:///projeto/">` achar o logo real do projeto.
+   */
+  handle("ds:print", async (_e, { html, largura }) => {
+    const larg = Math.max(320, Math.min(1600, Number(largura) || 764));
+    const arquivo = join(tmpdir(), `nexos-ds-print-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.html`);
+    await writeFile(arquivo, String(html ?? ""), "utf8");
+    const w = new BrowserWindow({
+      show: false,
+      width: larg,
+      height: 600,
+      useContentSize: true,
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+    });
+    try {
+      await w.loadFile(arquivo);
+      // fontes do Google chegam depois do load: espera elas (ou 3s, o que vier antes)
+      await w.webContents.executeJavaScript("Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 3000))]).then(() => 1)");
+      const altura = await w.webContents.executeJavaScript("Math.ceil(document.body.getBoundingClientRect().height)");
+      const alt = Math.max(40, Math.min(4000, Number(altura) || 600));
+      w.setContentSize(larg, alt);
+      await new Promise((r) => setTimeout(r, 150));
+      const img = await w.webContents.capturePage();
+      return { base64: img.toJPEG(85).toString("base64"), largura: larg, altura: alt };
+    } finally {
+      w.destroy();
+      void rm(arquivo, { force: true }).catch(() => {});
+    }
   });
   handle("fs:list", async (_e, rel = ".") => {
     const dir = boundPath(rel);

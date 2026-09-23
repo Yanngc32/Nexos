@@ -295,6 +295,27 @@ export function baseHrefDoProjeto(projetoAbs) {
   return `file://${encodeURI(comBarra)}/`;
 }
 
+/** Largura útil do card no board (grade de 6 colunas em 1560px) pela largura do meta. */
+const LARGURA_PX = { "1/3": 500, "1/2": 764, "2/3": 1028, 1: 1560 };
+
+/**
+ * Documento completo de UM card pro print do agente (`nexo_ds_print`): o mesmo do Canvas
+ * (tokens, kit, fontes, base do projeto) com o HTML já no body, tema aplicado e CSP sem script —
+ * a janela invisível do Electron renderiza exatamente o que a pessoa vê. `null` = card não existe.
+ */
+export function documentoDoPrint(ds, cardId, tema = "") {
+  const card = [...(ds.fundamentos || []), ...(ds.cards || [])].find((c) => c.id === cardId);
+  if (!card) return null;
+  let html = montarSrcdoc({ css: ds.css, baseHref: baseHrefDoProjeto(ds.projetoAbs), fontes: urlsDeFontes(ds.vars), kit: ds.kitCss || "" });
+  html = html.replace(
+    '<meta charset="utf-8">',
+    `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="script-src 'none'">`,
+  );
+  if (tema && /^[a-z0-9-]+$/i.test(tema)) html = html.replace('<html lang="pt-BR">', `<html lang="pt-BR" data-tema="${tema}">`);
+  html = html.replace("<body></body>", `<body>${card.html}</body>`);
+  return { html, largura: LARGURA_PX[card.largura || "1/2"] || 764, titulo: card.titulo };
+}
+
 /* ---------------------------------------------------------------------------
  * Componente
  * ------------------------------------------------------------------------- */

@@ -11,6 +11,7 @@ import {
   urlsDeFontes,
   cssDoBruto,
   digitaisDe,
+  documentoDoPrint,
   elementosNovos,
   paraHexInput,
   setNoCaminho,
@@ -197,5 +198,28 @@ describe("baseHrefDoProjeto", () => {
   it("Windows e POSIX viram file:// da raiz do projeto, com barra no fim", () => {
     expect(baseHrefDoProjeto("C:\\proj\\minha loja")).toBe("file:///C:/proj/minha%20loja/");
     expect(baseHrefDoProjeto("/home/x/app/")).toBe("file:///home/x/app/");
+  });
+});
+
+describe("documentoDoPrint", () => {
+  it("documento do Canvas com o card no body, tema, CSP sem script e largura do layout", () => {
+    const ds = {
+      css: ":root{--color-bg:#000}",
+      kitCss: ".k-grade{display:grid}",
+      projetoAbs: "C:\proj",
+      vars: [{ nome: "--font-family-body", caminho: "font.family.body", tipo: "fontFamily", valor: "Inter" }],
+      fundamentos: [{ id: "fund-cores", titulo: "Cores", html: '<div class="k-grade"></div>' }],
+      cards: [{ id: "botoes", titulo: "Botões", largura: "1", html: "<button>ok</button>" }],
+    };
+    const d = documentoDoPrint(ds, "botoes", "claro");
+    expect(d.largura).toBe(1560);
+    expect(d.html).toContain("<body><button>ok</button></body>");
+    expect(d.html).toContain('data-tema="claro"');
+    expect(d.html).toContain("script-src 'none'");
+    expect(d.html).toContain(".k-grade{display:grid}");
+    expect(d.html).toContain("fonts.googleapis.com/css?family=Inter");
+    expect(documentoDoPrint(ds, "fund-cores").largura).toBe(764);
+    expect(documentoDoPrint(ds, "x")).toBeNull();
+    expect(documentoDoPrint(ds, "botoes", '"><script>').html).not.toContain("data-tema");
   });
 });

@@ -198,6 +198,7 @@ Componente (estados lado a lado):
 - \`fundamentos\`: ordem, \`largura\` e \`oculto\` dos cards gerados dos tokens (ids: ${IDS_FUNDAMENTOS.join(", ")}).
   A seção deles é \`fundamentos\` (pode ter entrada em \`secoes\` pra mudar título/alinhamento).
 - Card novo = arquivo \`cards/<id>.html\` + entrada em \`cards\`. Apagar = tirar os dois.
+- Conferir o visual: a ferramenta \`nexo_ds_print\` devolve o print do card renderizado (sem \`card\`, lista os ids).
 - "Alinhar os cards": feche as linhas combinando largura e ordem (dois "1/2", "1/3" + "2/3", três "1/3"),
   deixe card alto sozinho em "1" ou use \`alinhamento: "alvenaria"\` na seção.
 `;

@@ -10,7 +10,7 @@ import { createCloneModal } from "./clone-modal.js";
 import { createNewThreadModal } from "./new-thread-modal.js";
 import { diffDeFerramenta, nomeArquivo, renderDiff } from "./diff-view.js";
 import { createTarefasBoard } from "./tarefas-board.js";
-import { createDsCanvas } from "./canvas-ds.js";
+import { createDsCanvas, documentoDoPrint } from "./canvas-ds.js";
 import { createBarraTimes } from "./chat-times.js";
 import { capturarReferencia } from "./ds-extrator.js";
 import { createDialogo } from "./dialogo.js";
@@ -5421,11 +5421,38 @@ function agendarRetrato() {
   }, 400);
 }
 
+/**
+ * `nexo_ds_print` (daemon/ds-print.ts): monta o documento do card como o Canvas faz e pede ao
+ * processo principal pra renderizar numa janela invisível. Sempre responde — o agente não pode
+ * ficar esperando o timeout por causa de um erro aqui.
+ */
+async function tratarPrintDoDs(ev) {
+  const responder = (corpo) =>
+    req(`/v1/ds/print/${encodeURIComponent(ev.id)}/responder`, { method: "POST", body: JSON.stringify(corpo) }).catch(() => {});
+  try {
+    const { ds } = await req(`/v1/ds?projectPath=${encodeURIComponent(ev.projectPath)}`);
+    const docu = ds ? documentoDoPrint(ds, ev.card, ev.tema) : null;
+    if (!docu) return void responder({ ok: false, texto: `card "${ev.card}" não existe no design system ativo` });
+    const r = await window.nexo.printDoDs({ html: docu.html, largura: docu.largura });
+    await responder({
+      ok: true,
+      texto: `Card "${docu.titulo}" renderizado (${r.largura}×${r.altura}px${ev.tema ? `, tema ${ev.tema}` : ""}).`,
+      imagem: { dataBase64: r.base64, mimeType: "image/jpeg" },
+    });
+  } catch (e) {
+    await responder({ ok: false, texto: `não deu pra renderizar o card: ${e.message}` });
+  }
+}
+
 function applyAgentEvent(ev) {
   const id = ev.threadId;
   if (!id) return;
   if (ev.type === "browser_comando") {
     void tratarComandoNavegador(ev);
+    return;
+  }
+  if (ev.type === "ds_print") {
+    void tratarPrintDoDs(ev);
     return;
   }
   // Contagem GLOBAL de perguntas pendentes: vem do bus "*", então soma de QUALQUER conversa —

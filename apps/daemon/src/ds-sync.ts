@@ -44,7 +44,8 @@ export function blocoDoDsParaPack(projectPath: string, home: string): string | n
     "Ao criar ou mudar o front deste projeto: use estes tokens (cor, fonte, espaço, raio, sombra) no lugar de " +
       "valor solto e siga as regras de uso. Faltou um token? Proponha adicionar em tokens.json em vez de inventar um hex. " +
       "Pra ver como um componente deve ficar, leia o card dele na pasta acima. Pra CRIAR card, apagar " +
-      "ou reorganizar o board (\"alinha os cards\"), leia KIT.md na pasta: classes prontas e o layout do meta.json.",
+      "ou reorganizar o board (\"alinha os cards\"), leia KIT.md na pasta: classes prontas e o layout do meta.json. " +
+      "Depois de criar ou editar um card, confira o visual com `nexo_ds_print` (print do card renderizado) antes de dar por pronto.",
     regras ? `## Regras de uso (DESIGN.md)\n${regras.length > DESIGN_MD_NO_PACK ? `${regras.slice(0, DESIGN_MD_NO_PACK)}…` : regras}` : "",
     tokens ? `## Tokens (variável CSS → valor)\n${tokens}${ds.vars.length > VARS_NO_PACK ? `\n… (${ds.vars.length - VARS_NO_PACK} a mais em tokens.json)` : ""}` : "",
     avisos.length

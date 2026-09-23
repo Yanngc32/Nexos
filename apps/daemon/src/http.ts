@@ -84,6 +84,7 @@ import { ferramentaDeVeredito } from "./veredito.ts";
 import { ferramentaDePerguntar, responderPergunta } from "./perguntas.ts";
 import { ferramentaDeDelegar, modoDeDelegacaoDaThread } from "./delegar.ts";
 import { ferramentasDeNavegador, modoDeNavegadorDaThread, responderNavegador } from "./navegador.ts";
+import { ferramentaDePrintDoDs, responderPrint } from "./ds-print.ts";
 import { ferramentasDeControleDoWindows } from "./windows-control.ts";
 import {
   abortarRun,
@@ -1899,6 +1900,7 @@ export function createApp(home: string, token: string): Hono {
       ...(threadId ? ferramentaDePerguntar(threadId, home)() : []),
       ...(modoDelegacao !== "negado" ? ferramentaDeDelegar(threadId, projectPath, modoDelegacao, home)() : []),
       ...(modoNavegador !== "negado" ? ferramentasDeNavegador(threadId, home, modoNavegador)() : []),
+      ...(threadId && projectPath && !runId ? ferramentaDePrintDoDs(threadId, projectPath, home)() : []),
       // Gate mestre: `--allowed-tools` (engines/cli.ts::profileFlags) já barra a CHAMADA
       // incondicionalmente se a config estiver desligada; listar aqui também, e não só lá,
       // é só pra não expor `tools/list` como se a ferramenta existisse quando não pode rodar.
@@ -1934,6 +1936,15 @@ export function createApp(home: string, token: string): Hono {
     const resultado = { ok: body.ok, texto: typeof body.texto === "string" ? body.texto : "", imagem: body.imagem };
     const resolvido = responderNavegador(threadId, resultado);
     if (!resolvido) return c.json({ error: "nenhum comando de navegador pendente nesta conversa" }, 404);
+    return c.json({ ok: true });
+  });
+
+  /** O app devolve o print pedido por `nexo_ds_print` (ds-print.ts). */
+  app.post("/v1/ds/print/:id/responder", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { ok?: boolean; texto?: string; imagem?: { dataBase64: string; mimeType: string } };
+    if (typeof body.ok !== "boolean") return c.json({ error: 'faltou "ok"' }, 400);
+    const ok = responderPrint(c.req.param("id"), { ok: body.ok, texto: typeof body.texto === "string" ? body.texto : "", imagem: body.imagem });
+    if (!ok) return c.json({ error: "nenhum print pendente com esse id" }, 404);
     return c.json({ ok: true });
   });
 
