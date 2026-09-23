@@ -7235,16 +7235,41 @@ body[data-side-mini="1"] .side-nav .nav-item {
 body[data-side-mini="1"] .repo-head { display: none; }
 body[data-side-mini="1"] .repo-mini { flex: 1 1 auto; }
 .repo-mini-item { position: relative; }
-/* projeto aberto: barrinha na borda (como aba ativa), além do contorno */
-.repo-mini-item[data-on="1"]::before {
-  content: "";
+/*
+ * Indicador na borda, como o da barra de tarefas do Windows: selecionado = accent e alto;
+ * LLM trabalhando = cinza pulsando; terminou sem você ver = verde. A altura/cor TRANSICIONAM
+ * (o botão é reaproveitado entre pinturas), então trocar de projeto anima a saída de um e a
+ * entrada do outro.
+ */
+.repo-mini-ind {
   position: absolute;
   left: -12px;
-  top: 7px;
-  bottom: 7px;
+  top: 50%;
   width: 3px;
+  height: 0;
   border-radius: 0 3px 3px 0;
-  background: var(--accent);
+  background: var(--faint);
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: height 240ms var(--ease), opacity 200ms var(--ease), background-color 240ms var(--ease);
+  pointer-events: none;
+}
+.repo-mini-item[data-estado="trabalhando"] .repo-mini-ind {
+  height: 8px;
+  opacity: 1;
+  background: var(--muted);
+  animation: repo-mini-pulso 1.4s ease-in-out infinite;
+}
+.repo-mini-item[data-estado="terminado"] .repo-mini-ind { height: 8px; opacity: 1; background: var(--ok); }
+.repo-mini-item[data-on="1"] .repo-mini-ind { height: 18px; opacity: 1; background: var(--accent); }
+.repo-mini-item[data-estado="terminado"]:not([data-on="1"]) { border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+@keyframes repo-mini-pulso {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .3; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .repo-mini-ind { transition: none; }
+  .repo-mini-item[data-estado="trabalhando"] .repo-mini-ind { animation: none; }
 }
 .repo-mini-add { background: transparent; border: 1px dashed var(--line-3); color: var(--faint); }
 .repo-mini-add:hover { color: var(--text); border-style: solid; }

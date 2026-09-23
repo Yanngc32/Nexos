@@ -3429,6 +3429,12 @@ function recarregarLogoDoRepo(path) {
   if (typeof v === "string") URL.revokeObjectURL(v);
   logosDeProjeto.delete(k);
   versaoDoLogo.set(k, (versaoDoLogo.get(k) ?? 0) + 1);
+  // botão da barra minimizada é reaproveitado entre pinturas: tira o logo velho pra pintar o novo
+  const velho = miniRepo.botoes.get(k)?.querySelector(".repo-mini-logo");
+  if (velho) {
+    velho.remove();
+    miniRepo.botoes.get(k).querySelector(".repo-mini-inicial").hidden = false;
+  }
   renderRepoTree(); // repinta a minimizada junto
 }
 
@@ -3486,53 +3492,117 @@ function pintarIconeDoRepo(ico, path) {
   else aplicar(v);
 }
 
-/** Barra minimizada: um botão por projeto, com o logo (ou a inicial). Clicar abre a última conversa. */
+/**
+ * Estado de cada projeto na barra minimizada, como o indicador da barra de tarefas do Windows:
+ * selecionado (accent), com LLM trabalhando (cinza pulsando) e "terminou e você não viu" (verde),
+ * que só sai quando a pessoa abre o projeto. `ocupadoAntes` guarda a última pintura pra perceber
+ * a virada ocupado → livre.
+ */
+const miniRepo = { botoes: new Map(), ocupadoAntes: new Map(), terminados: new Set() };
+
+function estadoDoRepoMini(path) {
+  const k = normPath(path);
+  const ocupado = (state.threadsByRepo[path] || []).some(isBusy);
+  const aberto = samePath(path, state.projectPath);
+  if (aberto) miniRepo.terminados.delete(k);
+  else if (miniRepo.ocupadoAntes.get(k) && !ocupado) miniRepo.terminados.add(k);
+  miniRepo.ocupadoAntes.set(k, ocupado);
+  if (ocupado) return "trabalhando";
+  return miniRepo.terminados.has(k) ? "terminado" : "";
+}
+
+function criarBotaoMini(path) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "repo-mini-item";
+  btn.title = folderName(path);
+  btn.setAttribute("aria-label", folderName(path));
+  const ind = document.createElement("span");
+  ind.className = "repo-mini-ind";
+  ind.setAttribute("aria-hidden", "true");
+  const inicial = document.createElement("span");
+  inicial.className = "repo-mini-inicial";
+  inicial.textContent = (folderName(path).match(/[a-z0-9]/i)?.[0] || "?").toUpperCase();
+  btn.append(ind, inicial);
+  btn.addEventListener("click", () => {
+    const ultima = (state.threadsByRepo[path] || [])[0];
+    if (ultima) void openThreadInRepo(path, ultima.id);
+    else void bindProject(path).then(() => renderRepoTree());
+  });
+  btn.addEventListener("contextmenu", (e) => menuDoRepo(e, path));
+  return btn;
+}
+
+/** Logo no lugar da inicial (uma vez por botão; o indicador fica). */
+function pintarLogoMini(btn, path) {
+  const querLogo = state.logoProjetos;
+  const tem = btn.querySelector(".repo-mini-logo");
+  if (!querLogo) {
+    if (tem) {
+      tem.remove();
+      btn.querySelector(".repo-mini-inicial").hidden = false;
+    }
+    return;
+  }
+  if (tem) return;
+  const aplicar = (url) => {
+    if (!url || !btn.isConnected || btn.querySelector(".repo-mini-logo")) return;
+    btn.querySelector(".repo-mini-inicial").hidden = true;
+    btn.append(imgDeLogo(url, "repo-mini-logo"));
+  };
+  const v = logoDoRepo(path);
+  if (v instanceof Promise) void v.then(aplicar);
+  else aplicar(v);
+}
+
+/**
+ * Barra minimizada: um botão por projeto, com o logo (ou a inicial). Clicar abre a última conversa.
+ * Os botões são REAPROVEITADOS entre pinturas (reconciliados por projeto): recriar a cada repintura
+ * matava as transições do indicador — a troca de projeto selecionado não animava entrada nem saída.
+ */
 function renderRepoMini() {
   const mini = $("repo-mini");
   if (!mini) return;
-  mini.replaceChildren();
-  for (const path of state.repos) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "repo-mini-item";
-    btn.dataset.on = samePath(path, state.projectPath) ? "1" : "0";
-    btn.title = folderName(path);
-    btn.setAttribute("aria-label", folderName(path));
-    const inicial = document.createElement("span");
-    inicial.className = "repo-mini-inicial";
-    inicial.textContent = (folderName(path).match(/[a-z0-9]/i)?.[0] || "?").toUpperCase();
-    btn.append(inicial);
-    // no DOM ANTES do logo: com o logo já em cache o `aplicar` roda na hora, e o `isConnected`
-    // (que protege contra repintura no meio do fetch) descartava o logo de todo projeto
-    mini.append(btn);
-    if (state.logoProjetos) {
-      const aplicar = (url) => {
-        if (url && btn.isConnected) btn.replaceChildren(imgDeLogo(url, "repo-mini-logo"));
-      };
-      const v = logoDoRepo(path);
-      if (v instanceof Promise) void v.then(aplicar);
-      else aplicar(v);
+  const vivos = new Set(state.repos.map(normPath));
+  for (const [k, btn] of miniRepo.botoes) {
+    if (!vivos.has(k)) {
+      btn.remove();
+      miniRepo.botoes.delete(k);
     }
-    btn.addEventListener("click", () => {
-      const ultima = (state.threadsByRepo[path] || [])[0];
-      if (ultima) void openThreadInRepo(path, ultima.id);
-      else void bindProject(path).then(() => renderRepoTree());
-    });
-    btn.addEventListener("contextmenu", (e) => menuDoRepo(e, path));
+  }
+  let anterior = null;
+  for (const path of state.repos) {
+    const k = normPath(path);
+    let btn = miniRepo.botoes.get(k);
+    if (!btn) {
+      btn = criarBotaoMini(path);
+      miniRepo.botoes.set(k, btn);
+    }
+    const lugar = anterior ? anterior.nextSibling : mini.firstChild;
+    if (lugar !== btn) mini.insertBefore(btn, lugar);
+    anterior = btn;
+    btn.dataset.on = samePath(path, state.projectPath) ? "1" : "0";
+    const estado = estadoDoRepoMini(path);
+    btn.dataset.estado = estado;
+    btn.title = estado === "trabalhando" ? `${folderName(path)} — trabalhando` : estado === "terminado" ? `${folderName(path)} — terminou` : folderName(path);
+    pintarLogoMini(btn, path);
   }
   // "+" no fim da lista: as duas ações do cabeçalho (que some na barra estreita) num menu
-  const add = document.createElement("button");
-  add.type = "button";
-  add.className = "repo-mini-item repo-mini-add";
-  add.title = "Adicionar projeto";
-  add.setAttribute("aria-label", "Adicionar projeto");
-  add.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`;
-  add.addEventListener("click", (e) =>
-    menuContexto.abrir(e, [
-      { rotulo: "Adicionar pasta", ico: "+", onSelect: () => $("btn-folder").click() },
-      { rotulo: "Clonar por link", ico: "↓", onSelect: () => $("btn-clonar").click() },
-    ]),
-  );
+  let add = mini.querySelector(":scope > .repo-mini-add");
+  if (!add) {
+    add = document.createElement("button");
+    add.type = "button";
+    add.className = "repo-mini-item repo-mini-add";
+    add.title = "Adicionar projeto";
+    add.setAttribute("aria-label", "Adicionar projeto");
+    add.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`;
+    add.addEventListener("click", (e) =>
+      menuContexto.abrir(e, [
+        { rotulo: "Adicionar pasta", ico: "+", onSelect: () => $("btn-folder").click() },
+        { rotulo: "Clonar por link", ico: "↓", onSelect: () => $("btn-clonar").click() },
+      ]),
+    );
+  }
   mini.append(add);
 }
 
