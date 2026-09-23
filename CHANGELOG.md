@@ -12,6 +12,22 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Segurança
 
+## [0.6.1] - 2026-09-23
+
+### Corrigido
+
+- O Claude demorava até ~16s pra começar a responder quando o Roteamento IA (TypeSafe) estava
+  fora do ar ou com a key recusada: as duas consultas iam uma depois da outra, esperando 8s cada.
+  Agora vão ao mesmo tempo, esperam no máximo 3s, e depois de uma key recusada (ou de duas
+  falhas seguidas sem resposta) o Nexos para de consultar por um tempo e segue direto com o
+  modelo e o esforço padrão. O chat avisa uma vez, com o motivo e até quando; a tela
+  Configurações → Roteamento IA também mostra. Salvar outra key volta a consultar na hora.
+
+### Alterado
+
+- Menus de botão direito (projeto, conversa, chat geral, "+" da barra lateral, lista de
+  branches) com ícones de traço fino no lugar de símbolos de texto.
+
 ## [0.6.0] - 2026-09-23
 
 ### Adicionado
