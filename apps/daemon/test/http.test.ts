@@ -263,6 +263,8 @@ describe("http agents", () => {
       engine: "stub",
     });
     expect(porThread[b.id]).toMatchObject({ profileId: "p2", projectPath: "C:/proj/b", busy: false });
+    // sem `nexo_perguntar` pendente: o painel de borda não pinta âmbar
+    expect(porThread[a.id]).toMatchObject({ aguardando: false });
   });
 
   it("conversa sem turno nenhum não aparece: motor só sobe quando alguém fala", async () => {
@@ -274,6 +276,30 @@ describe("http agents", () => {
     // `lives` é global do processo: outras conversas dos testes vizinhos podem estar de pé
     const body = (await res.json()) as { threadId: string }[];
     expect(body.some((x) => x.threadId === t.id)).toBe(false);
+  });
+});
+
+describe("http limites da conta (painel de borda)", () => {
+  const auth = { authorization: "Bearer t" };
+
+  it("lista com apelido e recusa atualizar conta que não existe", async () => {
+    const home = tempHome();
+    const app = createApp(home, "t");
+    addProfile({ id: "p1", engine: "stub" }, home);
+    updateProfile("p1", home, { nickname: "Pessoal" });
+    const lista = (await (await app.request("/v1/accounts/limits", { headers: auth })).json()) as { id: string; nickname?: string }[];
+    expect(lista.find((c) => c.id === "p1")).toMatchObject({ nickname: "Pessoal" });
+    const res = await app.request("/v1/accounts/nao-existe/limits/atualizar", { method: "POST", headers: auth });
+    expect(res.status).toBe(404);
+  });
+
+  it("conta que não é claude não gasta turno: responde sem-suporte", async () => {
+    const home = tempHome();
+    const app = createApp(home, "t");
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const res = await app.request("/v1/accounts/p1/limits/atualizar", { method: "POST", headers: auth });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ resultado: "sem-suporte" });
   });
 });
 

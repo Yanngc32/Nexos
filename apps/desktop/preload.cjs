@@ -6,10 +6,23 @@ contextBridge.exposeInMainWorld("nexo", {
   stopDaemon: () => ipcRenderer.invoke("daemon:stop"),
   openLogin: (id) => ipcRenderer.invoke("profile:login", id),
   toggleWidget: () => ipcRenderer.invoke("widget:toggle"),
-  hideWidget: () => ipcRenderer.invoke("widget:hide"),
-  resizeWidget: (w, h) => ipcRenderer.invoke("widget:resize", { w, h }),
-  setWidgetMini: (on) => ipcRenderer.invoke("widget:mini", on),
-  widgetState: () => ipcRenderer.invoke("widget:state"),
+  // painel de borda (painel.js) e as Configurações dele (renderer.js)
+  painelPrefs: () => ipcRenderer.invoke("painel:prefs"),
+  setPainelPrefs: (patch) => ipcRenderer.invoke("painel:prefs:set", patch),
+  painelMonitores: () => ipcRenderer.invoke("painel:monitores"),
+  painelAreas: (areas) => ipcRenderer.invoke("painel:areas", areas),
+  painelArrastar: (on) => ipcRenderer.invoke("painel:arrastar", on),
+  painelAbrir: (alvo) => ipcRenderer.invoke("painel:abrir", alvo),
+  painelConfig: () => ipcRenderer.invoke("painel:config"),
+  painelNotificar: (n) => ipcRenderer.invoke("painel:notificar", n),
+  threadVista: (threadId) => ipcRenderer.invoke("thread:vista", threadId),
+  /** Eventos do main pro painel/janela: painel:hover, painel:lugar, painel:prefs, painel:vista, painel:abrir, nexo:config. */
+  onPainel: (canal, fn) => {
+    if (!/^(painel:(hover|lugar|prefs|vista|abrir)|nexo:config)$/.test(canal)) return () => {};
+    const h = (_e, payload) => fn(payload);
+    ipcRenderer.on(canal, h);
+    return () => ipcRenderer.removeListener(canal, h);
+  },
   openExternal: (url) => ipcRenderer.invoke("shell:external", url),
   revealPath: (path) => ipcRenderer.invoke("shell:reveal", path),
   clearBrowserCache: (url) => ipcRenderer.invoke("browser:clear-cache", url),

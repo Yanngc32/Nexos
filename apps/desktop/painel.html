@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src http://127.0.0.1:*"
+    />
+    <title>Nexos — painel</title>
+    <link rel="stylesheet" href="painel.css" />
+  </head>
+  <body data-borda="direita">
+    <!-- A janela é maior que o que aparece: o resto é transparente e deixa o clique passar (o
+         processo principal liga/desliga isso pelos retângulos que esta página informa). -->
+    <main class="palco" id="palco">
+      <nav class="pilula" id="pilula" aria-label="Painel do Nexos">
+        <span class="fio" id="fio" aria-hidden="true"></span>
+        <div class="celulas" id="celulas">
+          <button type="button" class="celula atividade" id="cel-atividade" data-alvo="atividade" title="Conversas">
+            <span class="anel" id="anel-atividade">
+              <svg viewBox="0 0 36 36" aria-hidden="true">
+                <circle class="trilho" cx="18" cy="18" r="15" />
+                <circle class="giro" cx="18" cy="18" r="15" />
+              </svg>
+              <img src="icons/tray-64.png" alt="" />
+              <span class="badge hidden" id="badge-atividade"></span>
+            </span>
+          </button>
+          <div class="contas" id="contas"></div>
+        </div>
+        <p class="off hidden" id="off" title="Motor desligado">off</p>
+      </nav>
+
+      <section class="card hidden" id="card" role="dialog" aria-live="polite">
+        <span class="rabo" id="rabo" aria-hidden="true"></span>
+        <div id="card-corpo"></div>
+      </section>
+    </main>
+    <script type="module" src="painel.js"></script>
+  </body>
+</html>

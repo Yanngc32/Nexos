@@ -45,8 +45,10 @@ export function fmtReset(unixSeconds) {
   const diff = ms - Date.now();
   if (diff <= 0) return "Reinicia agora";
   if (diff < 24 * 3600_000) {
-    const h = Math.floor(diff / 3600_000);
-    const m = Math.round((diff % 3600_000) / 60_000);
+    // arredonda o total de minutos antes de separar: senão 23 h 59,6 min vira "23 h 60 min"
+    const total = Math.round(diff / 60_000);
+    const h = Math.floor(total / 60);
+    const m = total % 60;
     return h ? `Reinicia em ${h} h ${m} min` : `Reinicia em ${m} min`;
   }
   const d = new Date(ms);

@@ -1,7 +1,8 @@
 import { samePath } from "./format.js";
 
 /**
- * O que o painel flutuante mostra, calculado a partir do que o daemon responde.
+ * O que o app do celular (apps/mobile) mostra do run e das contas, calculado a partir do que o
+ * daemon responde. Nasceu no painel flutuante do desktop, que virou o painel de borda (painel-view.js).
  *
  * Está separado da tela porque é a parte que dá pra errar: escolher QUAL run
  * mostrar, somar custo entre tentativas, decidir quando um limite vira alerta.

@@ -60,6 +60,7 @@ import {
   abortThread,
   agentSnapshots,
   allLimits,
+  pingUsoDaConta,
   busyThreads,
   clearThread,
   dropThread,
@@ -430,11 +431,19 @@ export function createApp(home: string, token: string): Hono {
     return c.json(
       listProfiles(home).map((p) => ({
         id: p.id,
+        ...(p.nickname ? { nickname: p.nickname } : {}),
         engine: p.engine,
         status: p.status,
         limits: seen[p.id] ?? null,
       })),
     );
+  });
+
+  /** Clique no anel do painel: lê o uso da conta agora (um turno mínimo, ver `pingUsoDaConta`). */
+  app.post("/v1/accounts/:id/limits/atualizar", async (c) => {
+    const r = await pingUsoDaConta(c.req.param("id"), home);
+    if (r === "indisponivel") return c.json({ error: "conta não encontrada ou sem login" }, 404);
+    return c.json({ resultado: r, limits: allLimits()[c.req.param("id")] ?? null });
   });
 
   app.get("/v1/accounts/:id", (c) => {

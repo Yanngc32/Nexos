@@ -6,7 +6,25 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- Painel de borda no lugar do painel flutuante (inspirado no codenotch): uma pílula grudada numa
+  borda da tela que abre ao passar o mouse. Mostra as conversas rodando (arco girando), as que
+  esperam sua resposta (âmbar) e as que terminaram (verde), e um anel de uso por conta com as
+  janelas de 5 h e 7 dias no card ao lado. Clique numa conversa abre ela no Nexos; clique no anel
+  atualiza o uso da conta. Arraste pra qualquer borda de qualquer monitor.
+- Quando uma conversa termina ou pede resposta, o painel abre sozinho por alguns segundos e toca
+  um som; aviso do Windows ao chegar no limite crítico e nos 100%, e quando o limite renova.
+- Configurações → Painel de borda: mostrar (ao passar o mouse, sempre, escondido), borda,
+  monitor, tamanho, tempo aberto ao terminar, sons, avisos e as faixas de cor do anel.
+- Configurações → Pastas: escolher onde ficam os dados de cada projeto — numa pasta por projeto
+  dentro da pasta configurada (como era) ou em `.nexos/` na raiz do próprio projeto (já entra no
+  `.gitignore`). Agentes, times, hooks e skills gerais continuam na pasta configurada. Trocar de
+  modo copia os dados pro lugar novo.
+
 ### Corrigido
+
+- Com o Google Drive conectado, a pasta compartilhada manual some das Configurações: eram dois
+  sincronizadores mexendo na mesma pasta.
+- Tempo até renovar o limite mostrava "23 h 60 min".
 
 ### Alterado
 

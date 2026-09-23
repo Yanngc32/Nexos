@@ -4298,6 +4298,8 @@ async function responderPergunta(li, resposta) {
 
 
 async function openThread(id) {
+  // o "terminou" desta conversa no painel de borda já foi visto
+  void window.nexo.threadVista?.(id);
   // Imagem no composer é da conversa onde foi colada: não segue pra outra.
   if (state.threadId !== id) clearPending();
   // Aborta o SSE da conversa velha JÁ — senão ele continua despejando eventos
@@ -7946,11 +7948,12 @@ document.querySelector(".set-nav").addEventListener("click", (e) => {
   showSetPanel(btn.dataset.panel);
 });
 
-$("btn-settings").addEventListener("click", () => {
+function abrirConfiguracoes(painel = "aparencia") {
   $("settings").classList.remove("hidden");
   $("set-q").value = "";
   filterSettings();
-  showSetPanel("aparencia");
+  showSetPanel(painel);
+  void renderPainelDeBorda();
   void renderFallback();
   void renderMemoria();
   void renderModulos();
@@ -7958,6 +7961,62 @@ $("btn-settings").addEventListener("click", () => {
   void renderGithub();
   void renderGoogleDrive();
   void renderSobre();
+}
+$("btn-settings").addEventListener("click", () => abrirConfiguracoes());
+
+/* ---------- Configurações → Painel de borda (as preferências moram no processo principal) ---------- */
+
+async function renderPainelDeBorda() {
+  if (!window.nexo.painelPrefs) return;
+  const [p, monitores] = await Promise.all([window.nexo.painelPrefs(), window.nexo.painelMonitores().catch(() => [])]);
+  if (!p) return;
+  const sel = $("painel-monitor");
+  sel.replaceChildren(
+    new Option("O principal", ""),
+    ...monitores.map((m) => new Option(m.nome, m.id)),
+  );
+  sel.value = monitores.some((m) => m.id === p.monitor) ? p.monitor : "";
+  $("painel-mostrar").value = p.mostrar;
+  $("painel-borda").value = p.borda;
+  $("painel-tamanho").value = String(p.tamanho);
+  $("painel-espiar").value = String(p.espiar);
+  for (const k of ["somAoTerminar", "somAoPedir", "avisarLimite", "avisarRenovou"]) $(`painel-${k}`).checked = p[k];
+  $("painel-atencao").value = String(Math.round(p.atencao * 100));
+  $("painel-critico").value = String(Math.round(p.critico * 100));
+  $("painel-limites-err").textContent = "";
+}
+
+async function gravarPainelDeBorda(patch) {
+  await window.nexo.setPainelPrefs(patch);
+  await renderPainelDeBorda();
+}
+
+$("painel-mostrar").addEventListener("change", (e) => void gravarPainelDeBorda({ mostrar: e.target.value }));
+$("painel-borda").addEventListener("change", (e) => void gravarPainelDeBorda({ borda: e.target.value }));
+$("painel-monitor").addEventListener("change", (e) => void gravarPainelDeBorda({ monitor: e.target.value }));
+$("painel-tamanho").addEventListener("change", (e) => void gravarPainelDeBorda({ tamanho: Number(e.target.value) }));
+$("painel-espiar").addEventListener("change", (e) => void gravarPainelDeBorda({ espiar: Number(e.target.value) }));
+$("painel-centralizar").addEventListener("click", () => void gravarPainelDeBorda({ aoLongo: null }));
+for (const k of ["somAoTerminar", "somAoPedir", "avisarLimite", "avisarRenovou"]) {
+  $(`painel-${k}`).addEventListener("change", (e) => void gravarPainelDeBorda({ [k]: e.target.checked }));
+}
+for (const id of ["painel-atencao", "painel-critico"]) {
+  $(id).addEventListener("change", () => {
+    const atencao = Number($("painel-atencao").value) / 100;
+    const critico = Number($("painel-critico").value) / 100;
+    if (!(atencao > 0 && critico < 1 && atencao < critico)) {
+      $("painel-limites-err").textContent = "A atenção precisa ficar abaixo do crítico (entre 1% e 99%).";
+      return;
+    }
+    void gravarPainelDeBorda({ atencao, critico });
+  });
+}
+
+// do painel de borda: "Configurações do painel…" e clique numa conversa
+window.nexo.onPainel?.("nexo:config", (painel) => abrirConfiguracoes(typeof painel === "string" ? painel : "aparencia"));
+window.nexo.onPainel?.("painel:abrir", (alvo) => {
+  if (!alvo?.threadId) return;
+  void (alvo.projectPath ? openThreadInRepo(alvo.projectPath, alvo.threadId) : openThread(alvo.threadId)).catch(() => {});
 });
 $("btn-settings-close").addEventListener("click", () => $("settings").classList.add("hidden"));
 $("settings").addEventListener("click", (e) => {

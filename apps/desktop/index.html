@@ -99,7 +99,7 @@
               <path d="M9 21H5a2 2 0 0 1-2-2v-4" /><path d="M15 21h4a2 2 0 0 0 2-2v-4" />
             </svg>
           </button>
-          <button type="button" id="btn-widget" class="foot-acao" title="Painel flutuante, sempre por cima (Ctrl+Shift+W)" aria-label="Painel flutuante">
+          <button type="button" id="btn-widget" class="foot-acao" title="Mostrar ou esconder o painel de borda (Ctrl+Shift+W)" aria-label="Painel de borda">
             <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
               <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" />
             </svg>
@@ -1333,6 +1333,9 @@
           <button type="button" class="set-nav-item" data-panel="aparencia" data-on="1">
             <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" /><path d="M12 3v18" fill="currentColor" /><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none" /></svg>Aparência
           </button>
+          <button type="button" class="set-nav-item" data-panel="painel">
+            <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M17 9v6" stroke-width="3" /></svg>Painel de borda
+          </button>
           <button type="button" class="set-nav-item" data-panel="modulos">
             <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6" /><rect x="13.5" y="3.5" width="7" height="7" rx="1.6" /><rect x="3.5" y="13.5" width="7" height="7" rx="1.6" /><rect x="13.5" y="13.5" width="7" height="7" rx="1.6" /></svg>Módulos
           </button>
@@ -1443,6 +1446,121 @@
                   <div class="set-ctl">
                     <input id="logo-projetos" type="checkbox" aria-label="Mostrar logo do projeto na barra lateral" />
                   </div>
+                </div>
+              </div>
+            </section>
+            <section class="set-sec hidden" data-panel="painel">
+              <h3>Painel de borda</h3>
+              <p class="set-grupo-tit">Na tela</p>
+              <div class="set-grupo">
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Mostrar</h4>
+                    <p>
+                      A pílula fica grudada numa borda da tela, por cima de tudo: conversas rodando e
+                      o uso de cada conta. Arraste pra outra borda (ou outro monitor) quando quiser.
+                    </p>
+                  </div>
+                  <div class="set-ctl">
+                    <select id="painel-mostrar" aria-label="Quando mostrar o painel">
+                      <option value="hover">Ao passar o mouse</option>
+                      <option value="sempre">Sempre aberto</option>
+                      <option value="oculto">Escondido</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Borda</h4>
+                    <p>De que lado da tela a pílula mora.</p>
+                  </div>
+                  <div class="set-ctl">
+                    <select id="painel-borda" aria-label="Borda da tela">
+                      <option value="direita">Direita</option>
+                      <option value="esquerda">Esquerda</option>
+                      <option value="topo">Topo</option>
+                      <option value="baixo">Embaixo</option>
+                    </select>
+                    <button type="button" id="painel-centralizar" class="ghost" title="Volta a pílula pro meio da borda">Centralizar</button>
+                  </div>
+                </div>
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Monitor</h4>
+                    <p>Em qual tela ele fica.</p>
+                  </div>
+                  <div class="set-ctl">
+                    <select id="painel-monitor" aria-label="Monitor do painel"></select>
+                  </div>
+                </div>
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Tamanho</h4>
+                  </div>
+                  <div class="set-ctl">
+                    <select id="painel-tamanho" aria-label="Tamanho do painel">
+                      <option value="0.8">Pequeno</option>
+                      <option value="1">Médio</option>
+                      <option value="1.25">Grande</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <p class="set-grupo-tit">Quando uma conversa termina</p>
+              <div class="set-grupo">
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Abrir sozinho</h4>
+                    <p>O painel abre por alguns segundos quando uma conversa termina ou pede sua resposta.</p>
+                  </div>
+                  <div class="set-ctl">
+                    <select id="painel-espiar" aria-label="Por quanto tempo abrir">
+                      <option value="0">Não abrir</option>
+                      <option value="3">3 segundos</option>
+                      <option value="5">5 segundos</option>
+                      <option value="10">10 segundos</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Som ao terminar</h4>
+                  </div>
+                  <div class="set-ctl"><input id="painel-somAoTerminar" type="checkbox" aria-label="Som ao terminar" /></div>
+                </div>
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Som quando pede resposta</h4>
+                    <p>Quando o agente para pra perguntar algo.</p>
+                  </div>
+                  <div class="set-ctl"><input id="painel-somAoPedir" type="checkbox" aria-label="Som quando pede resposta" /></div>
+                </div>
+              </div>
+              <p class="set-grupo-tit">Limites de uso</p>
+              <div class="set-grupo">
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Cores do anel</h4>
+                    <p>Verde abaixo da atenção, amarelo até o crítico, laranja a partir do crítico.</p>
+                    <p id="painel-limites-err" class="set-err"></p>
+                  </div>
+                  <div class="set-ctl">
+                    <label class="painel-lim">Atenção <input id="painel-atencao" type="number" min="1" max="98" step="1" />%</label>
+                    <label class="painel-lim">Crítico <input id="painel-critico" type="number" min="2" max="99" step="1" />%</label>
+                  </div>
+                </div>
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Avisar ao chegar no crítico e nos 100%</h4>
+                    <p>Uma notificação do Windows por vez que cruza — não repete enquanto não baixar.</p>
+                  </div>
+                  <div class="set-ctl"><input id="painel-avisarLimite" type="checkbox" aria-label="Avisar ao chegar no limite" /></div>
+                </div>
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Avisar quando o limite renova</h4>
+                  </div>
+                  <div class="set-ctl"><input id="painel-avisarRenovou" type="checkbox" aria-label="Avisar quando o limite renova" /></div>
                 </div>
               </div>
             </section>

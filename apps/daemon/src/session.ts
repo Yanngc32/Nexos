@@ -12,7 +12,7 @@ import { configDeMcpAutoria, MCP_TOOLS_AUTORIA, urlDeMcpAutoria, urlDeMcpDeRun }
 import { indiceDisponivel, lerIndice } from "./repo-map-indice.ts";
 import { MCP_TOOLS_REPO_MAP } from "./repo-map-simbolos.ts";
 import { MCP_TOOLS_VEREDITO } from "./veredito.ts";
-import { MCP_TOOLS_PERGUNTAR } from "./perguntas.ts";
+import { MCP_TOOLS_PERGUNTAR, temPerguntaPendente } from "./perguntas.ts";
 import { MCP_TOOLS_DELEGAR, resetContadorDeDelegacao } from "./delegar.ts";
 import { MCP_TOOLS_NAVEGADOR } from "./navegador.ts";
 import { MCP_TOOLS_DS_PRINT } from "./ds-print.ts";
@@ -239,6 +239,8 @@ export type AgentSnapshot = {
   contextTokens?: number;
   pendingQuota: boolean;
   lastTerminal: Live["lastTerminal"];
+  /** Turno parado em `nexo_perguntar`, esperando a resposta de quem usa (o painel pinta âmbar). */
+  aguardando: boolean;
 };
 
 export function agentSnapshots(): AgentSnapshot[] {
@@ -253,6 +255,7 @@ export function agentSnapshots(): AgentSnapshot[] {
     ...(l.contextTokens === undefined ? {} : { contextTokens: l.contextTokens }),
     pendingQuota: l.pendingQuota,
     lastTerminal: l.lastTerminal,
+    aguardando: temPerguntaPendente(threadId),
   }));
 }
 
@@ -866,6 +869,22 @@ export async function pingUsoDeTodasAsContas(home: string): Promise<void> {
     .map((p) => (p.status === "ready" ? p : applyLoginResult(p.id, home)))
     .filter((p) => p.status === "ready" && !perfilEmUso(p.id));
   await Promise.allSettled(alvos.map((p) => pingUso(p, home)));
+}
+
+/**
+ * Atualiza o uso de UMA conta agora (o clique no anel do painel). Mesmo ping descartável do
+ * `pingUsoDeTodasAsContas`, com as mesmas regras: só `claude` (codex não reporta janela) e não
+ * gasta nada se a conta já está numa conversa — o `limits` dela chega no próprio turno.
+ */
+export async function pingUsoDaConta(id: string, home: string): Promise<"ok" | "em-uso" | "sem-suporte" | "indisponivel"> {
+  const p = getProfile(id, home);
+  if (!p) return "indisponivel";
+  if (p.engine !== "claude") return "sem-suporte";
+  if (perfilEmUso(p.id)) return "em-uso";
+  const pronta = p.status === "ready" ? p : applyLoginResult(p.id, home);
+  if (pronta.status !== "ready") return "indisponivel";
+  await pingUso(pronta, home);
+  return "ok";
 }
 
 function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {

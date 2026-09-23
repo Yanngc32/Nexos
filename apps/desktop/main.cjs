@@ -1,4 +1,5 @@
-const { app, BrowserWindow, Tray, Menu, Notification, dialog, ipcMain, nativeImage, shell } = require("electron");
+const { app, BrowserWindow, Tray, Menu, Notification, dialog, ipcMain, nativeImage, screen, shell } = require("electron");
+const { BORDAS, bordaMaisProxima, retanguloNaBorda } = require("./painel-borda.cjs");
 const { autoUpdater } = require("electron-updater");
 const { execFile, spawn } = require("node:child_process");
 const {
@@ -50,7 +51,7 @@ process.on("unhandledRejection", (err) => {
 
 /*
  * Sem isto, cada clique no atalho (ou cada `nexo` que sobe o Electron junto)
- * abre um processo novo — janela nova, widget novo, e um ícone de bandeja a
+ * abre um processo novo — janela nova, painel novo, e um ícone de bandeja a
  * mais por cima do outro. `requestSingleInstanceLock` faz a segunda tentativa
  * só acordar a primeira e sair; quem já está aberto que responde.
  */
@@ -306,7 +307,7 @@ function spawnNexoLogin(id) {
 
 let win;
 let tray;
-let widget;
+let painel;
 let projectRoot = "";
 let shellChild = null;
 
@@ -611,10 +612,10 @@ async function runShot(target) {
     }
     await new Promise((r) => setTimeout(r, Number(process.env.NEXOS_SHOT_JS_WAIT ?? 1200)));
   }
-  // NEXOS_SHOT_ALVO=widget (dev): fotografa o painel flutuante em vez da janela
+  // NEXOS_SHOT_ALVO=painel (dev): fotografa o painel de borda em vez da janela
   // principal — ele é outra BrowserWindow e não sai na foto da primeira.
   const alvoWc =
-    process.env.NEXOS_SHOT_ALVO === "widget" && widget && !widget.isDestroyed() ? widget.webContents : win.webContents;
+    process.env.NEXOS_SHOT_ALVO === "painel" && painel && !painel.isDestroyed() ? painel.webContents : win.webContents;
   const img = await alvoWc.capturePage();
   writeFileSync(target, img.toPNG());
   console.log("[shot]", target);
@@ -735,7 +736,7 @@ function createWindow() {
     else if (k === "s" && input.shift) mod = "side-chat";
     else if (k === "w" && input.shift) {
       event.preventDefault();
-      toggleWidget();
+      alternarPainel();
       return;
     }
     if (!mod) return;
@@ -744,60 +745,142 @@ function createWindow() {
   });
 }
 
-/*
- * Painel flutuante: janela própria, sem moldura, sempre por cima.
+/**
+ * Painel de borda (substitui o antigo painel flutuante; desenho vem do codenotch): uma pílula
+ * grudada numa borda da tela que abre ao passar o mouse e mostra a atividade das conversas e o
+ * uso das contas.
  *
- * Janela separada e não um canto da principal porque o ponto dele é aparecer
- * quando o Nexos NÃO está na frente — um time roda por minutos enquanto você
- * está no editor. Painel embutido some junto com a janela e não resolveria
- * nada.
+ * A janela é transparente e maior que a pílula (cabe o card aberto) e fica parada: animar o
+ * tamanho de uma janela transparente pisca. O que não é pílula/card deixa o clique passar
+ * (`setIgnoreMouseEvents` com `forward`) — e quem decide é ESTE processo, olhando o cursor a cada
+ * 40ms contra os retângulos que a página informa. `mouseleave` numa janela que ignora o mouse não
+ * é confiável (o codenotch no Windows chegou na mesma conclusão).
  *
- * Ela não entra na barra de tarefas nem no Alt+Tab: é um enfeite de canto de
- * tela, não uma janela pra alternar.
+ * `focusable: false`: clicar no painel não tira o foco do editor de quem está digitando.
  */
+const PAINEL_W = 340;
+const PAINEL_H = 600;
+const PAINEL_VIGIA_MS = 40;
+/** Folga em volta dos retângulos quentes, em px da página (o cursor não acerta a borda exata). */
+const PAINEL_FOLGA = 10;
+const PAINEL_PADRAO = {
+  /** "hover" (abre ao passar o mouse) | "sempre" | "oculto" */
+  mostrar: "hover",
+  borda: "direita",
+  /** Posição ao longo de CADA borda (0..1); 0,5 = meio. */
+  aoLongo: {},
+  /** id do monitor; "" = o principal. */
+  monitor: "",
+  tamanho: 1,
+  /** Segundos que o painel abre sozinho quando uma conversa termina/pede resposta (0 = não abre). */
+  espiar: 5,
+  somAoTerminar: true,
+  somAoPedir: true,
+  avisarLimite: true,
+  avisarRenovou: true,
+  atencao: 0.5,
+  critico: 0.8,
+};
+const PAINEL_TAMANHOS = [0.8, 1, 1.25];
+const PAINEL_ESPIAR = [0, 3, 5, 10];
 
-const WIDGET_W = 264;
-/** Piso do clamp: a pílula mede a si mesma e pode pedir menos que isso. */
-const WIDGET_W_MIN = 72;
-/** Largura com que a janela NASCE no mini — perto do que a pílula mede, pra ela
-    não aparecer cortada num sliver enquanto o primeiro ajuste não chega. */
-const WIDGET_W_INICIAL_MINI = 180;
-const WIDGET_H_INICIAL = 150;
-const WIDGET_H_INICIAL_MINI = 52;
-/** Não deixa um conteúdo estranho esticar o painel até virar uma segunda janela. */
-const WIDGET_H_MAX = 420;
+let painelAreas = { quentes: [], despertar: null };
+let painelDentro = false;
+/** `false` ou o lugar em que a pílula está sendo arrastada ({ display, borda, pos }). */
+let painelArrastando = false;
+let painelVigia = null;
 
-function widgetStatePath() {
-  return join(app.getPath("userData"), "widget.json");
+function painelPrefsPath() {
+  return join(app.getPath("userData"), "painel.json");
 }
 
-/** Onde o painel estava, se estava aberto e se estava minimizado. Some junto com o userData, e tudo bem. */
-function readWidgetState() {
+function limparPrefsDoPainel(raw) {
+  const p = { ...PAINEL_PADRAO, aoLongo: {} };
+  if (!raw || typeof raw !== "object") return p;
+  if (["hover", "sempre", "oculto"].includes(raw.mostrar)) p.mostrar = raw.mostrar;
+  if (BORDAS.includes(raw.borda)) p.borda = raw.borda;
+  if (raw.aoLongo && typeof raw.aoLongo === "object") {
+    for (const b of BORDAS) {
+      const v = Number(raw.aoLongo[b]);
+      if (raw.aoLongo[b] !== undefined && Number.isFinite(v)) p.aoLongo[b] = Math.min(1, Math.max(0, v));
+    }
+  }
+  if (typeof raw.monitor === "string") p.monitor = raw.monitor;
+  if (PAINEL_TAMANHOS.includes(raw.tamanho)) p.tamanho = raw.tamanho;
+  if (PAINEL_ESPIAR.includes(raw.espiar)) p.espiar = raw.espiar;
+  for (const k of ["somAoTerminar", "somAoPedir", "avisarLimite", "avisarRenovou"]) {
+    if (typeof raw[k] === "boolean") p[k] = raw[k];
+  }
+  const fr = (v) => (typeof v === "number" && v > 0 && v < 1 ? Math.round(v * 100) / 100 : undefined);
+  const atencao = fr(raw.atencao) ?? p.atencao;
+  const critico = fr(raw.critico) ?? p.critico;
+  // atenção sempre abaixo do crítico, senão a faixa amarela some ou inverte
+  if (atencao < critico) Object.assign(p, { atencao, critico });
+  return p;
+}
+
+function lerPainel() {
   try {
-    const raw = JSON.parse(readFileSync(widgetStatePath(), "utf8"));
-    const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
-    return { x: num(raw?.x), y: num(raw?.y), aberto: raw?.aberto === true, mini: raw?.mini === true };
+    return limparPrefsDoPainel(JSON.parse(readFileSync(painelPrefsPath(), "utf8")));
   } catch {
-    return { aberto: false, mini: false };
+    return limparPrefsDoPainel(null);
   }
 }
 
-function saveWidgetState(patch) {
+function gravarPainel(patch) {
+  const atual = lerPainel();
+  const aoLongo = patch?.aoLongo ? { ...atual.aoLongo, ...patch.aoLongo } : atual.aoLongo;
+  const prox = limparPrefsDoPainel({ ...atual, ...patch, aoLongo });
   try {
-    writeFileSync(widgetStatePath(), JSON.stringify({ ...readWidgetState(), ...patch }), "utf8");
+    writeFileSync(painelPrefsPath(), JSON.stringify(prox, null, 2), "utf8");
   } catch {
-    // posição é conveniência: não poder gravar não é motivo pra derrubar nada
+    // preferência é conveniência: não gravar não derruba nada
   }
+  aplicarPainel(prox);
+  return prox;
 }
 
-function createWidget() {
-  if (widget && !widget.isDestroyed()) return widget;
-  const salvo = readWidgetState();
-  widget = new BrowserWindow({
-    // nasce já no tamanho do modo salvo: evita o flash de painel cheio antes de o renderer aplicar o mini
-    width: salvo.mini ? WIDGET_W_INICIAL_MINI : WIDGET_W,
-    height: salvo.mini ? WIDGET_H_INICIAL_MINI : WIDGET_H_INICIAL,
-    ...(salvo.x === undefined || salvo.y === undefined ? {} : { x: salvo.x, y: salvo.y }),
+function monitorDoPainel(p) {
+  return screen.getAllDisplays().find((d) => String(d.id) === p.monitor) ?? screen.getPrimaryDisplay();
+}
+
+/** Coloca a janela na borda/posição salvas (ou nas do arraste) e conta pra página onde a pílula fica. */
+function posicionarPainel(p = lerPainel(), lugar) {
+  if (!painel || painel.isDestroyed()) return;
+  const d = lugar?.display ?? monitorDoPainel(p);
+  const borda = lugar?.borda ?? p.borda;
+  const pos = lugar?.pos ?? p.aoLongo[borda] ?? 0.5;
+  const area = d.workArea;
+  const vertical = borda === "direita" || borda === "esquerda";
+  const w = Math.round(PAINEL_W * p.tamanho);
+  const h = Math.min(Math.round(PAINEL_H * p.tamanho), vertical ? area.height : area.width);
+  const r = retanguloNaBorda(borda, pos, area, w, h);
+  painel.setBounds(r);
+  // onde, dentro da janela, fica o ponto da borda: perto do canto da tela a janela encosta no
+  // limite, mas a pílula continua onde a pessoa soltou
+  const ponto = vertical ? area.y + pos * area.height - r.y : area.x + pos * area.width - r.x;
+  painel.webContents.send("painel:lugar", { borda, centro: ponto / p.tamanho });
+}
+
+function aplicarPainel(p = lerPainel()) {
+  if (p.mostrar === "oculto") {
+    if (painel && !painel.isDestroyed()) painel.hide();
+    pararVigia();
+  } else {
+    const w = criarPainel();
+    w.webContents.setZoomFactor(p.tamanho);
+    posicionarPainel(p);
+    if (!w.isVisible()) w.showInactive();
+    ligarVigia();
+  }
+  if (painel && !painel.isDestroyed()) painel.webContents.send("painel:prefs", p);
+}
+
+function criarPainel() {
+  if (painel && !painel.isDestroyed()) return painel;
+  painel = new BrowserWindow({
+    width: PAINEL_W,
+    height: PAINEL_H,
     show: false,
     frame: false,
     transparent: true,
@@ -806,6 +889,7 @@ function createWidget() {
     maximizable: false,
     minimizable: false,
     fullscreenable: false,
+    focusable: false,
     skipTaskbar: true,
     title: "Nexos — painel",
     webPreferences: {
@@ -813,38 +897,82 @@ function createWidget() {
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
+      // o som de "terminou" toca sem clique nenhum antes
+      autoplayPolicy: "no-user-gesture-required",
     },
   });
-  // "floating" mantém acima de janela normal sem cobrir menu do sistema
-  widget.setAlwaysOnTop(true, "floating");
-  widget.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  widget.loadFile(join(here, "widget.html"));
-  widget.on("moved", () => {
-    if (widget?.isDestroyed()) return;
-    const [x, y] = widget.getPosition();
-    saveWidgetState({ x, y });
+  // "screen-saver" fica acima da barra de tarefas também (a pílula pode encostar embaixo)
+  painel.setAlwaysOnTop(true, "screen-saver");
+  painel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  painel.setIgnoreMouseEvents(true, { forward: true });
+  painelDentro = false;
+  painel.loadFile(join(here, "painel.html"));
+  painel.webContents.on("did-finish-load", () => {
+    const p = lerPainel();
+    painel.webContents.setZoomFactor(p.tamanho);
+    painel.webContents.send("painel:prefs", p);
+    posicionarPainel(p);
   });
-  widget.on("closed", () => {
-    widget = null;
+  painel.on("closed", () => {
+    painel = null;
+    pararVigia();
   });
-  return widget;
+  return painel;
 }
 
-function showWidget() {
-  const w = createWidget();
-  // showInactive: o painel não rouba o foco de quem está digitando em outro app
-  w.showInactive();
-  saveWidgetState({ aberto: true });
+function dentroDe(r, c, b, z, folga) {
+  if (!r) return false;
+  return (
+    c.x >= b.x + (r.x - folga) * z &&
+    c.x <= b.x + (r.x + r.w + folga) * z &&
+    c.y >= b.y + (r.y - folga) * z &&
+    c.y <= b.y + (r.y + r.h + folga) * z
+  );
 }
 
-function hideWidget() {
-  if (widget && !widget.isDestroyed()) widget.hide();
-  saveWidgetState({ aberto: false });
+function vigiarPainel() {
+  if (!painel || painel.isDestroyed() || !painel.isVisible()) return;
+  const c = screen.getCursorScreenPoint();
+  if (painelArrastando) {
+    // arrastando: gruda na borda mais perto do cursor, no monitor em que ele está
+    const d = screen.getDisplayNearestPoint(c);
+    const { borda, pos } = bordaMaisProxima(c, d.workArea);
+    painelArrastando = { display: d, borda, pos };
+    posicionarPainel(lerPainel(), painelArrastando);
+    return;
+  }
+  const b = painel.getBounds();
+  const z = painel.webContents.getZoomFactor();
+  const quente = painelAreas.quentes.some((r) => dentroDe(r, c, b, z, PAINEL_FOLGA));
+  const dentro = quente || dentroDe(painelAreas.despertar, c, b, z, 0);
+  // clique só é do painel onde há pílula/card; a faixa de despertar só abre, o clique ainda passa
+  painel.setIgnoreMouseEvents(!quente, { forward: true });
+  if (dentro !== painelDentro) {
+    painelDentro = dentro;
+    painel.webContents.send("painel:hover", dentro);
+  }
 }
 
-function toggleWidget() {
-  if (widget && !widget.isDestroyed() && widget.isVisible()) hideWidget();
-  else showWidget();
+function ligarVigia() {
+  if (painelVigia) return;
+  painelVigia = setInterval(vigiarPainel, PAINEL_VIGIA_MS);
+}
+
+function pararVigia() {
+  clearInterval(painelVigia);
+  painelVigia = null;
+}
+
+/** Botão do rodapé / bandeja / Ctrl+Shift+W: esconde, ou volta pro "ao passar o mouse". */
+function alternarPainel() {
+  gravarPainel({ mostrar: lerPainel().mostrar === "oculto" ? "hover" : "oculto" });
+}
+
+function mostrarNexos() {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
 }
 
 /*
@@ -916,7 +1044,7 @@ function createTray() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Abrir", click: () => win?.show() },
-      { label: "Painel flutuante", click: () => toggleWidget() },
+      { label: "Painel de borda", click: () => alternarPainel() },
       { label: "Ligar motor", click: () => void subirMotor() },
       { label: "Desligar motor", click: () => spawnNexo(["down"]).unref() },
       { type: "separator" },
@@ -966,40 +1094,86 @@ app.whenReady().then(() => {
   });
   handle("profile:login", (_e, id) => spawnNexoLogin(id));
   handle("widget:toggle", () => {
-    toggleWidget();
+    alternarPainel();
     return { ok: true };
   });
-  handle("widget:hide", () => {
-    hideWidget();
+  /* ---------- painel de borda ---------- */
+  const doPainel = (event) => painel && !painel.isDestroyed() && event.sender === painel.webContents;
+  handle("painel:prefs", () => lerPainel());
+  /** Configurações (janela principal) mudando o painel; `aoLongo: null` recentraliza. */
+  handle("painel:prefs:set", (_e, patch) => {
+    const limpo = patch && typeof patch === "object" ? { ...patch } : {};
+    if (limpo.aoLongo === null) {
+      delete limpo.aoLongo;
+      const p = lerPainel();
+      gravarPainel({ ...limpo, aoLongo: { [limpo.borda ?? p.borda]: 0.5 } });
+      return lerPainel();
+    }
+    return gravarPainel(limpo);
+  });
+  handle("painel:monitores", () => {
+    const principal = screen.getPrimaryDisplay().id;
+    return screen.getAllDisplays().map((d, i) => ({
+      id: String(d.id),
+      nome: `${d.label || `Monitor ${i + 1}`} · ${d.size.width}×${d.size.height}${d.id === principal ? " (principal)" : ""}`,
+    }));
+  });
+  /** Retângulos quentes (pílula, card) e a faixa que só desperta, em px da página. */
+  handle("painel:areas", (event, areas) => {
+    if (!doPainel(event)) return { ok: false };
+    const ret = (r) =>
+      r && [r.x, r.y, r.w, r.h].every((v) => Number.isFinite(v)) ? { x: r.x, y: r.y, w: r.w, h: r.h } : null;
+    painelAreas = {
+      quentes: (Array.isArray(areas?.quentes) ? areas.quentes : []).map(ret).filter(Boolean).slice(0, 8),
+      despertar: ret(areas?.despertar),
+    };
     return { ok: true };
   });
-  /**
-   * O painel mede o próprio conteúdo e pede o tamanho. Sem isso ele teria altura
-   * fixa: sobraria vazio com um run só, ou cortaria linha com quatro contas. A
-   * largura entra na conta por causa do modo minimizado, que encolhe pra pílula.
-   */
-  handle("widget:resize", (event, tamanho) => {
-    if (!widget || widget.isDestroyed()) return { ok: false };
-    if (event.sender !== widget.webContents) return { ok: false };
-    const largura = Math.round(Number(tamanho?.w));
-    const altura = Math.round(Number(tamanho?.h));
-    const [, alturaAtual] = widget.getSize();
-    widget.setSize(
-      Number.isFinite(largura) ? Math.min(WIDGET_W, Math.max(WIDGET_W_MIN, largura)) : WIDGET_W,
-      Number.isFinite(altura) && altura > 0 ? Math.min(WIDGET_H_MAX, altura) : alturaAtual,
-    );
+  handle("painel:arrastar", (event, on) => {
+    if (!doPainel(event)) return { ok: false };
+    if (on) {
+      painelArrastando = painelArrastando || { pendente: true };
+      return { ok: true };
+    }
+    const fim = painelArrastando;
+    painelArrastando = false;
+    if (fim?.display) {
+      gravarPainel({ borda: fim.borda, monitor: String(fim.display.id), aoLongo: { [fim.borda]: fim.pos } });
+    }
     return { ok: true };
   });
-  /**
-   * Só persiste o modo. Quem redimensiona é o widget:resize que o renderer manda
-   * em seguida — duas fontes de verdade pro tamanho brigariam entre si.
-   */
-  handle("widget:mini", (_e, on) => {
-    saveWidgetState({ mini: on === true });
+  /** Clique numa conversa do painel: traz o Nexos pra frente já nela. */
+  handle("painel:abrir", (event, alvo) => {
+    if (!doPainel(event)) return { ok: false };
+    mostrarNexos();
+    if (alvo && typeof alvo.threadId === "string" && win && !win.isDestroyed()) {
+      win.webContents.send("painel:abrir", { threadId: alvo.threadId, projectPath: String(alvo.projectPath ?? "") });
+    }
     return { ok: true };
   });
-  /** O painel pergunta o modo salvo pra já nascer certo, sem piscar entre os dois. */
-  handle("widget:state", () => ({ mini: readWidgetState().mini }));
+  handle("painel:config", (event) => {
+    if (!doPainel(event)) return { ok: false };
+    mostrarNexos();
+    if (win && !win.isDestroyed()) win.webContents.send("nexo:config", "painel");
+    return { ok: true };
+  });
+  handle("painel:notificar", (event, n) => {
+    if (!doPainel(event) || !Notification.isSupported()) return { ok: false };
+    const aviso = new Notification({ title: String(n?.titulo ?? "Nexos").slice(0, 120), body: String(n?.corpo ?? "").slice(0, 300), silent: true });
+    aviso.on("click", () => {
+      mostrarNexos();
+      if (n?.threadId && win && !win.isDestroyed()) {
+        win.webContents.send("painel:abrir", { threadId: String(n.threadId), projectPath: String(n.projectPath ?? "") });
+      }
+    });
+    aviso.show();
+    return { ok: true };
+  });
+  /** A janela principal abriu uma conversa: o "terminou" dela no painel já foi visto. */
+  handle("thread:vista", (_e, threadId) => {
+    if (painel && !painel.isDestroyed() && typeof threadId === "string") painel.webContents.send("painel:vista", threadId);
+    return { ok: true };
+  });
   /**
    * Limpa o cache HTTP da sessão e, quando a URL é de um site, também o
    * service worker e o Cache Storage daquela origem — é o que segura preview
@@ -1221,8 +1395,14 @@ app.whenReady().then(() => {
   if (DEV) ligarRecargaDev();
   createTray();
   setupAutoUpdater();
-  // reabre onde estava: painel que some a cada reinício não serve de painel
-  if (!SHOT && readWidgetState().aberto) showWidget();
+  if (!SHOT || process.env.NEXOS_SHOT_ALVO === "painel") {
+    aplicarPainel();
+    // monitor entrou, saiu ou mudou de resolução/escala: a pílula volta pra borda certa
+    const reposicionar = () => aplicarPainel();
+    screen.on("display-added", reposicionar);
+    screen.on("display-removed", reposicionar);
+    screen.on("display-metrics-changed", reposicionar);
+  }
 });
 
 /**
