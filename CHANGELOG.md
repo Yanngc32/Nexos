@@ -12,6 +12,28 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Segurança
 
+## [0.4.0] - 2026-09-22
+
+### Adicionado
+
+- Agentes, times, Nexos Hooks e skills globais viajam junto com a pasta do Drive: cada item vira
+  um arquivo em `_biblioteca/` dentro da pasta de projetos, e toda vez que o motor liga (e a
+  cada 2min) o que tem lá e falta aqui é instalado, o que foi editado é atualizado e o que foi
+  apagado num PC some nos outros. Funciona pelo Google Drive e também com a pasta de projetos
+  apontada pra uma pasta sincronizada por fora. Hook de projeto chega com o caminho do mesmo
+  projeto nesta máquina; agente de uma conta que não existe aqui usa a primeira conta pronta.
+  Contas e logins não sincronizam.
+- Tela Sobre mostra as novidades da versão instalada (seção dela no CHANGELOG.md, que agora
+  vai junto do instalador).
+
+### Corrigido
+
+- Primeira abertura depois de instalar: enquanto o motor sobe, a tela mostra "Ligando o
+  motor…" em vez de "Desligado / Liga pra conversar". A subida do boot agora grava no
+  `daemon.log`, espera até 60s (antes desistia calada em 15s) e é a mesma do botão Ligar e da
+  bandeja — clicar no meio não dispara um segundo `up`. Se falhar, o erro aparece no aviso.
+- App abria com a aba Arquivos aberta em vez da tela inicial "Escolhe uma conversa".
+
 ## [0.3.0] - 2026-09-22
 
 ### Adicionado

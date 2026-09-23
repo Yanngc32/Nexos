@@ -15,7 +15,9 @@ import {
   trashFile,
   updateFile,
 } from "./google-drive.ts";
+import { PASTA_BIBLIOTECA, sincronizarBiblioteca } from "./biblioteca.ts";
 import { projetosRoot } from "./projeto-dir.ts";
+import { decidir } from "./sync-decisao.ts";
 import { importarConversas, mesclarJsonl } from "./threads.ts";
 
 /**
@@ -29,42 +31,11 @@ import { importarConversas, mesclarJsonl } from "./threads.ts";
  * Conflito: conversa (`.jsonl`, só cresce) é mesclada linha a linha; o resto vale o mais recente.
  *
  * `meta.json` de cada projeto NÃO sincroniza: ele guarda o caminho da pasta NESTA máquina.
+ * `_biblioteca/` (agentes, times, hooks, skills) viaja junto, conciliada antes e depois de cada
+ * rodada por `sincronizarBiblioteca` (biblioteca.ts).
  */
 
-export type Acao =
-  | "nada"
-  | "subir"
-  | "baixar"
-  | "apagar-local"
-  | "apagar-remoto"
-  | "mesclar";
-
-/**
- * Decisão pura de um arquivo. `base`/`local`/`remoto` são MD5 (undefined = não existe).
- * `mtimeLocal`/`mtimeRemoto` só desempatam conflito de arquivo que não é conversa.
- */
-export function decidir(
-  base: string | undefined,
-  local: string | undefined,
-  remoto: string | undefined,
-  opts: { jsonl: boolean; mtimeLocal: number; mtimeRemoto: number },
-): Acao {
-  if (local === remoto) return "nada";
-  if (base === undefined) {
-    // nunca sincronizado: só um lado tem, ou os dois têm coisas diferentes
-    if (local === undefined) return "baixar";
-    if (remoto === undefined) return "subir";
-    return opts.jsonl ? "mesclar" : opts.mtimeLocal >= opts.mtimeRemoto ? "subir" : "baixar";
-  }
-  const localMudou = local !== base;
-  const remotoMudou = remoto !== base;
-  if (!localMudou) return remoto === undefined ? "apagar-local" : "baixar";
-  if (!remotoMudou) return local === undefined ? "apagar-remoto" : "subir";
-  // os dois mudaram (e são diferentes entre si)
-  if (local === undefined) return "baixar"; // apagou aqui, editou lá: a edição ganha da exclusão
-  if (remoto === undefined) return "subir";
-  return opts.jsonl ? "mesclar" : opts.mtimeLocal >= opts.mtimeRemoto ? "subir" : "baixar";
-}
+export { decidir, type Acao } from "./sync-decisao.ts";
 
 type BaseEntry = { md5: string; size: number; mtimeMs: number };
 type Estado = { folderId: string; root: string; files: Record<string, BaseEntry> };
@@ -136,7 +107,8 @@ function varrerLocal(root: string, base: Record<string, BaseEntry>): Map<string,
         // raiz de `projetosRoot` pode ter outras pastas além das nossas (cache de outra
         // ferramenta, layout antigo, o que for) — só desce em pasta de projeto de verdade
         // (tem `meta.json`), pra não varrer/subir lixo que não é nosso.
-        if (prefixo === "" && !existsSync(join(abs, "meta.json"))) continue;
+        // `_biblioteca` é o espelho de agentes/times/hooks/skills (biblioteca.ts), não um projeto.
+        if (prefixo === "" && nome !== PASTA_BIBLIOTECA && !existsSync(join(abs, "meta.json"))) continue;
         andar(abs, rel);
       } else if (st.isFile()) {
         if (rel.split("/").length === 2 && nome === "meta.json") continue;
@@ -242,6 +214,8 @@ async function rodar(home: string): Promise<ResultadoSync> {
     const folderId = store.folderId ?? (await garantirPastaNexo(home)).id;
     const rootLocal = projetosRoot(home);
     mkdirSync(rootLocal, { recursive: true });
+    // antes: o que mudou aqui (agente, time, hook, skill) já vai no espelho que sobe nesta rodada
+    anotarBiblioteca(res, sincronizarBiblioteca(home));
 
     // outra pasta do Drive ou outra raiz local: a base antiga não vale mais (recomeça do zero, sem apagar nada)
     let estado = lerEstado(home);
@@ -351,12 +325,18 @@ async function rodar(home: string): Promise<ResultadoSync> {
     } catch (e) {
       res.erros.push(`importar conversas: ${(e as Error).message}`);
     }
+    // depois: o que desceu do Drive pro espelho vira agente/time/hook/skill desta máquina
+    anotarBiblioteca(res, sincronizarBiblioteca(home));
   } catch (e) {
     res.erros.push((e as Error).message);
   }
   res.duracaoMs = Date.now() - inicio;
   ultimo = res;
   return res;
+}
+
+function anotarBiblioteca(res: ResultadoSync, b: { erros: string[] }): void {
+  for (const e of b.erros) res.erros.push(`biblioteca: ${e}`);
 }
 
 function escreverAtomico(abs: string, buf: Buffer): void {

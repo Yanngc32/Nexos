@@ -36,6 +36,9 @@ extraResources:
     filter:
       - "**/*"
       - "!node_modules"
+  # Notas da versão na tela Sobre (handler `app:changelog` em main.cjs).
+  - from: ../../CHANGELOG.md
+    to: CHANGELOG.md
 afterPack: scripts/after-pack.cjs
 win:
   target: nsis

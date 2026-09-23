@@ -172,7 +172,8 @@ async function daemonInfo() {
   } catch {
     ok = false;
   }
-  return { port, token, ok, home: nexoHome() };
+  if (ok) motorErro = "";
+  return { port, token, ok, home: nexoHome(), starting: motorSubindo !== null, erro: ok ? "" : motorErro };
 }
 
 /**
@@ -449,7 +450,7 @@ function reiniciarMotorDev() {
   motorReiniciando = (async () => {
     try {
       await esperarSair(spawnNexo(["down"]), 10_000);
-      const ok = await ensureDaemon(20_000);
+      const { ok } = await subirMotor({ timeoutMs: 20_000 });
       console.log(ok ? "[dev] motor reiniciado" : "[dev] motor não voltou — veja ~/.nexos-dev/logs");
     } finally {
       motorReiniciando = null;
@@ -518,17 +519,64 @@ function ligarRecargaDev() {
   console.log(`[dev] recarga automática ligada | motor: ${nexoHome()} porta ${readPort()}`);
 }
 
-/** Sobe o motor sem janela se ele não estiver de pé. */
-async function ensureDaemon(timeoutMs = 15_000) {
-  const info = await daemonInfo();
-  if (info.ok) return true;
-  spawnNexo(["up"]).unref();
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 400));
-    if ((await daemonInfo()).ok) return true;
-  }
-  return false;
+/**
+ * Subida em voo (boot, botão ou bandeja), compartilhada: dois `up` ao mesmo tempo disputam a
+ * porta. Enquanto ela existe o `daemon:info` responde `starting`, e o renderer mostra "Ligando"
+ * em vez de "Desligado" — no primeiro boot depois de instalar a subida demora (antivírus
+ * varrendo o node_modules recém-copiado) e a tela parada convidava a clicar em Ligar.
+ */
+let motorSubindo = null;
+/** Último erro de subida; some quando o /health responde. */
+let motorErro = "";
+
+function subirMotor({ timeoutMs = 60_000, deps = false } = {}) {
+  if (motorSubindo) return motorSubindo;
+  motorSubindo = (async () => {
+    if ((await daemonInfo()).ok) return { ok: true };
+    if (deps) {
+      const r = await ensureDepsInstalled();
+      if (!r.ok) return { ok: false, error: `Não consegui instalar dependências:\n${r.log}`.trim() };
+    }
+    const logPath = daemonLogPath();
+    mkdirSync(nexoHome(), { recursive: true });
+    let logFd;
+    try {
+      logFd = openSync(logPath, "a");
+    } catch {
+      logFd = undefined;
+    }
+    let child;
+    try {
+      child = spawnNexo(["up"], logFd === undefined ? {} : { stdio: ["ignore", logFd, logFd] });
+    } catch (err) {
+      return { ok: false, error: String(err?.message ?? err) };
+    } finally {
+      if (logFd !== undefined) closeSync(logFd);
+    }
+    child.unref();
+
+    // Poll em vez de esperar o processo "terminar": ele é pra ficar de pé (server ouvindo),
+    // então sucesso aqui é o /health responder, não o child sair.
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 400));
+      if ((await daemonInfo()).ok) return { ok: true };
+      if (child.exitCode !== null || child.signalCode) break;
+    }
+    // Saiu com "already up" (outro `up` ganhou a corrida) ainda conta como ligado.
+    if ((await daemonInfo()).ok) return { ok: true };
+    const tail = readLogTail(logPath).trim();
+    const motivo = child.exitCode === null && !child.signalCode ? `motor não respondeu em ${timeoutMs / 1000}s` : "";
+    return { ok: false, error: [tail, motivo].filter(Boolean).join("\n") || "motor não respondeu" };
+  })()
+    .then((r) => {
+      motorErro = r.ok ? "" : r.error;
+      return r;
+    })
+    .finally(() => {
+      motorSubindo = null;
+    });
+  return motorSubindo;
 }
 
 function shotSize() {
@@ -863,7 +911,7 @@ function createTray() {
     Menu.buildFromTemplate([
       { label: "Abrir", click: () => win?.show() },
       { label: "Painel flutuante", click: () => toggleWidget() },
-      { label: "Ligar motor", click: () => spawnNexo(["up"]).unref() },
+      { label: "Ligar motor", click: () => void subirMotor() },
       { label: "Desligar motor", click: () => spawnNexo(["down"]).unref() },
       { type: "separator" },
       { label: "Sair", click: () => app.quit() },
@@ -904,31 +952,8 @@ app.whenReady().then(() => {
   // dela (o menu de verdade é a UI própria), então só sobra como ruído acima da janela.
   Menu.setApplicationMenu(null);
   handle("daemon:info", () => daemonInfo());
-  handle("daemon:start", async () => {
-    const deps = await ensureDepsInstalled();
-    if (!deps.ok) return { ok: false, error: `Não consegui instalar dependências:\n${deps.log}`.trim() };
-
-    const logPath = daemonLogPath();
-    mkdirSync(nexoHome(), { recursive: true });
-    let logFd;
-    try {
-      logFd = openSync(logPath, "a");
-    } catch {
-      logFd = undefined;
-    }
-    const child = spawnNexo(["up"], logFd === undefined ? {} : { stdio: ["ignore", logFd, logFd] });
-    if (logFd !== undefined) closeSync(logFd);
-    child.unref();
-
-    // Poll em vez de esperar o processo "terminar": ele é pra ficar de pé (server ouvindo),
-    // então sucesso aqui é o /health responder, não o child sair.
-    for (let i = 0; i < 24; i++) {
-      await new Promise((r) => setTimeout(r, 500));
-      if ((await daemonInfo()).ok) return { ok: true };
-      if (child.exitCode !== null || child.signalCode) break;
-    }
-    return { ok: false, error: readLogTail(logPath).trim() || "motor não respondeu" };
-  });
+  // Com `deps`: no botão vale o `pnpm install` (conserta dependência nova sem install); no boot, não.
+  handle("daemon:start", () => subirMotor({ deps: true }));
   handle("daemon:stop", () => {
     spawnNexo(["down"]).unref();
     return { ok: true };
@@ -1124,6 +1149,15 @@ app.whenReady().then(() => {
   });
   handle("update:status", () => ({ ready: updateReady, ...lastUpdateStatus }));
   handle("app:version", () => app.getVersion());
+  // Empacotado, o CHANGELOG.md vai em extraResources (electron-builder.yml); em dev, o da raiz do repo.
+  handle("app:changelog", () => {
+    const path = app.isPackaged ? join(process.resourcesPath, "CHANGELOG.md") : join(here, "..", "..", "CHANGELOG.md");
+    try {
+      return readFileSync(path, "utf8");
+    } catch {
+      return "";
+    }
+  });
   /**
    * "Reiniciar agora" (Onda 3): só um `app.quit()` — o gate de "before-quit" já
    * decide sozinho entre `quitAndInstall` (turno livre) e fechar normal (turno
@@ -1135,7 +1169,7 @@ app.whenReady().then(() => {
     return { ok: true };
   });
   // em dev o motor de pé pode ser de uma rodada anterior, com código velho: sobe de novo
-  void (DEV ? reiniciarMotorDev() : ensureDaemon());
+  void (DEV ? reiniciarMotorDev() : subirMotor());
   createWindow();
   if (DEV) ligarRecargaDev();
   createTray();

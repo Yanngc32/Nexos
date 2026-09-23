@@ -15,6 +15,7 @@ import {
 import { HOOK_EVENT_RE } from "./hooks.ts";
 import { ensureCavemanInstalled, ensureRtkInstalled } from "./modules.ts";
 import { sincronizarDrive } from "./drive-sync.ts";
+import { sincronizarBiblioteca } from "./biblioteca.ts";
 import { googleAccount } from "./google-auth.ts";
 import { migrarProjeto } from "./projeto-dir.ts";
 import { sincronizarRepoMapResumos } from "./repo-map-auto.ts";
@@ -74,14 +75,21 @@ async function cmdUp(): Promise<void> {
     void pingUsoDeTodasAsContas(home).catch((e) => console.error("ping de uso:", (e as Error).message));
   }, PING_USO_MS);
   /*
-   * Sync com o Drive (só se a conta está conectada; a pasta "Nexos" é criada/achada sozinha): uma vez na subida e a
+   * Sync com o Drive (só se a conta está conectada; a pasta "Nexos" é criada/achada sozinha) e,
+   * junto, da biblioteca (agentes/times/hooks/skills, ver biblioteca.ts): uma vez na subida e a
    * cada 2min. `sincronizarDrive` nunca lança (erro vai no resultado) e é single-flight, então
    * um ciclo lento não empilha o próximo.
    */
   const SYNC_DRIVE_MS = 2 * 60_000;
   const syncDrive = (): void => {
     const acc = googleAccount(home);
-    if (!acc.connected) return;
+    if (!acc.connected) {
+      // sem conta Google, a pasta de projetos ainda pode estar numa pasta sincronizada por fora
+      // (`projetosDir`): a biblioteca concilia com o espelho dela do mesmo jeito
+      const b = sincronizarBiblioteca(home);
+      if (b.erros.length) console.error(`biblioteca: ${b.erros.length} erro(s) — ${b.erros[0]}`);
+      return;
+    }
     void sincronizarDrive(home).then((r) => {
       if (r.erros.length) console.error(`drive: ${r.erros.length} erro(s) no sync — ${r.erros[0]}`);
     });

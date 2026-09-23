@@ -36,7 +36,8 @@ function badRequest(message: string): Error {
   return err;
 }
 
-function readAll(home: string): TeamDef[] {
+/** Lista crua, com os times ocultos — e a gravação dela inteira: é o que o sync da biblioteca (biblioteca.ts) usa. */
+export function readAll(home: string): TeamDef[] {
   ensureHome(home);
   const path = teamsPath(home);
   if (!existsSync(path)) return [];
@@ -52,7 +53,7 @@ function readAll(home: string): TeamDef[] {
   return list.filter((t): t is TeamDef => typeof t?.id === "string" && TEAM_ID_RE.test(t.id));
 }
 
-function writeAll(list: TeamDef[], home: string): void {
+export function writeAll(list: TeamDef[], home: string): void {
   ensureHome(home);
   writeFileSync(teamsPath(home), JSON.stringify({ teams: list }, null, 2), "utf8");
 }

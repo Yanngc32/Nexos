@@ -117,7 +117,8 @@ function readAll(home: string): RegraHook[] {
   }
 }
 
-function writeAll(list: RegraHook[], home: string): void {
+/** Gravação da lista inteira — é o que o sync da biblioteca (biblioteca.ts) usa. */
+export function writeAll(list: RegraHook[], home: string): void {
   ensureHome(home);
   writeFileSync(hooksPath(home), JSON.stringify({ rules: list }, null, 2), "utf8");
 }

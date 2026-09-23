@@ -580,7 +580,7 @@ describe("sync com o Drive", () => {
 
     const r = await sincronizarDrive(a);
     expect(r.erros).toEqual([]);
-    expect(readdirSync(projetosRoot(a)).sort()).toEqual(["proj"]);
+    expect(readdirSync(projetosRoot(a)).sort()).toEqual(["_biblioteca", "proj"]);
     expect(ler(a, "proj/bom.md")).toBe("ok");
   });
 

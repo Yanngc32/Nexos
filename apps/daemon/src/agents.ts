@@ -41,7 +41,8 @@ function badRequest(message: string): Error {
   return err;
 }
 
-function readAll(home: string): AgentDef[] {
+/** Lista crua, sem ordenar — e a gravação dela inteira: é o que o sync da biblioteca (biblioteca.ts) usa. */
+export function readAll(home: string): AgentDef[] {
   ensureHome(home);
   const path = agentsPath(home);
   if (!existsSync(path)) return [];
@@ -57,7 +58,7 @@ function readAll(home: string): AgentDef[] {
   return list.filter((a): a is AgentDef => typeof a?.id === "string" && AGENT_ID_RE.test(a.id));
 }
 
-function writeAll(list: AgentDef[], home: string): void {
+export function writeAll(list: AgentDef[], home: string): void {
   ensureHome(home);
   writeFileSync(agentsPath(home), JSON.stringify({ agents: list }, null, 2), "utf8");
 }
