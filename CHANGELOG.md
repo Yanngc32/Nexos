@@ -6,12 +6,22 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+### Corrigido
+
+### Alterado
+
+### Segurança
+
+## [0.5.1] - 2026-09-23
+
+### Adicionado
+
 - Painel de borda no lugar do painel flutuante (inspirado no codenotch): uma pílula grudada numa
   borda da tela. No modo dinâmico é só um traço que abre ao aproximar o mouse e some ao afastar;
   no fixo fica sempre aberta. Mostra as conversas rodando (arco girando), as que esperam sua
   resposta (âmbar) e as que terminaram (verde), e dois anéis de uso por conta (dentro a sessão
-  de 5 h, fora a semana), com o detalhe no card ao lado. Clique numa conversa abre ela no Nexos; clique no anel
-  atualiza o uso da conta. Arraste pra qualquer borda de qualquer monitor.
+  de 5 h, fora a semana), com o detalhe no card ao lado. Clique numa conversa abre ela no Nexos;
+  clique no anel atualiza o uso da conta. Arraste pra qualquer borda de qualquer monitor.
 - Quando uma conversa termina ou pede resposta, o painel abre sozinho por alguns segundos e toca
   um som; aviso do Windows ao chegar no limite crítico e nos 100%, e quando o limite renova.
 - Configurações → Painel de borda: modo (fixo, dinâmico, desligado), borda, monitor, tamanho
@@ -21,16 +31,24 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   dentro da pasta configurada (como era) ou em `.nexos/` na raiz do próprio projeto (já entra no
   `.gitignore`). Agentes, times, hooks e skills gerais continuam na pasta configurada. Trocar de
   modo copia os dados pro lugar novo.
+- O agente cria design systems e telas sozinho: ferramentas pra listar, criar (do zero, do padrão
+  ou copiando o ativo), ativar e salvar card — "cria uma tela de login nos mocks" vira um canvas
+  novo com o card lá.
 
 ### Corrigido
 
 - Com o Google Drive conectado, a pasta compartilhada manual some das Configurações: eram dois
   sincronizadores mexendo na mesma pasta.
 - Tempo até renovar o limite mostrava "23 h 60 min".
+- Na atualização, o Nexos avisa que está instalando e que reabre sozinho (antes fechava sem
+  explicar nada).
 
 ### Alterado
 
-### Segurança
+- Instalador bem mais leve: o motor vai compilado (de ~10.300 pra ~200 arquivos), então instalar
+  e atualizar leva segundos. O gerador de APK do celular baixa na primeira vez que for usado.
+- As regras do Nexos vão como instrução de sistema da sessão do Claude, em vez de repetidas em
+  toda mensagem; regra que muda no meio da conversa chega no turno seguinte.
 
 ## [0.5.0] - 2026-09-23
 
