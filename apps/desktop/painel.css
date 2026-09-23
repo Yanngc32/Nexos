@@ -40,8 +40,10 @@
   --fs-sm: 12px;
   --cel: 54px;
   /* o traço do modo dinâmico, recolhido */
-  --traco-esp: 4px;
-  --traco-comp: 48px;
+  --traco-esp: 5px;
+  --traco-comp: 56px;
+  /* claro com contorno escuro: aparece em papel de parede escuro E claro */
+  --traco-cor: color-mix(in srgb, var(--text) 70%, transparent);
   --anel: 40px;
   --mola: cubic-bezier(0.34, 1.26, 0.64, 1);
   --dur: 420ms;
@@ -96,25 +98,27 @@ body {
   /* drop-shadow (e não box-shadow): a sombra acompanha as curvas das pontas */
   filter: drop-shadow(0 4px 14px var(--sombra));
   /* raio da curva côncava que liga a pílula à borda da tela */
-  /* recolhido: só um traço, discreto, sem curva */
   --curva: 0px;
-  opacity: 0.7;
   transition:
     width var(--dur) var(--mola),
     height var(--dur) var(--mola),
     border-radius var(--dur) var(--mola),
     --curva var(--dur) var(--mola),
-    opacity 200ms ease;
+    background-color 200ms ease;
 }
-/* saindo: fecha mais rápido e sem mola (o conteúdo some antes, ver .celula) */
+/*
+ * Recolhido: só um traço, sem curva. Claro e com contorno escuro — da cor do fundo do tema ele
+ * sumia em papel de parede escuro. Saindo, fecha mais rápido e sem mola (o conteúdo some antes).
+ */
 body:not([data-aberto="1"]) .pilula {
+  background: var(--traco-cor);
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.7)) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.35));
   transition-duration: 260ms, 260ms, 260ms, 260ms, 200ms;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 body[data-aberto="1"] .pilula {
   /* curva longa: o preto começa a abrir bem antes de encostar na borda */
   --curva: 24px;
-  opacity: 1;
 }
 .miolo {
   position: absolute;
@@ -258,7 +262,7 @@ body[data-aberto="1"] .fio {
   visibility: hidden;
 }
 body[data-atividade="trabalhando"] .fio {
-  background: var(--muted);
+  background: var(--text);
   animation: pulsar 1.6s ease-in-out infinite;
 }
 body[data-atividade="esperando"] .fio {

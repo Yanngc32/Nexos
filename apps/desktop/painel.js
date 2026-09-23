@@ -282,7 +282,7 @@ function pintar() {
 /** A pílula fica no ponto da borda que a pessoa escolheu, sem sair da janela. */
 function posicionarPilula(comp) {
   const tam = vertical() ? window.innerHeight : window.innerWidth;
-  const meio = aberto() ? comp / 2 : 24;
+  const meio = aberto() ? comp / 2 : 28;
   const c = Math.min(Math.max(centro, meio + 6), tam - meio - 6);
   body.style.setProperty("--centro", `${c}px`);
 }
