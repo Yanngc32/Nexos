@@ -7216,6 +7216,52 @@ body[data-side-mini="1"] .repo-mini {
 .repo-mini-item[data-on="1"] .repo-mini-inicial { color: var(--accent-text); }
 .repo-mini-item svg { width: 16px; height: 16px; color: var(--muted); }
 
+/* barra minimizada organizada em três blocos: ações (topo) · projetos (rola) · rodapé (fixo embaixo).
+   Tudo em quadrados de 32px, pra coluna ficar alinhada de cima a baixo. */
+body[data-side-mini="1"] .side-nav {
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--line);
+}
+body[data-side-mini="1"] .side-nav .nav-item {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  padding: 0;
+  justify-content: center;
+}
+/* adicionar/clonar saem da linha espremida e viram o "+" no fim da lista de projetos */
+body[data-side-mini="1"] .repo-head { display: none; }
+body[data-side-mini="1"] .repo-mini { flex: 1 1 auto; }
+.repo-mini-item { position: relative; }
+/* projeto aberto: barrinha na borda (como aba ativa), além do contorno */
+.repo-mini-item[data-on="1"]::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+.repo-mini-add { background: transparent; border: 1px dashed var(--line-3); color: var(--faint); }
+.repo-mini-add:hover { color: var(--text); border-style: solid; }
+body[data-side-mini="1"] .side-foot {
+  margin-top: auto;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-3) 0;
+}
+body[data-side-mini="1"] .foot-motor,
+body[data-side-mini="1"] .foot-acao {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
 /* --- times/subagentes dentro do chat (chat-times.js) --- */
 .times-bar {
   display: flex;

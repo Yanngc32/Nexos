@@ -3500,6 +3500,9 @@ function renderRepoMini() {
     inicial.className = "repo-mini-inicial";
     inicial.textContent = (folderName(path).match(/[a-z0-9]/i)?.[0] || "?").toUpperCase();
     btn.append(inicial);
+    // no DOM ANTES do logo: com o logo já em cache o `aplicar` roda na hora, e o `isConnected`
+    // (que protege contra repintura no meio do fetch) descartava o logo de todo projeto
+    mini.append(btn);
     if (state.logoProjetos) {
       const aplicar = (url) => {
         if (url && btn.isConnected) btn.replaceChildren(imgDeLogo(url, "repo-mini-logo"));
@@ -3514,8 +3517,21 @@ function renderRepoMini() {
       else void bindProject(path).then(() => renderRepoTree());
     });
     btn.addEventListener("contextmenu", (e) => menuDoRepo(e, path));
-    mini.append(btn);
   }
+  // "+" no fim da lista: as duas ações do cabeçalho (que some na barra estreita) num menu
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "repo-mini-item repo-mini-add";
+  add.title = "Adicionar projeto";
+  add.setAttribute("aria-label", "Adicionar projeto");
+  add.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`;
+  add.addEventListener("click", (e) =>
+    menuContexto.abrir(e, [
+      { rotulo: "Adicionar pasta", ico: "+", onSelect: () => $("btn-folder").click() },
+      { rotulo: "Clonar por link", ico: "↓", onSelect: () => $("btn-clonar").click() },
+    ]),
+  );
+  mini.append(add);
 }
 
 async function openThreadInRepo(path, id) {
