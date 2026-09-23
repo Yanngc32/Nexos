@@ -5320,6 +5320,7 @@ const dsCanvas = createDsCanvas({
   isOk: () => state.ok,
   lerEventos,
   avisar: (msg) => dialogo.avisar(msg),
+  confirmar: (msg) => dialogo.confirmar(msg),
   getProfiles: () => state.profiles,
   getProfileId: () => state.profileId,
   aoAbrirConversa: (threadId) => void openThread(threadId),

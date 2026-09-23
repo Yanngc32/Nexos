@@ -204,115 +204,8 @@ export function temasDoCss(css) {
   return [...new Set([...String(css || "").matchAll(/:root\[data-tema="([a-z0-9-]+)"\]/gi)].map((m) => m[1]))];
 }
 
-const GRUPOS = [
-  { id: "cor", titulo: "Cores", teste: (v) => v.tipo === "color" || /^colou?rs?\./.test(v.caminho) },
-  { id: "tipo", titulo: "Tipografia", teste: (v) => /^(font|typography|type|text)\b/.test(v.caminho) || /^font/.test(v.tipo || "") },
-  { id: "espaco", titulo: "Espaçamento", teste: (v) => /^(space|spacing|gap|size)\b/.test(v.caminho) },
-  { id: "forma", titulo: "Raio & sombra", teste: (v) => /radius|radii|shadow|elevation/.test(v.caminho) || v.tipo === "shadow" },
-  { id: "motion", titulo: "Motion", teste: (v) => /^(motion|duration|ease|easing|transition)\b/.test(v.caminho) || v.tipo === "duration" || v.tipo === "cubicBezier" },
-];
-
-/** Separa as variáveis nos grupos dos cards de Fundamentos. Cada variável cai no PRIMEIRO grupo que casa. */
-export function agruparVars(vars) {
-  const out = new Map(GRUPOS.map((g) => [g.id, []]));
-  out.set("outros", []);
-  for (const v of vars || []) {
-    const g = GRUPOS.find((x) => x.teste(v));
-    out.get(g ? g.id : "outros").push(v);
-  }
-  return out;
-}
-
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-}
-
-/**
- * Cards de Fundamentos: gerados aqui a partir dos tokens, não de arquivo. Usam só `var()` — trocar
- * um token atualiza o card na hora, como qualquer outro.
- */
-export function cardsDeFundamentos(vars) {
-  const g = agruparVars(vars);
-  const cards = [];
-  const rotulo = (v) => `<div class="f-nome">${esc(v.caminho)}</div><div class="f-val">${esc(v.valor)}</div>`;
-  const base = `<style>
-    .f-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px}
-    .f-nome{font:600 12px/1.3 system-ui,sans-serif;opacity:.9;margin-top:8px;word-break:break-all}
-    .f-val{font:11px/1.3 ui-monospace,monospace;opacity:.6;margin-top:2px;word-break:break-all}
-    .f-lin{display:flex;align-items:center;gap:16px;padding:8px 0;border-bottom:1px solid rgba(127,127,127,.18)}
-    .f-lin:last-child{border-bottom:0}
-    .f-lin .f-nome,.f-lin .f-val{margin:0;min-width:150px}
-  </style>`;
-  if (g.get("cor").length) {
-    cards.push({
-      id: "fund-cores",
-      titulo: "Cores",
-      subtitulo: "Superfícies, marca e semânticas",
-      grupo: "cor",
-      html: `${base}<div class="f-grade">${g
-        .get("cor")
-        .map(
-          (v) =>
-            `<div><div style="height:64px;border-radius:8px;background:var(${v.nome});border:1px solid rgba(127,127,127,.25)"></div>${rotulo(v)}</div>`,
-        )
-        .join("")}</div>`,
-    });
-  }
-  if (g.get("tipo").length) {
-    const linhas = g
-      .get("tipo")
-      .map((v) => {
-        let amostra = "";
-        if (/family/i.test(v.caminho) || v.tipo === "fontFamily") amostra = `<span style="font-family:var(${v.nome});font-size:22px">Aa Bb Cc 0123</span>`;
-        else if (/weight/i.test(v.caminho) || v.tipo === "fontWeight") amostra = `<span style="font-weight:var(${v.nome});font-size:18px">Peso</span>`;
-        else if (/size/i.test(v.caminho) || v.tipo === "dimension") amostra = `<span style="font-size:var(${v.nome})">O rato roeu</span>`;
-        else if (/line|leading/i.test(v.caminho)) amostra = `<span style="line-height:var(${v.nome})">Linha</span>`;
-        return `<div class="f-lin">${rotulo(v)}${amostra}</div>`;
-      })
-      .join("");
-    cards.push({ id: "fund-tipografia", titulo: "Tipografia", subtitulo: "Famílias, escala e pesos", grupo: "tipo", html: `${base}${linhas}` });
-  }
-  if (g.get("espaco").length) {
-    cards.push({
-      id: "fund-espaco",
-      titulo: "Espaçamento",
-      subtitulo: "Escala de espaço",
-      grupo: "espaco",
-      html: `${base}${g
-        .get("espaco")
-        .map((v) => `<div class="f-lin">${rotulo(v)}<div style="height:12px;width:var(${v.nome});background:currentColor;opacity:.55;border-radius:2px"></div></div>`)
-        .join("")}`,
-    });
-  }
-  if (g.get("forma").length) {
-    cards.push({
-      id: "fund-forma",
-      titulo: "Raio & sombra",
-      subtitulo: "Cantos e elevação",
-      grupo: "forma",
-      html: `${base}<div class="f-grade">${g
-        .get("forma")
-        .map((v) => {
-          const sombra = v.tipo === "shadow" || /shadow|elevation/.test(v.caminho);
-          const estilo = sombra
-            ? `box-shadow:var(${v.nome});border-radius:8px`
-            : `border-radius:var(${v.nome});border:2px solid currentColor;opacity:.8`;
-          return `<div><div style="height:64px;${estilo};background:rgba(127,127,127,.12)"></div>${rotulo(v)}</div>`;
-        })
-        .join("")}</div>`,
-    });
-  }
-  const resto = [...g.get("motion"), ...g.get("outros")];
-  if (resto.length) {
-    cards.push({
-      id: "fund-outros",
-      titulo: "Motion & outros",
-      subtitulo: "Duração, curva e demais tokens",
-      grupo: "motion",
-      html: `${base}${resto.map((v) => `<div class="f-lin">${rotulo(v)}</div>`).join("")}`,
-    });
-  }
-  return cards;
 }
 
 const CSS_BASE = `html,body{margin:0}
@@ -323,10 +216,11 @@ body{padding:20px;box-sizing:border-box;min-height:40px;
 [data-ds-anim]{transition:opacity .28s ease,transform .28s ease}`;
 
 /** Esqueleto do documento do card. O conteúdo entra depois, por `body.innerHTML`. */
-export function montarSrcdoc({ css, baseHref, fontes = [] }) {
+export function montarSrcdoc({ css, baseHref, fontes = [], kit = "" }) {
   const base = baseHref ? `<base href="${esc(baseHref)}">` : "";
+  // kit = classes prontas do daemon (ds-kit.ts): mesmo visual pros Fundamentos e pros cards criados
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">${base}${linksDeFontes(fontes)}
-<style id="ds-tokens">${css || ""}</style><style id="ds-base">${CSS_BASE}</style><style id="ds-override"></style>
+<style id="ds-tokens">${css || ""}</style><style id="ds-base">${CSS_BASE}</style><style id="ds-kit">${kit}</style><style id="ds-override"></style>
 </head><body></body></html>`;
 }
 
@@ -416,6 +310,7 @@ export function createDsCanvas({
   isOk = () => true,
   lerEventos,
   avisar = (msg) => Promise.resolve(window.alert(msg)),
+  confirmar = (msg) => Promise.resolve(window.confirm(msg)),
   fetchImpl = (...a) => fetch(...a),
   /** Contas pro formulário de geração, e a selecionada no app (vira a padrão). */
   getProfiles = () => [],
@@ -645,14 +540,16 @@ export function createDsCanvas({
 
   /** Todos os cards na ordem do board: Fundamentos (gerados), DESIGN.md e os de arquivo. */
   function cardsDoBoard(ds) {
-    const fund = cardsDeFundamentos(ds.vars).map((c) => ({ ...c, secao: "fundamentos", gerado: true, lint: [] }));
+    const fund = (ds.fundamentos || []).filter((c) => !c.oculto).map((c) => ({ ...c, gerado: true, lint: [] }));
     // esqueleto dos cards previstos entra na posição do plano, dentro da seção dele
     const pendentes = cardsPendentes(geracao, ds.cards);
     return [...fund, ...ds.cards, ...pendentes];
   }
 
   function secoesDoBoard(ds) {
-    return [{ id: "fundamentos", titulo: "Fundamentos" }, ...ds.secoes.filter((s) => s.id !== "fundamentos")];
+    // "fundamentos" sempre primeiro; entrada dela em `secoes` (título/alinhamento) vale se existir
+    const fund = ds.secoes.find((s) => s.id === "fundamentos");
+    return [{ id: "fundamentos", titulo: "Fundamentos", ...fund }, ...ds.secoes.filter((s) => s.id !== "fundamentos")];
   }
 
   function pintarBoard(ds, { animar, mudadas }) {
@@ -696,8 +593,10 @@ export function createDsCanvas({
         board.insertBefore(bloco, anteriorEl ? anteriorEl.nextSibling : board.firstChild);
       }
       bloco.querySelector(".ds-secao-titulo").textContent = s.titulo;
+      bloco.querySelector(".ds-secao-grade").dataset.alinhamento = s.alinhamento || "topo";
       anteriorEl = bloco;
     }
+    pintarNav(secoes);
 
     const grades = new Map([...board.querySelectorAll(".ds-secao")].map((b) => [b.dataset.secao, b.querySelector(".ds-secao-grade")]));
     const anteriorNaGrade = new Map();
@@ -717,8 +616,61 @@ export function createDsCanvas({
         if (jaEstavaNoDom) reiniciarFrame(f);
       }
       anteriorNaGrade.set(grade, f.cartao);
+      f.cartao.dataset.largura = card.largura || "1/2";
       void atualizarCartao(f, card, ds, { animar, mudadas });
+      ajustarAlvenaria(f);
     }
+  }
+
+  /*
+   * Alinhamento "alvenaria": grade de linhas de 8px e cada card ocupa as linhas da própria altura —
+   * empilha em colunas sem o buraco que a linha mais alta deixa no modo "topo". Refeito sempre que
+   * a altura do card muda (medir) ou a seção troca de alinhamento.
+   */
+  const LINHA_ALVENARIA = 8;
+  function ajustarAlvenaria(f) {
+    const grade = f.cartao.parentNode;
+    if (!grade || grade.dataset?.alinhamento !== "alvenaria") {
+      if (f.cartao.style.gridRowEnd) f.cartao.style.gridRowEnd = "";
+      return;
+    }
+    const gap = parseFloat(win.getComputedStyle(grade).columnGap) || 0;
+    const span = Math.max(1, Math.ceil((f.cartao.offsetHeight + gap) / LINHA_ALVENARIA));
+    const valor = `span ${span}`;
+    if (f.cartao.style.gridRowEnd !== valor) f.cartao.style.gridRowEnd = valor;
+  }
+
+  /* ---------- navegação lateral pelas seções ---------- */
+
+  function pintarNav(secoes) {
+    const nav = el("ds-nav");
+    if (!nav) return;
+    const atual = [...nav.querySelectorAll("button")].map((b) => `${b.dataset.secao}:${b.textContent}`).join("|");
+    const nova = secoes.map((s) => `${s.id}:${s.titulo}`).join("|");
+    if (atual === nova) return;
+    nav.replaceChildren();
+    for (const s of secoes) {
+      const b = doc.createElement("button");
+      b.type = "button";
+      b.className = "ds-nav-item";
+      b.dataset.secao = s.id;
+      b.textContent = s.titulo;
+      b.title = `Ir pra ${s.titulo}`;
+      b.addEventListener("click", () => irParaSecao(s.id));
+      nav.append(b);
+    }
+  }
+
+  /** Leva a seção pro topo do viewport, mantendo o zoom (com transição curta). */
+  function irParaSecao(id) {
+    const bloco = el("ds-board").querySelector(`:scope > .ds-secao[data-secao="${CSS.escape(id)}"]`);
+    if (!bloco) return;
+    const board = el("ds-board");
+    board.classList.add("suave");
+    vista = { ...vista, x: 32, y: 32 - bloco.offsetTop * vista.escala };
+    aplicarVista();
+    win.setTimeout(() => board.classList.remove("suave"), 320);
+    for (const b of el("ds-nav").querySelectorAll("button")) b.dataset.on = b.dataset.secao === id ? "1" : "0";
   }
 
   function reiniciarFrame(f) {
@@ -769,7 +721,7 @@ export function createDsCanvas({
       f.frame.addEventListener("load", pronto);
       const fontes = urlsDeFontes(ds.vars);
       f.fontes = fontes.join("|");
-      f.frame.srcdoc = montarSrcdoc({ css: ds.css, baseHref: base, fontes });
+      f.frame.srcdoc = montarSrcdoc({ css: ds.css, baseHref: base, fontes, kit: ds.kitCss || "" });
     });
     return f.pronto;
   }
@@ -842,6 +794,7 @@ export function createDsCanvas({
     // e o card não encolheria quando o conteúdo diminui
     const alt = Math.max(40, Math.ceil(d.body.getBoundingClientRect().height));
     if (f.frame.style.height !== `${alt}px`) f.frame.style.height = `${alt}px`;
+    ajustarAlvenaria(f);
   }
 
   function aplicarVarsNoFrame(f, ds) {
@@ -1157,8 +1110,8 @@ export function createDsCanvas({
     const ds = estado.ds;
     if (!ds || !card) return [];
     if (card.gerado) {
-      const g = agruparVars(ds.vars);
-      return card.grupo === "motion" ? [...g.get("motion"), ...g.get("outros")] : g.get(card.grupo) || [];
+      const nomes = new Set(card.tokens || []);
+      return ds.vars.filter((v) => nomes.has(v.nome));
     }
     const usados = tokensUsados(card.html);
     return ds.vars.filter((v) => usados.has(v.nome));
@@ -1200,6 +1153,7 @@ export function createDsCanvas({
     if (painelModo === "feedback") return pintarFeedback(corpo, card);
     if (painelModo === "controles") return pintarControles(corpo, card);
     if (painelModo === "versoes") return void pintarVersoes(corpo, card);
+    if (painelModo === "layout") return pintarLayout(corpo, card);
     if (painelModo === "avisos") {
       if (!avisos.length) {
         corpo.innerHTML = `<p class="ds-painel-vazio">Nenhum aviso do lint.</p>`;
@@ -1213,6 +1167,8 @@ export function createDsCanvas({
         item.querySelector("code").textContent = a.trecho || "";
         corpo.append(item);
       }
+      // card de arquivo: um agente refaz o card com os avisos como pedido (mesmo caminho do Feedback)
+      if (!card.gerado) pintarPedirCorrecao(corpo, card, avisos);
       return;
     }
     const vars = varsDoCard(card);
@@ -1410,6 +1366,9 @@ export function createDsCanvas({
     el("ds-painel-fechar").addEventListener("click", fecharPainel);
     el("ds-btn-gerar").addEventListener("click", () => void mostrarGerar());
     el("ds-btn-ferramentas").addEventListener("click", () => el("ds-ferramentas").classList.toggle("hidden"));
+    el("ds-btn-card").addEventListener("click", () => abrirFerramenta("novo-card"));
+    // a lista de seções fica por cima do board: roda e arrasto nela não podem virar pan/zoom
+    for (const tipo of ["wheel", "mousedown", "pointerdown"]) el("ds-nav").addEventListener(tipo, (e) => e.stopPropagation());
     for (const b of el("ds-ferramentas").querySelectorAll("[data-ferramenta]")) {
       b.addEventListener("click", () => abrirFerramenta(b.dataset.ferramenta));
     }
@@ -1445,12 +1404,13 @@ export function createDsCanvas({
   }
 
   function pintarFerramenta() {
-    const titulos = { conformidade: "Conformidade do código", ressincronizar: "Ressincronizar com o código", exportar: "Exportar tokens" };
+    const titulos = { conformidade: "Conformidade do código", ressincronizar: "Ressincronizar com o código", exportar: "Exportar tokens", "novo-card": "Novo card" };
     el("ds-painel-tit").textContent = titulos[ferramenta] || "";
     el("ds-painel-abas").replaceChildren();
     const corpo = el("ds-painel-corpo");
     corpo.innerHTML = `<p class="ds-painel-vazio">Carregando…</p>`;
-    if (ferramenta === "conformidade") void pintarConformidade(corpo);
+    if (ferramenta === "novo-card") void pintarNovoCard(corpo);
+    else if (ferramenta === "conformidade") void pintarConformidade(corpo);
     else if (ferramenta === "ressincronizar") void pintarRessincronia(corpo);
     else pintarExportar(corpo);
   }
@@ -1744,11 +1704,12 @@ export function createDsCanvas({
     const abas = el("ds-painel-abas");
     abas.replaceChildren();
     const lista = card.gerado
-      ? [["tokens", "Tokens"], ["avisos", avisos.length ? `Avisos (${avisos.length})` : "Avisos"]]
+      ? [["tokens", "Tokens"], ["layout", "Layout"], ["avisos", avisos.length ? `Avisos (${avisos.length})` : "Avisos"]]
       : [
           ["feedback", "Feedback"],
           ["tokens", "Tokens"],
           ...(card.controles?.length ? [["controles", `Controles (${card.controles.length})`]] : []),
+          ["layout", "Layout"],
           ["versoes", "Versões"],
           ["avisos", avisos.length ? `Avisos (${avisos.length})` : "Avisos"],
         ];
@@ -1768,6 +1729,313 @@ export function createDsCanvas({
         pintarPainel();
       });
       abas.append(b);
+    }
+  }
+
+  /* ---------- pedir correção (avisos do lint) ---------- */
+
+  function selectDeContas() {
+    const sel = doc.createElement("select");
+    for (const p of getProfiles() || []) {
+      const o = doc.createElement("option");
+      o.value = p.id;
+      o.textContent = `${p.nickname || p.id} · ${p.engine}`;
+      o.selected = p.id === getProfileId();
+      sel.append(o);
+    }
+    return sel;
+  }
+
+  function pintarPedirCorrecao(corpo, card, avisos) {
+    const caixa = doc.createElement("div");
+    caixa.className = "ds-corrigir";
+    const rot = doc.createElement("label");
+    rot.className = "ds-fb-campo";
+    rot.textContent = "Conta";
+    const conta = selectDeContas();
+    rot.append(conta);
+    const err = linhaTexto("ag-err", "");
+    const b = doc.createElement("button");
+    b.type = "button";
+    b.className = "primary";
+    b.textContent = "Pedir correção";
+    b.title = "Um agente refaz este card corrigindo os avisos (verificado de novo antes de mostrar)";
+    if (geracao?.status === "rodando") {
+      b.disabled = true;
+      err.textContent = "Espere a geração em curso terminar.";
+    }
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      err.textContent = "";
+      const texto =
+        "Corrija os avisos da verificação deste card, sem mudar o que não precisa:\n" +
+        avisos.map((a) => `- ${a.msg}${a.trecho ? `: ${a.trecho}` : ""}`).join("\n");
+      try {
+        const r = await req(`/v1/ds/cards/${encodeURIComponent(card.id)}/feedback?${qs()}`, {
+          method: "POST",
+          body: JSON.stringify({ profileId: conta.value, texto }),
+        });
+        fecharPainel();
+        progressoDispensado = "";
+        aplicarGeracao(r.geracao);
+      } catch (e) {
+        err.textContent = e.message;
+        b.disabled = false;
+      }
+    });
+    caixa.append(rot, err, b);
+    corpo.append(caixa);
+  }
+
+  /* ---------- layout do card (largura, seção, ordem, apagar/ocultar) ---------- */
+
+  const LARGURAS = [["1/3", "⅓"], ["1/2", "½"], ["2/3", "⅔"], ["1", "Inteira"]];
+  const ALINHAMENTOS = [["topo", "Topo"], ["esticar", "Mesma altura"], ["alvenaria", "Alvenaria (sem buracos)"]];
+
+  async function mudarLayout(card, mudanca) {
+    try {
+      const ds = await req(`/v1/ds/cards/${encodeURIComponent(card.id)}?${qs()}`, { method: "PATCH", body: JSON.stringify(mudanca) });
+      aplicarDs(ds);
+      return true;
+    } catch (e) {
+      erroTopo(e.message);
+      return false;
+    }
+  }
+
+  function grupoDeBotoes(opcoes, atual, aoEscolher) {
+    const g = doc.createElement("div");
+    g.className = "ds-exp-formatos";
+    for (const [valor, rotulo] of opcoes) {
+      const b = doc.createElement("button");
+      b.type = "button";
+      b.className = "ax-tab";
+      b.dataset.on = valor === atual ? "1" : "0";
+      b.textContent = rotulo;
+      b.addEventListener("click", () => aoEscolher(valor));
+      g.append(b);
+    }
+    return g;
+  }
+
+  function pintarLayout(corpo, card) {
+    const ds = estado.ds;
+    corpo.append(linhaTexto("ds-sync-tit", "Largura na linha"));
+    corpo.append(grupoDeBotoes(LARGURAS, card.largura || "1/2", (largura) => void mudarLayout(card, { largura })));
+
+    corpo.append(linhaTexto("ds-sync-tit", "Posição na seção"));
+    const mover = doc.createElement("div");
+    mover.className = "ds-ctl-acoes";
+    mover.innerHTML = `<button type="button" class="ghost" data-m="-1">← Antes</button><button type="button" class="ghost" data-m="1">Depois →</button>`;
+    for (const b of mover.querySelectorAll("button")) b.addEventListener("click", () => void mudarLayout(card, { mover: Number(b.dataset.m) }));
+    corpo.append(mover);
+
+    if (!card.gerado) {
+      corpo.append(linhaTexto("ds-sync-tit", "Título e seção"));
+      const tit = doc.createElement("input");
+      tit.type = "text";
+      tit.value = card.titulo;
+      tit.className = "ds-layout-campo";
+      tit.setAttribute("aria-label", "Título do card");
+      tit.addEventListener("change", () => tit.value.trim() && void mudarLayout(card, { titulo: tit.value.trim() }));
+      const sec = doc.createElement("select");
+      sec.className = "ds-layout-campo";
+      sec.setAttribute("aria-label", "Seção do card");
+      for (const s of ds.secoes.filter((x) => x.id !== "fundamentos")) {
+        const o = doc.createElement("option");
+        o.value = s.id;
+        o.textContent = s.titulo;
+        o.selected = s.id === card.secao;
+        sec.append(o);
+      }
+      const nova = doc.createElement("option");
+      nova.value = "__nova";
+      nova.textContent = "Nova seção…";
+      sec.append(nova);
+      const nomeNova = doc.createElement("input");
+      nomeNova.type = "text";
+      nomeNova.placeholder = "Nome da seção nova";
+      nomeNova.className = "ds-layout-campo hidden";
+      sec.addEventListener("change", () => {
+        nomeNova.classList.toggle("hidden", sec.value !== "__nova");
+        if (sec.value !== "__nova") void mudarLayout(card, { secao: sec.value });
+        else nomeNova.focus();
+      });
+      nomeNova.addEventListener("change", () => nomeNova.value.trim() && void mudarLayout(card, { secao: nomeNova.value.trim() }));
+      corpo.append(tit, sec, nomeNova);
+    }
+
+    const secao = secoesDoBoard(ds).find((s) => s.id === card.secao);
+    corpo.append(linhaTexto("ds-sync-tit", `Alinhamento da seção "${secao?.titulo ?? card.secao}"`));
+    corpo.append(
+      grupoDeBotoes(ALINHAMENTOS, secao?.alinhamento || "topo", async (alinhamento) => {
+        try {
+          aplicarDs(await req(`/v1/ds/secoes/${encodeURIComponent(card.secao)}?${qs()}`, { method: "PATCH", body: JSON.stringify({ alinhamento }) }));
+        } catch (e) {
+          erroTopo(e.message);
+        }
+      }),
+    );
+    corpo.append(linhaTexto("ds-painel-vazio", "Dica: no chat, peça \"alinha os cards do design system\" — o agente reorganiza largura, ordem e alinhamento pelo meta.json."));
+
+    const perigo = doc.createElement("button");
+    perigo.type = "button";
+    perigo.className = "ghost ds-perigo";
+    perigo.textContent = card.gerado ? "Ocultar do board" : "Apagar card";
+    perigo.title = card.gerado ? "Some do board; volta em + Card → Fundamentos ocultos" : "Apaga o arquivo do card (fica uma versão guardada)";
+    perigo.addEventListener("click", async () => {
+      if (card.gerado) {
+        if (await mudarLayout(card, { oculto: true })) fecharPainel();
+        return;
+      }
+      if (!(await confirmar(`Apagar o card "${card.titulo}"? Fica uma versão guardada em .versoes/.`))) return;
+      try {
+        aplicarDs(await req(`/v1/ds/cards/${encodeURIComponent(card.id)}?${qs()}`, { method: "DELETE" }));
+        fecharPainel();
+      } catch (e) {
+        erroTopo(e.message);
+      }
+    });
+    corpo.append(perigo);
+  }
+
+  /* ---------- + Card: criar card de um tipo ---------- */
+
+  let novoTipo = "cores";
+
+  async function pintarNovoCard(corpo) {
+    let tipos;
+    try {
+      tipos = await req(`/v1/ds/tipos?${qs()}`);
+    } catch (e) {
+      corpo.replaceChildren(linhaTexto("ag-err", e.message));
+      return;
+    }
+    if (editando !== FERRAMENTA || ferramenta !== "novo-card") return;
+    const ds = estado.ds;
+    corpo.replaceChildren();
+    corpo.append(linhaTexto("ds-painel-vazio", "Card de token sai pronto do modelo (mesmo visual dos Fundamentos). Componente e livre a IA desenha."));
+    const escolha = grupoDeBotoes(
+      tipos.map((t) => [t.id, t.daIa ? `${t.titulo} ✦` : t.titulo]),
+      novoTipo,
+      (id) => {
+        novoTipo = id;
+        void pintarNovoCard(corpo);
+      },
+    );
+    corpo.append(escolha);
+    const tipo = tipos.find((t) => t.id === novoTipo) || tipos[0];
+
+    const campo = (rotulo, input) => {
+      const l = doc.createElement("label");
+      l.className = "ds-fb-campo";
+      l.textContent = rotulo;
+      l.append(input);
+      corpo.append(l);
+      return input;
+    };
+    const titulo = campo("Título", Object.assign(doc.createElement("input"), { type: "text", value: tipo.titulo }));
+    const subtitulo = campo("Subtítulo (opcional)", Object.assign(doc.createElement("input"), { type: "text" }));
+    const secao = doc.createElement("select");
+    for (const s of ds.secoes.filter((x) => x.id !== "fundamentos")) secao.append(Object.assign(doc.createElement("option"), { value: s.id, textContent: s.titulo }));
+    secao.append(Object.assign(doc.createElement("option"), { value: "__nova", textContent: "Nova seção…" }));
+    campo("Seção", secao);
+    const secaoNova = Object.assign(doc.createElement("input"), { type: "text", placeholder: "Nome da seção nova", className: "ds-layout-campo hidden" });
+    corpo.append(secaoNova);
+    secao.addEventListener("change", () => secaoNova.classList.toggle("hidden", secao.value !== "__nova"));
+    let largura = "1/2";
+    corpo.append(linhaTexto("ds-sync-tit", "Largura"));
+    const gl = grupoDeBotoes(LARGURAS, largura, (v) => {
+      largura = v;
+      for (const b of gl.children) b.dataset.on = b.textContent === LARGURAS.find(([x]) => x === v)[1] ? "1" : "0";
+    });
+    corpo.append(gl);
+
+    let marcados = null;
+    let pedido = null;
+    let conta = null;
+    if (!tipo.daIa) {
+      corpo.append(linhaTexto("ds-sync-tit", `Tokens (${tipo.tokens.length})`));
+      const ul = doc.createElement("ul");
+      ul.className = "ds-conf-lista ds-sync-lista";
+      marcados = [];
+      for (const t of tipo.tokens) {
+        const li = doc.createElement("li");
+        li.innerHTML = `<input type="checkbox" class="ds-sync-check" checked /><code class="ds-conf-onde"></code>`;
+        li.querySelector("code").textContent = `${t.caminho} · ${t.valor}`;
+        marcados.push([t.nome, li.querySelector("input")]);
+        ul.append(li);
+      }
+      if (!tipo.tokens.length) ul.append(linhaTexto("ds-painel-vazio", "Nenhum token desse tipo em tokens.json."));
+      corpo.append(ul);
+    } else {
+      pedido = campo(
+        "O que o card mostra",
+        Object.assign(doc.createElement("textarea"), {
+          rows: 4,
+          placeholder: tipo.id === "componente" ? "Ex.: badges de status do pedido (novo, pago, enviado, cancelado) com e sem ícone." : "Ex.: grade de ícones do produto em 16/20/24px.",
+        }),
+      );
+      conta = campo("Conta", selectDeContas());
+    }
+
+    const err = linhaTexto("ag-err", "");
+    const criar = doc.createElement("button");
+    criar.type = "button";
+    criar.className = "primary";
+    criar.textContent = tipo.daIa ? "Gerar com IA" : "Criar card";
+    if (tipo.daIa && geracao?.status === "rodando") {
+      criar.disabled = true;
+      err.textContent = "Espere a geração em curso terminar.";
+    }
+    criar.addEventListener("click", async () => {
+      err.textContent = "";
+      const base = {
+        tipo: tipo.id,
+        titulo: titulo.value.trim(),
+        subtitulo: subtitulo.value.trim(),
+        secao: secao.value === "__nova" ? secaoNova.value.trim() : secao.value,
+        largura,
+      };
+      criar.disabled = true;
+      try {
+        if (tipo.daIa) {
+          const r = await req(`/v1/ds/cards/novo-ia?${qs()}`, {
+            method: "POST",
+            body: JSON.stringify({ ...base, texto: pedido.value.trim(), profileId: conta.value }),
+          });
+          fecharPainel();
+          progressoDispensado = "";
+          aplicarGeracao(r.geracao);
+        } else {
+          const r = await req(`/v1/ds/cards?${qs()}`, {
+            method: "POST",
+            body: JSON.stringify({ ...base, tokens: marcados.filter(([, c]) => c.checked).map(([n]) => n) }),
+          });
+          aplicarDs(r.ds);
+          fecharPainel();
+          win.setTimeout(() => { const f = frames.get(r.id); if (f) pulsar(f); }, 50);
+        }
+      } catch (e) {
+        err.textContent = e.message;
+        criar.disabled = false;
+      }
+    });
+    corpo.append(err, criar);
+
+    const ocultos = (ds.fundamentos || []).filter((f) => f.oculto);
+    if (ocultos.length) {
+      corpo.append(linhaTexto("ds-sync-tit", "Fundamentos ocultos"));
+      for (const f of ocultos) {
+        const b = doc.createElement("button");
+        b.type = "button";
+        b.className = "ghost";
+        b.textContent = `Mostrar "${f.titulo}"`;
+        b.addEventListener("click", async () => {
+          if (await mudarLayout(f, { oculto: false })) void pintarNovoCard(corpo);
+        });
+        corpo.append(b);
+      }
     }
   }
 

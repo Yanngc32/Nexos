@@ -1,10 +1,8 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 import {
-  agruparVars,
   ajustarATela,
   baseHrefDoProjeto,
-  cardsDeFundamentos,
   cardsPendentes,
   ehVariante,
   resumoDoElemento,
@@ -126,33 +124,6 @@ describe("varsMudadas / temasDoCss", () => {
 
   it("lista temas do CSS", () => {
     expect(temasDoCss(':root{}\n:root[data-tema="claro"]{}\n:root[data-tema="alto"]{}')).toEqual(["claro", "alto"]);
-  });
-});
-
-describe("Fundamentos", () => {
-  const vars = [
-    { nome: "--color-bg", caminho: "color.bg", tipo: "color", valor: "#161616" },
-    { nome: "--font-family-body", caminho: "font.family.body", tipo: "fontFamily", valor: "Inter" },
-    { nome: "--space-2", caminho: "space.2", tipo: "dimension", valor: "8px" },
-    { nome: "--radius-md", caminho: "radius.md", tipo: "dimension", valor: "8px" },
-    { nome: "--shadow-1", caminho: "shadow.1", tipo: "shadow", valor: "0 1px 2px black" },
-    { nome: "--z-top", caminho: "z.top", valor: "10" },
-  ];
-
-  it("agrupa cada variável num grupo só", () => {
-    const g = agruparVars(vars);
-    expect(g.get("cor").map((v) => v.nome)).toEqual(["--color-bg"]);
-    expect(g.get("tipo").map((v) => v.nome)).toEqual(["--font-family-body"]);
-    expect(g.get("espaco").map((v) => v.nome)).toEqual(["--space-2"]);
-    expect(g.get("forma").map((v) => v.nome)).toEqual(["--radius-md", "--shadow-1"]);
-    expect(g.get("outros").map((v) => v.nome)).toEqual(["--z-top"]);
-  });
-
-  it("gera um card por grupo com var() e escapa o texto", () => {
-    const cards = cardsDeFundamentos([...vars, { nome: "--x", caminho: "<b>", valor: "1" }]);
-    expect(cards.map((c) => c.id)).toEqual(["fund-cores", "fund-tipografia", "fund-espaco", "fund-forma", "fund-outros"]);
-    expect(cards[0].html).toContain("background:var(--color-bg)");
-    expect(cards.at(-1).html).toContain("&lt;b&gt;");
   });
 });
 

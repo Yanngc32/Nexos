@@ -7025,10 +7025,59 @@ body[data-compactando="1"] .ctx-dot::after {
   padding-bottom: 80px;
 }
 .ds-secao-titulo { margin: 0 0 var(--s-6); font-size: var(--fs-3xl); font-weight: 600; letter-spacing: var(--ls-title); color: var(--text); }
-.ds-secao-grade { display: flex; flex-wrap: wrap; gap: var(--s-8); align-items: flex-start; }
+/*
+ * Grade de 6 colunas: a largura do card (meta.json, "1/3"·"1/2"·"2/3"·"1") vira span de 2/3/4/6.
+ * Alinhamento da seção: "topo" (cada um com a sua altura), "esticar" (mesma altura na linha) e
+ * "alvenaria" (linhas de 8px; o span de linhas de cada card é calculado pela altura — canvas-ds.js).
+ */
+.ds-secao-grade { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--s-8); align-items: start; }
+.ds-secao-grade[data-alinhamento="esticar"] { align-items: stretch; }
+.ds-secao-grade[data-alinhamento="alvenaria"] { grid-auto-rows: 8px; row-gap: 0; }
+.ds-secao-grade[data-alinhamento="alvenaria"] > .ds-card { margin-bottom: var(--s-8); }
+.ds-card { grid-column: span 3; }
+.ds-card[data-largura="1/3"] { grid-column: span 2; }
+.ds-card[data-largura="2/3"] { grid-column: span 4; }
+.ds-card[data-largura="1"] { grid-column: span 6; }
+.ds-board.suave { transition: transform 300ms var(--ease); }
+
+/* seções do board à direita, paradas enquanto o board faz pan/zoom */
+.ds-nav {
+  position: absolute;
+  top: var(--s-4);
+  right: var(--s-4);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: calc(100% - 2 * var(--s-4));
+  overflow-y: auto;
+  padding: var(--s-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(6px);
+  cursor: default;
+}
+.ds-nav:empty { display: none; }
+.ds-nav-item {
+  padding: var(--s-1) var(--s-3);
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ds-nav-item:hover { background: var(--surface-2); color: var(--text); }
+.ds-nav-item[data-on="1"] { color: var(--accent-text); background: var(--accent-soft); }
+
+.ds-layout-campo { width: 100%; box-sizing: border-box; margin-top: var(--s-2); }
+.ds-perigo { margin-top: var(--s-5); color: var(--danger); align-self: flex-start; }
+.ds-corrigir { display: flex; flex-direction: column; gap: var(--s-2); margin-top: var(--s-4); }
 
 .ds-card {
-  width: 760px;
   display: flex;
   flex-direction: column;
   background: var(--surface);

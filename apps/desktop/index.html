@@ -730,6 +730,7 @@
                 <button type="button" id="ds-gerar-ir" class="primary">Gerar</button>
               </div>
             </div>
+            <button type="button" id="ds-btn-card" class="ghost" title="Criar um card: cores, tipografia, espaçamento, raio &amp; sombra, componente ou livre">+ Card</button>
             <div class="ds-novo-wrap">
               <button type="button" id="ds-btn-ferramentas" class="ghost" aria-haspopup="menu">Ferramentas ▾</button>
               <div id="ds-ferramentas" class="ds-menu hidden" role="menu">
@@ -767,6 +768,8 @@
             <button type="button" id="ds-vazio-criar" class="primary">Criar design system</button>
           </div>
           <div id="ds-viewport" class="ds-viewport hidden">
+            <!-- fora do board: fica parada enquanto o board faz pan/zoom -->
+            <nav id="ds-nav" class="ds-nav" aria-label="Seções do design system"></nav>
             <div id="ds-board" class="ds-board">
               <!-- dentro do board: acompanham pan e zoom junto com os cards -->
               <svg id="ds-traco" class="ds-traco" aria-hidden="true"></svg>
