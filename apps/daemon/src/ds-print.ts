@@ -1,5 +1,6 @@
 import { sessionBus } from "./bus.ts";
-import { estadoDs } from "./design-system.ts";
+import { ativarDs, criarDs, estadoDs, salvarCardDaFerramenta } from "./design-system.ts";
+import { canalGeracao, geracaoBus } from "./ds-gerar.ts";
 import type { Conjunto, Saida } from "./mcp.ts";
 
 /**
@@ -11,7 +12,13 @@ import type { Conjunto, Saida } from "./mcp.ts";
  */
 
 /** Liberada no `--allowed-tools` do claude (session.ts) — a ferramenta some sozinha se não houver DS. */
-export const MCP_TOOLS_DS_PRINT = ["mcp__nexo__nexo_ds_print"];
+export const MCP_TOOLS_DS_PRINT = [
+  "mcp__nexo__nexo_ds_print",
+  "mcp__nexo__nexo_ds_listar",
+  "mcp__nexo__nexo_ds_criar",
+  "mcp__nexo__nexo_ds_ativar",
+  "mcp__nexo__nexo_ds_card_salvar",
+];
 
 export type ResultadoPrint = { ok: boolean; texto: string; imagem?: { dataBase64: string; mimeType: string } };
 
@@ -50,7 +57,18 @@ export function resetPrintForTest(): void {
   pendentes.clear();
 }
 
-/** Só aparece em conversa de projeto que TEM design system ativo. */
+const erroDe = (e: unknown): Saida => ({ ok: false, texto: (e as Error).message });
+
+/** O Canvas aberto troca pro DS novo (o stream dele vigia a pasta do DS que estava ativo). */
+function avisarCanvas(projectPath: string, ativo: string | null): void {
+  geracaoBus.emit(canalGeracao(projectPath), { type: "ds_ativo", ativo });
+}
+
+/**
+ * Ferramentas do design system pra conversa de projeto: listar, criar (ex.: "Mocks" copiando o
+ * visual do ativo, pra montar uma tela de teste), ativar, salvar card e ver o card renderizado.
+ * Criar/listar existem mesmo sem DS; salvar e print só com um ativo.
+ */
 export function ferramentaDePrintDoDs(threadId: string, projectPath: string, home: string): Conjunto {
   return () => {
     let ds;
@@ -59,8 +77,100 @@ export function ferramentaDePrintDoDs(threadId: string, projectPath: string, hom
     } catch {
       return [];
     }
-    if (!ds) return [];
+    const gestao = [
+      {
+        name: "nexo_ds_listar",
+        description: "Lista os design systems deste projeto no Nexos (id, nome, qual está ativo e a pasta de cada um).",
+        inputSchema: { type: "object", properties: {} },
+        executar: (): Saida => {
+          const est = estadoDs(projectPath, home);
+          if (!est.sistemas.length) return { ok: true, texto: "Este projeto ainda não tem design system. Crie com nexo_ds_criar." };
+          const linhas = est.sistemas.map((x) => `- ${x.id} · ${x.nome}${x.id === est.ativo ? " · ATIVO" : ""}`);
+          return { ok: true, texto: `${linhas.join("\n")}${est.ds ? `\n\nPasta do ativo: ${est.ds.pastaAbs}` : ""}` };
+        },
+      },
+      {
+        name: "nexo_ds_criar",
+        description:
+          "Cria um design system novo neste projeto e deixa ele ATIVO (o Canvas passa a mostrar ele). Use pra ter um canvas " +
+          "separado — ex.: \"Mocks\" pra desenhar uma tela e mostrar como ficaria, sem mexer no DS oficial. " +
+          "`base`: \"ativo\" (copia tokens, regras e cards do DS ativo — mesmo visual), \"zero\" (vazio) ou \"padrao\" (esqueleto do Nexos). " +
+          "Depois grave as telas com nexo_ds_card_salvar e confira com nexo_ds_print.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            nome: { type: "string", description: "nome do design system (ex.: Mocks)" },
+            base: { type: "string", enum: ["ativo", "zero", "padrao"], description: "ponto de partida; padrão: ativo se houver, senão zero" },
+          },
+          required: ["nome"],
+        },
+        executar: (args: Record<string, unknown>): Saida => {
+          try {
+            const tem = !!estadoDs(projectPath, home).ds;
+            const base = typeof args.base === "string" && args.base ? args.base : tem ? "ativo" : "zero";
+            const est = criarDs(projectPath, home, { nome: args.nome, base });
+            avisarCanvas(projectPath, est.ativo);
+            return { ok: true, texto: `Criado e ativo: "${est.ds!.nome}" (id ${est.ativo}, base ${base}) — pasta: ${est.ds!.pastaAbs}. ${est.ds!.cards.length} card(s).` };
+          } catch (e) {
+            return erroDe(e);
+          }
+        },
+      },
+      {
+        name: "nexo_ds_ativar",
+        description: "Troca o design system ativo do projeto (o que o Canvas mostra e onde nexo_ds_card_salvar grava). `id` de nexo_ds_listar.",
+        inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+        executar: (args: Record<string, unknown>): Saida => {
+          try {
+            const est = ativarDs(projectPath, home, String(args.id ?? ""));
+            avisarCanvas(projectPath, est.ativo);
+            return { ok: true, texto: `Ativo: "${est.ds!.nome}" — pasta: ${est.ds!.pastaAbs}` };
+          } catch (e) {
+            return erroDe(e);
+          }
+        },
+      },
+    ];
+    if (!ds) return gestao;
     return [
+      ...gestao,
+      {
+        name: "nexo_ds_card_salvar",
+        description:
+          "Grava um card no design system ATIVO (novo ou atualização) — é assim que se cria uma tela/componente no Canvas. " +
+          "`html`: fragmento com <style> + marcação, cor/fonte/espaço/raio só por var(--token) do tokens.json, sem <script>; " +
+          "use as classes do kit (KIT.md na pasta do DS). `id` existente atualiza (fica versão guardada); sem id, sai do título. " +
+          "`secao`: id ou título (seção nova é criada). `largura`: 1/3, 1/2, 2/3 ou 1 (tela inteira: 1). Devolve os avisos do lint — " +
+          "corrija e grave de novo se houver. Depois confira com nexo_ds_print.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            titulo: { type: "string" },
+            subtitulo: { type: "string" },
+            secao: { type: "string" },
+            html: { type: "string" },
+            largura: { type: "string", enum: ["1/3", "1/2", "2/3", "1"] },
+            tipo: { type: "string", enum: ["cores", "tipografia", "espacamento", "forma", "componente", "livre"] },
+          },
+          required: ["titulo", "html"],
+        },
+        executar: (args: Record<string, unknown>): Saida => {
+          try {
+            const r = salvarCardDaFerramenta(projectPath, home, args);
+            const card = r.ds.cards.find((c) => c.id === r.id)!;
+            const avisos = card.lint.map((l) => `- ${l.msg}${l.trecho ? `: ${l.trecho}` : ""}`);
+            return {
+              ok: true,
+              texto:
+                `${r.novo ? "Card criado" : "Card atualizado"}: ${r.id} (seção ${card.secao}, largura ${card.largura ?? "1/2"}) no DS "${r.ds.nome}".` +
+                (avisos.length ? `\n\nAvisos do lint — corrija e grave de novo:\n${avisos.join("\n")}` : " Sem avisos do lint."),
+            };
+          } catch (e) {
+            return erroDe(e);
+          }
+        },
+      },
       {
         name: "nexo_ds_print",
         description:
@@ -75,7 +185,7 @@ export function ferramentaDePrintDoDs(threadId: string, projectPath: string, hom
             tema: { type: "string", description: "tema declarado em tokens.json ($extensions.nexos.temas); vazio = padrão" },
           },
         },
-        executar: async (args): Promise<Saida> => {
+        executar: async (args: Record<string, unknown>): Promise<Saida> => {
           const atual = estadoDs(projectPath, home).ds;
           if (!atual) return { ok: false, texto: "este projeto não tem design system" };
           const todos = [

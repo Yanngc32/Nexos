@@ -431,6 +431,20 @@ export function createDsCanvas({
     pintar({ anterior, animar });
   }
 
+  async function trocarPraDsDoDisco() {
+    try {
+      estado = await req(`/v1/ds?${qs()}`);
+    } catch (e) {
+      erroTopo(e.message);
+      return;
+    }
+    ajustouUmaVez = false;
+    fecharPainel();
+    limparFrames();
+    pintar();
+    ouvir();
+  }
+
   function aplicarDs(ds, { animar = false } = {}) {
     const anterior = estado.ds;
     estado = { ...estado, ds };
@@ -457,6 +471,11 @@ export function createDsCanvas({
           }
           if (ev.type === "ds_stream") {
             void receberStream(ev);
+            return;
+          }
+          // o agente criou/ativou outro DS (nexo_ds_criar/ativar): troca a tela e passa a vigiar a pasta dele
+          if (ev.type === "ds_ativo") {
+            if (ev.ativo !== estado.ativo) void trocarPraDsDoDisco();
             return;
           }
           if (ev.type !== "changed") return;

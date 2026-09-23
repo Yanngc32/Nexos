@@ -13,10 +13,10 @@ describe("nexo_ds_print", () => {
   it("some sem DS; sem card lista; card inexistente recusa; com card pede ao app e devolve a imagem", async () => {
     const home = tempHome();
     const proj = mkdtempSync(join(tmpdir(), "nexo-print-"));
-    expect(ferramentaDePrintDoDs("t1", proj, home)()).toEqual([]);
+    // sem DS: só dá pra listar, criar e ativar
+    expect(ferramentaDePrintDoDs("t1", proj, home)().map((x) => x.name)).toEqual(["nexo_ds_listar", "nexo_ds_criar", "nexo_ds_ativar"]);
     criarDs(proj, home, { nome: "Teste" });
-    const [f] = ferramentaDePrintDoDs("t1", proj, home)();
-    expect(f!.name).toBe("nexo_ds_print");
+    const f = ferramentaDePrintDoDs("t1", proj, home)().find((x) => x.name === "nexo_ds_print");
 
     const lista = await f!.executar({});
     expect(lista.texto).toContain(`pasta: ${estadoDs(proj, home).ds!.pastaAbs}`);
@@ -40,5 +40,40 @@ describe("nexo_ds_print", () => {
       sessionBus.off("*", ouvir);
     }
     expect(responderPrint("nao-existe", { ok: true, texto: "" })).toBe(false);
+  });
+
+  it("agente cria um DS de mocks copiando o ativo, grava uma tela e volta pro oficial", async () => {
+    const home = tempHome();
+    const proj = mkdtempSync(join(tmpdir(), "nexo-mocks-"));
+    criarDs(proj, home, { nome: "Teste do Prisma" });
+    const ferr = () => Object.fromEntries(ferramentaDePrintDoDs("t1", proj, home)().map((x) => [x.name, x]));
+
+    const criado = await ferr().nexo_ds_criar!.executar({ nome: "Mocks" });
+    expect(criado.ok).toBe(true);
+    expect(criado.texto).toContain("base ativo");
+    const ds = estadoDs(proj, home).ds!;
+    expect(ds.nome).toBe("Mocks");
+    expect(ds.cards.length).toBeGreaterThan(0); // veio com os cards (e tokens) do oficial
+
+    const tela = await ferr().nexo_ds_card_salvar!.executar({
+      titulo: "Efeito da precificação",
+      secao: "Telas",
+      largura: "1",
+      html: '<div class="k-bloco"><p class="k-rotulo">Antes × depois</p><div style="color:var(--color-text)">…</div></div>',
+    });
+    expect(tela.texto).toContain("Card criado: efeito-da-precificacao");
+    expect(tela.texto).toContain("Sem avisos do lint");
+    const card = estadoDs(proj, home).ds!.cards.find((c) => c.id === "efeito-da-precificacao")!;
+    expect(card).toMatchObject({ secao: "telas", largura: "1" });
+
+    const ruim = await ferr().nexo_ds_card_salvar!.executar({ id: "efeito-da-precificacao", titulo: "x", html: '<p style="color:#ff0000">x</p>' });
+    expect(ruim.texto).toContain("Card atualizado");
+    expect(ruim.texto).toContain("Avisos do lint");
+
+    const lista = await ferr().nexo_ds_listar!.executar({});
+    expect(lista.texto).toMatch(/mocks · Mocks · ATIVO/);
+    const volta = await ferr().nexo_ds_ativar!.executar({ id: "teste-do-prisma" });
+    expect(volta.texto).toContain('"Teste do Prisma"');
+    expect(estadoDs(proj, home).ds!.cards.some((c) => c.id === "efeito-da-precificacao")).toBe(false);
   });
 });

@@ -794,8 +794,11 @@ export function criarDs(projectPath: string, home: string, input: { nome?: unkno
   const abs = pastaAbsoluta(projectPath, home, { id, nome });
   // sem `base` = padrão do Nexos (quem chamava antes continua igual); o Canvas manda sempre
   const escolhida = typeof input.base === "string" && input.base ? input.base : "padrao";
-  if (escolhida.startsWith("copia:")) {
-    const origem = pastaDaCopia(escolhida, home);
+  // "ativo" = copiar o DS ativo deste projeto (o agente cria "Mocks" com o mesmo visual)
+  const ativo = p.sistemas.find((x) => x.id === p.ativo);
+  if (escolhida === "ativo" && !ativo) throw erro("este projeto não tem design system ativo pra copiar");
+  if (escolhida.startsWith("copia:") || escolhida === "ativo") {
+    const origem = escolhida === "ativo" ? pastaAbsoluta(projectPath, home, ativo!) : pastaDaCopia(escolhida, home);
     if (resolve(origem) === resolve(abs)) throw erro("não dá pra copiar um design system em cima dele mesmo");
     // o histórico de versões é do DS de origem, não entra na cópia
     cpSync(origem, abs, { recursive: true, force: false, errorOnExist: false, filter: (src) => !/[\\/]\.versoes([\\/]|$)/.test(src) });
@@ -997,6 +1000,46 @@ export function registrarCardNovo(
   const cards = [...(meta.cards ?? []).filter((c) => c && c.id !== novo.id), entrada];
   escreverAtomico(join(pasta, "meta.json"), `${JSON.stringify({ ...meta, cards }, null, 2)}\n`);
   return { id: novo.id, titulo: novo.titulo, ...(novo.subtitulo ? { subtitulo: novo.subtitulo } : {}), secao };
+}
+
+export type CardDaFerramenta = {
+  id?: unknown;
+  titulo?: unknown;
+  subtitulo?: unknown;
+  secao?: unknown;
+  html?: unknown;
+  largura?: unknown;
+  tipo?: unknown;
+};
+
+/**
+ * Card gravado pelo agente (`nexo_ds_card_salvar`): id existente = atualiza (com versão guardada);
+ * sem id, ou id novo, sai do título. Seção por id ou título (vira seção nova). Grava pelo daemon
+ * porque um DS criado no meio do turno fica fora das pastas que o CLI pode escrever naquele turno.
+ */
+export function salvarCardDaFerramenta(projectPath: string, home: string, c: CardDaFerramenta): { ds: DsCompleto; id: string; novo: boolean } {
+  if (typeof c.html !== "string" || !c.html.trim()) throw erro("html obrigatório");
+  const s = ativoOuErro(projectPath, home);
+  const pasta = pastaAbsoluta(projectPath, home, s);
+  const pedido = typeof c.id === "string" ? c.id.trim() : "";
+  const existe = !!pedido && ID_RE.test(pedido) && existsSync(join(pasta, "cards", `${pedido}.html`));
+  const titulo = typeof c.titulo === "string" && c.titulo.trim() ? c.titulo.trim().slice(0, 80) : pedido || "Card";
+  const id = existe ? pedido : pedido && ID_RE.test(pedido) && !IDS_FUNDAMENTOS.includes(pedido) ? pedido : idNovoDeCard(projectPath, home, titulo);
+  const ds = salvarCard(
+    projectPath,
+    home,
+    id,
+    {
+      html: c.html,
+      titulo,
+      ...(typeof c.subtitulo === "string" && c.subtitulo.trim() ? { subtitulo: c.subtitulo.trim().slice(0, 120) } : {}),
+      ...(typeof c.secao === "string" && c.secao.trim() ? { secao: secaoParaCard(pasta, c.secao) } : existe ? {} : { secao: "outros" }),
+      ...(ehTipo(c.tipo) ? { tipo: c.tipo } : {}),
+      ...(ehLargura(c.largura) ? { largura: c.largura } : existe ? {} : { largura: "1/2" }),
+    },
+    { versionar: existe },
+  );
+  return { ds, id, novo: !existe };
 }
 
 export type MudancaDeCard = { titulo?: unknown; subtitulo?: unknown; secao?: unknown; largura?: unknown; oculto?: unknown; mover?: unknown };
