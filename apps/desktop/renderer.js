@@ -7981,6 +7981,8 @@ async function renderPainelDeBorda() {
   $("painel-tamanho").value = String(p.tamanho);
   $("painel-tamanho-v").textContent = `${Math.round(p.tamanho * 100)}%`;
   $("painel-aneis").value = p.aneis;
+  $("painel-opacidade").value = String(p.opacidade);
+  $("painel-opacidade-v").textContent = `${Math.round(p.opacidade * 100)}%`;
   $("painel-espiar").value = String(p.espiar);
   for (const k of ["somAoTerminar", "somAoPedir", "avisarLimite", "avisarRenovou"]) $(`painel-${k}`).checked = p[k];
   $("painel-atencao").value = String(Math.round(p.atencao * 100));
@@ -8002,6 +8004,11 @@ $("painel-tamanho").addEventListener("input", (e) => {
 });
 $("painel-tamanho").addEventListener("change", (e) => void gravarPainelDeBorda({ tamanho: Number(e.target.value) }));
 $("painel-aneis").addEventListener("change", (e) => void gravarPainelDeBorda({ aneis: e.target.value }));
+// opacidade: o painel acompanha ao vivo enquanto arrasta (gravar é só um arquivo pequeno)
+$("painel-opacidade").addEventListener("input", (e) => {
+  $("painel-opacidade-v").textContent = `${Math.round(Number(e.target.value) * 100)}%`;
+  void window.nexo.setPainelPrefs({ opacidade: Number(e.target.value) });
+});
 $("painel-espiar").addEventListener("change", (e) => void gravarPainelDeBorda({ espiar: Number(e.target.value) }));
 $("painel-centralizar").addEventListener("click", () => void gravarPainelDeBorda({ aoLongo: null }));
 for (const k of ["somAoTerminar", "somAoPedir", "avisarLimite", "avisarRenovou"]) {

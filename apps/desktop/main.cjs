@@ -778,6 +778,8 @@ const PAINEL_PADRAO = {
   tamanho: 1,
   /** "dois": anel de fora = semana, de dentro = 5 h. "um": só a janela mais apertada. */
   aneis: "dois",
+  /** Opacidade do fundo (pílula e card), 0,3 a 1. A cor vem do tema de Aparência. */
+  opacidade: 1,
   /** Segundos que o painel abre sozinho quando uma conversa termina/pede resposta (0 = não abre). */
   espiar: 5,
   somAoTerminar: true,
@@ -817,6 +819,9 @@ function limparPrefsDoPainel(raw) {
     p.tamanho = Math.round(raw.tamanho * 20) / 20;
   }
   if (raw.aneis === "um" || raw.aneis === "dois") p.aneis = raw.aneis;
+  if (typeof raw.opacidade === "number" && raw.opacidade >= 0.3 && raw.opacidade <= 1) {
+    p.opacidade = Math.round(raw.opacidade * 20) / 20;
+  }
   if (PAINEL_ESPIAR.includes(raw.espiar)) p.espiar = raw.espiar;
   for (const k of ["somAoTerminar", "somAoPedir", "avisarLimite", "avisarRenovou"]) {
     if (typeof raw[k] === "boolean") p[k] = raw[k];

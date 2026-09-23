@@ -15,7 +15,8 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 - Quando uma conversa termina ou pede resposta, o painel abre sozinho por alguns segundos e toca
   um som; aviso do Windows ao chegar no limite crítico e nos 100%, e quando o limite renova.
 - Configurações → Painel de borda: modo (fixo, dinâmico, desligado), borda, monitor, tamanho
-  (60% a 160%), um ou dois anéis, tempo aberto ao terminar, sons, avisos e as faixas de cor.
+  (60% a 160%), transparência do fundo (a cor segue o perfil de Aparência), um ou dois anéis,
+  tempo aberto ao terminar, sons, avisos e as faixas de cor.
 - Configurações → Pastas: escolher onde ficam os dados de cada projeto — numa pasta por projeto
   dentro da pasta configurada (como era) ou em `.nexos/` na raiz do próprio projeto (já entra no
   `.gitignore`). Agentes, times, hooks e skills gerais continuam na pasta configurada. Trocar de

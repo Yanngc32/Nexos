@@ -25,7 +25,7 @@ const el = (id) => document.getElementById(id);
 const body = document.body;
 const api = createApiClient({ daemonInfo: () => window.nexo.daemonInfo() });
 
-let prefs = { mostrar: "dinamico", aneis: "dois", espiar: 5, somAoTerminar: true, somAoPedir: true, avisarLimite: true, avisarRenovou: true, atencao: 0.5, critico: 0.8 };
+let prefs = { mostrar: "dinamico", aneis: "dois", opacidade: 1, espiar: 5, somAoTerminar: true, somAoPedir: true, avisarLimite: true, avisarRenovou: true, atencao: 0.5, critico: 0.8 };
 let borda = "direita";
 let centro = 300;
 let hover = false;
@@ -250,6 +250,9 @@ function cardMenu() {
 
 function pintar() {
   const agora = Date.now();
+  // fundo translúcido: a cor é a do tema (styles de :root), a opacidade vem das Configurações
+  const opac = Number(prefs.opacidade);
+  document.documentElement.style.setProperty("--opac", `${Math.round((opac >= 0.3 && opac <= 1 ? opac : 1) * 100)}%`);
   const celulas = celulasDeConta(dados.contas, agora, prefs);
   const linhas = linhasDeAtividade(dados.agentes, terminadas, agora);
   body.dataset.borda = borda;

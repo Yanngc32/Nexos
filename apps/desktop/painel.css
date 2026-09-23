@@ -17,7 +17,11 @@
 :root {
   /* Mesma rampa e acento do app (styles.css); o acento vem de Configurações em runtime. */
   --bg: #141417;
-  --pilula: #000000;
+  /* fundo da pílula e do card: o --bg do tema (grafite roxo ou preto) na opacidade escolhida
+     em Configurações (--opac, gravado pelo painel.js) */
+  --opac: 100%;
+  --pilula: color-mix(in srgb, var(--bg) var(--opac), transparent);
+  --sombra: color-mix(in srgb, #000 calc(var(--opac) * 0.45), transparent);
   --surface-2: #202026;
   --line: #26262c;
   --text: #ececef;
@@ -46,7 +50,6 @@
 
 :root[data-tema="preto"] {
   --bg: #000000;
-  --pilula: #000000;
   --surface-2: #17171a;
   --line: #1e1e21;
   --text: #ededee;
@@ -91,7 +94,7 @@ body {
   justify-content: center;
   background: var(--pilula);
   /* drop-shadow (e não box-shadow): a sombra acompanha as curvas das pontas */
-  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.45));
+  filter: drop-shadow(0 4px 14px var(--sombra));
   /* raio da curva côncava que liga a pílula à borda da tela */
   /* recolhido: só um traço, discreto, sem curva */
   --curva: 0px;
@@ -456,10 +459,10 @@ body:not([data-aberto="1"]) .off {
   max-height: calc(100% - 12px);
   overflow: visible;
   padding: 14px 14px 12px;
-  background: #0a0a0a;
+  background: var(--pilula);
   border: 1px solid var(--line);
   border-radius: 16px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 30px var(--sombra);
   animation: surgir 220ms var(--mola);
   scrollbar-width: thin;
 }
@@ -467,7 +470,7 @@ body:not([data-aberto="1"]) .off {
   position: absolute;
   width: 10px;
   height: 10px;
-  background: #0a0a0a;
+  background: var(--pilula);
   border: 1px solid var(--line);
   rotate: 45deg;
 }
@@ -475,21 +478,25 @@ body[data-borda="direita"] .rabo {
   right: -6px;
   border-left: 0;
   border-bottom: 0;
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
 }
 body[data-borda="esquerda"] .rabo {
   left: -6px;
   border-right: 0;
   border-top: 0;
+  clip-path: polygon(0 0, 100% 100%, 0 100%);
 }
 body[data-borda="topo"] .rabo {
   top: -6px;
   border-right: 0;
   border-bottom: 0;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
 }
 body[data-borda="baixo"] .rabo {
   bottom: -6px;
   border-left: 0;
   border-top: 0;
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
 }
 
 .card h2 {
