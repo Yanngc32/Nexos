@@ -55,6 +55,15 @@ let porta = 0;
 
 let ligadoHttps: Ligado | null = null;
 let httpsPort = 0;
+
+/**
+ * 443 é o padrão (ver o comentário no `abrirHttps` abaixo: o app do celular só bate na 443).
+ * `NEXOS_HTTPS_PORT` troca — no Linux porta < 1024 exige root, e o teste usa 0 (porta livre).
+ */
+function portaHttpsPadrao(): number {
+  const v = process.env.NEXOS_HTTPS_PORT;
+  return v !== undefined && /^\d+$/.test(v) ? Number(v) : 443;
+}
 let httpsInfo: EstadoHttps = null;
 /** Uma tentativa de cada vez — `tailscale cert` pode demorar, e empilhar chamada
  *  concorrente só faria a mesma pergunta duas vezes sem ganhar nada. */
@@ -215,7 +224,7 @@ export async function tentarHttps(fetchHandler: Fetch, port: number, home: strin
     // 443 fixo: o manifest do TWA (bubblewrap) monta a URL como `https://${host}${startUrl}`,
     // sem campo de porta — porta implícita é sempre 443. Servir noutra porta faz o app
     // do celular bater em "conexão recusada" contra a 443, que ninguém escuta.
-    const aberto = await abrirHttps(fetchHandler, tunel.host, httpsPort || 443, par.certPem, par.keyPem);
+    const aberto = await abrirHttps(fetchHandler, tunel.host, httpsPort || portaHttpsPadrao(), par.certPem, par.keyPem);
     httpsPort = aberto.port;
     ligadoHttps = { host: tunel.host, server: aberto.server };
     httpsInfo = { host: tunel.host, hostname, port: httpsPort };

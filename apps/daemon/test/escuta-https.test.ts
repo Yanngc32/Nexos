@@ -40,6 +40,9 @@ async function importEscuta() {
 const CERT = readFileSync(join(import.meta.dirname, "fixtures/fake-tls-cert.pem"), "utf8");
 const KEY = readFileSync(join(import.meta.dirname, "fixtures/fake-tls-key.pem"), "utf8");
 
+// porta livre em vez da 443: no Linux (CI) porta < 1024 exige root e o HTTPS nunca subia
+process.env.NEXOS_HTTPS_PORT = "0";
+
 afterEach(() => {
   resetEscutaForTest();
   hostnameTailscaleMock.mockReset();

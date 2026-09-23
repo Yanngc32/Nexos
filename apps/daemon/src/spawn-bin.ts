@@ -42,7 +42,8 @@ export function resolveShimEntry(cmdPath: string): string | undefined {
   const matches = [...conteudo.matchAll(/"%dp0%\\([^"]+\.[cm]?js)"/gi)];
   const ultimo = matches.at(-1)?.[1];
   if (!ultimo) return undefined;
-  const alvo = join(dirname(cmdPath), ultimo);
+  // o shim escreve com `\`; separar e juntar de novo faz o mesmo caminho em qualquer SO
+  const alvo = join(dirname(cmdPath), ...ultimo.split(/[\\/]+/));
   return existsSync(alvo) ? alvo : undefined;
 }
 
