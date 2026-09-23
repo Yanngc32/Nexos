@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { addProfile, markReady, updateProfile } from "../src/profiles.ts";
-import { claudeEngine, codexEngine, parseCliLine } from "../src/engines/cli.ts";
+import { claudeEngine, codexEngine, FECHAMENTO_NO_PACK, LEMBRETE_DE_FECHAMENTO, parseCliLine } from "../src/engines/cli.ts";
 import { contextWindowOf, toolSummary } from "../src/engines/parse-claude.ts";
 import { spawnCwd } from "../src/project-cwd.ts";
 import { tempHome } from "./helpers.ts";
@@ -116,6 +116,27 @@ describe("CliEngine --resume", () => {
       expect(engine.lastArgs).toContain("--resume");
       expect(engine.lastArgs).toContain("sess-abcd-1234");
       expect(engine.lastPayload).toBe("segunda");
+    } finally {
+      delete process.env.NEXOS_CLAUDE_BIN;
+    }
+  });
+
+  it("com --resume e a regra de fechamento no pack, o lembrete vai no fim da mensagem", async () => {
+    const home = tempHome();
+    addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
+    markReady("c1", home);
+    process.env.NEXOS_CLAUDE_BIN = fake;
+    try {
+      const engine = claudeEngine(home, "c1");
+      const events: EngineEvent[] = [];
+      await engine.start(
+        { threadId: "t-lembrete", projectPath: spawnCwd("."), profileId: "c1", contextPack: `${FECHAMENTO_NO_PACK}\nregra` },
+        (ev) => events.push(ev),
+      );
+      engine.updateResume("sess-abcd-1234");
+      await engine.send("segunda");
+      await waitDone(events);
+      expect(engine.lastPayload).toBe(`segunda\n\n${LEMBRETE_DE_FECHAMENTO}`);
     } finally {
       delete process.env.NEXOS_CLAUDE_BIN;
     }

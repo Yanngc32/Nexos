@@ -20,7 +20,7 @@ import { MCP_TOOLS_TAREFA } from "./tarefas.ts";
 import { expandirSkill } from "./skills.ts";
 import { apagarSessaoClaude, gravarSessaoClaude, lerSessaoClaude } from "./claude-session.ts";
 import { ApiEngine } from "./engines/api.ts";
-import { claudeEngine, codexEngine } from "./engines/cli.ts";
+import { claudeEngine, codexEngine, FECHAMENTO_NO_PACK } from "./engines/cli.ts";
 import { contextWindowOf } from "./engines/parse-claude.ts";
 import { StubEngine } from "./engines/stub.ts";
 import type { Engine } from "./engines/types.ts";
@@ -334,7 +334,7 @@ function withInstructions(
   projectPath: string | undefined,
   packText: string,
   home: string,
-  opts: { incluirDs?: boolean } = {},
+  opts: { incluirDs?: boolean; oculta?: boolean } = {},
 ): string {
   const def = agentId ? getAgent(agentId, home) : undefined;
   const instrucoes = def?.instructions?.trim();
@@ -366,8 +366,9 @@ function withInstructions(
   );
   // Sem isso o turno às vezes termina numa frase de progresso ("agora vou ajustar X…") e a pessoa
   // fica sem saber o que de fato mudou — o resumo é o que ela lê primeiro ao voltar pro chat.
-  blocos.push(
-    "# Fechamento do turno\nQuando o turno usou ferramentas (editou arquivo, rodou comando, " +
+  // conversa de trabalho do Nexos (geração do DS) responde em formato fixo: resumo ali atrapalha
+  if (!opts.oculta) blocos.push(
+    `${FECHAMENTO_NO_PACK}\nQuando o turno usou ferramentas (editou arquivo, rodou comando, ` +
       "delegou), a ÚLTIMA mensagem é um resumo curto pra quem pediu: o que mudou (arquivos/efeitos), " +
       "o que foi verificado (teste, build) e o que ficou pendente ou precisa de decisão. Nunca termine " +
       "o turno numa frase de progresso do tipo \"agora vou…\". Pergunta simples sem ferramenta não " +
@@ -509,7 +510,7 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
 
   const existing = lives.get(threadId);
   if (existing && existing.profileId === p.id && existing.agentId === agentId) {
-    existing.engine.updatePack(withInstructions(agentId, meta.projectPath, packed.text, home, { incluirDs: !(meta.oculta || meta.semRoteamento) }));
+    existing.engine.updatePack(withInstructions(agentId, meta.projectPath, packed.text, home, { incluirDs: !(meta.oculta || meta.semRoteamento), oculta: meta.oculta === true }));
     // Mesma razão do updatePack: sem isto, mudar `delegacaoModo`/`allowedTools` só valeria depois
     // de um engine NOVO (troca de conta, /clear, reiniciar o motor) — aqui vale já no próximo envio.
     existing.engine.updateMcp(mcpDaConversa(threadId, meta, p, home));
@@ -540,7 +541,7 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
       // As instruções do agente e a memória do projeto abrem o pack: é o mais
       // perto de "system prompt" que o motor de CLI aceita (o `api` usa o
       // pack como system de verdade).
-      contextPack: withInstructions(agentId, meta.projectPath, packed.text, home, { incluirDs: !(meta.oculta || meta.semRoteamento) }),
+      contextPack: withInstructions(agentId, meta.projectPath, packed.text, home, { incluirDs: !(meta.oculta || meta.semRoteamento), oculta: meta.oculta === true }),
       ...(agentId ? { agentId } : {}),
       // Conversa com branch fixa roda na `git worktree` isolada, não na pasta
       // compartilhada do projeto — só o cwd do processo muda (ver StartOpts.cwdOverride).

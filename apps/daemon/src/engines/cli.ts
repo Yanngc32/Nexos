@@ -29,6 +29,11 @@ import { pastaDoAtivo } from "../design-system.ts";
 import { parseCliLine } from "./parse-claude.ts";
 import { parseCodexLine } from "./parse-codex.ts";
 
+/** Título do bloco no pack (session.ts `withInstructions`) e a linha que o lembra nos turnos com --resume. */
+export const FECHAMENTO_NO_PACK = "# Fechamento do turno";
+export const LEMBRETE_DE_FECHAMENTO =
+  "(Nexos: se este turno usar ferramentas, termine com o resumo curto — o que mudou, o que foi verificado e o que ficou pendente.)";
+
 export { parseCliLine };
 
 /** CLI perdeu a sessão que `--resume` apontava — vale um retry com o pack. */
@@ -372,7 +377,13 @@ export class CliEngine implements Engine {
      * histórico e a quota explode (é exatamente o que o Claude Code interativo
      * não faz).
      */
-    const full = resumindo ? text : [this.pack, text].filter(Boolean).join("\n\n");
+    /*
+     * Com `--resume` a regra de "Fechamento do turno" do pack ficou lá no 1º turno, e do 2º em
+     * diante o turno voltava a acabar em "agora vou…". Uma linha no fim do que o modelo lê pesa
+     * mais que o bloco lá atrás. Só quando o pack tem a regra (conversa oculta do Nexos não tem).
+     */
+    const lembrete = resumindo && this.pack?.includes(FECHAMENTO_NO_PACK) ? `\n\n${LEMBRETE_DE_FECHAMENTO}` : "";
+    const full = resumindo ? `${text}${lembrete}` : [this.pack, text].filter(Boolean).join("\n\n");
     this.lastPayload = full;
     let suppressClose = false;
     const emit = (ev: EngineEvent) => {
