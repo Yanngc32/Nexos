@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { NexoConfig } from "@nexos/shared";
 import { loadConfig } from "./config.ts";
@@ -30,6 +30,55 @@ export function projetosRoot(home: string): string {
   if (readGoogleStore(home).refreshToken) return join(home, "drive");
   const cfg = loadConfig(home);
   return cfg.projetosDir || join(home, "projetos");
+}
+
+/**
+ * Google conectado: traz pra raiz do Drive (`<home>/drive`) o que estava na pasta manual antiga
+ * (`projetosDir`), UMA vez por pasta de origem.
+ *
+ * Por quê: até a 0.5.0 as duas conviviam e o app gravava na manual (em geral `G:\Meu Drive\…`,
+ * espelhada pelo Drive para desktop). O sync pela API só enxerga o que ELE criou no Drive, então
+ * o que foi gravado direto na manual (ícones, memória, projetos inteiros) não estava na raiz nova
+ * — trocar a raiz fazia parecer que os dados de projeto tinham sido resetados.
+ *
+ * Só copia arquivo que falta no destino (nunca sobrescreve) e a manual fica intacta, de backup.
+ * A marca em `<home>/pasta-manual-migrada.json` evita recopiar o que a pessoa apagar depois.
+ * Best-effort: nunca lança. Devolve quantos arquivos copiou.
+ */
+export function trazerPastaManualProDrive(home: string, destino: string): number {
+  const de = loadConfig(home).projetosDir;
+  if (!de || !readGoogleStore(home).refreshToken || !existsSync(de)) return 0;
+  const marca = join(home, "pasta-manual-migrada.json");
+  try {
+    const feita = JSON.parse(readFileSync(marca, "utf8")) as { de?: string };
+    if (feita.de === de) return 0;
+  } catch {
+    // sem marca: ainda não migrou
+  }
+  let copiados = 0;
+  const copiar = (origem: string, alvo: string): void => {
+    for (const e of readdirSync(origem, { withFileTypes: true })) {
+      // restos de migrações/escritas antigas não viram dado de projeto
+      if (e.name.endsWith(".stale-backup") || e.name.endsWith(".tmp") || e.name === "desktop.ini") continue;
+      const o = join(origem, e.name);
+      const a = join(alvo, e.name);
+      if (e.isDirectory()) copiar(o, a);
+      else if (e.isFile() && !existsSync(a)) {
+        mkdirSync(alvo, { recursive: true });
+        copyFileSync(o, a);
+        copiados += 1;
+      }
+    }
+  };
+  try {
+    copiar(de, destino);
+    writeFileSync(marca, JSON.stringify({ de, para: destino, em: new Date().toISOString(), copiados }, null, 2), "utf8");
+    if (copiados) console.error(`nexo: ${copiados} arquivo(s) da pasta ${de} trazidos pra ${destino}`);
+  } catch (e) {
+    // sem marca: tenta de novo na próxima rodada (o que já veio não é copiado duas vezes)
+    console.error(`nexo: não consegui trazer a pasta ${de}: ${(e as Error).message}`);
+  }
+  return copiados;
 }
 
 export type ModoArmazenamento = "pasta" | "projeto";

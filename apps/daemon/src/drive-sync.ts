@@ -16,7 +16,7 @@ import {
   updateFile,
 } from "./google-drive.ts";
 import { PASTA_BIBLIOTECA, sincronizarBiblioteca } from "./biblioteca.ts";
-import { projetosRoot } from "./projeto-dir.ts";
+import { projetosRoot, trazerPastaManualProDrive } from "./projeto-dir.ts";
 import { decidir } from "./sync-decisao.ts";
 import { importarConversas, mesclarJsonl } from "./threads.ts";
 
@@ -214,6 +214,8 @@ async function rodar(home: string): Promise<ResultadoSync> {
     const folderId = store.folderId ?? (await garantirPastaNexo(home)).id;
     const rootLocal = projetosRoot(home);
     mkdirSync(rootLocal, { recursive: true });
+    // o que ficou na pasta manual antiga (gravado fora do sync pela API) vem pra cá e sobe nesta rodada
+    trazerPastaManualProDrive(home, rootLocal);
     // antes: o que mudou aqui (agente, time, hook, skill) já vai no espelho que sobe nesta rodada
     anotarBiblioteca(res, sincronizarBiblioteca(home));
 

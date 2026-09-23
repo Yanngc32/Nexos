@@ -8,6 +8,12 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Corrigido
 
+- Depois de atualizar pra 0.5.1 com o Google Drive conectado, projetos, ícones e memória que
+  estavam na pasta compartilhada manual pareciam resetados: o sync pela API não enxergava o que
+  foi gravado direto nela. Agora o que falta vem de lá uma vez (sem sobrescrever nada; a pasta
+  antiga fica intacta) e sobe pro Drive.
+- O traço do painel de borda recolhido quase não aparecia em fundo escuro.
+
 ### Alterado
 
 ### Segurança
