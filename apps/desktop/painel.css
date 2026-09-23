@@ -8,6 +8,12 @@
  * `body` não tem fundo nenhum.
  */
 
+@property --curva {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 6px;
+}
+
 :root {
   /* Mesma rampa e acento do app (styles.css); o acento vem de Configurações em runtime. */
   --bg: #141417;
@@ -29,6 +35,9 @@
   --fs-xs: 11px;
   --fs-sm: 12px;
   --cel: 54px;
+  /* o traço do modo dinâmico, recolhido */
+  --traco-esp: 4px;
+  --traco-comp: 48px;
   --anel: 40px;
   --mola: cubic-bezier(0.34, 1.26, 0.64, 1);
   --dur: 420ms;
@@ -81,13 +90,90 @@ body {
   align-items: center;
   justify-content: center;
   background: var(--pilula);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+  /* drop-shadow (e não box-shadow): a sombra acompanha as curvas das pontas */
+  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.45));
+  /* raio da curva côncava que liga a pílula à borda da tela */
+  /* recolhido: só um traço, discreto, sem curva */
+  --curva: 0px;
+  opacity: 0.7;
   transition:
     width var(--dur) var(--mola),
     height var(--dur) var(--mola),
-    border-radius var(--dur) var(--mola);
+    border-radius var(--dur) var(--mola),
+    --curva var(--dur) var(--mola),
+    opacity 200ms ease;
+}
+/* saindo: fecha mais rápido e sem mola (o conteúdo some antes, ver .celula) */
+body:not([data-aberto="1"]) .pilula {
+  transition-duration: 260ms, 260ms, 260ms, 260ms, 200ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+body[data-aberto="1"] .pilula {
+  --curva: 12px;
+  opacity: 1;
+}
+.miolo {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: inherit;
+  align-items: center;
+  justify-content: center;
+  border-radius: inherit;
   overflow: hidden;
+}
+
+/*
+ * Curvas das pontas: o preto não "bate" na borda da tela em quina — abre numa curva côncava,
+ * como o notch. Cada uma é um quadrado da cor da pílula com um quarto de círculo recortado.
+ */
+.pilula::before,
+.pilula::after {
+  content: "";
+  position: absolute;
+  width: var(--curva);
+  height: var(--curva);
+  pointer-events: none;
+}
+body[data-borda="direita"] .pilula::before {
+  right: 0;
+  bottom: 100%;
+  background: radial-gradient(circle at 0 0, transparent calc(var(--curva) - 0.5px), var(--pilula) var(--curva));
+}
+body[data-borda="direita"] .pilula::after {
+  right: 0;
+  top: 100%;
+  background: radial-gradient(circle at 0 100%, transparent calc(var(--curva) - 0.5px), var(--pilula) var(--curva));
+}
+body[data-borda="esquerda"] .pilula::before {
+  left: 0;
+  bottom: 100%;
+  background: radial-gradient(circle at 100% 0, transparent calc(var(--curva) - 0.5px), var(--pilula) var(--curva));
+}
+body[data-borda="esquerda"] .pilula::after {
+  left: 0;
+  top: 100%;
+  background: radial-gradient(circle at 100% 100%, transparent calc(var(--curva) - 0.5px), var(--pilula) var(--curva));
+}
+body[data-borda="topo"] .pilula::before {
+  top: 0;
+  right: 100%;
+  background: radial-gradient(circle at 0 100%, transparent calc(var(--curva) - 0.5px), var(--pilula) var(--curva));
+}
+body[data-borda="topo"] .pilula::after {
+  top: 0;
+  left: 100%;
+  background: radial-gradient(circle at 100% 100%, transparent calc(var(--curva) - 0.5px), var(--pilula) var(--curva));
+}
+body[data-borda="baixo"] .pilula::before {
+  bottom: 0;
+  right: 100%;
+  background: radial-gradient(circle at 0 0, transparent calc(var(--curva) - 0.5px), var(--pilula) var(--curva));
+}
+body[data-borda="baixo"] .pilula::after {
+  bottom: 0;
+  left: 100%;
+  background: radial-gradient(circle at 100% 0, transparent calc(var(--curva) - 0.5px), var(--pilula) var(--curva));
 }
 
 /* vertical: bordas laterais */
@@ -95,19 +181,17 @@ body[data-borda="direita"] .pilula,
 body[data-borda="esquerda"] .pilula {
   top: var(--centro, 50%);
   translate: 0 -50%;
-  width: 10px;
-  height: 79px;
+  width: var(--traco-esp);
+  height: var(--traco-comp);
   flex-direction: column;
 }
 body[data-borda="direita"] .pilula {
   right: 0;
-  border-right: 0;
-  border-radius: 6px 0 0 6px;
+  border-radius: 3px 0 0 3px;
 }
 body[data-borda="esquerda"] .pilula {
   left: 0;
-  border-left: 0;
-  border-radius: 0 6px 6px 0;
+  border-radius: 0 3px 3px 0;
 }
 
 /* horizontal: topo/baixo */
@@ -115,19 +199,17 @@ body[data-borda="topo"] .pilula,
 body[data-borda="baixo"] .pilula {
   left: var(--centro, 50%);
   translate: -50% 0;
-  height: 10px;
-  width: 79px;
+  height: var(--traco-esp);
+  width: var(--traco-comp);
   flex-direction: row;
 }
 body[data-borda="topo"] .pilula {
   top: 0;
-  border-top: 0;
-  border-radius: 0 0 6px 6px;
+  border-radius: 0 0 3px 3px;
 }
 body[data-borda="baixo"] .pilula {
   bottom: 0;
-  border-bottom: 0;
-  border-radius: 6px 6px 0 0;
+  border-radius: 3px 3px 0 0;
 }
 
 /* aberta: tamanho vem do conteúdo (painel.js mede e grava em --comprimento) */
@@ -159,10 +241,11 @@ body[data-arrastando="1"] .pilula {
 }
 
 /* fio: o que aparece recolhido — a cor diz o estado sem abrir */
+/* o traço em si ganha a cor do estado (trabalhando / esperando / terminou) */
 .fio {
   position: absolute;
-  inset: 2px;
-  border-radius: 999px;
+  inset: 0;
+  border-radius: inherit;
   background: transparent;
   transition: opacity 180ms ease;
 }
@@ -233,11 +316,12 @@ body[data-aberto="1"] .celulas {
     opacity 220ms ease,
     scale 320ms var(--mola),
     background 120ms ease;
-  transition-delay: calc(var(--i, 0) * 45ms);
 }
+/* entrando: as células chegam em cascata, depois da pílula começar a abrir; saindo, somem juntas */
 body[data-aberto="1"] .celula {
   opacity: 1;
   scale: 1;
+  transition-delay: calc(80ms + var(--i, 0) * 45ms);
 }
 .celula:hover,
 .celula[data-ativa="1"] {
@@ -261,17 +345,29 @@ body[data-aberto="1"] .celula {
 }
 .anel circle {
   fill: none;
-  stroke-width: 3;
+  stroke-width: 1.7;
 }
 .trilho {
   stroke: var(--trilho);
 }
+/* anéis com pathLength=100: o dashoffset é direto "100 - %" */
 .uso {
-  stroke: var(--cor, var(--ok));
   stroke-linecap: round;
-  stroke-dasharray: 94.25;
-  stroke-dashoffset: calc(94.25 * (1 - var(--pct, 0) / 100));
+  stroke-dasharray: 100;
   transition: stroke-dashoffset 500ms ease;
+}
+.uso.fora {
+  stroke: var(--cor-fora, var(--ok));
+  stroke-dashoffset: calc(100 - var(--pct-fora, 0));
+}
+.uso.dentro {
+  stroke: var(--cor-dentro, var(--ok));
+  stroke-dashoffset: calc(100 - var(--pct-dentro, 0));
+}
+/* janela sem dado (codex não tem a semanal, por ex.): o anel dela some */
+.celula[data-sem-fora="1"] .fora,
+.celula[data-sem-dentro="1"] .dentro {
+  display: none;
 }
 .celula[data-velha="1"] .uso {
   opacity: 0.4;
@@ -303,7 +399,7 @@ body[data-aberto="1"] .celula {
 .giro {
   stroke: var(--muted);
   stroke-linecap: round;
-  stroke-dasharray: 22 72.25;
+  stroke-dasharray: 24 76;
   opacity: 0;
 }
 body[data-atividade="trabalhando"] .atividade .giro {
@@ -314,13 +410,13 @@ body[data-atividade="trabalhando"] .atividade .giro {
 body[data-atividade="esperando"] .atividade .giro {
   opacity: 1;
   stroke: var(--espera);
-  stroke-dasharray: 94.25;
+  stroke-dasharray: 100;
   animation: pulsar 1.1s ease-in-out infinite;
 }
 body[data-atividade="terminou"] .atividade .giro {
   opacity: 1;
   stroke: var(--fim);
-  stroke-dasharray: 94.25;
+  stroke-dasharray: 100;
 }
 .badge {
   position: absolute;

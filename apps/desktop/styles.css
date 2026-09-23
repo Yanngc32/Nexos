@@ -3884,6 +3884,14 @@ button:disabled {
   width: 132px;
 }
 
+.painel-tam-v {
+  min-width: 3.5em;
+  text-align: right;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Configurações → Painel de borda: os dois limites em % lado a lado */
 .painel-lim {
   display: inline-flex;

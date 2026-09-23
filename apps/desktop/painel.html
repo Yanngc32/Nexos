@@ -14,13 +14,16 @@
          processo principal liga/desliga isso pelos retângulos que esta página informa). -->
     <main class="palco" id="palco">
       <nav class="pilula" id="pilula" aria-label="Painel do Nexos">
+        <!-- o miolo recorta o conteúdo na animação; a pílula fica livre pras curvas que a
+             ligam à borda da tela (::before/::after) -->
+        <div class="miolo">
         <span class="fio" id="fio" aria-hidden="true"></span>
         <div class="celulas" id="celulas">
           <button type="button" class="celula atividade" id="cel-atividade" data-alvo="atividade" title="Conversas">
             <span class="anel" id="anel-atividade">
               <svg viewBox="0 0 36 36" aria-hidden="true">
-                <circle class="trilho" cx="18" cy="18" r="15" />
-                <circle class="giro" cx="18" cy="18" r="15" />
+                <circle class="trilho" cx="18" cy="18" r="16" pathLength="100" />
+                <circle class="giro" cx="18" cy="18" r="16" pathLength="100" />
               </svg>
               <img src="icons/tray-64.png" alt="" />
               <span class="badge hidden" id="badge-atividade"></span>
@@ -29,6 +32,7 @@
           <div class="contas" id="contas"></div>
         </div>
         <p class="off hidden" id="off" title="Motor desligado">off</p>
+        </div>
       </nav>
 
       <section class="card hidden" id="card" role="dialog" aria-live="polite">

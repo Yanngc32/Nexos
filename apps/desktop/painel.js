@@ -25,7 +25,7 @@ const el = (id) => document.getElementById(id);
 const body = document.body;
 const api = createApiClient({ daemonInfo: () => window.nexo.daemonInfo() });
 
-let prefs = { mostrar: "hover", espiar: 5, somAoTerminar: true, somAoPedir: true, avisarLimite: true, avisarRenovou: true, atencao: 0.5, critico: 0.8 };
+let prefs = { mostrar: "dinamico", aneis: "dois", espiar: 5, somAoTerminar: true, somAoPedir: true, avisarLimite: true, avisarRenovou: true, atencao: 0.5, critico: 0.8 };
 let borda = "direita";
 let centro = 300;
 let hover = false;
@@ -45,7 +45,7 @@ let recolher = 0;
 let arrastou = false;
 
 const vertical = () => borda === "direita" || borda === "esquerda";
-const aberto = () => prefs.mostrar === "sempre" || hover || fixo || Date.now() < espiarAte;
+const aberto = () => prefs.mostrar === "fixo" || hover || fixo || Date.now() < espiarAte;
 
 /* ---------------- tema ---------------- */
 
@@ -85,8 +85,15 @@ function tocar(tipo) {
 
 /* ---------------- pintura ---------------- */
 
-function svgAnel(extra = "") {
-  return `<svg viewBox="0 0 36 36" aria-hidden="true"><circle class="trilho" cx="18" cy="18" r="15" /><circle class="uso" cx="18" cy="18" r="15" />${extra}</svg>`;
+/**
+ * Anel da conta. "dois": o de fora é a semana (7 dias), o de dentro a sessão (5 h). "um": só o de
+ * fora, com a janela mais apertada.
+ */
+function svgAnel(dois) {
+  const c = (cls, r) => `<circle class="${cls}" cx="18" cy="18" r="${r}" pathLength="100" />`;
+  const fora = c("trilho fora", 16) + c("uso fora", 16);
+  const dentro = dois ? c("trilho dentro", 12.5) + c("uso dentro", 12.5) : "";
+  return `<svg viewBox="0 0 36 36" aria-hidden="true">${fora}${dentro}</svg>`;
 }
 
 const COR = { ok: "var(--ok)", medio: "var(--medio)", alto: "var(--alto)", cheio: "var(--cheio)" };
@@ -96,18 +103,34 @@ function pintarContas(celulas) {
   const porId = new Map([...box.children].map((n) => [n.dataset.conta, n]));
   const ordem = [];
   celulas.forEach((c, i) => {
+    const dois = prefs.aneis !== "um";
     let b = porId.get(c.id);
+    // trocou "um"/"dois" nas Configurações: o anel é refeito
+    if (b && b.dataset.aneis !== (dois ? "dois" : "um")) b = null;
     if (!b) {
       b = document.createElement("button");
       b.type = "button";
       b.className = "celula conta";
       b.dataset.conta = c.id;
       b.dataset.alvo = `conta:${c.id}`;
-      b.innerHTML = `<span class="anel">${svgAnel()}<span class="letra"></span></span><span class="nome"></span>`;
+      b.dataset.aneis = dois ? "dois" : "um";
+      b.innerHTML = `<span class="anel">${svgAnel(dois)}<span class="letra"></span></span><span class="nome"></span>`;
     }
     b.style.setProperty("--i", String(i + 1));
-    b.style.setProperty("--pct", String(c.pct));
-    b.style.setProperty("--cor", COR[c.nivel]);
+    const cinco = c.janelas.find((j) => j.chave === "fiveHour");
+    const semana = c.janelas.find((j) => j.chave === "sevenDay");
+    const fora = dois ? semana : { pct: c.pct, nivel: c.nivel };
+    const dentro = dois ? cinco : null;
+    b.dataset.semFora = fora ? "0" : "1";
+    b.dataset.semDentro = dentro ? "0" : "1";
+    if (fora) {
+      b.style.setProperty("--pct-fora", String(fora.pct));
+      b.style.setProperty("--cor-fora", COR[c.bloqueada ? "cheio" : fora.nivel]);
+    }
+    if (dentro) {
+      b.style.setProperty("--pct-dentro", String(dentro.pct));
+      b.style.setProperty("--cor-dentro", COR[c.bloqueada ? "cheio" : dentro.nivel]);
+    }
     b.dataset.nivel = c.nivel;
     b.dataset.velha = c.velha ? "1" : "0";
     b.dataset.atualizando = atualizando.has(c.id) ? "1" : "0";
@@ -256,7 +279,7 @@ function pintar() {
 /** A pílula fica no ponto da borda que a pessoa escolheu, sem sair da janela. */
 function posicionarPilula(comp) {
   const tam = vertical() ? window.innerHeight : window.innerWidth;
-  const meio = aberto() ? comp / 2 : 40;
+  const meio = aberto() ? comp / 2 : 24;
   const c = Math.min(Math.max(centro, meio + 6), tam - meio - 6);
   body.style.setProperty("--centro", `${c}px`);
 }
@@ -370,7 +393,7 @@ function notar(transicao) {
   while (terminadas.size > MAX_TERMINADAS) terminadas.delete(terminadas.keys().next().value);
   if (!terminou.length && !esperando.length) return;
   if (esperando.length ? prefs.somAoPedir : prefs.somAoTerminar) tocar(esperando.length ? "pedir" : "fim");
-  if (prefs.espiar > 0 && prefs.mostrar !== "oculto") {
+  if (prefs.espiar > 0 && prefs.mostrar !== "desligado") {
     espiarAte = Date.now() + prefs.espiar * 1000;
     alvo = "atividade";
     setTimeout(pintar, prefs.espiar * 1000 + 50);
@@ -516,7 +539,7 @@ el("card").addEventListener("click", (e) => {
   else if (acao === "fixar") fixo = !fixo;
   else if (acao === "abrir") void window.nexo.painelAbrir({});
   else if (acao === "config") void window.nexo.painelConfig();
-  else if (acao === "esconder") void window.nexo.setPainelPrefs({ mostrar: "oculto" });
+  else if (acao === "esconder") void window.nexo.setPainelPrefs({ mostrar: "desligado" });
   pintar();
 });
 

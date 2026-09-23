@@ -7979,6 +7979,8 @@ async function renderPainelDeBorda() {
   $("painel-mostrar").value = p.mostrar;
   $("painel-borda").value = p.borda;
   $("painel-tamanho").value = String(p.tamanho);
+  $("painel-tamanho-v").textContent = `${Math.round(p.tamanho * 100)}%`;
+  $("painel-aneis").value = p.aneis;
   $("painel-espiar").value = String(p.espiar);
   for (const k of ["somAoTerminar", "somAoPedir", "avisarLimite", "avisarRenovou"]) $(`painel-${k}`).checked = p[k];
   $("painel-atencao").value = String(Math.round(p.atencao * 100));
@@ -7994,7 +7996,12 @@ async function gravarPainelDeBorda(patch) {
 $("painel-mostrar").addEventListener("change", (e) => void gravarPainelDeBorda({ mostrar: e.target.value }));
 $("painel-borda").addEventListener("change", (e) => void gravarPainelDeBorda({ borda: e.target.value }));
 $("painel-monitor").addEventListener("change", (e) => void gravarPainelDeBorda({ monitor: e.target.value }));
+// arrastando: só o número acompanha; soltou, grava (e o painel muda de tamanho uma vez)
+$("painel-tamanho").addEventListener("input", (e) => {
+  $("painel-tamanho-v").textContent = `${Math.round(Number(e.target.value) * 100)}%`;
+});
 $("painel-tamanho").addEventListener("change", (e) => void gravarPainelDeBorda({ tamanho: Number(e.target.value) }));
+$("painel-aneis").addEventListener("change", (e) => void gravarPainelDeBorda({ aneis: e.target.value }));
 $("painel-espiar").addEventListener("change", (e) => void gravarPainelDeBorda({ espiar: Number(e.target.value) }));
 $("painel-centralizar").addEventListener("click", () => void gravarPainelDeBorda({ aoLongo: null }));
 for (const k of ["somAoTerminar", "somAoPedir", "avisarLimite", "avisarRenovou"]) {

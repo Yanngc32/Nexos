@@ -764,14 +764,20 @@ const PAINEL_VIGIA_MS = 40;
 /** Folga em volta dos retângulos quentes, em px da página (o cursor não acerta a borda exata). */
 const PAINEL_FOLGA = 10;
 const PAINEL_PADRAO = {
-  /** "hover" (abre ao passar o mouse) | "sempre" | "oculto" */
-  mostrar: "hover",
+  /**
+   * "dinamico": recolhido é só um traço; aparece ao aproximar o mouse e some ao afastar.
+   * "fixo": sempre aberto. "desligado": não aparece.
+   */
+  mostrar: "dinamico",
   borda: "direita",
   /** Posição ao longo de CADA borda (0..1); 0,5 = meio. */
   aoLongo: {},
   /** id do monitor; "" = o principal. */
   monitor: "",
+  /** Escala geral do painel (0,6 a 1,6). */
   tamanho: 1,
+  /** "dois": anel de fora = semana, de dentro = 5 h. "um": só a janela mais apertada. */
+  aneis: "dois",
   /** Segundos que o painel abre sozinho quando uma conversa termina/pede resposta (0 = não abre). */
   espiar: 5,
   somAoTerminar: true,
@@ -781,7 +787,6 @@ const PAINEL_PADRAO = {
   atencao: 0.5,
   critico: 0.8,
 };
-const PAINEL_TAMANHOS = [0.8, 1, 1.25];
 const PAINEL_ESPIAR = [0, 3, 5, 10];
 
 let painelAreas = { quentes: [], despertar: null };
@@ -797,7 +802,9 @@ function painelPrefsPath() {
 function limparPrefsDoPainel(raw) {
   const p = { ...PAINEL_PADRAO, aoLongo: {} };
   if (!raw || typeof raw !== "object") return p;
-  if (["hover", "sempre", "oculto"].includes(raw.mostrar)) p.mostrar = raw.mostrar;
+  // nomes antigos (antes da 0.5.1) continuam valendo
+  const mostrar = { hover: "dinamico", sempre: "fixo", oculto: "desligado" }[raw.mostrar] ?? raw.mostrar;
+  if (["dinamico", "fixo", "desligado"].includes(mostrar)) p.mostrar = mostrar;
   if (BORDAS.includes(raw.borda)) p.borda = raw.borda;
   if (raw.aoLongo && typeof raw.aoLongo === "object") {
     for (const b of BORDAS) {
@@ -806,7 +813,10 @@ function limparPrefsDoPainel(raw) {
     }
   }
   if (typeof raw.monitor === "string") p.monitor = raw.monitor;
-  if (PAINEL_TAMANHOS.includes(raw.tamanho)) p.tamanho = raw.tamanho;
+  if (typeof raw.tamanho === "number" && raw.tamanho >= 0.6 && raw.tamanho <= 1.6) {
+    p.tamanho = Math.round(raw.tamanho * 20) / 20;
+  }
+  if (raw.aneis === "um" || raw.aneis === "dois") p.aneis = raw.aneis;
   if (PAINEL_ESPIAR.includes(raw.espiar)) p.espiar = raw.espiar;
   for (const k of ["somAoTerminar", "somAoPedir", "avisarLimite", "avisarRenovou"]) {
     if (typeof raw[k] === "boolean") p[k] = raw[k];
@@ -863,7 +873,7 @@ function posicionarPainel(p = lerPainel(), lugar) {
 }
 
 function aplicarPainel(p = lerPainel()) {
-  if (p.mostrar === "oculto") {
+  if (p.mostrar === "desligado") {
     if (painel && !painel.isDestroyed()) painel.hide();
     pararVigia();
   } else {
@@ -963,9 +973,9 @@ function pararVigia() {
   painelVigia = null;
 }
 
-/** Botão do rodapé / bandeja / Ctrl+Shift+W: esconde, ou volta pro "ao passar o mouse". */
+/** Botão do rodapé / bandeja / Ctrl+Shift+W: desliga, ou volta pro dinâmico. */
 function alternarPainel() {
-  gravarPainel({ mostrar: lerPainel().mostrar === "oculto" ? "hover" : "oculto" });
+  gravarPainel({ mostrar: lerPainel().mostrar === "desligado" ? "dinamico" : "desligado" });
 }
 
 function mostrarNexos() {

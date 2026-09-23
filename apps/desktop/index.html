@@ -1463,9 +1463,9 @@
                   </div>
                   <div class="set-ctl">
                     <select id="painel-mostrar" aria-label="Quando mostrar o painel">
-                      <option value="hover">Ao passar o mouse</option>
-                      <option value="sempre">Sempre aberto</option>
-                      <option value="oculto">Escondido</option>
+                      <option value="dinamico">Dinâmico — um traço que abre ao aproximar o mouse</option>
+                      <option value="fixo">Fixo — sempre aberto</option>
+                      <option value="desligado">Desligado</option>
                     </select>
                   </div>
                 </div>
@@ -1495,14 +1495,24 @@
                 </div>
                 <div class="set-row">
                   <div class="set-txt">
-                    <h4>Tamanho</h4>
+                    <h4>Anéis de uso</h4>
+                    <p>Dois anéis: o de dentro é a sessão de 5 h, o de fora a semana. Ou um só, com a janela mais apertada.</p>
                   </div>
                   <div class="set-ctl">
-                    <select id="painel-tamanho" aria-label="Tamanho do painel">
-                      <option value="0.8">Pequeno</option>
-                      <option value="1">Médio</option>
-                      <option value="1.25">Grande</option>
+                    <select id="painel-aneis" aria-label="Anéis de uso">
+                      <option value="dois">Dois (5 h e semana)</option>
+                      <option value="um">Um (o mais apertado)</option>
                     </select>
+                  </div>
+                </div>
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Tamanho</h4>
+                    <p>Escala geral da pílula e do card.</p>
+                  </div>
+                  <div class="set-ctl">
+                    <input id="painel-tamanho" type="range" min="0.6" max="1.6" step="0.05" aria-label="Tamanho do painel" />
+                    <span id="painel-tamanho-v" class="painel-tam-v"></span>
                   </div>
                 </div>
               </div>
