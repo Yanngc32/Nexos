@@ -94,6 +94,7 @@ export function ferramentaDePrintDoDs(threadId: string, projectPath: string, hom
         description:
           "Cria um design system novo neste projeto e deixa ele ATIVO (o Canvas passa a mostrar ele). Use pra ter um canvas " +
           "separado — ex.: \"Mocks\" pra desenhar uma tela e mostrar como ficaria, sem mexer no DS oficial. " +
+          "É o lugar de todo pedido de mock/protótipo: mock NÃO vira arquivo no código do projeto. " +
           "`base`: \"ativo\" (copia tokens, regras e cards do DS ativo — mesmo visual), \"zero\" (vazio) ou \"padrao\" (esqueleto do Nexos). " +
           "Depois grave as telas com nexo_ds_card_salvar e confira com nexo_ds_print.",
         inputSchema: {

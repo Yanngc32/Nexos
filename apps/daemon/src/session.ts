@@ -261,7 +261,7 @@ export function agentSnapshots(): AgentSnapshot[] {
 
 export { sessionBus } from "./bus.ts";
 import { sessionBus } from "./bus.ts";
-import { blocoDoDsParaPack } from "./ds-sync.ts";
+import { blocoDoDsParaPack, REGRA_MOCK_NO_CANVAS } from "./ds-sync.ts";
 
 function emit(threadId: string, ev: SessionEvent): void {
   sessionBus.emit(threadId, ev);
@@ -425,6 +425,7 @@ function instrucoesDoPack(
   if (projectPath && opts.incluirDs !== false) {
     const ds = blocoDoDsParaPack(projectPath, home);
     if (ds) blocos.push(ds);
+    blocos.push(REGRA_MOCK_NO_CANVAS);
   }
   if (instrucoes) blocos.push(`# Agente: ${def?.name ?? agentId}\n${instrucoes}`);
   if (memoria) blocos.push(`# Memória ${projectPath ? "do projeto" : "geral"}\n${memoria}`);
