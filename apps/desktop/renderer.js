@@ -97,6 +97,32 @@ function icoSvg(id, cls = "work-tab-ico") {
 
 const ABA_ICO = Object.fromEntries(Object.keys(ICO_PATHS).map((k) => [k, icoSvg(k)]));
 
+/** Traço das ações dos menus de botão direito (mesma grade 24×24 e espessura das telas). */
+const ICO_ACAO = {
+  mais: '<path d="M12 5v14M5 12h14"/>',
+  telas: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+  paleta: '<path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/>',
+  branch: '<path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  atualizar: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+  pr: '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/>',
+  pasta: '<path d="M4 20a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1Z"/>',
+  copiar: '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M4 16a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h11a1 1 0 0 1 1 1"/>',
+  fora: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  imagem: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>',
+  desfazer: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+  tirar: '<path d="M18 6 6 18M6 6l12 12"/>',
+  atual: '<path d="M20 6 9 17l-5-5"/>',
+  lixo: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/>',
+  abrir: '<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>',
+  enviar: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
+  baixar: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+};
+
+/** `icoSvg` pronto pro menu de botão direito. */
+function ctxIco(nome) {
+  return `<svg class="ctx-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICO_ACAO[nome] || ICO_PATHS[nome] || ""}</svg>`;
+}
+
 const state = {
   ok: false,
   /** runId de `nexo_delegar` que chegou (evento `delegacao_run`) antes da bolha da ferramenta existir, por threadId. */
@@ -2936,11 +2962,11 @@ async function copiarTexto(texto, oque) {
 function menuDoRepo(e, path) {
   menuContexto.abrir(e, [
     { titulo: folderName(path) },
-    { rotulo: "Nova conversa", ico: "+", onSelect: () => void criarConversaEmRepo(path) },
+    { rotulo: "Nova conversa", icoSvg: ctxIco("mais"), onSelect: () => void criarConversaEmRepo(path) },
     { separador: true },
     {
       rotulo: "Telas",
-      ico: "▦",
+      icoSvg: ctxIco("telas"),
       submenu: MODULES.map((m) => ({
         rotulo: m.name,
         icoSvg: icoSvg(m.id, "ctx-svg"),
@@ -2948,34 +2974,34 @@ function menuDoRepo(e, path) {
         onSelect: () => void abrirModuloEmRepo(path, m.id),
       })),
     },
-    { rotulo: "Paleta", ico: "⌘", atalho: "Ctrl+P", onSelect: () => handleMod("palette") },
+    { rotulo: "Paleta", icoSvg: ctxIco("paleta"), atalho: "Ctrl+P", onSelect: () => handleMod("palette") },
     {
       rotulo: "Git",
-      ico: "⑂",
+      icoSvg: ctxIco("branch"),
       submenu: [
-        { rotulo: "Trocar de branch…", ico: "⑂", onSelect: () => void menuDeBranches(e, path) },
-        { rotulo: "Atualizar do remote", ico: "⟳", onSelect: () => void atualizarRepo(path) },
-        { rotulo: "Abrir PR no GitHub", ico: "↗", onSelect: () => void abrirPrNoGitHub(path) },
+        { rotulo: "Trocar de branch…", icoSvg: ctxIco("branch"), onSelect: () => void menuDeBranches(e, path) },
+        { rotulo: "Atualizar do remote", icoSvg: ctxIco("atualizar"), onSelect: () => void atualizarRepo(path) },
+        { rotulo: "Abrir PR no GitHub", icoSvg: ctxIco("pr"), onSelect: () => void abrirPrNoGitHub(path) },
       ],
     },
     {
       rotulo: "Pasta",
-      ico: "⧉",
+      icoSvg: ctxIco("pasta"),
       submenu: [
-        { rotulo: "Copiar caminho", ico: "⧉", onSelect: () => void copiarTexto(path, "Caminho") },
-        { rotulo: "Abrir a pasta no sistema", ico: "↗", onSelect: () => void abrirPastaNoSistema(path) },
+        { rotulo: "Copiar caminho", icoSvg: ctxIco("copiar"), onSelect: () => void copiarTexto(path, "Caminho") },
+        { rotulo: "Abrir a pasta no sistema", icoSvg: ctxIco("fora"), onSelect: () => void abrirPastaNoSistema(path) },
       ],
     },
     {
       rotulo: "Ícone",
-      ico: "◧",
+      icoSvg: ctxIco("imagem"),
       submenu: [
-        { rotulo: "Escolher ícone…", ico: "◧", onSelect: () => void escolherIconeDoRepo(path) },
-        { rotulo: "Voltar ao ícone automático", ico: "↺", onSelect: () => void iconeAutomaticoDoRepo(path) },
+        { rotulo: "Escolher ícone…", icoSvg: ctxIco("imagem"), onSelect: () => void escolherIconeDoRepo(path) },
+        { rotulo: "Voltar ao ícone automático", icoSvg: ctxIco("desfazer"), onSelect: () => void iconeAutomaticoDoRepo(path) },
       ],
     },
     { separador: true },
-    { rotulo: "Tirar da lista", ico: "×", perigo: true, onSelect: () => void removeRepo(path) },
+    { rotulo: "Tirar da lista", icoSvg: ctxIco("tirar"), perigo: true, onSelect: () => void removeRepo(path) },
   ]);
 }
 
@@ -3002,7 +3028,7 @@ async function menuDeBranches(e, path) {
     { titulo: "Trocar de branch" },
     ...dados.locais.map((b) => ({
       rotulo: b,
-      ico: b === dados.atual ? "●" : " ",
+      icoSvg: b === dados.atual ? ctxIco("atual") : "",
       onSelect: () => void trocarDeBranch(path, b),
     })),
   ]);
@@ -3062,11 +3088,11 @@ async function abrirPastaNoSistema(path) {
 function menuDaConversa(e, path, t) {
   menuContexto.abrir(e, [
     { titulo: clip(t.preview || "Conversa nova", 40) },
-    { rotulo: "Abrir conversa", ico: "▸", onSelect: () => void openThreadInRepo(path, t.id) },
-    { rotulo: "Nova conversa neste repositório", ico: "+", onSelect: () => void criarConversaEmRepo(path) },
-    { rotulo: "Copiar ID", ico: "⧉", onSelect: () => void copiarTexto(t.id, "ID da conversa") },
+    { rotulo: "Abrir conversa", icoSvg: ctxIco("abrir"), onSelect: () => void openThreadInRepo(path, t.id) },
+    { rotulo: "Nova conversa neste repositório", icoSvg: ctxIco("mais"), onSelect: () => void criarConversaEmRepo(path) },
+    { rotulo: "Copiar ID", icoSvg: ctxIco("copiar"), onSelect: () => void copiarTexto(t.id, "ID da conversa") },
     { separador: true },
-    { rotulo: "Apagar conversa", ico: "×", perigo: true, onSelect: () => void deleteThread(t.id) },
+    { rotulo: "Apagar conversa", icoSvg: ctxIco("lixo"), perigo: true, onSelect: () => void deleteThread(t.id) },
   ]);
 }
 
@@ -3129,12 +3155,12 @@ async function criarConversaGeral() {
 function menuDaConversaGeral(e, t) {
   menuContexto.abrir(e, [
     { titulo: clip(t.preview || "Conversa nova", 40) },
-    { rotulo: "Abrir conversa", ico: "▸", onSelect: () => void openThreadInGlobal(t.id) },
-    { rotulo: "Nova conversa no chat geral", ico: "+", onSelect: () => void criarConversaGeral() },
-    { rotulo: "Importar zip (Claude.ai export)…", ico: "⇧", onSelect: () => void importarZipGeral() },
-    { rotulo: "Copiar ID", ico: "⧉", onSelect: () => void copiarTexto(t.id, "ID da conversa") },
+    { rotulo: "Abrir conversa", icoSvg: ctxIco("abrir"), onSelect: () => void openThreadInGlobal(t.id) },
+    { rotulo: "Nova conversa no chat geral", icoSvg: ctxIco("mais"), onSelect: () => void criarConversaGeral() },
+    { rotulo: "Importar zip (Claude.ai export)…", icoSvg: ctxIco("enviar"), onSelect: () => void importarZipGeral() },
+    { rotulo: "Copiar ID", icoSvg: ctxIco("copiar"), onSelect: () => void copiarTexto(t.id, "ID da conversa") },
     { separador: true },
-    { rotulo: "Apagar conversa", ico: "×", perigo: true, onSelect: () => void deleteThread(t.id) },
+    { rotulo: "Apagar conversa", icoSvg: ctxIco("lixo"), perigo: true, onSelect: () => void deleteThread(t.id) },
   ]);
 }
 
@@ -3183,8 +3209,8 @@ function montarSecaoChatGeral() {
   sum.addEventListener("contextmenu", (e) => {
     menuContexto.abrir(e, [
       { titulo: "Chat geral" },
-      { rotulo: "Nova conversa", ico: "+", onSelect: () => void criarConversaGeral() },
-      { rotulo: "Importar zip (Claude.ai export)…", ico: "⇧", onSelect: () => void importarZipGeral() },
+      { rotulo: "Nova conversa", icoSvg: ctxIco("mais"), onSelect: () => void criarConversaGeral() },
+      { rotulo: "Importar zip (Claude.ai export)…", icoSvg: ctxIco("enviar"), onSelect: () => void importarZipGeral() },
     ]);
   });
   det.addEventListener("toggle", () => {
@@ -3626,8 +3652,8 @@ function renderRepoMini() {
     add.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`;
     add.addEventListener("click", (e) =>
       menuContexto.abrir(e, [
-        { rotulo: "Adicionar pasta", ico: "+", onSelect: () => $("btn-folder").click() },
-        { rotulo: "Clonar por link", ico: "↓", onSelect: () => $("btn-clonar").click() },
+        { rotulo: "Adicionar pasta", icoSvg: ctxIco("mais"), onSelect: () => $("btn-folder").click() },
+        { rotulo: "Clonar por link", icoSvg: ctxIco("baixar"), onSelect: () => $("btn-clonar").click() },
       ]),
     );
   }
@@ -3918,6 +3944,18 @@ async function iniciarSubchat(li, runId) {
       if (ev.type === "run_end") ac.abort();
     }))
     .catch(() => {}); // stream cortado (run terminou, ou daemon reiniciou) — a bolha já tem o resultado final pelo tool_result
+}
+
+/**
+ * Roteamento IA pausado (session.ts/typesafe.ts): diz por quê, até quando, e o que fazer — a
+ * pessoa só percebia "o Claude demora pra começar", sem saber que era a espera pelo typesafe.
+ */
+function textoDaPausaDoTypesafe(p) {
+  const ate = p.ate ? new Date(p.ate).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "";
+  const quando = ate ? ` até ${ate}` : "";
+  return p.motivo === "key-recusada"
+    ? `Roteamento IA pausado${quando}: a key do TypeSafe foi recusada. Seguindo com o modelo e o esforço padrão — troque a key em Configurações → Roteamento IA.`
+    : `Roteamento IA pausado${quando}: o TypeSafe não respondeu a tempo. Seguindo com o modelo e o esforço padrão.`;
 }
 
 /**
@@ -4529,6 +4567,10 @@ function onLive(ev) {
   }
   if (ev.type === "pergunta_resposta") {
     appendEvent({ type: "pergunta_resposta", id: ev.id, resposta: ev.resposta });
+    return;
+  }
+  if (ev.type === "typesafe_pausado") {
+    appendEvent({ type: "sys", message: textoDaPausaDoTypesafe(ev) });
     return;
   }
   if (ev.type === "esforco_auto") {
@@ -7728,7 +7770,12 @@ async function renderRoteamento() {
   }
   try {
     const ts = await req("/v1/typesafe");
-    $("roteamento-key-status").textContent = ts.configured ? "Configurada." : "Não configurada.";
+    $("roteamento-key-status").textContent = !ts.configured
+      ? "Não configurada."
+      : ts.pausa
+        ? `Configurada. ${textoDaPausaDoTypesafe(ts.pausa)}`
+        : "Configurada.";
+    $("roteamento-key-status").classList.toggle("set-err", Boolean(ts.configured && ts.pausa));
     const u = ts.usage || { inputTokens: 0, outputTokens: 0, calls: 0 };
     $("roteamento-uso").textContent = `${u.calls} chamada(s) — ${u.inputTokens} tokens de entrada, ${u.outputTokens} de saída`;
   } catch {
