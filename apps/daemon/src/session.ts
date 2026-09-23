@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ElementoDoPreview, EngineEvent, EngineKind, EngineOverrides, Profile, SwitchReason, ThreadEvent } from "@nexos/shared";
+import type { ElementoDoPreview, EngineEvent, EngineKind, EngineOverrides, PartesDoPack, Profile, SwitchReason, ThreadEvent } from "@nexos/shared";
 import { ESFORCO_AUTO, MODELO_AUTO, MODELO_AUTO_FALLBACK, TURNO_TETO_MS } from "@nexos/shared";
 import { agentOverrides, getAgent } from "./agents.ts";
 import { readMemoria, readMemoriaGlobal } from "./memoria.ts";
@@ -337,6 +337,33 @@ function withInstructions(
   home: string,
   opts: { incluirDs?: boolean; oculta?: boolean } = {},
 ): string {
+  return juntarPack(instrucoesDoPack(agentId, projectPath, home, opts), packText);
+}
+
+function juntarPack(instrucoes: string, historico: string): string {
+  if (!instrucoes) return historico;
+  return historico ? `${instrucoes}\n\n${historico}` : instrucoes;
+}
+
+/** Pack pro motor: junto (`contextPack`) e separado (`partesDoPack`, system prompt no `claude`). */
+function packDaConversa(
+  agentId: string | undefined,
+  projectPath: string | undefined,
+  historico: string,
+  home: string,
+  opts: { incluirDs?: boolean; oculta?: boolean },
+): { contextPack: string; partesDoPack: PartesDoPack } {
+  const instrucoes = instrucoesDoPack(agentId, projectPath, home, opts);
+  return { contextPack: juntarPack(instrucoes, historico), partesDoPack: { instrucoes, historico } };
+}
+
+/** As regras fixas do pack (módulos, DS, agente, memória, repo map), sem o histórico. */
+function instrucoesDoPack(
+  agentId: string | undefined,
+  projectPath: string | undefined,
+  home: string,
+  opts: { incluirDs?: boolean; oculta?: boolean } = {},
+): string {
   const def = agentId ? getAgent(agentId, home) : undefined;
   const instrucoes = def?.instructions?.trim();
   const memoria = (projectPath ? readMemoria(projectPath, home) : readMemoriaGlobal(home)).trim();
@@ -415,8 +442,7 @@ function withInstructions(
         "mundo de uma vez.",
     );
   }
-  if (!blocos.length) return packText;
-  return packText ? `${blocos.join("\n\n")}\n\n${packText}` : blocos.join("\n\n");
+  return blocos.join("\n\n");
 }
 
 /**
@@ -511,7 +537,8 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
 
   const existing = lives.get(threadId);
   if (existing && existing.profileId === p.id && existing.agentId === agentId) {
-    existing.engine.updatePack(withInstructions(agentId, meta.projectPath, packed.text, home, { incluirDs: !(meta.oculta || meta.semRoteamento), oculta: meta.oculta === true }));
+    const novo = packDaConversa(agentId, meta.projectPath, packed.text, home, { incluirDs: !(meta.oculta || meta.semRoteamento), oculta: meta.oculta === true });
+    existing.engine.updatePack(novo.contextPack, novo.partesDoPack);
     // Mesma razão do updatePack: sem isto, mudar `delegacaoModo`/`allowedTools` só valeria depois
     // de um engine NOVO (troca de conta, /clear, reiniciar o motor) — aqui vale já no próximo envio.
     existing.engine.updateMcp(mcpDaConversa(threadId, meta, p, home));
@@ -539,10 +566,9 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
       threadId,
       projectPath: meta.projectPath,
       profileId: p.id,
-      // As instruções do agente e a memória do projeto abrem o pack: é o mais
-      // perto de "system prompt" que o motor de CLI aceita (o `api` usa o
-      // pack como system de verdade).
-      contextPack: withInstructions(agentId, meta.projectPath, packed.text, home, { incluirDs: !(meta.oculta || meta.semRoteamento), oculta: meta.oculta === true }),
+      // As instruções do agente e a memória do projeto abrem o pack (o `api` usa o pack como system
+      // de verdade); separadas em `partesDoPack`, o `claude` manda as regras como system prompt.
+      ...packDaConversa(agentId, meta.projectPath, packed.text, home, { incluirDs: !(meta.oculta || meta.semRoteamento), oculta: meta.oculta === true }),
       ...(agentId ? { agentId } : {}),
       // Conversa com branch fixa roda na `git worktree` isolada, não na pasta
       // compartilhada do projeto — só o cwd do processo muda (ver StartOpts.cwdOverride).

@@ -1,4 +1,4 @@
-import type { EngineEvent, EngineOverrides, StartOpts } from "@nexos/shared";
+import type { EngineEvent, EngineOverrides, PartesDoPack, StartOpts } from "@nexos/shared";
 
 export type EngineHandler = (ev: EngineEvent) => void;
 
@@ -16,7 +16,7 @@ export interface Engine {
    * Exceção: o CLI `claude` com `--resume` (ver `updateResume`) — aí o pack NÃO
    * vai no stdin, senão a conversa duplica e a quota explode de novo.
    */
-  updatePack(pack: string): void;
+  updatePack(pack: string, partes?: PartesDoPack): void;
   /**
    * Refaz quais ferramentas MCP o próximo `send` oferece — mesma razão do `updatePack`:
    * sem isso, mudar `delegacaoModo`/`allowedTools` só valeria depois de um engine NOVO

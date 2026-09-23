@@ -90,6 +90,14 @@ export function claudeSessionPath(id: string, root = nexoHome()): string {
 }
 
 /**
+ * Regras do Nexos da sessão atual do `claude` desta conversa, passadas como system prompt
+ * (`--append-system-prompt-file`) na criação da sessão. Reescrito a cada sessão nova.
+ */
+export function instrucoesPath(id: string, root = nexoHome()): string {
+  return join(root, "threads", `${assertSlug(id)}.instrucoes.md`);
+}
+
+/**
  * `git worktree` isolada de uma conversa com branch fixa — ver
  * `thread_meta.worktreeDir` e worktree.ts. Uma por thread, não por projeto:
  * duas conversas na mesma branch reaproveitam a mesma pasta (ver threads.ts),

@@ -1,5 +1,5 @@
 import type { ChildProcessWithoutNullStreams, SpawnOptions } from "node:child_process";
-import type { EngineEvent, EngineOverrides, Profile, StartOpts } from "@nexos/shared";
+import type { EngineEvent, EngineOverrides, PartesDoPack, Profile, StartOpts } from "@nexos/shared";
 import type { EffortLevel, EsforcoEscolhido } from "@nexos/shared";
 import {
   CODEX_SANDBOX_MODES,
@@ -14,7 +14,7 @@ import {
 import type { Engine, EngineHandler, EngineMcp } from "./types.ts";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { attachmentsDir, enginePidPath, globalChatDir, globalSkillsDir } from "../home.ts";
+import { attachmentsDir, enginePidPath, globalChatDir, globalSkillsDir, instrucoesPath } from "../home.ts";
 import { killTree } from "../kill-tree.ts";
 import { spawnCwd } from "../project-cwd.ts";
 import { agentOverrides } from "../agents.ts";
@@ -179,6 +179,8 @@ export class CliEngine implements Engine {
   private child?: ChildProcessWithoutNullStreams;
   private handler?: EngineHandler;
   private pack = "";
+  /** O pack separado (ver `PartesDoPack`): regras vão como system prompt ao criar sessão do `claude`. */
+  private partes?: PartesDoPack;
   private cwd = "";
   private extra: Record<string, string> = {};
   private spawnEnv: NodeJS.ProcessEnv = {};
@@ -233,6 +235,7 @@ export class CliEngine implements Engine {
     this.cwd = spawnCwd(opts.cwdOverride ?? opts.projectPath ?? globalChatDir(this.home));
     this.bin = process.env[this.binEnv] ?? this.defaultBin;
     this.pack = opts.contextPack;
+    this.partes = opts.partesDoPack;
     this.threadId = opts.threadId;
     this.handler = onEvent;
     this.lastCwd = this.cwd;
@@ -242,8 +245,9 @@ export class CliEngine implements Engine {
     this.finished = false;
   }
 
-  updatePack(pack: string): void {
+  updatePack(pack: string, partes?: PartesDoPack): void {
     this.pack = pack;
+    this.partes = partes;
   }
 
   updateMcp(mcp: EngineMcp): void {
@@ -383,7 +387,23 @@ export class CliEngine implements Engine {
      * mais que o bloco lá atrás. Só quando o pack tem a regra (conversa oculta do Nexos não tem).
      */
     const lembrete = resumindo && this.pack?.includes(FECHAMENTO_NO_PACK) ? `\n\n${LEMBRETE_DE_FECHAMENTO}` : "";
-    const full = resumindo ? `${text}${lembrete}` : [this.pack, text].filter(Boolean).join("\n\n");
+    /*
+     * Sessão NOVA do `claude`: as regras do Nexos vão como system prompt (`--append-system-prompt-file`)
+     * e o stdin leva só o histórico. Medido no CLI 2.1.280: o system prompt da criação vale em todo
+     * turno retomado e não ocupa o histórico — e um `--append-system-prompt` passado num `--resume`
+     * é IGNORADO, por isso só na criação. Antes as regras iam como primeira mensagem e ficavam
+     * cada vez mais longe (e sumiam na compactação).
+     */
+    const sistema = !resumindo && getProfile(this.profileId, this.home)?.engine === "claude" && this.partes?.instrucoes ? this.partes : undefined;
+    if (sistema) {
+      const arquivo = instrucoesPath(this.threadId, this.home);
+      writeFileSync(arquivo, sistema.instrucoes, "utf8");
+      this.args = [...this.args, "--append-system-prompt-file", arquivo];
+      this.lastArgs = this.args;
+    }
+    const full = resumindo
+      ? `${text}${lembrete}`
+      : [sistema ? sistema.historico : this.pack, text].filter(Boolean).join("\n\n");
     this.lastPayload = full;
     let suppressClose = false;
     const emit = (ev: EngineEvent) => {

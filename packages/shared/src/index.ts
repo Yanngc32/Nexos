@@ -738,12 +738,22 @@ export type EngineEvent =
   | { type: "auth"; detail?: string }
   | { type: "error"; message: string };
 
+/**
+ * O pack separado em duas partes. `instrucoes` = regras fixas do Nexos (módulos, DS, agente,
+ * memória, repo map); `historico` = a conversa. O motor `claude` manda as regras como system prompt
+ * na criação da sessão (valem em todo turno retomado e não ocupam o histórico); quem não tem system
+ * prompt por invocação segue com `contextPack`, que é as duas juntas.
+ */
+export type PartesDoPack = { instrucoes: string; historico: string };
+
 export type StartOpts = {
   threadId: string;
   /** Ausente = conversa global, sem projeto; `cwdOverride` supre o cwd real do processo. */
   projectPath?: string;
   profileId: string;
   contextPack: string;
+  /** `contextPack` separado (ver `PartesDoPack`). Ausente = só o pack junto, como antes. */
+  partesDoPack?: PartesDoPack;
   agentId?: string;
   /**
    * Cwd de verdade do processo, quando difere de `projectPath` — conversa com

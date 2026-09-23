@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { addProfile, markReady, updateProfile } from "../src/profiles.ts";
@@ -119,6 +120,42 @@ describe("CliEngine --resume", () => {
       expect(engine.lastArgs).toContain("--resume");
       expect(engine.lastArgs).toContain("sess-abcd-1234");
       expect(engine.lastPayload).toBe("segunda");
+    } finally {
+      delete process.env.NEXOS_CLAUDE_BIN;
+    }
+  });
+
+  it("sessão nova do claude: regras como system prompt (arquivo), stdin só com histórico; retomada não repete", async () => {
+    const home = tempHome();
+    addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
+    markReady("c1", home);
+    process.env.NEXOS_CLAUDE_BIN = fake;
+    try {
+      const engine = claudeEngine(home, "c1");
+      const events: EngineEvent[] = [];
+      await engine.start(
+        {
+          threadId: "t-sys",
+          projectPath: spawnCwd("."),
+          profileId: "c1",
+          contextPack: "REGRAS\n\nUser: antes",
+          partesDoPack: { instrucoes: "REGRAS", historico: "User: antes" },
+        },
+        (ev) => events.push(ev),
+      );
+      await engine.send("oi");
+      await waitDone(events);
+      const i = engine.lastArgs.indexOf("--append-system-prompt-file");
+      expect(i).toBeGreaterThan(-1);
+      expect(readFileSync(engine.lastArgs[i + 1]!, "utf8")).toBe("REGRAS");
+      expect(engine.lastPayload).toBe("User: antes\n\noi");
+
+      events.length = 0;
+      engine.updateResume("sess-abcd-1234");
+      await engine.send("segunda");
+      await waitDone(events);
+      expect(engine.lastArgs).not.toContain("--append-system-prompt-file");
+      expect(engine.lastPayload.startsWith("segunda")).toBe(true);
     } finally {
       delete process.env.NEXOS_CLAUDE_BIN;
     }
