@@ -12,6 +12,31 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Segurança
 
+## [0.6.0] - 2026-09-23
+
+### Adicionado
+
+- Configurações → Skills: cada skill instalada globalmente pode ser ligada ou desligada por
+  projeto. Desligada, ela some do menu "/" daquele projeto e o agente não consegue usá-la lá.
+- Design System: botão "@ Chat" em cada card, que cita o card no campo do chat.
+- Design System: modo seleção (ícone de mira no topo) que funciona em todos os cards de uma vez —
+  clique nos elementos, escreva o pedido e mande pro chat, como no seletor do Browser.
+- Botão direito no projeto com submenus ao passar o mouse (Telas, Git, Pasta, Ícone), também
+  pelo teclado (→ entra, ← volta).
+- Dicas ao passar o mouse no menu Ferramentas do Design System (Conformidade, Ressincronizar,
+  Exportar).
+
+### Corrigido
+
+- A janela inteira do Nexos rolava pra cima e pra baixo sem motivo.
+- Pedido de mock virava código no projeto (arquivo novo, servidor de desenvolvimento). Agora o
+  agente monta a tela como card no Canvas, num design system "Mocks" com o mesmo visual.
+
+### Alterado
+
+- Paleta (Ctrl+P), menu de botão direito e cabeçalho do chat usam ícones de traço fino no lugar
+  de emoji e símbolos de texto.
+
 ## [0.5.2] - 2026-09-23
 
 ### Corrigido
