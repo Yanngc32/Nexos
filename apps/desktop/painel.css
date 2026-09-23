@@ -45,8 +45,14 @@
   /* claro com contorno escuro: aparece em papel de parede escuro E claro */
   --traco-cor: color-mix(in srgb, var(--text) 70%, transparent);
   --anel: 40px;
-  --mola: cubic-bezier(0.34, 1.26, 0.64, 1);
-  --dur: 420ms;
+  /* entrada: desacelera suave até parar, sem passar do ponto (a mola com overshoot "pulava") */
+  --entra: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur: 460ms;
+  /* saída: acelera de leve e some — mais curta que a entrada */
+  --sai: cubic-bezier(0.4, 0, 0.6, 1);
+  --dur-sai: 300ms;
+  /* compat: o card e as barras usavam a mola; agora a mesma curva suave */
+  --mola: var(--entra);
   color-scheme: dark;
 }
 
@@ -95,16 +101,19 @@ body {
   align-items: center;
   justify-content: center;
   background: var(--pilula);
-  /* drop-shadow (e não box-shadow): a sombra acompanha as curvas das pontas */
-  filter: drop-shadow(0 4px 14px var(--sombra));
+  /* drop-shadow (e não box-shadow): a sombra acompanha as curvas das pontas. Sempre as DUAS
+     sombras, nos dois estados — assim o filtro interpola em vez de trocar de uma vez */
+  filter: drop-shadow(0 0 0 transparent) drop-shadow(0 4px 14px var(--sombra));
   /* raio da curva côncava que liga a pílula à borda da tela */
   --curva: 0px;
   transition:
-    width var(--dur) var(--mola),
-    height var(--dur) var(--mola),
-    border-radius var(--dur) var(--mola),
-    --curva var(--dur) var(--mola),
-    background-color 200ms ease;
+    width var(--dur) var(--entra),
+    height var(--dur) var(--entra),
+    border-radius var(--dur) var(--entra),
+    --curva var(--dur) var(--entra),
+    background-color 260ms ease,
+    filter var(--dur) var(--entra);
+  will-change: width, height;
 }
 /*
  * Recolhido: só um traço, sem curva. Claro e com contorno escuro — da cor do fundo do tema ele
@@ -113,8 +122,10 @@ body {
 body:not([data-aberto="1"]) .pilula {
   background: var(--traco-cor);
   filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.7)) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.35));
-  transition-duration: 260ms, 260ms, 260ms, 260ms, 200ms;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  /* saindo: o conteúdo some primeiro (120ms) e só então a pílula encolhe */
+  transition-duration: var(--dur-sai), var(--dur-sai), var(--dur-sai), var(--dur-sai), 220ms, var(--dur-sai);
+  transition-timing-function: var(--sai);
+  transition-delay: 90ms, 90ms, 90ms, 90ms, 150ms, 90ms;
 }
 body[data-aberto="1"] .pilula {
   /* curva longa: o preto começa a abrir bem antes de encostar na borda */
@@ -281,7 +292,7 @@ body[data-atividade="terminou"] .fio {
   padding: 6px;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 160ms ease;
+  transition: opacity 120ms ease;
 }
 .contas {
   display: flex;
@@ -301,6 +312,7 @@ body[data-borda="baixo"] .contas {
   flex-direction: row;
 }
 body[data-aberto="1"] .celulas {
+  transition: opacity 200ms ease 80ms;
   opacity: 1;
   pointer-events: auto;
 }
@@ -319,17 +331,21 @@ body[data-aberto="1"] .celulas {
   gap: 2px;
   border-radius: 12px;
   opacity: 0;
-  scale: 0.85;
+  scale: 0.94;
   transition:
-    opacity 220ms ease,
-    scale 320ms var(--mola),
+    opacity 120ms ease,
+    scale 200ms var(--sai),
     background 120ms ease;
 }
-/* entrando: as células chegam em cascata, depois da pílula começar a abrir; saindo, somem juntas */
+/* entrando: as células chegam em cascata, depois da pílula já ter aberto um tanto; saindo, somem juntas */
 body[data-aberto="1"] .celula {
   opacity: 1;
   scale: 1;
-  transition-delay: calc(80ms + var(--i, 0) * 45ms);
+  transition:
+    opacity 280ms ease,
+    scale 380ms var(--entra),
+    background 120ms ease;
+  transition-delay: calc(120ms + var(--i, 0) * 40ms), calc(120ms + var(--i, 0) * 40ms), 0ms;
 }
 .celula:hover,
 .celula[data-ativa="1"] {

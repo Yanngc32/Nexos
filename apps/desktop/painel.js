@@ -364,7 +364,20 @@ function reportarAreas() {
     quentes.push(Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Math.round(v)])));
     if (!el("card").classList.contains("hidden")) quentes.push(ret(el("card").getBoundingClientRect()));
   } else {
-    quentes.push(ret(el("pilula").getBoundingClientRect()));
+    // tamanho FINAL do traço (a pílula ainda pode estar encolhendo): medir o DOM aqui pegava o
+    // tamanho aberto, o cursor ainda perto caía "dentro" e o painel reabria sem fechar direito
+    const css = getComputedStyle(document.documentElement);
+    const esp = parseFloat(css.getPropertyValue("--traco-esp")) || 5;
+    const tc = parseFloat(css.getPropertyValue("--traco-comp")) || 56;
+    const r =
+      borda === "direita"
+        ? { x: W - esp, y: c - tc / 2, w: esp, h: tc }
+        : borda === "esquerda"
+          ? { x: 0, y: c - tc / 2, w: esp, h: tc }
+          : borda === "topo"
+            ? { x: c - tc / 2, y: 0, w: tc, h: esp }
+            : { x: c - tc / 2, y: H - esp, w: tc, h: esp };
+    quentes.push(Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Math.round(v)])));
     const L = 100;
     despertar =
       borda === "direita"
@@ -515,8 +528,8 @@ el("pilula").addEventListener("click", (e) => {
   const conta = e.target.closest(".celula.conta");
   if (conta) return void atualizarConta(conta.dataset.conta);
   if (e.target.closest("#cel-atividade")) return void window.nexo.painelAbrir({});
-  fixo = !fixo;
-  pintar();
+  // clique no fundo da pílula não faz nada: antes ele fixava o painel aberto sem aviso nenhum, e
+  // parecia que "não fechava". "Manter aberto" fica no menu (botão direito), com o ✓.
 });
 
 el("pilula").addEventListener("contextmenu", (e) => {
@@ -585,6 +598,8 @@ setInterval(() => {
   if (aberto() && alvo === "atividade") pintar();
   else if (espiarAte && Date.now() >= espiarAte) {
     espiarAte = 0;
+    // o espiar escolheu o card de atividade; acabou, e o mouse não está em cima: solta
+    if (!hover && !fixo) alvo = null;
     pintar();
   }
 }, 1000);

@@ -8,6 +8,14 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Corrigido
 
+### Alterado
+
+### Segurança
+
+## [0.5.2] - 2026-09-23
+
+### Corrigido
+
 - Depois de atualizar pra 0.5.1 com o Google Drive conectado, projetos, ícones e memória que
   estavam na pasta compartilhada manual pareciam resetados: o sync pela API não enxergava o que
   foi gravado direto nela. Agora o que falta vem de lá uma vez (sem sobrescrever nada; a pasta
@@ -18,10 +26,9 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   é trocado sozinho quando o app abre.
 - A atualização instalava mesmo com agente trabalhando: a checagem de "turno ativo" era recusada
   pelo motor (sem token) e sempre respondia "livre".
-
-### Alterado
-
-### Segurança
+- Painel de borda: abrir e fechar mais suaves (sem o "pulo" da mola) e ele fecha direito —
+  recolhendo, a área de passar o mouse ainda era a do painel aberto e ele reabria; clique no
+  fundo da pílula fixava aberto sem aviso (fixar agora é só pelo menu, "Manter aberto").
 
 ## [0.5.1] - 2026-09-23
 
