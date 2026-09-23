@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, nativeImage, shell } = require("electron");
+const { app, BrowserWindow, Tray, Menu, Notification, dialog, ipcMain, nativeImage, shell } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { execFile, spawn } = require("node:child_process");
 const {
@@ -75,6 +75,10 @@ if (DEV) {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
+
+// Notificação nativa no Windows só aparece com o mesmo AppUserModelId do atalho que o NSIS cria
+// (= `appId` do electron-builder.yml). Sem isto o aviso de "instalando atualização" não sai.
+if (process.platform === "win32") app.setAppUserModelId("br.com.2dconsultores.nexos");
 
 const here = __dirname;
 /**
@@ -854,6 +858,8 @@ function toggleWidget() {
  * aqui só o motor e a ponte de IPC pra ela consumir depois.
  */
 let updateReady = false;
+/** Versão baixada e esperando instalar — vai no aviso de "instalando". */
+let updateVersao = "";
 let quittingForUpdate = false;
 /** Último evento do updater — a tela "Sobre" pergunta isto ao abrir (`update:status`),
     já que pode ter perdido o evento ao vivo (aberta antes ou depois de ele acontecer). */
@@ -887,6 +893,7 @@ function setupAutoUpdater() {
   );
   autoUpdater.on("update-downloaded", (info) => {
     updateReady = true;
+    updateVersao = info.version || "";
     sendUpdateStatus({ state: "downloaded", version: info.version });
   });
   autoUpdater.on("error", (err) => {
@@ -1229,17 +1236,40 @@ app.whenReady().then(() => {
  * `quittingForUpdate` evita loop: o `app.quit()` do ramo "turno ativo" reemite
  * este mesmo evento, e da segunda vez ele precisa passar direto.
  */
+/** Notificação nativa do Windows — continua na tela depois que o app fecha. */
+function avisarDoUpdate(titulo, corpo) {
+  try {
+    if (Notification.isSupported()) new Notification({ title: titulo, body: corpo, silent: true }).show();
+  } catch {
+    // sem notificação (desligada no Windows): segue a atualização mesmo assim
+  }
+}
+
 app.on("before-quit", (event) => {
   killShell();
   if (!updateReady || quittingForUpdate) return;
   event.preventDefault();
   quittingForUpdate = true;
   void (async () => {
-    if (await turnoAtivo()) app.quit();
+    if (await turnoAtivo()) {
+      avisarDoUpdate("Atualização adiada", "Tinha agente trabalhando, então o Nexos só fechou. A versão nova instala no próximo fechamento.");
+      app.quit();
+      return;
+    }
+    /*
+     * Instalação silenciosa troca ~10 mil arquivos (as dependências do motor) e leva 1–2 min sem
+     * janela nenhuma: sem este aviso parecia que o app tinha morrido. A notificação fica no
+     * Windows depois que o app sai.
+     */
+    avisarDoUpdate(
+      `Instalando o Nexos ${updateVersao}`.trim(),
+      "Leva 1–2 minutos. O Nexos abre sozinho quando terminar — não precisa abrir de novo.",
+    );
     // `quitAndInstall(isSilent, isForceRunAfter)`: sem os dois `true`, o NSIS abre o
     // instalador visível de novo (assistente completo, pede clique em "Concluir") em vez de
     // instalar quieto e reabrir sozinho — o oposto do que "atualização automática" promete.
-    else autoUpdater.quitAndInstall(true, true);
+    // O respiro deixa a notificação sair antes do processo morrer.
+    setTimeout(() => autoUpdater.quitAndInstall(true, true), 400);
   })();
 });
 app.on("window-all-closed", () => {
