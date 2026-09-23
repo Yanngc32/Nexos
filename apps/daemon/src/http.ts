@@ -5,7 +5,7 @@ import { cors } from "hono/cors";
 import type { SwitchReason } from "@nexos/shared";
 import { getAgent, listAgents, removeAgent, saveAgent, type AgentInput } from "./agents.ts";
 import { loadConfig, saveConfig } from "./config.ts";
-import { clearTypesafeApiKey, hasTypesafeApiKey, saveTypesafeApiKey, typesafeUsage } from "./typesafe.ts";
+import { clearTypesafeApiKey, hasTypesafeApiKey, pausaDoTypesafe, saveTypesafeApiKey, typesafeUsage } from "./typesafe.ts";
 import {
   cancelGithubLogin,
   disconnectGithub,
@@ -2152,7 +2152,9 @@ export function createApp(home: string, token: string): Hono {
 
   // Modo (desligado/automatico/perguntar) fica em /v1/config (não é segredo). A key
   // fica aqui, separada: GET nunca devolve o valor, só se está configurada.
-  app.get("/v1/typesafe", (c) => c.json({ configured: hasTypesafeApiKey(home), usage: typesafeUsage(home) }));
+  app.get("/v1/typesafe", (c) =>
+    c.json({ configured: hasTypesafeApiKey(home), usage: typesafeUsage(home), pausa: pausaDoTypesafe(home) ?? null }),
+  );
   app.put("/v1/typesafe", async (c) => {
     const body = (await c.req.json()) as { apiKey?: string };
     if (typeof body.apiKey !== "string") return c.json({ error: "apiKey obrigatório" }, 400);

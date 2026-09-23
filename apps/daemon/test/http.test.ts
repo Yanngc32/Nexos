@@ -1731,7 +1731,7 @@ describe("http /v1/typesafe", () => {
     const hdr = { authorization: "Bearer t", "content-type": "application/json" };
 
     const antes = await app.request("/v1/typesafe", { headers: hdr });
-    expect(await antes.json()).toEqual({ configured: false, usage: { inputTokens: 0, outputTokens: 0, calls: 0 } });
+    expect(await antes.json()).toEqual({ configured: false, usage: { inputTokens: 0, outputTokens: 0, calls: 0 }, pausa: null });
 
     const put = await app.request("/v1/typesafe", { method: "PUT", headers: hdr, body: JSON.stringify({ apiKey: "sk-segredo" }) });
     const putBody = JSON.stringify(await put.json());

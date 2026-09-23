@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { TypeSafeClient, choice, score } from "@typesafe-ai/sdk";
+import { APIConnectionError, TypeSafeClient, choice, score } from "@typesafe-ai/sdk";
 import {
   CLAUDE_EFFORT_LEVELS,
   EFFORT_LEVELS,
@@ -218,6 +218,92 @@ export function montarPayloadExecucao(
  * Objeto vazio em todo caminho de falha (modo desligado, sem key, sem candidato,
  * erro de rede): quem chama cai no `MODELO_AUTO_FALLBACK`.
  */
+/**
+ * Teto de cada chamada. Ela segura a mensagem da pessoa antes de chegar no motor: com 8s e as duas
+ * chamadas (roteamento + execução) em série, API fora do ar virava ~16s de "o Claude demora pra
+ * começar". Resposta normal do typesafe cabe folgada aqui; quem estoura cai no padrão.
+ */
+export const TIMEOUT_TYPESAFE_MS = 3000;
+
+/** Key recusada (401/403): tentar a cada mensagem só soma espera até alguém trocar a key. */
+const PAUSA_KEY_RECUSADA_MS = 30 * 60_000;
+/** Falhas de rede/timeout seguidas até pausar, e por quanto tempo: serviço fora volta sozinho. */
+const FALHAS_DE_REDE_PRA_PAUSAR = 2;
+const PAUSA_SEM_RESPOSTA_MS = 5 * 60_000;
+
+export type PausaDoTypesafe = {
+  motivo: "key-recusada" | "sem-resposta";
+  /** Mensagem crua do erro que causou a pausa. */
+  erro: string;
+  /** Até quando as chamadas são puladas (ISO). */
+  ate: string;
+};
+
+/**
+ * Disjuntor por home+key, só em memória: reiniciar o motor ou salvar outra key volta a tentar.
+ * `avisada` = o chat já mostrou esta pausa (um aviso por pausa, não um por mensagem).
+ */
+type Circuito = { falhasDeRede: number; pausa?: PausaDoTypesafe & { fim: number; avisada: boolean } };
+const circuitos = new Map<string, Circuito>();
+const chaveDoCircuito = (home: string, apiKey: string) => `${home}\u0000${apiKey}`;
+
+function pausaAtiva(home: string, apiKey: string): Circuito["pausa"] {
+  const c = circuitos.get(chaveDoCircuito(home, apiKey));
+  if (!c?.pausa) return undefined;
+  if (Date.now() < c.pausa.fim) return c.pausa;
+  c.pausa = undefined;
+  return undefined;
+}
+
+function registrarSucesso(home: string, apiKey: string): void {
+  circuitos.delete(chaveDoCircuito(home, apiKey));
+}
+
+function registrarFalha(home: string, apiKey: string, err: unknown): void {
+  const k = chaveDoCircuito(home, apiKey);
+  const c = circuitos.get(k) ?? { falhasDeRede: 0 };
+  const status = (err as { status?: unknown })?.status;
+  const erro = (err as Error)?.message || String(err);
+  const pausar = (motivo: PausaDoTypesafe["motivo"], ms: number) => {
+    const fim = Date.now() + ms;
+    // chamadas em paralelo falhando juntas não reabrem o aviso já dado
+    const avisada = c.pausa?.avisada ?? false;
+    c.pausa = { motivo, erro, ate: new Date(fim).toISOString(), fim, avisada };
+    c.falhasDeRede = 0;
+  };
+  if (status === 401 || status === 403) pausar("key-recusada", PAUSA_KEY_RECUSADA_MS);
+  else if (err instanceof APIConnectionError) {
+    // inclui APITimeoutError: sem resposta a tempo é o que custa espera
+    c.falhasDeRede += 1;
+    if (c.falhasDeRede >= FALHAS_DE_REDE_PRA_PAUSAR) pausar("sem-resposta", PAUSA_SEM_RESPOSTA_MS);
+  }
+  circuitos.set(k, c);
+}
+
+/** Pausa em curso pra key configurada agora (tela de Roteamento IA). */
+export function pausaDoTypesafe(home: string): PausaDoTypesafe | undefined {
+  const apiKey = lerStore(home).apiKey;
+  const p = apiKey ? pausaAtiva(home, apiKey) : undefined;
+  return p ? { motivo: p.motivo, erro: p.erro, ate: p.ate } : undefined;
+}
+
+/** A pausa, UMA vez por pausa — pro chat avisar sem repetir a cada mensagem. */
+export function avisoNovoDePausa(home: string): PausaDoTypesafe | undefined {
+  const apiKey = lerStore(home).apiKey;
+  const p = apiKey ? pausaAtiva(home, apiKey) : undefined;
+  if (!p || p.avisada) return undefined;
+  p.avisada = true;
+  return { motivo: p.motivo, erro: p.erro, ate: p.ate };
+}
+
+function limparCircuitos(home: string): void {
+  for (const k of circuitos.keys()) if (k.startsWith(`${home}\u0000`)) circuitos.delete(k);
+}
+
+export function resetTypesafeCircuitoForTest(): void {
+  circuitos.clear();
+}
+
 export async function escolherExecucao(
   entrada: EntradaDeRoteamento,
   home: string,
@@ -230,6 +316,7 @@ export async function escolherExecucao(
   if (cfg.typesafe.modo === "desligado") return vazio;
   const store = lerStore(home);
   if (!store.apiKey) return vazio;
+  if (pausaAtiva(home, store.apiKey)) return vazio;
 
   const payload = montarPayloadExecucao(entrada, home, engine, querer);
   if (!payload) return vazio;
@@ -237,7 +324,11 @@ export async function escolherExecucao(
 
   try {
     const client = new TypeSafeClient({ apiKey: store.apiKey });
-    const { answers, usage } = await client.systemOne({ state, questions }, { timeout: 8000, retry: { maxRetries: 0 } });
+    const { answers, usage } = await client.systemOne(
+      { state, questions },
+      { timeout: TIMEOUT_TYPESAFE_MS, retry: { maxRetries: 0 } },
+    );
+    registrarSucesso(home, store.apiKey);
     registrarUso(usage, home);
     const out: EscolhaDeExecucao = {};
     const m = answers.which_model;
@@ -256,6 +347,7 @@ export async function escolherExecucao(
     }
     return out;
   } catch (err) {
+    registrarFalha(home, store.apiKey, err);
     console.error("typesafe: falha ao escolher execução:", (err as Error).message || err);
     return vazio;
   }
@@ -310,11 +402,13 @@ export function hasTypesafeApiKey(home: string): boolean {
 export function saveTypesafeApiKey(apiKey: string, home: string): void {
   const trimmed = apiKey.trim();
   if (!trimmed) throw new Error("API key vazia");
+  limparCircuitos(home);
   const store = lerStore(home);
   escreverStore({ ...store, apiKey: trimmed }, home);
 }
 
 export function clearTypesafeApiKey(home: string): void {
+  limparCircuitos(home);
   const store = lerStore(home);
   escreverStore({ usage: store.usage }, home);
 }
@@ -393,6 +487,7 @@ export async function decidirRoteamento(
   if (cfg.typesafe.modo === "desligado") return undefined;
   const store = lerStore(home);
   if (!store.apiKey) return undefined;
+  if (pausaAtiva(home, store.apiKey)) return undefined;
 
   const { agentes, criteriosAgente } = montarCandidatos(home);
   if (agentes.length === 0) return undefined;
@@ -403,7 +498,11 @@ export async function decidirRoteamento(
     // Sem retry: isto bloqueia o envio da mensagem do usuário, então uma falha
     // deve render `undefined` rápido (e a thread segue como está) em vez de
     // encadear backoff e multiplicar a espera por uma decisão best-effort.
-    const { answers, usage } = await client.systemOne({ state, questions }, { timeout: 8000, retry: { maxRetries: 0 } });
+    const { answers, usage } = await client.systemOne(
+      { state, questions },
+      { timeout: TIMEOUT_TYPESAFE_MS, retry: { maxRetries: 0 } },
+    );
+    registrarSucesso(home, store.apiKey);
     registrarUso(usage, home);
 
     const a = answers.which_agent;
@@ -418,6 +517,7 @@ export async function decidirRoteamento(
     }
     return { tipo: "agente", agentId: a.choice, confianca: a.confidence, probabilidades: a.probabilities };
   } catch (e) {
+    registrarFalha(home, store.apiKey, e);
     console.error("typesafe: falha ao decidir roteamento:", (e as Error).message || e);
     return undefined;
   }

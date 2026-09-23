@@ -43,7 +43,7 @@ import {
 import { assertSwitch, suggestFallback } from "./router.ts";
 import { spawnCwd } from "./project-cwd.ts";
 import { activeAgentId, activeProfileId, appendEvent, readThread, removeThread, threadUsage } from "./threads.ts";
-import { decidirRoteamento, escolherExecucao } from "./typesafe.ts";
+import { avisoNovoDePausa, decidirRoteamento, escolherExecucao, type EscolhaDeExecucao, type PausaDoTypesafe } from "./typesafe.ts";
 
 const CONTINUE = "Continue de onde parou.";
 
@@ -142,7 +142,12 @@ export type SessionEvent =
       fallback: boolean;
       motivo: "escolhido" | "confianca-baixa" | "indisponivel";
       sugerido?: string;
-    };
+    }
+  /**
+   * Roteamento IA parou de chamar o typesafe por um tempo (key recusada, ou serviço sem responder).
+   * Uma vez por pausa, não por mensagem; também não vai pro JSONL.
+   */
+  | ({ type: "typesafe_pausado"; threadId: string } & PausaDoTypesafe);
 
 /** Turno em voo: sobrevive à troca de conta pra a conta nova continuar de onde a antiga parou. */
 type PendingTurn = { text: string; partial: boolean };
@@ -1259,47 +1264,97 @@ function permissaoDoTurno(eventos: ThreadEvent[], perfil: Profile | undefined): 
  * qualquer tipo deixa o modelo de fora, e `profileFlags` cai no fallback
  * (sonnet/medium) em vez de mandar `--model auto` pro CLI.
  */
+/** Modelo/esforço que valeriam no turno (agente > conta) e quais deles estão em "Automático". */
+function execucaoDoTurno(perfil: Profile | undefined, agentId: string | undefined, home: string) {
+  const doAgente = agentOverrides(agentId, home);
+  const modeloQueValeria = doAgente.model ?? perfil?.model;
+  const esforcoQueValeria = doAgente.effort ?? perfil?.effort;
+  return {
+    modeloQueValeria,
+    esforcoQueValeria,
+    querModelo: modeloQueValeria === MODELO_AUTO,
+    querEsforco: esforcoQueValeria === ESFORCO_AUTO,
+  };
+}
+
+/** Escolha de modelo/esforço já em voo, pedida antes de saber o agente final do turno. */
+type EscolhaAntecipada = {
+  engine: EngineKind;
+  querer: { modelo: boolean; esforco: boolean };
+  promessa: Promise<EscolhaDeExecucao>;
+};
+
+/**
+ * Dispara a escolha de modelo/esforço JÁ, em paralelo com o roteamento e o `ensureLive` — antes
+ * as duas chamadas ao typesafe iam em série e a pessoa esperava a soma antes do motor receber a
+ * mensagem. Usa a conta e o agente de agora; se o roteamento trocar o agente e a necessidade mudar,
+ * `aplicarOverridesDoTurno` descarta isto e pergunta de novo (caso raro, custa só a espera antiga).
+ */
+function anteciparEscolha(eventos: ThreadEvent[], mensagem: string, home: string): EscolhaAntecipada | undefined {
+  const perfil = getProfile(activeProfileId(eventos), home);
+  if (!perfil) return undefined;
+  const { querModelo, querEsforco } = execucaoDoTurno(perfil, activeAgentId(eventos), home);
+  if (!querModelo && !querEsforco) return undefined;
+  const querer = { modelo: querModelo, esforco: querEsforco };
+  const promessa = escolherExecucao({ mensagem, historico: historicoPraRoteamento(eventos) }, home, perfil.engine, querer)
+    // escolherExecucao já não lança; isto só impede rejeição solta se algo antes do try estourar
+    .catch((): EscolhaDeExecucao => ({}));
+  return { engine: perfil.engine, querer, promessa };
+}
+
+/** Avisa no chat, uma vez por pausa, que o Roteamento IA parou de chamar o typesafe. */
+function avisarPausaDoTypesafe(threadId: string, home: string): void {
+  const pausa = avisoNovoDePausa(home);
+  if (pausa) emit(threadId, { type: "typesafe_pausado", threadId, ...pausa });
+}
+
 async function aplicarOverridesDoTurno(
   threadId: string,
   mensagem: string,
   eventos: ThreadEvent[],
   live: Live,
   home: string,
+  antecipada?: EscolhaAntecipada,
 ): Promise<void> {
   const perfil = getProfile(live.profileId, home);
   const permissao = permissaoDoTurno(eventos, perfil);
   // Agente manda mais que conta nas duas dimensões: onde ele fixou, não há o que escolher.
-  const doAgente = agentOverrides(live.agentId, home);
-  const modeloQueValeria = doAgente.model ?? perfil?.model;
-  const esforcoQueValeria = doAgente.effort ?? perfil?.effort;
-  const querModelo = modeloQueValeria === MODELO_AUTO;
-  const querEsforco = esforcoQueValeria === ESFORCO_AUTO;
+  const { esforcoQueValeria, querModelo, querEsforco } = execucaoDoTurno(perfil, live.agentId, home);
   if (!perfil || (!querModelo && !querEsforco)) {
     // Nada dinâmico: o esforço do turno é o configurado mesmo (agente > conta).
     live.esforcoDoTurno = esforcoQueValeria;
     live.engine.updateOverrides(permissao);
     return;
   }
-  const escolha = await escolherExecucao(
-    { mensagem, historico: historicoPraRoteamento(eventos) },
-    home,
-    perfil.engine,
-    { modelo: querModelo, esforco: querEsforco },
-  );
+  // A antecipada vale se perguntou pelo menos o que este turno precisa, no mesmo motor.
+  const serve =
+    antecipada &&
+    antecipada.engine === perfil.engine &&
+    (!querModelo || antecipada.querer.modelo) &&
+    (!querEsforco || antecipada.querer.esforco);
+  const escolha = serve
+    ? await antecipada.promessa
+    : await escolherExecucao(
+        { mensagem, historico: historicoPraRoteamento(eventos) },
+        home,
+        perfil.engine,
+        { modelo: querModelo, esforco: querEsforco },
+      );
+  avisarPausaDoTypesafe(threadId, home);
   /*
    * Piso de confiança, e não só "usa o que veio": medindo contra a API real, uma
    * pergunta de depuração empatou e saiu no modelo barato com confiança 0.15 —
    * moeda girando. Como errar pro barato custa resposta fraca e retrabalho, e
    * errar pro caro custa só tokens, dúvida vira fallback (o mais capaz).
    */
-  const modeloOk = Boolean(escolha.model) && escolha.model!.confianca >= LIMIAR_DE_MODELO;
+  const modeloOk = querModelo && Boolean(escolha.model) && escolha.model!.confianca >= LIMIAR_DE_MODELO;
   /*
    * Esforço NÃO tem piso: ele vem de um `Score` (escala ordenada), onde
    * distribuição espalhada já sai como o meio-termo — o número entre níveis é a
    * resposta, não um empate a descartar. Piso aqui jogaria fora justamente o
    * caso que o Score existe pra resolver.
    */
-  const esforcoOk = Boolean(escolha.effort);
+  const esforcoOk = querEsforco && Boolean(escolha.effort);
   live.engine.updateOverrides({
     ...permissao,
     ...(modeloOk ? { model: escolha.model!.valor } : {}),
@@ -1390,9 +1445,12 @@ export async function postMessage(
     const eventosAtuais = readThread(threadId, home);
     const meta = eventosAtuais.find((e) => e.type === "thread_meta");
     const nasceuSemAgente = meta?.type === "thread_meta" && !meta.agentId && !meta.semRoteamento;
+    // Sai antes do roteamento pra correr junto com ele (e com o ensureLive), não depois.
+    const antecipada = anteciparEscolha(eventosAtuais, text, home);
     const roteamento = nasceuSemAgente
       ? await talvezRotear(threadId, text, eventosAtuais, home)
       : { pendente: false };
+    avisarPausaDoTypesafe(threadId, home);
     // Grava antes do turno: se o motor falhar, a imagem não se perde do histórico.
     const attachments = images.length > 0 ? saveImages(threadId, images, home) : [];
     const resultados = resultadosPendentes(eventosAtuais);
@@ -1416,7 +1474,7 @@ export async function postMessage(
      */
     if (roteamento.pendente) return;
     const live = await ensureLive(threadId, home);
-    await aplicarOverridesDoTurno(threadId, text, eventosAtuais, live, home);
+    await aplicarOverridesDoTurno(threadId, text, eventosAtuais, live, home, antecipada);
     await dispatch(threadId, home, live, promptWithAttachments(resultados + comSkill(textoComElementos(text, opts.elementos), live, home, meta), attachments));
   });
 }

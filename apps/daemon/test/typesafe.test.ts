@@ -2,7 +2,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { addProfile } from "../src/profiles.ts";
 import { saveAgent } from "../src/agents.ts";
 import { saveConfig } from "../src/config.ts";
-import { decidirRoteamento, hasTypesafeApiKey, saveTypesafeApiKey, clearTypesafeApiKey, typesafeUsage } from "../src/typesafe.ts";
+import {
+  avisoNovoDePausa,
+  clearTypesafeApiKey,
+  decidirRoteamento,
+  hasTypesafeApiKey,
+  pausaDoTypesafe,
+  resetTypesafeCircuitoForTest,
+  saveTypesafeApiKey,
+  TIMEOUT_TYPESAFE_MS,
+  typesafeUsage,
+} from "../src/typesafe.ts";
 import { tempHome } from "./helpers.ts";
 
 function homeComAgente(): string {
@@ -133,5 +143,80 @@ describe("typesafe: decidirRoteamento nunca lança e é best-effort", () => {
       vi.fn(async () => new Response(JSON.stringify({ error: "invalid key" }), { status: 401 })),
     );
     expect(await decidirRoteamento({ mensagem: "revisa esse PR" }, home)).toBeUndefined();
+  });
+});
+
+describe("typesafe: falha não pode virar espera em toda mensagem", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetTypesafeCircuitoForTest();
+  });
+
+  function homeLigado(key = "k"): string {
+    const home = homeComAgente();
+    saveTypesafeApiKey(key, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    return home;
+  }
+
+  it("espera no máximo 3s por chamada", () => {
+    expect(TIMEOUT_TYPESAFE_MS).toBe(3000);
+  });
+
+  it("key recusada (401) pausa: a próxima mensagem nem chama a API, e o aviso sai uma vez só", async () => {
+    const home = homeLigado("k-invalida");
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ error: "invalid key" }), { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await decidirRoteamento({ mensagem: "revisa esse PR" }, home)).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(pausaDoTypesafe(home)).toMatchObject({ motivo: "key-recusada" });
+
+    expect(await decidirRoteamento({ mensagem: "e agora?" }, home)).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    expect(avisoNovoDePausa(home)).toMatchObject({ motivo: "key-recusada" });
+    expect(avisoNovoDePausa(home)).toBeUndefined();
+  });
+
+  it("salvar outra key tira a pausa na hora", async () => {
+    const home = homeLigado("k-invalida");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 401 })));
+    await decidirRoteamento({ mensagem: "oi" }, home);
+    expect(pausaDoTypesafe(home)).toBeDefined();
+
+    saveTypesafeApiKey("k-nova", home);
+    expect(pausaDoTypesafe(home)).toBeUndefined();
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("revisor", 0.9)));
+    expect(await decidirRoteamento({ mensagem: "revisa esse PR" }, home)).toMatchObject({ tipo: "agente" });
+  });
+
+  it("uma falha de rede não pausa; duas seguidas pausam", async () => {
+    const home = homeLigado();
+    const fetchMock = vi.fn(async () => {
+      throw new Error("boom");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await decidirRoteamento({ mensagem: "1" }, home);
+    expect(pausaDoTypesafe(home)).toBeUndefined();
+    await decidirRoteamento({ mensagem: "2" }, home);
+    expect(pausaDoTypesafe(home)).toMatchObject({ motivo: "sem-resposta" });
+    await decidirRoteamento({ mensagem: "3" }, home);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("sucesso no meio zera a contagem de falhas de rede", async () => {
+    const home = homeLigado();
+    const boom = async () => {
+      throw new Error("boom");
+    };
+    vi.stubGlobal("fetch", vi.fn(boom));
+    await decidirRoteamento({ mensagem: "1" }, home);
+    vi.stubGlobal("fetch", vi.fn(async () => respostaFake("revisor", 0.9)));
+    await decidirRoteamento({ mensagem: "2" }, home);
+    vi.stubGlobal("fetch", vi.fn(boom));
+    await decidirRoteamento({ mensagem: "3" }, home);
+    expect(pausaDoTypesafe(home)).toBeUndefined();
   });
 });

@@ -2,7 +2,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { saveTypesafeApiKey } from "../src/typesafe.ts";
+import { resetTypesafeCircuitoForTest, saveTypesafeApiKey } from "../src/typesafe.ts";
 import { addProfile, engineEnv, getProfile, markReady, rememberContextWindow, updateProfile } from "../src/profiles.ts";
 import { activeAgentId, createThread, readThread, threadUsage } from "../src/threads.ts";
 import { lerSessaoClaude } from "../src/claude-session.ts";
@@ -1049,6 +1049,59 @@ describe("postMessage: roteamento por typesafe.ai", () => {
     }
     expect((getLive(t.id)?.engine as StubEngine).lastOverrides).toEqual({ model: "haiku" });
     expect(vistos.find((e) => e.type === "modelo_auto")).toMatchObject({ model: "haiku", fallback: false });
+  });
+
+  it("roteamento e escolha de modelo saem juntos, não um depois do outro", async () => {
+    const home = tempHome();
+    addProfile({ id: "auto-par", engine: "stub" }, home);
+    updateProfile("auto-par", home, { model: "auto" });
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "auto-par", model: "haiku" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k", home);
+    let emVoo = 0;
+    let maxEmVoo = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        emVoo += 1;
+        maxEmVoo = Math.max(maxEmVoo, emVoo);
+        await new Promise((r) => setTimeout(r, 50));
+        emVoo -= 1;
+        const body = JSON.parse(init.body);
+        return body.state.agente_atual === undefined ? respostaModelo("haiku", 0.9) : respostaFake("automatico", 0.9);
+      }),
+    );
+    const t = createThread({ projectPath: "/proj", profileId: "auto-par" }, home);
+    await postMessage(t.id, "traduz essa frase", home);
+    expect(maxEmVoo).toBe(2);
+    expect((getLive(t.id)?.engine as StubEngine).lastOverrides).toEqual({ model: "haiku" });
+  });
+
+  it("key do typesafe recusada: avisa no chat uma vez e para de chamar a API", async () => {
+    const home = tempHome();
+    addProfile({ id: "auto-401", engine: "stub" }, home);
+    updateProfile("auto-401", home, { model: "auto" });
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "auto-401", model: "haiku" }, home);
+    saveConfig(home, { typesafe: { modo: "automatico" } });
+    saveTypesafeApiKey("k-recusada", home);
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const t = createThread({ projectPath: "/proj", profileId: "auto-401" }, home);
+    const vistos: { type: string; motivo?: string }[] = [];
+    const onEv = (ev: { type: string; motivo?: string }) => vistos.push(ev);
+    sessionBus.on(t.id, onEv);
+    try {
+      await postMessage(t.id, "primeira", home);
+      const chamadas = fetchMock.mock.calls.length;
+      await postMessage(t.id, "segunda", home);
+      expect(fetchMock.mock.calls.length).toBe(chamadas);
+    } finally {
+      sessionBus.off(t.id, onEv);
+      resetTypesafeCircuitoForTest();
+    }
+    expect(vistos.filter((e) => e.type === "typesafe_pausado")).toEqual([
+      expect.objectContaining({ motivo: "key-recusada" }),
+    ]);
   });
 
   it("modelo automático com typesafe fora do ar: cai no fallback e avisa", async () => {
