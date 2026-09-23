@@ -7371,5 +7371,9 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
 .ds-conf-sug { font-family: var(--font-mono); color: var(--text); white-space: nowrap; }
 .ds-conf-lista li[data-tipo="fora"] .ds-conf-sug { color: var(--faint); }
 .ds-sync-tit { margin: var(--s-3) 0 0; font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
+.ds-conf-med { display: inline-flex; align-items: center; justify-content: center; border-style: dashed; font-size: 9px; line-height: 1; color: var(--muted); }
+.ds-sync-check { flex: 0 0 auto; margin: 0; }
+.ds-sync-lista li[data-tipo="fora"] { opacity: .55; }
+.ds-sync-nome { flex: 0 0 96px; min-width: 0; padding: 2px 6px; font: var(--fs-xs) var(--font-mono); }
 .ds-exp-formatos { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 .ds-exp-saida { width: 100%; min-height: 260px; resize: vertical; font: var(--fs-xs) / 1.5 var(--font-mono); white-space: pre; }

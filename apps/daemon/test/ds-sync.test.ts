@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { tempHome } from "./helpers.ts";
 import { addProfile } from "../src/profiles.ts";
 import { criarDs, estadoDs } from "../src/design-system.ts";
-import { blocoDoDsParaPack, conformidade, exportar, ressincronizar } from "../src/ds-sync.ts";
+import { aplicarRessincronia, blocoDoDsParaPack, conformidade, exportar, ressincronizar } from "../src/ds-sync.ts";
 import { createThread } from "../src/threads.ts";
 import { getLive, postMessage } from "../src/session.ts";
 import type { StubEngine } from "../src/engines/stub.ts";
@@ -46,6 +46,33 @@ describe("conformidade", () => {
     expect(r.achados.find((a) => a.arquivo === "src/App.tsx")?.exato).toBe("--color-bg");
     expect(r.foraDaPaleta).toBeGreaterThanOrEqual(4);
     expect(r.porArquivo[0]!.arquivo).toBe("src/app.css");
+    expect(r.achados.every((a) => a.tipo === "cor")).toBe(true);
+  });
+
+  it("tamanho solto em fonte, espaçamento e raio: token exato, perto (1px) ou fora da escala", () => {
+    writeFileSync(
+      join(proj, "src", "medidas.css"),
+      [
+        ".a { font-size: 13px; padding: 16px 1px 0 20px; }", // 13 = sm; 16 = space-4; 1px e 0 não contam; 20 fora (16 e 24)
+        ".b { border-radius: 9px; gap: 1.5rem; }", // 9 ≈ md (8); 1.5rem = 24px = space-5
+        ".c { width: 13px; font-size: var(--font-size-sm); } /* padding: 10px */",
+      ].join("\n"),
+    );
+    writeFileSync(join(proj, "src", "Box.tsx"), `export const B = () => <div style={{ fontSize: "19px" }} />;`);
+    criarDs(proj, home, { nome: "Teste" });
+    const r = conformidade(proj, home);
+    const t = r.achados.filter((a) => a.tipo === "tamanho");
+    const de = (arquivo: string) => t.filter((a) => a.arquivo === arquivo).map((a) => [a.valor, a.classe, a.exato ?? a.sugestao?.token]);
+    expect(de("src/medidas.css")).toEqual([
+      ["13px", "exato", "--font-size-sm"],
+      ["16px", "exato", "--space-4"],
+      ["20px", "fora", "--space-4"],
+      ["9px", "perto", "--radius-md"],
+      ["1.5rem", "exato", "--space-5"],
+    ]);
+    expect(de("src/Box.tsx")).toEqual([["19px", "perto", "--font-size-lg"]]);
+    expect(r.tamanhos).toBe(6);
+    expect(r.total).toBe(r.cores + r.tamanhos);
   });
 });
 
@@ -56,6 +83,40 @@ describe("ressincronizar", () => {
     expect(r.coresNovas.map((c) => c.hex)).toContain("#00ff88");
     expect(r.coresNovas.map((c) => c.hex)).not.toContain("#c91f2d"); // coberta de perto pelo primário
     expect(r.coresSemUso.map((c) => c.token)).toContain("--color-warning");
+    expect(r.coresNovas.find((c) => c.hex === "#00ff88")!.nomeSugerido).toBe("green");
+  });
+
+  it("valor alterado: o código redeclara um token com outro valor", () => {
+    writeFileSync(join(proj, "src", "vars.css"), ":root { --color-primary: #ff0000; --color-bg: #161616; --space-4: 1rem; }");
+    criarDs(proj, home, { nome: "Teste" });
+    const r = ressincronizar(proj, home);
+    expect(r.valoresAlterados).toEqual([
+      { token: "--color-primary", noDs: "#c81e2c", noCodigo: "#ff0000" },
+      { token: "--space-4", noDs: "16px", noCodigo: "1rem" },
+    ]);
+    // declaração de variável não é "cor solta" na conformidade (trocaria o token por ele mesmo)
+    expect(conformidade(proj, home).achados.map((a) => a.valor)).not.toContain("#ff0000");
+  });
+
+  it("aplicar: adiciona cor/fonte, atualiza e remove token no tokens.json; recusa base velha e nome repetido", () => {
+    criarDs(proj, home, { nome: "Teste" });
+    const r = ressincronizar(proj, home);
+    const ds = aplicarRessincronia(proj, home, r.base, [
+      { acao: "adicionar-cor", hex: "#00FF88", nome: "green" },
+      { acao: "adicionar-fonte", familia: "Inter", nome: "inter" },
+      { acao: "atualizar", token: "--color-primary", valor: "#ff0000" },
+      { acao: "remover", token: "--color-warning" },
+    ]);
+    const tok = ds.tokens as { color: Record<string, { $value: unknown }>; font: { family: Record<string, { $value: unknown }> } };
+    expect(tok.color.green!.$value).toBe("#00ff88");
+    expect(tok.color.primary!.$value).toBe("#ff0000");
+    expect(tok.color.warning).toBeUndefined();
+    expect(tok.font.family.inter!.$value).toEqual(["Inter", "system-ui", "sans-serif"]);
+    expect(ds.css).toContain("--color-green: #00ff88;");
+    // base velha (tokens.json mudou desde a leitura) → 409
+    expect(() => aplicarRessincronia(proj, home, r.base, [{ acao: "remover", token: "--color-success" }])).toThrow(/mudou/);
+    expect(() => aplicarRessincronia(proj, home, ds.tokensHash, [{ acao: "adicionar-cor", hex: "#123456", nome: "green" }])).toThrow(/já existe/);
+    expect(() => aplicarRessincronia(proj, home, ds.tokensHash, [{ acao: "adicionar-cor", hex: "#123456", nome: "Verde!" }])).toThrow(/nome inválido/);
   });
 });
 
@@ -84,6 +145,10 @@ describe("design system no contexto do agente", () => {
     expect(bloco).toContain("# Design system do projeto: Teste");
     expect(bloco).toContain(estadoDs(proj, home).ds!.pastaAbs);
     expect(bloco).toContain("--color-primary: #c81e2c");
+    expect(bloco).not.toContain("Avisos pendentes");
+    // card editado à mão (pelo chat) com erro de lint: o aviso vai pro próximo turno
+    writeFileSync(join(estadoDs(proj, home).ds!.pastaAbs, "cards", "botao-quebrado.html"), `<button style="color:#123456">x</button>`);
+    expect(blocoDoDsParaPack(proj, home)).toMatch(/## Avisos pendentes no DS[\s\S]*cards\/botao-quebrado\.html/);
 
     addProfile({ id: "p1", engine: "stub" }, home);
     const t = createThread({ projectPath: proj, profileId: "p1" }, home);

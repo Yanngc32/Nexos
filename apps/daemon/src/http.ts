@@ -141,7 +141,7 @@ import {
   salvarTokens,
 } from "./design-system.ts";
 import { assinarDs } from "./ds-watch.ts";
-import { conformidade, exportar, ressincronizar, type FormatoExport } from "./ds-sync.ts";
+import { aplicarRessincronia, conformidade, exportar, ressincronizar, type FormatoExport, type ItemRessincronia } from "./ds-sync.ts";
 import { logoDoProjeto } from "./project-logo.ts";
 import {
   cancelarGeracao,
@@ -1210,6 +1210,19 @@ export function createApp(home: string, token: string): Hono {
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
     try {
       return c.json(ressincronizar(projectPath, home));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  /** Aplica os itens da ressincronia que a pessoa aprovou (grava tokens.json, sem LLM). */
+  app.post("/v1/ds/ressincronizar/aplicar", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { base?: string; itens?: ItemRessincronia[] };
+      if (typeof body.base !== "string") return c.json({ error: "base obrigatório (hash do tokens.json lido)" }, 400);
+      return c.json(aplicarRessincronia(projectPath, home, body.base, body.itens ?? []));
     } catch (e) {
       return dsErro(c, e);
     }

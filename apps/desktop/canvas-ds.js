@@ -1472,18 +1472,22 @@ export function createDsCanvas({
     }
     if (editando !== FERRAMENTA || ferramenta !== "conformidade") return;
     corpo.replaceChildren();
+    const partes = [
+      r.cores ? `${r.cores} cor${r.cores > 1 ? "es" : ""}` : "",
+      r.tamanhos ? `${r.tamanhos} tamanho${r.tamanhos > 1 ? "s" : ""}` : "",
+    ].filter(Boolean);
     corpo.append(
       linhaTexto(
         "ds-painel-vazio",
         r.total
-          ? `${r.total} cor${r.total > 1 ? "es" : ""} solta${r.total > 1 ? "s" : ""} em ${r.porArquivo.length} arquivo(s) de ${r.arquivosLidos} lidos. ${r.exatos} já têm token igual, ${r.perto} ficam perto de um token, ${r.foraDaPaleta} estão fora da paleta.`
-          : `Nenhuma cor solta nos ${r.arquivosLidos} arquivos de front lidos.`,
+          ? `${partes.join(" e ")} solto${r.total > 1 ? "s" : ""} em ${r.porArquivo.length} arquivo(s) de ${r.arquivosLidos} lidos. ${r.exatos} já têm token igual, ${r.perto} ficam perto de um token, ${r.foraDaPaleta} estão fora do DS.`
+          : `Nenhuma cor ou tamanho solto nos ${r.arquivosLidos} arquivos de front lidos.`,
       ),
     );
     if (!r.total) return;
     const resumo = doc.createElement("div");
     resumo.className = "ds-conf-resumo";
-    for (const [rotulo, n, tipo] of [["trocar pelo token", r.exatos, "exato"], ["quase um token", r.perto, "perto"], ["fora da paleta", r.foraDaPaleta, "fora"]]) {
+    for (const [rotulo, n, tipo] of [["trocar pelo token", r.exatos, "exato"], ["quase um token", r.perto, "perto"], ["fora do DS", r.foraDaPaleta, "fora"]]) {
       const b = doc.createElement("span");
       b.className = "ds-conf-num";
       b.dataset.tipo = tipo;
@@ -1493,19 +1497,24 @@ export function createDsCanvas({
       resumo.append(b);
     }
     corpo.append(resumo);
+    const ICONE = { fonte: "Aa", espaco: "↔", raio: "◜" };
     const lista = doc.createElement("ol");
     lista.className = "ds-conf-lista";
     for (const a of r.achados.slice(0, 80)) {
       const li = doc.createElement("li");
-      const tipo = a.exato ? "exato" : a.sugestao && a.sugestao.distancia <= 40 ? "perto" : "fora";
-      li.dataset.tipo = tipo;
+      li.dataset.tipo = a.classe;
       li.innerHTML = `<span class="ds-conf-cor"></span><code class="ds-conf-onde"></code><span class="ds-conf-sug"></span>`;
-      li.querySelector(".ds-conf-cor").style.background = a.valor;
+      const marca = li.querySelector(".ds-conf-cor");
+      if (a.tipo === "cor") marca.style.background = a.valor;
+      else {
+        marca.classList.add("ds-conf-med");
+        marca.textContent = ICONE[a.grupo] ?? "";
+      }
       li.querySelector(".ds-conf-onde").textContent = `${a.arquivo}:${a.linha} ${a.valor}`;
       li.querySelector(".ds-conf-sug").textContent = a.exato
         ? `→ var(${a.exato})`
         : a.sugestao
-          ? `≈ var(${a.sugestao.token})${tipo === "fora" ? " (longe)" : ""}`
+          ? `≈ var(${a.sugestao.token})${a.classe === "fora" ? " (longe)" : ""}`
           : "";
       lista.append(li);
     }
@@ -1518,13 +1527,13 @@ export function createDsCanvas({
     botao.title = "Monta o pedido no campo do chat — você revisa e manda";
     botao.addEventListener("click", () => {
       const itens = r.achados
-        .filter((a) => a.exato || (a.sugestao && a.sugestao.distancia <= 40))
+        .filter((a) => a.classe !== "fora")
         .slice(0, 40)
         .map((a) => `- ${a.arquivo}:${a.linha} ${a.valor} → var(${a.exato || a.sugestao.token})`);
-      const fora = r.achados.filter((a) => !a.exato && (!a.sugestao || a.sugestao.distancia > 40)).length;
+      const fora = r.achados.filter((a) => a.classe === "fora").length;
       aoPedirNoChat(
-        `Troque as cores soltas do front por tokens do design system "${estado.ds?.nome ?? ""}":\n${itens.join("\n")}` +
-          (fora ? `\n\nOutras ${fora} cores estão fora da paleta: me diga quais viram token novo (em tokens.json) e quais trocam por um token existente.` : ""),
+        `Troque os valores soltos do front (cor e tamanho) por tokens do design system "${estado.ds?.nome ?? ""}":\n${itens.join("\n")}` +
+          (fora ? `\n\nOutros ${fora} valores estão fora do DS: me diga quais viram token novo (em tokens.json) e quais trocam por um token existente.` : ""),
       );
     });
     corpo.append(botao);
@@ -1540,6 +1549,9 @@ export function createDsCanvas({
     }
     if (editando !== FERRAMENTA || ferramenta !== "ressincronizar") return;
     corpo.replaceChildren();
+    corpo.append(linhaTexto("ds-painel-vazio", "Marque o que entra no DS. Aplicar grava no tokens.json na hora, sem IA — os cards já usam os tokens por variável."));
+    /** Cada item marcado vira uma ação; `montar()` lê o estado atual (nome pode ter sido editado). */
+    const marcados = [];
     const secao = (titulo, itens, pintarItem, vazio) => {
       corpo.append(linhaTexto("ds-sync-tit", titulo));
       if (!itens.length) {
@@ -1547,51 +1559,130 @@ export function createDsCanvas({
         return;
       }
       const ul = doc.createElement("ul");
-      ul.className = "ds-conf-lista";
+      ul.className = "ds-conf-lista ds-sync-lista";
       for (const it of itens) ul.append(pintarItem(it));
       corpo.append(ul);
     };
-    const itemCor = (hex, texto) => {
+    const itemComCheck = ({ hex, texto, nome, desabilitado, dica, montar }) => {
       const li = doc.createElement("li");
-      li.innerHTML = `<span class="ds-conf-cor"></span><code class="ds-conf-onde"></code>`;
+      li.innerHTML = `<input type="checkbox" class="ds-sync-check" /><span class="ds-conf-cor"></span><code class="ds-conf-onde"></code>`;
+      const check = li.querySelector("input");
       li.querySelector(".ds-conf-cor").style.background = hex;
       li.querySelector(".ds-conf-onde").textContent = texto;
+      let campo = null;
+      if (nome !== undefined) {
+        campo = doc.createElement("input");
+        campo.type = "text";
+        campo.className = "ds-sync-nome";
+        campo.value = nome;
+        campo.spellcheck = false;
+        campo.title = "Nome do token (a-z, 0-9, hífen)";
+        li.append(campo);
+      }
+      if (desabilitado) {
+        check.disabled = true;
+        li.title = dica ?? "";
+        li.dataset.tipo = "fora";
+      }
+      check.addEventListener("change", pintarBotao);
+      marcados.push(() => (check.checked ? montar(campo?.value.trim() ?? "") : null));
       return li;
     };
     secao(
       "Cores que o código usa e o DS não tem",
       r.coresNovas,
-      (c) => itemCor(c.hex, `${c.hex} · ${c.usos} usos${c.maisPerto ? ` · mais perto: ${c.maisPerto.token}` : ""}`),
+      (c) =>
+        itemComCheck({
+          hex: c.hex,
+          texto: `${c.hex} · ${c.usos} usos${c.maisPerto ? ` · mais perto: ${c.maisPerto.token}` : ""}`,
+          nome: c.nomeSugerido,
+          montar: (nome) => ({ acao: "adicionar-cor", hex: c.hex, nome }),
+        }),
       "Nenhuma: toda cor frequente do código está coberta por um token.",
     );
     secao(
       "Fontes do código fora do DS",
       r.fontesNovas,
-      (f) => itemCor("transparent", `${f.familia} · ${f.usos} usos`),
+      (f) =>
+        itemComCheck({
+          hex: "transparent",
+          texto: `${f.familia} · ${f.usos} usos`,
+          nome: f.nomeSugerido,
+          montar: (nome) => ({ acao: "adicionar-fonte", familia: f.familia, nome }),
+        }),
       "Nenhuma.",
     );
     secao(
-      "Tokens de cor que o código não usa",
+      "Tokens com outro valor no código",
+      r.valoresAlterados,
+      (v) =>
+        itemComCheck({
+          hex: /^#/.test(v.noCodigo) ? v.noCodigo : "transparent",
+          texto: `${v.token}: ${v.noDs} → ${v.noCodigo}`,
+          montar: () => ({ acao: "atualizar", token: v.token, valor: v.noCodigo }),
+        }),
+      "Nenhum: o código não redeclara token com outro valor.",
+    );
+    secao(
+      "Tokens de cor que o código não usa (remover)",
       r.coresSemUso,
-      (c) => itemCor(c.hex, `${c.token} ${c.hex}`),
+      (c) =>
+        itemComCheck({
+          hex: c.hex,
+          texto: `${c.token} ${c.hex}`,
+          desabilitado: c.usadoEmCards,
+          dica: "Um card ou outro token usa este — remover quebraria",
+          montar: () => ({ acao: "remover", token: c.token }),
+        }),
       "Todos aparecem no código.",
     );
-    if (r.coresNovas.length || r.fontesNovas.length) {
-      const b = doc.createElement("button");
-      b.type = "button";
-      b.className = "primary";
-      b.textContent = "Atualizar tokens com IA";
-      b.title = "Abre o Gerar com IA só com 'tokens e regras', lendo o código de novo";
-      b.addEventListener("click", async () => {
-        fecharPainel();
-        await mostrarGerar();
-        for (const i of el("ds-gerar-secoes").querySelectorAll("input")) i.checked = false;
-        el("ds-gerar-tokens").checked = true;
-        el("ds-gerar-codigo").checked = true;
-        pintarEstimativa();
-      });
-      corpo.append(b);
+    const acoes = doc.createElement("div");
+    acoes.className = "ds-ctl-acoes";
+    const aplicar = doc.createElement("button");
+    aplicar.type = "button";
+    aplicar.className = "primary";
+    aplicar.disabled = true;
+    const ia = doc.createElement("button");
+    ia.type = "button";
+    ia.className = "ghost";
+    ia.textContent = "Atualizar tokens com IA";
+    ia.title = "Abre o Gerar com IA só com 'tokens e regras', lendo o código de novo";
+    ia.addEventListener("click", async () => {
+      fecharPainel();
+      await mostrarGerar();
+      for (const i of el("ds-gerar-secoes").querySelectorAll("input")) i.checked = false;
+      el("ds-gerar-tokens").checked = true;
+      el("ds-gerar-codigo").checked = true;
+      pintarEstimativa();
+    });
+    const erro = linhaTexto("ag-err", "");
+    function pintarBotao() {
+      const n = marcados.filter((m) => m()).length;
+      aplicar.disabled = !n;
+      aplicar.textContent = n ? `Aplicar ${n} ${n > 1 ? "itens" : "item"}` : "Aplicar";
     }
+    pintarBotao();
+    aplicar.addEventListener("click", async () => {
+      const itens = marcados.map((m) => m()).filter(Boolean);
+      if (!itens.length) return;
+      aplicar.disabled = true;
+      erro.textContent = "";
+      try {
+        const novo = await req(`/v1/ds/ressincronizar/aplicar?${qs()}`, { method: "POST", body: JSON.stringify({ base: r.base, itens }) });
+        hashSalvoPorMim = novo.tokensHash;
+        aplicarDs(novo);
+        corpo.innerHTML = `<p class="ds-painel-vazio">Carregando…</p>`;
+        await pintarRessincronia(corpo);
+      } catch (e) {
+        erro.textContent = /mudou desde a leitura/.test(e.message) ? "O tokens.json mudou desde a leitura. Recarreguei a lista — confira e aplique de novo." : e.message;
+        if (/mudou desde a leitura/.test(e.message)) {
+          await pintarRessincronia(corpo);
+          corpo.append(erro);
+        } else pintarBotao();
+      }
+    });
+    acoes.append(ia, aplicar);
+    corpo.append(acoes, erro);
   }
 
   function pintarExportar(corpo) {
