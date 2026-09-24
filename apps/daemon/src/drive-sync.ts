@@ -495,3 +495,69 @@ function escreverAtomico(abs: string, buf: Buffer): void {
   writeFileSync(tmp, buf);
   renameSync(tmp, abs);
 }
+
+/** Acima disto fora da lista em `<home>/drive`, a subida avisa (sobra da cópia da 0.8.0). */
+export const LIXO_AVISO_BYTES = 50 * 1024 * 1024;
+
+/**
+ * Mede o que está em `<home>/drive` e o sync ignora (código que a cópia da 0.8.0 trouxe, arquivo
+ * solto na raiz). Acima de 50 MB loga UM aviso com o tamanho e as 3 maiores pastas. **Não apaga
+ * nada**, nem aqui nem no Drive: depois do filtro do sync esse lixo não atrapalha mais nada, e
+ * apagar em massa sozinho é arriscado — a limpeza é à mão. Assíncrona e cedendo a vez: pode ser
+ * dezenas de milhares de arquivos. Nunca lança.
+ */
+export async function avisarLixoNoDrive(home: string): Promise<{ bytes: number; maiores: { pasta: string; bytes: number }[] }> {
+  const raiz = join(home, "drive");
+  const porPasta = new Map<string, number>();
+  let bytes = 0;
+  let vistos = 0;
+  const somar = async (abs: string, chave: string): Promise<void> => {
+    let st;
+    try {
+      st = await stat(abs);
+    } catch {
+      return;
+    }
+    if (++vistos % CEDER_A_CADA === 0) await ceder();
+    if (st.isFile()) {
+      bytes += st.size;
+      porPasta.set(chave, (porPasta.get(chave) ?? 0) + st.size);
+      return;
+    }
+    if (!st.isDirectory()) return;
+    let nomes: string[];
+    try {
+      nomes = await readdir(abs);
+    } catch {
+      return;
+    }
+    for (const n of nomes) await somar(join(abs, n), chave);
+  };
+  try {
+    for (const nome of existsSync(raiz) ? await readdir(raiz) : []) {
+      const abs = join(raiz, nome);
+      if (nome === PASTA_BIBLIOTECA) continue;
+      if (!ehPastaDoNexos(abs, nome)) {
+        await somar(abs, nome);
+        continue;
+      }
+      for (const item of await readdir(abs)) {
+        if (item === "meta.json" || sincronizavel(`${nome}/${item}`)) continue;
+        await somar(join(abs, item), `${nome}/${item}`);
+      }
+    }
+  } catch {
+    /* best-effort */
+  }
+  const maiores = [...porPasta.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([pasta, b]) => ({ pasta, bytes: b }));
+  if (bytes > LIXO_AVISO_BYTES) {
+    log.aviso("drive", `${Math.round(bytes / 1024 / 1024)} MB em ${raiz} ficam fora do sync (não é dado do Nexos) — nada foi apagado`, {
+      bytes,
+      maiores,
+    });
+  }
+  return { bytes, maiores };
+}

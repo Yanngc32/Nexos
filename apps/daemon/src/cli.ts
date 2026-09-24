@@ -14,7 +14,7 @@ import {
 } from "./profiles.ts";
 import { HOOK_EVENT_RE } from "./hooks.ts";
 import { ensureCavemanInstalled, ensureRtkInstalled } from "./modules.ts";
-import { sincronizarDrive } from "./drive-sync.ts";
+import { avisarLixoNoDrive, sincronizarDrive } from "./drive-sync.ts";
 import { sincronizarBiblioteca } from "./biblioteca.ts";
 import { googleAccount } from "./google-auth.ts";
 import { migrarProjeto, resgatarDaPastaDeRepos } from "./projeto-dir.ts";
@@ -119,6 +119,8 @@ async function cmdUp(): Promise<void> {
       if (r.erros.length) log.aviso("drive", `${r.erros.length} erro(s) no sync`, { primeiro: r.erros[0] });
     });
   };
+  // sobra da cópia da 0.8.0 em ~/.nexos/drive: só avisa (uma vez por subida), nunca apaga
+  void avisarLixoNoDrive(home);
   syncDrive();
   const timerDrive = setInterval(syncDrive, SYNC_DRIVE_MS);
   for (const f of started.falhas) {

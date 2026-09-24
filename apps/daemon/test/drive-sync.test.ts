@@ -659,6 +659,34 @@ describe("sync com o Drive", () => {
     expect(Object.keys(depois.files).filter((k) => !k.startsWith("_biblioteca"))).toEqual(["proj/memoria/M.md"]);
   });
 
+  it("máquina do Kerol: drive/APROXIMA com milhares de arquivos em node_modules e marca gravada — a rodada termina em segundos", async () => {
+    const a = maquina();
+    const raiz = projetosRoot(a);
+    const p = join(raiz, "APROXIMA");
+    mkdirSync(join(p, "conversas"), { recursive: true });
+    mkdirSync(join(p, "repo-map"), { recursive: true });
+    writeFileSync(join(p, "meta.json"), JSON.stringify({ projectPath: "C:/projects/APROXIMA", slug: "aproxima", origem: "pasta" }));
+    writeFileSync(join(p, "conversas", "t1.jsonl"), '{"ts":"1"}\n');
+    writeFileSync(join(p, "repo-map", "indice.json"), "{}");
+    for (let d = 0; d < 40; d++) {
+      const dir = join(p, "node_modules", `pkg${d}`, "lib");
+      mkdirSync(dir, { recursive: true });
+      for (let i = 0; i < 100; i++) writeFileSync(join(dir, `f${i}.js`), "module.exports = 1;");
+    }
+    writeFileSync(join(raiz, "___All_Errors.txt"), "lixo");
+    writeFileSync(join(raiz, "publicar_v101.log"), "lixo");
+    writeFileSync(join(a, "pasta-manual-migrada.json"), JSON.stringify({ de: "C:/projects", copiados: 279990 }));
+
+    const t0 = Date.now();
+    const r = await sincronizarDrive(a);
+    expect(Date.now() - t0).toBeLessThan(10_000);
+    expect(r.erros).toEqual([]);
+    expect(existsSync(join(a, "drive-sync.json"))).toBe(true);
+    expect(remotos().filter((x) => !x.startsWith("_biblioteca"))).toEqual(["APROXIMA/conversas/t1.jsonl", "APROXIMA/repo-map/indice.json"]);
+    // o lixo continua onde estava (limpeza é à mão)
+    expect(existsSync(join(p, "node_modules", "pkg0", "lib", "f0.js"))).toBe(true);
+  }, 60_000);
+
   /* ---------- rodada que sobrevive ---------- */
 
   it("_biblioteca sincroniza antes dos projetos (mesmo com projeto em maiúscula)", async () => {

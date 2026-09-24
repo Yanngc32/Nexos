@@ -108,3 +108,39 @@ describe("trava do dirDoProjeto", () => {
     expect(basename(dirDoProjeto(join(tmpdir(), "longe", "MeuApp"), home, "pasta"))).toBe("meuapp");
   });
 });
+
+describe("lixo em ~/.nexos/drive", () => {
+  it("acima de 50 MB fora da lista: um aviso com tamanho e pastas, nada apagado", async () => {
+    const { avisarLixoNoDrive } = await import("../src/drive-sync.ts");
+    const home = tempHome();
+    iniciarLog(home);
+    const p = join(home, "drive", "APROXIMA");
+    mkdirSync(join(p, "node_modules", "pkg"), { recursive: true });
+    mkdirSync(join(p, "conversas"), { recursive: true });
+    writeFileSync(join(p, "meta.json"), "{}");
+    writeFileSync(join(p, "conversas", "c.jsonl"), "x".repeat(1024));
+    writeFileSync(join(p, "node_modules", "pkg", "grande.bin"), Buffer.alloc(51 * 1024 * 1024));
+    writeFileSync(join(home, "drive", "___All_Errors.txt"), "erro");
+
+    const r = await avisarLixoNoDrive(home);
+    expect(r.bytes).toBeGreaterThan(50 * 1024 * 1024);
+    expect(r.maiores[0]).toMatchObject({ pasta: "APROXIMA/node_modules" });
+    const avisos = readFileSync(join(home, "daemon.log"), "utf8")
+      .split("\n")
+      .filter((l) => l.includes("fora do sync"));
+    expect(avisos).toHaveLength(1);
+    expect(avisos[0]).toMatch(/AVISO \[drive\] 51 MB .*APROXIMA\/node_modules/);
+    expect(existsSync(join(p, "node_modules", "pkg", "grande.bin"))).toBe(true);
+    expect(existsSync(join(home, "drive", "___All_Errors.txt"))).toBe(true);
+  });
+
+  it("abaixo de 50 MB: silêncio", async () => {
+    const { avisarLixoNoDrive } = await import("../src/drive-sync.ts");
+    const home = tempHome();
+    iniciarLog(home);
+    mkdirSync(join(home, "drive", "x"), { recursive: true });
+    writeFileSync(join(home, "drive", "x", "a.txt"), "a");
+    await avisarLixoNoDrive(home);
+    expect(existsSync(join(home, "daemon.log")) ? readFileSync(join(home, "daemon.log"), "utf8") : "").not.toContain("fora do sync");
+  });
+});
