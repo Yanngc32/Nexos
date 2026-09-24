@@ -545,7 +545,7 @@ describe("session", () => {
     expect(injetarMensagem(t.id, "tarde demais", home)).toBe(false);
   });
 
-  it("texto depois de ferramenta vira parágrafo novo, não cola no bloco anterior", async () => {
+  it("texto antes da ferramenta vai pro disco antes dela (reabrir no meio do turno não perde a fala)", async () => {
     const home = tempHome();
     addProfile({ id: "p1", engine: "stub" }, home);
     const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
@@ -559,10 +559,12 @@ describe("session", () => {
     } finally {
       sessionBus.off(t.id, onEv);
     }
-    const assistant = readThread(t.id, home).find((e) => e.type === "assistant");
-    expect(assistant && assistant.type === "assistant" ? assistant.text : undefined).toBe("Vejo o arquivo.\n\nErro no script.");
-    // o SSE leva o mesmo separador, senão a tela ao vivo e o histórico divergiam
-    expect(textos).toEqual(["Vejo o arquivo.", "\n\nErro no script."]);
+    // ordem do disco = ordem da tela ao vivo: fala, ferramenta, fala — não o texto todo no fim
+    const trilha = readThread(t.id, home)
+      .filter((e) => e.type === "assistant" || e.type === "tool")
+      .map((e) => (e.type === "assistant" ? `assistant:${e.text}` : "tool"));
+    expect(trilha).toEqual(["assistant:Vejo o arquivo.", "tool", "assistant:Erro no script."]);
+    expect(textos).toEqual(["Vejo o arquivo.", "Erro no script."]);
   });
 
   it("evento tool grava id+input, e tool_result grava separado com o mesmo id", async () => {

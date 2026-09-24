@@ -71,6 +71,7 @@ import {
   retomarTurnoPendente,
   sessionBus,
   switchThread,
+  textoEmVoo,
 } from "./session.ts";
 import { threadReport } from "./usage-report.ts";
 import { getTeam, listTeams, removeTeam, saveTeam, upsertTimeDeMencao, type TeamInput } from "./teams.ts";
@@ -822,7 +823,12 @@ export function createApp(home: string, token: string): Hono {
 
   app.get("/v1/threads/:id", (c) => {
     try {
-      return c.json(readThread(c.req.param("id"), home));
+      const id = c.req.param("id");
+      const eventos: unknown[] = readThread(id, home);
+      // fala em curso (ainda não gravada): a tela continua ela com o que chegar no SSE
+      const emVooTexto = textoEmVoo(id);
+      if (emVooTexto) eventos.push({ ts: new Date().toISOString(), type: "assistant", threadId: id, text: emVooTexto, emVoo: true });
+      return c.json(eventos);
     } catch (e) {
       return c.json({ error: (e as Error).message }, 404);
     }

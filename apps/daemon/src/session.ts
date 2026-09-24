@@ -168,6 +168,12 @@ type Live = {
    * saíam colados no histórico ("…arquivo.Erro no meu…").
    */
   blocoNovo?: boolean;
+  /**
+   * Texto deste turno que já foi pro JSONL (gravado a cada ferramenta, ver `gravarTextoDoTurno`).
+   * `assistantBuf` zera a cada ferramenta; isto aqui guarda que o modelo já falou algo — é o que
+   * decide se o turno é parcial (retomar com "continue") e alimenta o `tail` do agente.
+   */
+  textoDoTurno?: string;
   pendingTurn: PendingTurn | null;
   retryCount: number;
   pendingQuota: boolean;
@@ -255,6 +261,16 @@ export type AgentSnapshot = {
   aguardando: boolean;
 };
 
+/**
+ * Texto que o modelo está escrevendo agora e ainda não foi pro JSONL (vai na próxima ferramenta
+ * ou no fim do turno). Quem reabre a conversa no meio do turno recebe isso junto do histórico,
+ * senão a fala em curso só aparecia depois do `done`.
+ */
+export function textoEmVoo(threadId: string): string {
+  const l = lives.get(threadId);
+  return l && emVoo(l) ? l.assistantBuf : "";
+}
+
 export function agentSnapshots(): AgentSnapshot[] {
   return [...lives.entries()].map(([threadId, l]) => ({
     threadId,
@@ -263,7 +279,7 @@ export function agentSnapshots(): AgentSnapshot[] {
     busy: emVoo(l),
     ...(l.session?.model ? { model: l.session.model } : {}),
     startedAt: l.startedAt,
-    tail: l.assistantBuf.slice(-TAIL_CHARS),
+    tail: ((l.textoDoTurno ?? "") + l.assistantBuf).slice(-TAIL_CHARS),
     ...(l.contextTokens === undefined ? {} : { contextTokens: l.contextTokens }),
     pendingQuota: l.pendingQuota,
     lastTerminal: l.lastTerminal,
@@ -939,6 +955,24 @@ export async function pingUsoDaConta(id: string, home: string): Promise<"ok" | "
   return "ok";
 }
 
+/**
+ * Grava no JSONL o texto que o modelo escreveu desde a última ferramenta. Chamado ANTES de gravar
+ * cada ferramenta: sem isso o texto do turno só ia pro disco no `done`, e quem reabria a conversa
+ * no meio do turno (trocou de tela e voltou) via só os grupos de ferramenta — e, depois do fim,
+ * o texto todo vinha num bloco só, depois de todas as ferramentas.
+ */
+function gravarTextoDoTurno(live: Live, threadId: string, home: string): void {
+  if (!live.assistantBuf) return;
+  appendEvent({ ts: nowIso(), type: "assistant", threadId, text: live.assistantBuf }, home);
+  live.textoDoTurno = (live.textoDoTurno ?? "") + live.assistantBuf;
+  live.assistantBuf = "";
+}
+
+/** O modelo já escreveu algo neste turno (gravado ou ainda no buffer). */
+function falouNoTurno(live: Live): boolean {
+  return Boolean(live.assistantBuf || live.textoDoTurno);
+}
+
 function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
   const live = lives.get(threadId);
   if (!live) return;
@@ -1036,6 +1070,7 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
   }
   if (ev.type === "tool") {
     live.blocoNovo = true;
+    gravarTextoDoTurno(live, threadId, home);
     const input = capInputPraPersistir(ev.input);
     appendEvent(
       { ts: nowIso(), type: "tool", threadId, name: ev.name, summary: ev.summary, ...(ev.id ? { id: ev.id } : {}), ...(input !== undefined ? { input } : {}) },
@@ -1059,6 +1094,7 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
       appendEvent({ ts: nowIso(), type: "assistant", threadId, text: live.assistantBuf }, home);
     }
     live.assistantBuf = "";
+    live.textoDoTurno = "";
     live.pendingTurn = null;
     live.retryCount = 0;
     setTerminal(live, "done");
@@ -1072,7 +1108,7 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
   if (ev.type === "quota") {
     live.pendingQuota = true;
     setTerminal(live, "quota");
-    if (live.assistantBuf && live.pendingTurn) live.pendingTurn.partial = true;
+    if (falouNoTurno(live) && live.pendingTurn) live.pendingTurn.partial = true;
     if (live.assistantBuf) {
       appendEvent({ ts: nowIso(), type: "assistant", threadId, text: live.assistantBuf }, home);
       live.assistantBuf = "";
@@ -1102,7 +1138,7 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
   }
   if (ev.type === "auth") {
     setTerminal(live, "auth");
-    if (live.assistantBuf && live.pendingTurn) live.pendingTurn.partial = true;
+    if (falouNoTurno(live) && live.pendingTurn) live.pendingTurn.partial = true;
     if (live.assistantBuf) {
       appendEvent({ ts: nowIso(), type: "assistant", threadId, text: live.assistantBuf }, home);
       live.assistantBuf = "";
@@ -1128,7 +1164,7 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
   }
   if (ev.type === "error") {
     setTerminal(live, "error");
-    if (live.assistantBuf && live.pendingTurn) live.pendingTurn.partial = true;
+    if (falouNoTurno(live) && live.pendingTurn) live.pendingTurn.partial = true;
     emit(threadId, { ...ev, threadId });
   }
 }
@@ -1620,6 +1656,7 @@ function waitTerminal(live: Live, ms = TURNO_TETO_MS): Promise<void> {
  */
 async function sendTurn(live: Live, text: string, partial = false): Promise<void> {
   live.pendingTurn = { text, partial };
+  if (!partial) live.textoDoTurno = "";
   live.lastTerminal = null;
   live.startedAt = Date.now();
   await live.engine.send(partial ? CONTINUE : text);
@@ -1749,7 +1786,7 @@ async function switchNow(
   const live = lives.get(threadId);
   // Captura antes do abort: o `done` do abort limpa o turno pendente do live antigo.
   const pending = live?.pendingTurn ?? null;
-  const resume = Boolean(live?.assistantBuf) || Boolean(pending?.partial);
+  const resume = Boolean(live && falouNoTurno(live)) || Boolean(pending?.partial);
   if (live) {
     if (live.assistantBuf) {
       appendEvent({ ts: nowIso(), type: "assistant", threadId, text: live.assistantBuf }, home);

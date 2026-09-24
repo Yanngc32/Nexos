@@ -4097,6 +4097,11 @@ function appendEvent(ev, scroll = true) {
     li.className = "bot";
     li.innerHTML = `<div class="who">${escapeHtml(autorDaResposta(ev))}</div><div class="md"></div>`;
     renderMd(li.querySelector(".md"), ev.text);
+    // fala ainda em curso (reabriu a conversa no meio do turno): o SSE continua nesta bolha
+    if (ev.emVoo) {
+      li.dataset.stream = "1";
+      li.querySelector(".md").classList.add("stream");
+    }
   } else if (ev.type === "tool") {
     if (ehRuidoDePerguntar(ev)) return;
     const arg = ev.summary ? `<span class="tool-arg">${escapeHtml(ev.summary)}</span>` : "";

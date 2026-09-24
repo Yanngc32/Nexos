@@ -294,12 +294,15 @@ export type Motor = {
 };
 
 function ultimaFala(threadId: string, home: string): string {
+  // o texto do turno vai pro disco em pedaços (um antes de cada ferramenta): junta os do último turno
   const eventos = readThread(threadId, home);
+  const falas: string[] = [];
   for (let i = eventos.length - 1; i >= 0; i--) {
     const e = eventos[i];
-    if (e?.type === "assistant") return e.text;
+    if (e?.type === "user") break;
+    if (e?.type === "assistant") falas.unshift(e.text);
   }
-  return "";
+  return falas.join("\n\n");
 }
 
 export function motorPadrao(home: string): Motor {
