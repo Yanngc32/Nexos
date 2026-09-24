@@ -12,6 +12,44 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Segurança
 
+## [0.7.0] - 2026-09-24
+
+### Adicionado
+
+- Fila de mensagens com botão "agora": o Claude lê a mensagem no meio do turno, entre uma
+  ferramenta e outra, sem esperar ele acabar. Se o turno já estiver fechando, a mensagem volta
+  pro lugar dela na fila.
+- Modal "Processos rodando" (rodapé da barra lateral): serviços de todos os projetos e processos
+  que o Nexos deixou pra trás, com PID, porta, projeto e há quanto tempo rodam — e botão pra
+  parar/matar. Agentes trabalhando ficam de fora.
+- Serviços: porta ocupada não sobe mais calada em outra porta nem morre com "address already in
+  use" — o painel diz quem segura a porta e oferece matar e subir, usar a próxima livre ou subir
+  assim mesmo. A porta é trocável clicando nela (vale no comando, na url e no `PORT`; o
+  `nexos.json` do projeto não muda). Quando o Vite pula pra outra porta, o painel mostra.
+- Atualização por troca de pasta: a versão nova é baixada e extraída ao lado da instalação
+  enquanto você usa; reiniciar leva segundos em vez de reinstalar. Se a nova não subir, a antiga
+  volta sozinha. O instalador continua de reserva.
+
+### Corrigido
+
+- Tarefa em background (Monitor, comando em segundo plano) não é mais morta quando o modelo
+  encerra a resposta: o turno fica aberto, o painel mostra "trabalhando" e o modelo volta sozinho
+  quando ela termina.
+- "engine timeout" em turno longo: o limite agora é por inatividade (15 min sem saída do motor,
+  2 h com tarefa em background), não 15 min desde o início — o que matava o motor e o trabalho
+  que ele tinha deixado rodando.
+- Turno que não fechava quando o modelo soltava um processo destacado (ele herdava o pipe do
+  motor): agora fecha quando o motor sai.
+- Textos do modelo entre ferramentas saíam colados na resposta ("…arquivo.Erro no…").
+- Hooks de git (`post-commit` etc.) gravavam as conversas com a pasta do Nexos como projeto,
+  criando os projetos "daemon" na barra lateral.
+
+### Alterado
+
+- Trocar de conversa ficou rápido mesmo em conversa longa: o chat desenha só o fim e o resto vem
+  pelo botão "Mostrar anteriores" (uma conversa de 2,6 MB travava a tela por quase 4 s). A lista
+  de conversas também parou de reler todas a cada atualização.
+
 ## [0.6.1] - 2026-09-23
 
 ### Corrigido
