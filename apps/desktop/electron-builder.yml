@@ -40,8 +40,14 @@ extraResources:
   - from: ../../CHANGELOG.md
     to: CHANGELOG.md
 afterPack: scripts/after-pack.cjs
+# `zip` = o Nexos inteiro, portátil: é o que o app baixa pra atualizar trocando de pasta
+# (atualizador.cjs). O NSIS continua sendo a primeira instalação e a reserva da atualização.
+# O hook gera o `nexos-portatil.json` (nome + sha512 do zip) e o põe na publicação.
+afterAllArtifactBuild: scripts/after-all-artifacts.cjs
 win:
-  target: nsis
+  target:
+    - nsis
+    - zip
   icon: icons/app.png
 nsis:
   oneClick: false

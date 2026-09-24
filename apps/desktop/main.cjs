@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Tray, Menu, Notification, dialog, ipcMain, nativeImage, screen, shell } = require("electron");
 const { BORDAS, bordaMaisProxima, retanguloNaBorda } = require("./painel-borda.cjs");
+const atualizador = require("./atualizador.cjs");
 const { autoUpdater } = require("electron-updater");
 const { execFile, spawn } = require("node:child_process");
 const {
@@ -1072,22 +1073,62 @@ function checarUpdate() {
   });
 }
 
+/**
+ * Atualização por troca de pasta (atualizador.cjs) — o caminho principal quando a instalação é
+ * gravável. O electron-updater segue checando a versão; o download do instalador só acontece se a
+ * troca não der (Program Files, release sem zip, download corrompido, versão já recusada aqui).
+ */
+const INSTALACAO = dirname(process.execPath);
+const RELEASES_URL = "https://github.com/Yanngc32/Nexos/releases/download";
+let updateModoTroca = false;
+
+async function prepararTroca(versao) {
+  try {
+    await atualizador.prepararAtualizacao({
+      instalacao: INSTALACAO,
+      versao,
+      baseUrl: RELEASES_URL,
+      onProgresso: (percent) => sendUpdateStatus({ state: "downloading", percent, version: versao }),
+    });
+    updateReady = true;
+    updateModoTroca = true;
+    updateVersao = versao;
+    sendUpdateStatus({ state: "downloaded", version: versao });
+    avisarDoUpdate(`Nexos ${versao} pronto`, "Instala quando você reiniciar o Nexos — leva uns segundos.");
+  } catch (err) {
+    console.error("[update] troca de pasta não deu, indo pelo instalador:", err?.message ?? err);
+    autoUpdater.downloadUpdate().catch((e) => console.error("[update] download do instalador falhou:", e?.message ?? e));
+  }
+}
+
 function setupAutoUpdater() {
   // Sem app-update.yml em dev (só o build empacotado carrega esse recurso) —
   // checkForUpdates lançaria erro de configuração ausente.
   if (!app.isPackaged) return;
-  autoUpdater.autoDownload = true;
+  const troca = atualizador.podeTrocar(INSTALACAO);
+  // com troca de pasta, quem baixa é o atualizador (e o instalador só se ela falhar)
+  autoUpdater.autoDownload = !troca;
   // Controlado na mão pelo gate de turno-ativo abaixo — sem isto o
   // electron-updater instalaria sozinho ao fechar o app, ignorando o gate.
   autoUpdater.autoInstallOnAppQuit = false;
 
   autoUpdater.on("checking-for-update", () => sendUpdateStatus({ state: "checking" }));
-  autoUpdater.on("update-available", (info) => sendUpdateStatus({ state: "available", version: info.version }));
+  autoUpdater.on("update-available", (info) => {
+    sendUpdateStatus({ state: "available", version: info.version });
+    if (!troca || updateReady) return;
+    if (atualizador.recusada(INSTALACAO, info.version)) {
+      void autoUpdater.downloadUpdate().catch((e) => console.error("[update] download do instalador falhou:", e?.message ?? e));
+      return;
+    }
+    void prepararTroca(info.version);
+  });
   autoUpdater.on("update-not-available", () => sendUpdateStatus({ state: "not-available" }));
   autoUpdater.on("download-progress", (p) =>
     sendUpdateStatus({ state: "downloading", percent: p.percent, bytesPerSecond: p.bytesPerSecond }),
   );
   autoUpdater.on("update-downloaded", (info) => {
+    // a troca de pasta ficou pronta antes: ela ganha do instalador
+    if (updateModoTroca) return;
     updateReady = true;
     updateVersao = info.version || "";
     sendUpdateStatus({ state: "downloaded", version: info.version });
@@ -1150,7 +1191,26 @@ app.on("second-instance", () => {
   win.focus();
 });
 
-app.whenReady().then(() => {
+/**
+ * Versão nova já extraída de uma sessão anterior (o app fechou com agente trabalhando, ou a
+ * máquina desligou): aplica ANTES de subir janela e motor — o "se reiniciar, atualiza". Com turno
+ * em voo no motor que ficou de pé, deixa pra depois: trocar a pasta mataria o agente.
+ */
+async function aplicarTrocaPendenteNoBoot() {
+  if (!app.isPackaged || process.platform !== "win32") return false;
+  const pronta = atualizador.atualizacaoPronta(INSTALACAO, app.getVersion());
+  if (!pronta || atualizador.recusada(INSTALACAO, pronta.versao)) return false;
+  if (await turnoAtivo()) return false;
+  avisarDoUpdate(`Atualizando pra ${pronta.versao}`, "O Nexos abre em alguns segundos.");
+  await pararMotor();
+  atualizador.aplicar({ instalacao: INSTALACAO, versao: pronta.versao, versaoAntiga: app.getVersion() });
+  quittingForUpdate = true;
+  app.quit();
+  return true;
+}
+
+app.whenReady().then(async () => {
+  if (await aplicarTrocaPendenteNoBoot()) return;
   // Barra File/Edit/View/Window/Help é o menu padrão do Electron — o Nexos não usa nenhum item
   // dela (o menu de verdade é a UI própria), então só sobra como ruído acima da janela.
   Menu.setApplicationMenu(null);
@@ -1461,6 +1521,11 @@ app.whenReady().then(() => {
   // em dev o motor de pé pode ser de uma rodada anterior, com código velho: sobe de novo
   void (DEV ? reiniciarMotorDev() : subirMotor());
   createWindow();
+  if (app.isPackaged && process.platform === "win32") {
+    // "subi de pé" pro script da troca poder apagar a versão antiga (sem isso ele volta a antiga)
+    win?.webContents.once("did-finish-load", () => atualizador.confirmarBoot(INSTALACAO));
+    setTimeout(() => atualizador.limparRestos(INSTALACAO), 60_000).unref();
+  }
   if (DEV) ligarRecargaDev();
   createTray();
   setupAutoUpdater();
@@ -1500,14 +1565,22 @@ app.on("before-quit", (event) => {
   quittingForUpdate = true;
   void (async () => {
     if (await turnoAtivo()) {
-      avisarDoUpdate("Atualização adiada", "Tinha agente trabalhando, então o Nexos só fechou. A versão nova instala no próximo fechamento.");
+      avisarDoUpdate("Atualização adiada", "Tinha agente trabalhando, então o Nexos só fechou. A versão nova instala no próximo reinício.");
+      app.quit();
+      return;
+    }
+    if (updateModoTroca) {
+      // O script espera este processo sair, troca as pastas e reabre. O motor sai antes: ele roda
+      // do mesmo Nexos.exe e seguraria a pasta (o script ainda mata o que sobrar dela).
+      avisarDoUpdate(`Atualizando pra ${updateVersao}`, "O Nexos volta em alguns segundos.");
+      await pararMotor();
+      atualizador.aplicar({ instalacao: INSTALACAO, versao: updateVersao, versaoAntiga: app.getVersion() });
       app.quit();
       return;
     }
     /*
-     * Instalação silenciosa troca ~10 mil arquivos (as dependências do motor) e leva 1–2 min sem
-     * janela nenhuma: sem este aviso parecia que o app tinha morrido. A notificação fica no
-     * Windows depois que o app sai.
+     * Instalação silenciosa troca os arquivos sem janela nenhuma: sem este aviso parecia que o
+     * app tinha morrido. A notificação fica no Windows depois que o app sai.
      */
     avisarDoUpdate(
       `Instalando o Nexos ${updateVersao}`.trim(),

@@ -77,6 +77,25 @@ Configurações → Sistema → Sobre (que também mostra a versão instalada, v
 `app:version`). Sem modal de confirmação separado — o gate de turno-ativo já cobre o "não
 interromper o agente", um diálogo a mais seria fricção sem função.
 
+### Troca de pasta (caminho principal desde a 0.7.0)
+
+Com a instalação gravável (padrão: `%LOCALAPPDATA%\Programs\Nexos`), o instalador vira reserva.
+`apps/desktop/atualizador.cjs`:
+
+1. `update-available` do electron-updater → baixa o `Nexos-<v>-win.zip` da release (o build gera
+   o alvo `zip` junto do NSIS), confere contra o `nexos-portatil.json` (sha512 + tamanho, gerado por
+   `scripts/after-all-artifacts.cjs` e publicado junto) e extrai com o `tar.exe` do Windows em
+   `Programs\Nexos.proxima`. Banner "pronta" como antes.
+2. Fechar o app (turno livre) ou abrir de novo com versão pronta → um PowerShell destacado espera o
+   Nexos sair, mata o que roda do exe da pasta (o motor), leva o `Uninstall Nexos.exe`, renomeia
+   `Nexos` → `Nexos.antiga` e `Nexos.proxima` → `Nexos`, atualiza a versão em "Aplicativos
+   instalados" e abre. Log em `Programs\Nexos.troca.log`.
+3. O app novo grava `Nexos.subiu-ok` ao carregar a janela; só então a antiga é apagada. Sem isso em
+   90 s, volta a antiga e a versão entra em `Nexos.recusadas.json` (pra ela, só o instalador).
+
+Qualquer falha (Program Files sem escrita, release sem o json, sha512 errado) cai no NSIS de sempre.
+A primeira atualização PRA 0.7.0 ainda vai pelo NSIS: quem roda 0.6.x não tem o atualizador novo.
+
 ## Assinatura de código
 
 Decisão registrada (não implementado por enquanto): sem certificado de assinatura de código.
