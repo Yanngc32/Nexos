@@ -18,7 +18,7 @@ import { disconnectGoogle, googleAccount } from "./google-auth.ts";
 import { cancelGoogleLogin, googleLoginStatus, startEscolherPasta, startGoogleLogin } from "./google-conectar.ts";
 import { driveStatus, sincronizarDrive } from "./drive-sync.ts";
 import { projectKey, tokenPath } from "./home.ts";
-import { migrarArmazenamento, migrarProjeto, migrarRaizLegadaRemovida, projectSlug } from "./projeto-dir.ts";
+import { migrarArmazenamento, migrarProjeto, migrarRaizLegadaRemovida, pastaDeCodigo, projectSlug } from "./projeto-dir.ts";
 import {
   accountInfo,
   addProfile,
@@ -2327,6 +2327,18 @@ export function createApp(home: string, token: string): Hono {
     const cfgAntes = loadConfig(home);
     const antes = cfgAntes.modulos.repoMapResumos;
     const body = await c.req.json();
+    /*
+     * `projetosDir` é pasta de DADOS do Nexos (memória, tarefas, repo map). Apontada pra pasta de
+     * código (repo ou pasta de repos), o Nexos passava a gravar lá dentro e, com o Google
+     * conectado, copiava tudo pro Drive (279.990 arquivos numa máquina). Recusa antes de gravar.
+     */
+    const novaPasta = typeof body?.projetosDir === "string" ? body.projetosDir.trim() : "";
+    if (novaPasta && novaPasta !== cfgAntes.projetosDir && pastaDeCodigo(novaPasta)) {
+      return c.json(
+        { error: "Essa pasta tem repositórios git — escolha uma pasta vazia só pros dados do Nexos, não a pasta dos seus projetos." },
+        400,
+      );
+    }
     const next = saveConfig(home, body);
     /*
      * Apagar `memoriaDir`/`tarefasDir`/`graphDir` troca o layout daquele tipo pro novo (pasta

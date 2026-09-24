@@ -32,6 +32,39 @@ export function projetosRoot(home: string): string {
   return cfg.projetosDir || join(home, "projetos");
 }
 
+/** Nome da pasta-espelho de agentes/times/hooks/skills (`PASTA_BIBLIOTECA` em biblioteca.ts, que importa daqui). */
+const PASTA_BIBLIOTECA = "_biblioteca";
+
+/** Pastas de código/build: nunca são dado do Nexos, em nível nenhum. */
+const PASTAS_DE_CODIGO = new Set(["node_modules", "__pycache__"]);
+
+/**
+ * Subpasta de primeiro nível de `projetosRoot` que é nossa: projeto (`meta.json`) ou a biblioteca.
+ * Repo git com um `meta.json` qualquer na raiz não conta — pasta de projeto do Nexos nunca tem `.git`.
+ */
+function ehPastaDoNexos(dir: string, nome: string): boolean {
+  if (nome === PASTA_BIBLIOTECA) return true;
+  return existsSync(join(dir, "meta.json")) && !existsSync(join(dir, ".git"));
+}
+
+/**
+ * `dir` tem cara de pasta de CÓDIGO (repo ou pasta de repos), não de pasta de dados do Nexos?
+ * É repo git, ou tem subpasta que é repo git — pasta de projeto do Nexos nunca tem `.git`. Usada pra recusar `projetosDir` apontado pro lugar errado (ver PUT /v1/config).
+ */
+export function pastaDeCodigo(dir: string): boolean {
+  try {
+    if (existsSync(join(dir, ".git"))) return true;
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (!e.isDirectory()) continue;
+      const sub = join(dir, e.name);
+      if (existsSync(join(sub, ".git"))) return true;
+    }
+  } catch {
+    // não existe ou não dá pra ler: nada pra dizer (o resto do app já trata pasta inexistente)
+  }
+  return false;
+}
+
 /**
  * Google conectado: traz pra raiz do Drive (`<home>/drive`) o que estava na pasta manual antiga
  * (`projetosDir`), UMA vez por pasta de origem.
@@ -44,6 +77,11 @@ export function projetosRoot(home: string): string {
  * Só copia arquivo que falta no destino (nunca sobrescreve) e a manual fica intacta, de backup.
  * A marca em `<home>/pasta-manual-migrada.json` evita recopiar o que a pessoa apagar depois.
  * Best-effort: nunca lança. Devolve quantos arquivos copiou.
+ *
+ * Só entra em pasta de projeto nossa (`meta.json`) e na `_biblioteca` — o mesmo filtro de
+ * `varrerLocal` em drive-sync.ts. Sem isso, `projetosDir` apontado pra pasta de CÓDIGO da pessoa
+ * (`C:\projects`, com repos, `node_modules`, `.git`) trazia tudo: medido 279.990 arquivos numa
+ * máquina, cópia inútil de vários GB que o sync nem sobe.
  */
 export function trazerPastaManualProDrive(home: string, destino: string): number {
   const de = loadConfig(home).projetosDir;
@@ -56,14 +94,17 @@ export function trazerPastaManualProDrive(home: string, destino: string): number
     // sem marca: ainda não migrou
   }
   let copiados = 0;
-  const copiar = (origem: string, alvo: string): void => {
+  const copiar = (origem: string, alvo: string, raiz: boolean): void => {
     for (const e of readdirSync(origem, { withFileTypes: true })) {
       // restos de migrações/escritas antigas não viram dado de projeto
       if (e.name.endsWith(".stale-backup") || e.name.endsWith(".tmp") || e.name === "desktop.ini") continue;
+      if (e.name.startsWith(".") || PASTAS_DE_CODIGO.has(e.name)) continue;
       const o = join(origem, e.name);
       const a = join(alvo, e.name);
-      if (e.isDirectory()) copiar(o, a);
-      else if (e.isFile() && !existsSync(a)) {
+      if (e.isDirectory()) {
+        if (!raiz || ehPastaDoNexos(o, e.name)) copiar(o, a, false);
+      } else if (!raiz && e.isFile() && !existsSync(a)) {
+        // arquivo solto na raiz não é de projeto nenhum
         mkdirSync(alvo, { recursive: true });
         copyFileSync(o, a);
         copiados += 1;
@@ -71,7 +112,7 @@ export function trazerPastaManualProDrive(home: string, destino: string): number
     }
   };
   try {
-    copiar(de, destino);
+    copiar(de, destino, true);
     writeFileSync(marca, JSON.stringify({ de, para: destino, em: new Date().toISOString(), copiados }, null, 2), "utf8");
     if (copiados) console.error(`nexo: ${copiados} arquivo(s) da pasta ${de} trazidos pra ${destino}`);
   } catch (e) {

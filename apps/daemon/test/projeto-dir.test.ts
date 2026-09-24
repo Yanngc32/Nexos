@@ -6,7 +6,7 @@ import { basename, join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { saveConfig } from "../src/config.ts";
 import { googleAuthPath, projectKey } from "../src/home.ts";
-import { migrarArmazenamento, migrarProjeto, trazerPastaManualProDrive, migrarRaizLegadaRemovida, projectDir, projectSlug, projetosRoot } from "../src/projeto-dir.ts";
+import { migrarArmazenamento, migrarProjeto, pastaDeCodigo, trazerPastaManualProDrive, migrarRaizLegadaRemovida, projectDir, projectSlug, projetosRoot } from "../src/projeto-dir.ts";
 import { tempHome } from "./helpers.ts";
 
 function tempProjeto(): string {
@@ -274,6 +274,36 @@ describe("Google conectado: traz o que ficou na pasta manual antiga", () => {
     expect(existsSync(join(destino, "proj-a", "memoria", "nota.md"))).toBe(false);
   });
 
+  it("pasta de código (repos, node_modules, arquivo solto) não vem — só projeto nosso e a biblioteca", () => {
+    const home = tempHome();
+    const manual = mkdtempSync(join(tmpdir(), "nexo-manual-"));
+    // repo qualquer, sem meta.json
+    mkdirSync(join(manual, "app-web", "src"), { recursive: true });
+    writeFileSync(join(manual, "app-web", "src", "index.ts"), "x");
+    // repo com um meta.json próprio na raiz: continua sendo código
+    mkdirSync(join(manual, "outro-repo", ".git"), { recursive: true });
+    writeFileSync(join(manual, "outro-repo", "meta.json"), "{}");
+    writeFileSync(join(manual, "outro-repo", "a.ts"), "x");
+    // projeto nosso com lixo de build dentro
+    mkdirSync(join(manual, "proj-a", "node_modules", "pkg"), { recursive: true });
+    writeFileSync(join(manual, "proj-a", "meta.json"), "{}");
+    writeFileSync(join(manual, "proj-a", "node_modules", "pkg", "i.js"), "x");
+    mkdirSync(join(manual, "_biblioteca", "agentes"), { recursive: true });
+    writeFileSync(join(manual, "_biblioteca", "agentes", "a.json"), "{}");
+    writeFileSync(join(manual, "solto.txt"), "x");
+    saveConfig(home, { projetosDir: manual });
+    writeFileSync(googleAuthPath(home), JSON.stringify({ refreshToken: "rt", email: "a@b" }));
+    const destino = projetosRoot(home);
+
+    expect(trazerPastaManualProDrive(home, destino)).toBe(2);
+    expect(existsSync(join(destino, "proj-a", "meta.json"))).toBe(true);
+    expect(existsSync(join(destino, "_biblioteca", "agentes", "a.json"))).toBe(true);
+    expect(existsSync(join(destino, "proj-a", "node_modules"))).toBe(false);
+    expect(existsSync(join(destino, "app-web"))).toBe(false);
+    expect(existsSync(join(destino, "outro-repo"))).toBe(false);
+    expect(existsSync(join(destino, "solto.txt"))).toBe(false);
+  });
+
   it("sem Google conectado não faz nada", () => {
     const home = tempHome();
     const manual = mkdtempSync(join(tmpdir(), "nexo-manual-"));
@@ -326,3 +356,18 @@ describe("armazenamento no próprio projeto", () => {
 function rmSyncSeguro(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
 }
+
+describe("pastaDeCodigo", () => {
+  it("repo git ou pasta de repos é código; pasta de dados do Nexos não", () => {
+    const repos = mkdtempSync(join(tmpdir(), "nexo-repos-"));
+    mkdirSync(join(repos, "app", ".git"), { recursive: true });
+    expect(pastaDeCodigo(repos)).toBe(true);
+    expect(pastaDeCodigo(join(repos, "app"))).toBe(true);
+
+    const dados = mkdtempSync(join(tmpdir(), "nexo-dados-"));
+    mkdirSync(join(dados, "proj-a"));
+    writeFileSync(join(dados, "proj-a", "meta.json"), "{}");
+    expect(pastaDeCodigo(dados)).toBe(false);
+    expect(pastaDeCodigo(join(dados, "nao-existe"))).toBe(false);
+  });
+});

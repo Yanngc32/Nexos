@@ -690,6 +690,23 @@ describe("http", () => {
     expect(body.accent).toBe("#7c5cbf");
   });
 
+  it("PUT /v1/config recusa projetosDir apontado pra pasta de repos", async () => {
+    const home = tempHome();
+    const app = createApp(home, token);
+    const hdr = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    const repos = join(home, "code");
+    mkdirSync(join(repos, "app", ".git"), { recursive: true });
+    const put = await app.request("/v1/config", { method: "PUT", headers: hdr, body: JSON.stringify({ projetosDir: repos }) });
+    expect(put.status).toBe(400);
+    expect(((await put.json()) as { error: string }).error).toMatch(/repositórios git/);
+    expect(loadConfig(home).projetosDir).toBeFalsy();
+
+    const dados = join(home, "dados-nexos");
+    mkdirSync(dados);
+    const ok = await app.request("/v1/config", { method: "PUT", headers: hdr, body: JSON.stringify({ projetosDir: dados }) });
+    expect(ok.status).toBe(200);
+  });
+
   it("import claude sem credencial global = 400", async () => {
     const home = tempHome();
     addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
