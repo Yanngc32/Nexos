@@ -6,7 +6,14 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- Log completo em `~/.nexos/daemon.log`: toda linha com hora local, nível (`DEBUG`/`INFO`/`AVISO`/`ERRO`) e origem (`[motor]`, `[app]`, `[copia]`…). O arquivo gira sozinho a cada 5 MB (guarda 3 antigos). Nível em `logNivel` no config ou na variável `NEXOS_LOG`, e vale sem reiniciar. O app também escreve no mesmo log. A saída crua do motor foi pra `daemon-saida.log`.
+- Aviso de congelamento: quando o motor fica mais de 2 s sem responder, aparece uma linha no log com a duração.
+
 ### Corrigido
+
+- Motor travado se recupera sozinho. Antes, com a porta ocupada por um motor que não respondia, a tela ficava em "Desligado" até alguém matar o processo na mão. Agora a tela mostra "Motor travado". Depois de 15 s, o app confere se o processo é mesmo o motor do Nexos, reinicia e avisa. Se houver agente trabalhando, ele pergunta antes.
+- Subir o motor com outro travado na porta não mata mais o motor nem os agentes.
+- A cópia da pasta manual pro Drive e a varredura do sync não congelam mais o motor. Pasta com mais de 20 mil arquivos ou 500 MB não é copiada, e aparece um aviso no log.
 
 ### Alterado
 
