@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import type { ResultadoSync, StatusDrive } from "@nexos/shared";
 import { driveSyncStatePath } from "./home.ts";
 import { log } from "./log.ts";
 import { googleAccount, readGoogleStore, updateGoogleStore } from "./google-auth.ts";
@@ -17,9 +18,9 @@ import {
   trashFile,
   updateFile,
 } from "./google-drive.ts";
-import { PASTA_BIBLIOTECA, sincronizarBiblioteca } from "./biblioteca.ts";
-import { projetosRoot, trazerPastaManualProDrive } from "./projeto-dir.ts";
-import { decidir } from "./sync-decisao.ts";
+import { sincronizarBiblioteca } from "./biblioteca.ts";
+import { ehPastaDoNexos, projetosRoot, trazerPastaManualProDrive } from "./projeto-dir.ts";
+import { decidir, Ignorados, PASTA_BIBLIOTECA, sincronizavel, type Acao } from "./sync-decisao.ts";
 import { importarConversas, mesclarJsonl } from "./threads.ts";
 
 /**
@@ -42,23 +43,7 @@ export { decidir, type Acao } from "./sync-decisao.ts";
 type BaseEntry = { md5: string; size: number; mtimeMs: number };
 type Estado = { folderId: string; root: string; files: Record<string, BaseEntry> };
 
-export type ResultadoSync = {
-  subiu: number;
-  baixou: number;
-  apagouLocal: number;
-  apagouRemoto: number;
-  mesclou: number;
-  erros: string[];
-  iniciouEm: string;
-  duracaoMs: number;
-};
-
-export type StatusDrive = {
-  connected: boolean;
-  folder?: { id: string; name: string };
-  running: boolean;
-  last?: ResultadoSync;
-};
+export type { ResultadoSync, StatusDrive } from "@nexos/shared";
 
 const md5 = (buf: Buffer | string): string => createHash("md5").update(buf).digest("hex");
 
@@ -109,10 +94,17 @@ function md5DoArquivo(abs: string): Promise<string> {
  * versão síncrona segurava o event loop o tempo inteiro. Nas rodadas seguintes quase nada é
  * relido (tamanho e mtime iguais aos da base).
  */
-async function varrerLocal(root: string, base: Record<string, BaseEntry>): Promise<Map<string, Local>> {
+async function varrerLocal(
+  root: string,
+  base: Record<string, BaseEntry>,
+): Promise<{ arquivos: Map<string, Local>; topoIgnorado: Set<string> }> {
   const inicio = Date.now();
   log.info("sync", "varrerLocal começou", { root });
   const out = new Map<string, Local>();
+  const ignorados = new Ignorados();
+  // pasta de 1º nível que existe aqui mas não é do Nexos (sem meta.json, ou repo com .git): o sync
+  // não toca nela de lado nenhum — nem baixa pra dentro, nem apaga no remoto o que a base lembra
+  const topoIgnorado = new Set<string>();
   let vistos = 0;
   let relidos = 0;
   const andar = async (dir: string, prefixo: string): Promise<void> => {
@@ -133,14 +125,20 @@ async function varrerLocal(root: string, base: Record<string, BaseEntry>): Promi
         continue;
       }
       if (st.isDirectory()) {
-        // raiz de `projetosRoot` pode ter outras pastas além das nossas (cache de outra
-        // ferramenta, layout antigo, o que for) — só desce em pasta de projeto de verdade
-        // (tem `meta.json`), pra não varrer/subir lixo que não é nosso.
-        // `_biblioteca` é o espelho de agentes/times/hooks/skills (biblioteca.ts), não um projeto.
-        if (prefixo === "" && nome !== PASTA_BIBLIOTECA && !existsSync(join(abs, "meta.json"))) continue;
+        // 1º nível: só pasta de projeto do Nexos (`meta.json`, sem `.git`) ou a `_biblioteca`.
+        // Abaixo disso, só os dados que o Nexos grava — nunca desce em `node_modules`, `src`…
+        if (prefixo === "" ? !ehPastaDoNexos(abs, nome) : !sincronizavel(rel)) {
+          ignorados.anotar(rel);
+          if (prefixo === "") topoIgnorado.add(nome);
+          continue;
+        }
         await andar(abs, rel);
       } else if (st.isFile()) {
-        if (rel.split("/").length === 2 && nome === "meta.json") continue;
+        // arquivo solto na raiz, `meta.json` do projeto (caminho NESTA máquina) e o que não é dado
+        if (!sincronizavel(rel)) {
+          ignorados.anotar(rel);
+          continue;
+        }
         if (++vistos % CEDER_A_CADA === 0) await ceder();
         const anterior = base[rel];
         // mesmo tamanho e mtime da última sync: não relê o arquivo (repo-map pode ser grande)
@@ -159,15 +157,32 @@ async function varrerLocal(root: string, base: Record<string, BaseEntry>): Promi
     }
   };
   await andar(root, "");
-  log.info("sync", "varrerLocal terminou", { arquivos: out.size, relidos, ms: Date.now() - inicio });
-  return out;
+  log.info("sync", "varrerLocal terminou", {
+    arquivos: out.size,
+    relidos,
+    ignorados: ignorados.total,
+    maisIgnoradas: ignorados.maiores(),
+    ms: Date.now() - inicio,
+  });
+  return { arquivos: out, topoIgnorado };
 }
 
 type Remoto = { id: string; md5: string; mtimeMs: number };
 
-async function varrerRemoto(home: string, rootId: string): Promise<{ arquivos: Map<string, Remoto>; pastas: Map<string, string> }> {
+/**
+ * Mesmo filtro da varredura local: no 1º nível só pastas (projeto ou `_biblioteca`); abaixo, só o
+ * que `sincronizavel` aceita. Subárvore fora da lista nem é listada — código que já tinha subido
+ * pro Drive (`APROXIMA/src/...`) não desce aqui e não custa uma chamada por pasta.
+ */
+async function varrerRemoto(
+  home: string,
+  rootId: string,
+  topoIgnorado: Set<string>,
+): Promise<{ arquivos: Map<string, Remoto>; pastas: Map<string, string> }> {
+  const inicio = Date.now();
   const arquivos = new Map<string, Remoto>();
   const pastas = new Map<string, string>([["", rootId]]);
+  const ignorados = new Ignorados();
   const fila: { id: string; rel: string }[] = [{ id: rootId, rel: "" }];
   while (fila.length) {
     const { id, rel } = fila.shift()!;
@@ -176,19 +191,35 @@ async function varrerRemoto(home: string, rootId: string): Promise<{ arquivos: M
       const caminho = rel ? `${rel}/${item.name}` : item.name;
       if (item.mimeType === MIME_PASTA) {
         if (pastas.has(caminho)) continue;
+        if (rel ? !sincronizavel(caminho) : topoIgnorado.has(item.name)) {
+          ignorados.anotar(caminho);
+          continue;
+        }
         pastas.set(caminho, item.id);
         fila.push({ id: item.id, rel: caminho });
       } else if (item.md5Checksum && !arquivos.has(caminho)) {
         // sem md5 = Google Docs/Sheets/atalho: não é arquivo nosso
+        if (!sincronizavel(caminho)) {
+          ignorados.anotar(caminho);
+          continue;
+        }
         arquivos.set(caminho, { id: item.id, md5: item.md5Checksum, mtimeMs: Date.parse(item.modifiedTime ?? "") || 0 });
       }
     }
   }
+  log.info("sync", "varrerRemoto terminou", {
+    arquivos: arquivos.size,
+    ignorados: ignorados.total,
+    maisIgnoradas: ignorados.maiores(),
+    ms: Date.now() - inicio,
+  });
   return { arquivos, pastas };
 }
 
 let emAndamento: Promise<ResultadoSync> | undefined;
 let ultimo: ResultadoSync | undefined;
+/** Rodada em voo: desde quando, e quantas operações (subir/baixar/apagar/mesclar) ainda faltam. */
+let andamento: { desde: string; pendentes: number } | undefined;
 
 export function driveStatus(home: string): StatusDrive {
   const acc = googleAccount(home);
@@ -196,8 +227,31 @@ export function driveStatus(home: string): StatusDrive {
     connected: acc.connected,
     ...(acc.folder ? { folder: acc.folder } : {}),
     running: emAndamento !== undefined,
+    ...(emAndamento && andamento ? { emAndamentoDesde: andamento.desde, pendentes: andamento.pendentes } : {}),
     ...(ultimo ? { last: ultimo } : {}),
   };
+}
+
+/** Acima disto numa rodada só, algo está errado (código entrando no sync): para e avisa. */
+export const TETO_OPERACOES = 5000;
+/** Grava o estado a cada tantas operações (e a cada projeto concluído). */
+const GRAVAR_A_CADA = 200;
+/** Tantos erros seguidos = a rede caiu: para a rodada (o estado já gravado fica) em vez de insistir. */
+const ERROS_SEGUIDOS_MAX = 20;
+
+/** Teto já avisado nesta subida (por raiz): a rodada repete a cada 2 min, o log não precisa. */
+const tetoAvisado = new Set<string>();
+
+/** Só pra teste: esquece o que já foi avisado nesta subida. */
+export function resetAvisosSyncForTest(): void {
+  tetoAvisado.clear();
+}
+
+/** `_biblioteca` primeiro, depois os projetos (agentes/skills não ficam atrás de um projeto grande). */
+function ordemDaRodada(a: string, b: string): number {
+  const ba = a.startsWith(`${PASTA_BIBLIOTECA}/`) ? 0 : 1;
+  const bb = b.startsWith(`${PASTA_BIBLIOTECA}/`) ? 0 : 1;
+  return ba - bb || (a < b ? -1 : a > b ? 1 : 0);
 }
 
 export const NOME_PASTA_NEXO = "Nexos";
@@ -239,8 +293,10 @@ export function removerPastaDrive(home: string): void {
 /** Uma rodada de sync (single-flight: chamada durante outra devolve a mesma promessa). */
 export function sincronizarDrive(home: string): Promise<ResultadoSync> {
   if (emAndamento) return emAndamento;
+  andamento = { desde: new Date().toISOString(), pendentes: 0 };
   emAndamento = rodar(home).finally(() => {
     emAndamento = undefined;
+    andamento = undefined;
   });
   return emAndamento;
 }
@@ -265,10 +321,10 @@ async function rodar(home: string): Promise<ResultadoSync> {
       estado = { folderId, root: rootLocal, files: {} };
     }
 
-    const local = await varrerLocal(rootLocal, estado.files);
+    const { arquivos: local, topoIgnorado } = await varrerLocal(rootLocal, estado.files);
     let varredura;
     try {
-      varredura = await varrerRemoto(home, folderId);
+      varredura = await varrerRemoto(home, folderId, topoIgnorado);
     } catch (e) {
       // pasta apagada (ou tirada do alcance) no Drive: esquece, a próxima rodada acha/cria outra
       if ((e as { status?: number }).status === 404) {
@@ -279,9 +335,18 @@ async function rodar(home: string): Promise<ResultadoSync> {
     }
     const { arquivos: remoto, pastas } = varredura;
 
+    /*
+     * Base com o MESMO filtro das duas varreduras: entrada antiga fora da lista (o `node_modules` que
+     * subiu na 0.8.0) é descartada, não tratada como "apagada" — senão o sync apagaria do outro lado.
+     */
+    const dentro = (rel: string): boolean => sincronizavel(rel) && !topoIgnorado.has(rel.split("/")[0]!);
+    const base: Record<string, BaseEntry> = {};
+    for (const [rel, b] of Object.entries(estado.files)) if (dentro(rel)) base[rel] = b;
+    estado.files = base;
+
     // Um lado vazio com base cheia é quase sempre acidente (pasta apagada/movida), não intenção:
     // trata como "nunca sincronizado" em vez de propagar a exclusão em massa pro outro lado.
-    const temBase = Object.keys(estado.files).length > 0;
+    const temBase = Object.keys(base).length > 0;
     const ignorarBase = temBase && (local.size === 0 || remoto.size === 0);
 
     const garantirPasta = async (rel: string): Promise<string> => {
@@ -294,74 +359,117 @@ async function rodar(home: string): Promise<ResultadoSync> {
       return nova.id;
     };
 
-    const caminhos = new Set([...local.keys(), ...remoto.keys(), ...Object.keys(estado.files)]);
-    const novaBase: Record<string, BaseEntry> = {};
-    const gravar = (rel: string, buf: Buffer, st: { size: number; mtimeMs: number }): void => {
-      novaBase[rel] = { md5: md5(buf), size: st.size, mtimeMs: st.mtimeMs };
-    };
-    const manter = (rel: string): void => {
-      const b = estado.files[rel];
-      if (b) novaBase[rel] = b;
-    };
-
-    for (const rel of [...caminhos].sort()) {
+    // o plano inteiro antes de mexer: conta as operações pro teto e pro "pendentes" da tela
+    const caminhos = [...new Set([...local.keys(), ...remoto.keys(), ...Object.keys(base)])].filter(dentro).sort(ordemDaRodada);
+    const plano: { rel: string; acao: Acao }[] = caminhos.map((rel) => {
       const l = local.get(rel);
       const r = remoto.get(rel);
-      const b = ignorarBase ? undefined : estado.files[rel];
-      const abs = join(rootLocal, ...rel.split("/"));
-      const acao = decidir(b?.md5, l?.md5, r?.md5, { jsonl: rel.endsWith(".jsonl"), mtimeLocal: l?.mtimeMs ?? 0, mtimeRemoto: r?.mtimeMs ?? 0 });
-      try {
-        if (acao === "nada") {
-          if (l) novaBase[rel] = { md5: l.md5, size: l.size, mtimeMs: l.mtimeMs };
-        } else if (acao === "subir") {
-          const st = statSync(abs); // antes de ler: se mudar no meio, o próximo ciclo enxerga
-          const buf = readFileSync(abs);
-          if (r) await updateFile(home, r.id, buf);
-          else {
-            const i = rel.lastIndexOf("/");
-            await createFile(home, await garantirPasta(i === -1 ? "" : rel.slice(0, i)), rel.slice(i + 1), buf);
-          }
-          gravar(rel, buf, st);
-          res.subiu++;
-        } else if (acao === "baixar") {
-          const buf = await downloadFile(home, r!.id);
-          // mudou localmente durante o download: não pisa, o próximo ciclo resolve como conflito
-          if (l && existsSync(abs) && md5(readFileSync(abs)) !== l.md5) {
-            manter(rel);
-            continue;
-          }
-          escreverAtomico(abs, buf);
-          gravar(rel, buf, statSync(abs));
-          res.baixou++;
-        } else if (acao === "mesclar") {
-          const doRemoto = (await downloadFile(home, r!.id)).toString("utf8");
-          // sem `await` entre ler o local e gravar: nenhum append do daemon cabe no meio
-          const doLocal = existsSync(abs) ? readFileSync(abs, "utf8") : "";
-          const junto = mesclarJsonl(doLocal, doRemoto);
-          if (junto !== doLocal) escreverAtomico(abs, Buffer.from(junto, "utf8"));
-          const buf = Buffer.from(junto, "utf8");
-          if (md5(buf) !== r!.md5) await updateFile(home, r!.id, buf);
-          gravar(rel, buf, statSync(abs));
-          res.mesclou++;
-        } else if (acao === "apagar-local") {
-          if (l && existsSync(abs) && md5(readFileSync(abs)) !== l.md5) {
-            manter(rel);
-            continue;
-          }
-          rmSync(abs, { force: true });
-          res.apagouLocal++;
-        } else if (acao === "apagar-remoto") {
-          await trashFile(home, r!.id);
-          res.apagouRemoto++;
-        }
-      } catch (e) {
-        res.erros.push(`${rel}: ${(e as Error).message}`);
-        manter(rel);
+      const b = ignorarBase ? undefined : base[rel];
+      return { rel, acao: decidir(b?.md5, l?.md5, r?.md5, { jsonl: rel.endsWith(".jsonl"), mtimeLocal: l?.mtimeMs ?? 0, mtimeRemoto: r?.mtimeMs ?? 0 }) };
+    });
+    const operacoes = plano.filter((p) => p.acao !== "nada");
+    if (operacoes.length > TETO_OPERACOES) {
+      const porPasta = new Ignorados();
+      for (const op of operacoes) porPasta.anotar(op.rel);
+      const msg = `rodada com ${operacoes.length} operações passa do teto de ${TETO_OPERACOES}: não sincronizei nada`;
+      if (!tetoAvisado.has(rootLocal)) {
+        tetoAvisado.add(rootLocal);
+        log.aviso("sync", msg, { operacoes: operacoes.length, maiores: porPasta.maiores() });
       }
+      throw new Error(msg);
     }
+    if (andamento) andamento.pendentes = operacoes.length;
 
-    estado.files = novaBase;
-    gravarEstado(home, estado);
+    /*
+     * Estado INCREMENTAL: `atual` começa na base e é atualizado arquivo a arquivo; vai pro disco a
+     * cada 200 operações e a cada projeto concluído. Rodada interrompida (app fechado, rede caiu)
+     * continua de onde parou — antes o estado só era gravado no fim, e uma rodada grande
+     * recomeçava do zero pra sempre.
+     */
+    const atual: Record<string, BaseEntry> = { ...base };
+    const gravarAgora = (): void => {
+      estado.files = atual;
+      gravarEstado(home, estado);
+    };
+    const gravar = (rel: string, buf: Buffer, st: { size: number; mtimeMs: number }): void => {
+      atual[rel] = { md5: md5(buf), size: st.size, mtimeMs: st.mtimeMs };
+    };
+    let desdeGravou = 0;
+    let errosSeguidos = 0;
+    let topoAnterior = "";
+
+    try {
+      for (const { rel, acao } of plano) {
+        const topo = rel.split("/")[0]!;
+        if (topoAnterior && topo !== topoAnterior) {
+          gravarAgora(); // projeto concluído
+          desdeGravou = 0;
+        }
+        topoAnterior = topo;
+        const l = local.get(rel);
+        const r = remoto.get(rel);
+        const abs = join(rootLocal, ...rel.split("/"));
+        try {
+          if (acao === "nada") {
+            if (l) atual[rel] = { md5: l.md5, size: l.size, mtimeMs: l.mtimeMs };
+            else delete atual[rel];
+            continue;
+          } else if (acao === "subir") {
+            const st = statSync(abs); // antes de ler: se mudar no meio, o próximo ciclo enxerga
+            const buf = readFileSync(abs);
+            if (r) await updateFile(home, r.id, buf);
+            else {
+              const i = rel.lastIndexOf("/");
+              await createFile(home, await garantirPasta(i === -1 ? "" : rel.slice(0, i)), rel.slice(i + 1), buf);
+            }
+            gravar(rel, buf, st);
+            res.subiu++;
+          } else if (acao === "baixar") {
+            const buf = await downloadFile(home, r!.id);
+            // mudou localmente durante o download: não pisa, o próximo ciclo resolve como conflito
+            if (!(l && existsSync(abs) && md5(readFileSync(abs)) !== l.md5)) {
+              escreverAtomico(abs, buf);
+              gravar(rel, buf, statSync(abs));
+              res.baixou++;
+            }
+          } else if (acao === "mesclar") {
+            const doRemoto = (await downloadFile(home, r!.id)).toString("utf8");
+            // sem `await` entre ler o local e gravar: nenhum append do daemon cabe no meio
+            const doLocal = existsSync(abs) ? readFileSync(abs, "utf8") : "";
+            const junto = mesclarJsonl(doLocal, doRemoto);
+            if (junto !== doLocal) escreverAtomico(abs, Buffer.from(junto, "utf8"));
+            const buf = Buffer.from(junto, "utf8");
+            if (md5(buf) !== r!.md5) await updateFile(home, r!.id, buf);
+            gravar(rel, buf, statSync(abs));
+            res.mesclou++;
+          } else if (acao === "apagar-local") {
+            if (!(l && existsSync(abs) && md5(readFileSync(abs)) !== l.md5)) {
+              rmSync(abs, { force: true });
+              delete atual[rel];
+              res.apagouLocal++;
+            }
+          } else if (acao === "apagar-remoto") {
+            await trashFile(home, r!.id);
+            delete atual[rel];
+            res.apagouRemoto++;
+          }
+          errosSeguidos = 0;
+        } catch (e) {
+          // o que já estava na base fica como estava
+          res.erros.push(`${rel}: ${(e as Error).message}`);
+          if (++errosSeguidos >= ERROS_SEGUIDOS_MAX) {
+            throw new Error(`${ERROS_SEGUIDOS_MAX} erros seguidos, parei a rodada (a próxima continua daqui): ${(e as Error).message}`);
+          }
+        }
+        if (andamento) andamento.pendentes = Math.max(0, andamento.pendentes - 1);
+        if (++desdeGravou >= GRAVAR_A_CADA) {
+          gravarAgora();
+          desdeGravou = 0;
+        }
+      }
+    } finally {
+      gravarAgora();
+    }
     try {
       importarConversas(home);
     } catch (e) {

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { saveConfig } from "../src/config.ts";
-import { decidir, sincronizarDrive } from "../src/drive-sync.ts";
+import { decidir, driveStatus, resetAvisosSyncForTest, sincronizarDrive } from "../src/drive-sync.ts";
 import { disconnectGoogle, googleAccessToken, googleAccount, readGoogleStore, updateGoogleStore } from "../src/google-auth.ts";
 import { cancelAllGoogleLogins, googleLoginStatus, startEscolherPasta, startGoogleLogin } from "../src/google-conectar.ts";
 import { projetosRoot } from "../src/projeto-dir.ts";
@@ -26,6 +26,9 @@ let nextId = 1;
 let relogio = Date.parse("2026-01-01T00:00:00Z");
 let tokensEmitidos = 0;
 let ultimoAuthCode: { challenge?: string } = {};
+/** Envios de arquivo (upload) em ordem, e a partir de quantos a "rede" passa a falhar. */
+let uploads: string[] = [];
+let falharUploadsDepoisDe = Infinity;
 
 const md5 = (b: Buffer) => createHash("md5").update(b).digest("hex");
 const meta = (f: FakeFile) => ({
@@ -97,12 +100,14 @@ async function tratar(req: IncomingMessage, res: ServerResponse): Promise<void> 
     return json(res, 200, meta(novoArquivo(b.name, b.parents[0]!, undefined, b.mimeType)));
   }
   if (req.method === "POST" && url.pathname === "/upload/files") {
+    if (uploads.length >= falharUploadsDepoisDe) return json(res, 400, { error: { message: "rede caiu" } });
     const boundary = /boundary=(.+)$/.exec(String(req.headers["content-type"]))?.[1] ?? "";
     const texto = corpo.toString("latin1");
     const partes = texto.split(`--${boundary}`).slice(1, -1);
     const [cabMeta, cabDados] = partes.map((p) => p.replace(/^\r\n/, "").replace(/\r\n$/, ""));
     const m = JSON.parse(cabMeta!.split("\r\n\r\n")[1]!) as { name: string; parents: string[] };
     const dadosLatin = cabDados!.split("\r\n\r\n").slice(1).join("\r\n\r\n");
+    uploads.push(m.name);
     return json(res, 200, meta(novoArquivo(m.name, m.parents[0]!, Buffer.from(dadosLatin, "latin1"))));
   }
   if (req.method === "PATCH" && url.pathname.startsWith("/upload/files/") && idNaRota) {
@@ -146,6 +151,9 @@ beforeEach(() => {
   files = new Map([[ROOT, { id: ROOT, name: "PastaEscolhida", mimeType: "application/vnd.google-apps.folder", parents: [], trashed: false, modified: 0 }]]);
   tokensEmitidos = 0;
   ultimoAuthCode = {};
+  uploads = [];
+  falharUploadsDepoisDe = Infinity;
+  resetAvisosSyncForTest();
 });
 
 afterEach(() => cancelAllGoogleLogins());
@@ -576,12 +584,137 @@ describe("sync com o Drive", () => {
     novoArquivo("a\\b.md", ROOT, Buffer.from("x"));
     novoArquivo("c:evil.md", ROOT, Buffer.from("x"));
     const pasta = novoArquivo("proj", ROOT, undefined, "application/vnd.google-apps.folder");
-    novoArquivo("bom.md", pasta.id, Buffer.from("ok"));
+    const mem = novoArquivo("memoria", pasta.id, undefined, "application/vnd.google-apps.folder");
+    novoArquivo("bom.md", mem.id, Buffer.from("ok"));
 
     const r = await sincronizarDrive(a);
     expect(r.erros).toEqual([]);
     expect(readdirSync(projetosRoot(a)).sort()).toEqual(["_biblioteca", "proj"]);
-    expect(ler(a, "proj/bom.md")).toBe("ok");
+    expect(ler(a, "proj/memoria/bom.md")).toBe("ok");
+  });
+
+  /* ---------- só o que o Nexos grava (regressão do projetosDir = pasta dos repos) ---------- */
+
+  const pastaRemota = (nome: string, pai = ROOT): FakeFile =>
+    [...files.values()].find((f) => f.name === nome && f.parents.includes(pai) && !f.data) ??
+    novoArquivo(nome, pai, undefined, "application/vnd.google-apps.folder");
+
+  it("projeto que é o próprio repo: só os dados do Nexos sobem, nunca o código", async () => {
+    const a = maquina();
+    escrever(a, "proj/memoria/M.md", "dado");
+    escrever(a, "proj/node_modules/pkg/index.js", "codigo");
+    escrever(a, "proj/src/app.ts", "codigo");
+    escrever(a, "proj/solto.log", "lixo");
+    writeFileSync(join(projetosRoot(a), "___All_Errors.txt"), "lixo");
+
+    const r = await sincronizarDrive(a);
+    expect(r.erros).toEqual([]);
+    expect(remotos().filter((x) => !x.startsWith("_biblioteca"))).toEqual(["proj/memoria/M.md"]);
+  });
+
+  it("código que já está no Drive não é listado nem baixado, e nada fora da lista é apagado", async () => {
+    const a = maquina();
+    escrever(a, "APROXIMA/conversas/c.jsonl", '{"ts":"1"}\n');
+    escrever(a, "APROXIMA/aprxm_sys/local.py", "codigo local");
+    const proj = pastaRemota("APROXIMA");
+    const src = novoArquivo("aprxm_sys", proj.id, undefined, "application/vnd.google-apps.folder");
+    novoArquivo("remoto.py", src.id, Buffer.from("codigo de outro PC"));
+    novoArquivo("solto-remoto.txt", proj.id, Buffer.from("x"));
+
+    await sincronizarDrive(a);
+    await sincronizarDrive(a);
+    expect(existe(a, "APROXIMA/aprxm_sys/remoto.py")).toBe(false);
+    expect(existe(a, "APROXIMA/solto-remoto.txt")).toBe(false);
+    // nada fora da lista some, de lado nenhum
+    expect(ler(a, "APROXIMA/aprxm_sys/local.py")).toBe("codigo local");
+    expect(remotos()).toContain("APROXIMA/aprxm_sys/remoto.py");
+    expect(remotos()).toContain("APROXIMA/solto-remoto.txt");
+    expect(remotos()).not.toContain("APROXIMA/aprxm_sys/local.py");
+  });
+
+  it("pasta de 1º nível com meta.json e .git (um repo) é ignorada inteira", async () => {
+    const a = maquina();
+    escrever(a, "repo/memoria/M.md", "dado");
+    mkdirSync(join(projetosRoot(a), "repo", ".git"), { recursive: true });
+    const r = await sincronizarDrive(a);
+    expect(r.erros).toEqual([]);
+    expect(remotos().filter((x) => !x.startsWith("_biblioteca"))).toEqual([]);
+  });
+
+  it("entrada antiga fora da lista no estado base é descartada, não vira exclusão", async () => {
+    const a = maquina();
+    escrever(a, "proj/memoria/M.md", "dado");
+    await sincronizarDrive(a);
+    // estado com lixo da 0.8.0: node_modules como se já tivesse subido
+    const caminho = join(a, "drive-sync.json");
+    const estado = JSON.parse(readFileSync(caminho, "utf8")) as { files: Record<string, unknown> };
+    estado.files["proj/node_modules/x.js"] = { md5: "abc", size: 1, mtimeMs: 1 };
+    writeFileSync(caminho, JSON.stringify(estado));
+    const lixo = novoArquivo("x.js", pastaRemota("node_modules", pastaRemota("proj").id).id, Buffer.from("x"));
+
+    const r = await sincronizarDrive(a);
+    expect(r).toMatchObject({ apagouRemoto: 0, apagouLocal: 0, erros: [] });
+    expect(files.get(lixo.id)!.trashed).toBe(false);
+    const depois = JSON.parse(readFileSync(caminho, "utf8")) as { files: Record<string, unknown> };
+    expect(Object.keys(depois.files).filter((k) => !k.startsWith("_biblioteca"))).toEqual(["proj/memoria/M.md"]);
+  });
+
+  /* ---------- rodada que sobrevive ---------- */
+
+  it("_biblioteca sincroniza antes dos projetos (mesmo com projeto em maiúscula)", async () => {
+    const a = maquina();
+    escrever(a, "AAA/memoria/M.md", "dado");
+    mkdirSync(join(projetosRoot(a), "_biblioteca", "notas"), { recursive: true });
+    writeFileSync(join(projetosRoot(a), "_biblioteca", "notas", "b.md"), "bib");
+    await sincronizarDrive(a);
+    expect(uploads.indexOf("b.md")).toBeGreaterThanOrEqual(0);
+    expect(uploads.indexOf("b.md")).toBeLessThan(uploads.indexOf("M.md"));
+  });
+
+  it("rodada interrompida (rede caiu) grava o que fez; a próxima continua de onde parou", async () => {
+    const a = maquina();
+    for (let i = 0; i < 300; i++) escrever(a, `proj/memoria/n${String(i).padStart(3, "0")}.md`, `nota ${i}`);
+    falharUploadsDepoisDe = 250;
+    const r1 = await sincronizarDrive(a);
+    expect(r1.erros.at(-1)).toMatch(/erros seguidos, parei a rodada/);
+    const feitos = uploads.length;
+    expect(feitos).toBe(250);
+    const estado = JSON.parse(readFileSync(join(a, "drive-sync.json"), "utf8")) as { files: Record<string, unknown> };
+    expect(Object.keys(estado.files).filter((k) => k.startsWith("proj/")).length).toBe(250);
+
+    falharUploadsDepoisDe = Infinity;
+    const r2 = await sincronizarDrive(a);
+    expect(r2.erros).toEqual([]);
+    expect(r2.subiu).toBe(300 - 250);
+    expect(remotos().filter((x) => x.startsWith("proj/")).length).toBe(300);
+  }, 60_000);
+
+  it("rodada com mais de 5 mil operações para, avisa e não envia nada", async () => {
+    const a = maquina();
+    const dir = join(projetosRoot(a), "grande", "repo-map");
+    escrever(a, "grande/memoria/M.md", "x");
+    mkdirSync(dir, { recursive: true });
+    for (let i = 0; i < 5001; i++) writeFileSync(join(dir, `f${i}.json`), "{}");
+    const r = await sincronizarDrive(a);
+    expect(r.erros.at(-1)).toMatch(/passa do teto de 5000/);
+    expect(uploads.filter((n) => n.startsWith("f"))).toEqual([]);
+  }, 60_000);
+
+  it("/v1/drive mostra desde quando a rodada roda e quantas operações faltam", async () => {
+    const a = maquina();
+    for (let i = 0; i < 30; i++) escrever(a, `proj/memoria/n${i}.md`, `nota ${i}`);
+    const rodada = sincronizarDrive(a);
+    let visto: ReturnType<typeof driveStatus> | undefined;
+    while (!visto?.pendentes) {
+      await new Promise((r) => setTimeout(r, 5));
+      visto = driveStatus(a);
+      if (!visto.running) break;
+    }
+    await rodada;
+    expect(visto?.running).toBe(true);
+    expect(Date.parse(visto!.emAndamentoDesde!)).toBeGreaterThan(0);
+    expect(visto!.pendentes).toBeGreaterThan(0);
+    expect(driveStatus(a).pendentes).toBeUndefined();
   });
 
   it("Google Docs na pasta (sem md5) não entra no sync", async () => {

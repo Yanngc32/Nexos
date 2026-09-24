@@ -276,6 +276,30 @@ export type ServicesReport = {
 
 export type ProbeResult = { ok: boolean; status?: number; error?: string };
 
+/** Resultado de uma rodada de sync com o Google Drive (`POST /v1/drive/sync`, `last` do status). */
+export type ResultadoSync = {
+  subiu: number;
+  baixou: number;
+  apagouLocal: number;
+  apagouRemoto: number;
+  mesclou: number;
+  erros: string[];
+  iniciouEm: string;
+  duracaoMs: number;
+};
+
+/** `GET /v1/drive`. */
+export type StatusDrive = {
+  connected: boolean;
+  folder?: { id: string; name: string };
+  running: boolean;
+  /** Rodada em voo: ISO de quando começou. Só com `running`. */
+  emAndamentoDesde?: string;
+  /** Operações (subir/baixar/apagar/mesclar) que ainda faltam na rodada em voo. */
+  pendentes?: number;
+  last?: ResultadoSync;
+};
+
 export type NexoConfig = {
   port: number;
   /**

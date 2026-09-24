@@ -8,6 +8,7 @@ import type { NexoConfig } from "@nexos/shared";
 import { loadConfig } from "./config.ts";
 import { readGoogleStore } from "./google-auth.ts";
 import { projectKey } from "./home.ts";
+import { PASTA_BIBLIOTECA, sincronizavel } from "./sync-decisao.ts";
 
 /**
  * Pasta única por projeto (memória + tarefas + repo map dentro dela), nomeada de forma
@@ -34,8 +35,6 @@ export function projetosRoot(home: string): string {
   return cfg.projetosDir || join(home, "projetos");
 }
 
-/** Nome da pasta-espelho de agentes/times/hooks/skills (`PASTA_BIBLIOTECA` em biblioteca.ts, que importa daqui). */
-const PASTA_BIBLIOTECA = "_biblioteca";
 
 /** Pastas de código/build: nunca são dado do Nexos, em nível nenhum. */
 const PASTAS_DE_CODIGO = new Set(["node_modules", "__pycache__"]);
@@ -44,7 +43,7 @@ const PASTAS_DE_CODIGO = new Set(["node_modules", "__pycache__"]);
  * Subpasta de primeiro nível de `projetosRoot` que é nossa: projeto (`meta.json`) ou a biblioteca.
  * Repo git com um `meta.json` qualquer na raiz não conta — pasta de projeto do Nexos nunca tem `.git`.
  */
-function ehPastaDoNexos(dir: string, nome: string): boolean {
+export function ehPastaDoNexos(dir: string, nome: string): boolean {
   if (nome === PASTA_BIBLIOTECA) return true;
   return existsSync(join(dir, "meta.json")) && !existsSync(join(dir, ".git"));
 }
@@ -131,13 +130,21 @@ export async function trazerPastaManualProDrive(home: string, destino: string): 
     else log.debug("copia", `progresso: ${n} arquivo(s)`, dados);
   };
 
-  const listar = async (origem: string, alvo: string, raiz: boolean): Promise<void> => {
+  /**
+   * `prefixo` é o caminho relativo à raiz (`""` na raiz). Dentro de uma pasta do Nexos só vem o que
+   * o sync aceita (`sincronizavel`) mais o `meta.json` do projeto: a pasta manual pode ser a pasta
+   * dos repos, e o projeto nela pode ser o próprio repo — o código nunca vem junto.
+   */
+  const listar = async (origem: string, alvo: string, prefixo: string): Promise<void> => {
+    const raiz = prefixo === "";
     for (const e of await readdir(origem, { withFileTypes: true })) {
       if (estourou) return;
       // restos de migrações/escritas antigas não viram dado de projeto
       if (e.name.endsWith(".stale-backup") || e.name.endsWith(".tmp") || e.name === "desktop.ini") continue;
       const o = join(origem, e.name);
-      if (e.name.startsWith(".") || PASTAS_DE_CODIGO.has(e.name)) {
+      const rel = raiz ? e.name : `${prefixo}/${e.name}`;
+      const metaDoProjeto = !raiz && !prefixo.includes("/") && e.name === "meta.json";
+      if (e.name.startsWith(".") || PASTAS_DE_CODIGO.has(e.name) || (!raiz && !metaDoProjeto && !sincronizavel(rel))) {
         if (e.isDirectory()) {
           pulados += 1;
           log.debug("copia", "pasta pulada", { pasta: o });
@@ -146,7 +153,7 @@ export async function trazerPastaManualProDrive(home: string, destino: string): 
       }
       const a = join(alvo, e.name);
       if (e.isDirectory()) {
-        if (!raiz || ehPastaDoNexos(o, e.name)) await listar(o, a, false);
+        if (!raiz || ehPastaDoNexos(o, e.name)) await listar(o, a, rel);
         else {
           pulados += 1;
           log.debug("copia", "pasta pulada (não é do Nexos)", { pasta: o });
@@ -165,7 +172,7 @@ export async function trazerPastaManualProDrive(home: string, destino: string): 
 
   let copiados = 0;
   try {
-    await listar(de, destino, true);
+    await listar(de, destino, "");
     if (pulados) log.info("copia", `${pulados} pasta(s) pulada(s)`, { pulados });
     if (estourou) {
       // sem marca: se a pessoa limpar a pasta, a próxima subida tenta de novo

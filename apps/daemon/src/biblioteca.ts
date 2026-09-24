@@ -7,7 +7,7 @@ import { agentsPath, bibliotecaSyncStatePath, globalSkillsDir, hooksPath, teamsP
 import { listarRegras, sincronizarHooksGlobal, writeAll as gravarRegras, type RegraHook } from "./hooks.ts";
 import { listProfiles } from "./profiles.ts";
 import { projectSlug, projetosRoot } from "./projeto-dir.ts";
-import { decidir } from "./sync-decisao.ts";
+import { decidir, PASTA_BIBLIOTECA } from "./sync-decisao.ts";
 import * as times from "./teams.ts";
 import { projetosConhecidos } from "./threads.ts";
 
@@ -31,7 +31,7 @@ import { projetosConhecidos } from "./threads.ts";
  * também o hash do item local como ficou — igual a ele, o item local conta como "não mudou".
  */
 
-export const PASTA_BIBLIOTECA = "_biblioteca";
+export { PASTA_BIBLIOTECA };
 
 export type ResultadoBiblioteca = {
   exportados: number;
