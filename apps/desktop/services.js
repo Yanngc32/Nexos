@@ -67,9 +67,7 @@ export function createServicesPanel({
       nome.title = `${s.cmd} (${s.cwd})`;
       nome.addEventListener("click", () => void abrirLog(s.id, s.name));
 
-      const porta = doc.createElement("span");
-      porta.className = "svc-port";
-      porta.textContent = s.portNumber ? String(s.portNumber) : "";
+      const porta = portaDoServico(doc, s);
 
       const acao = doc.createElement("button");
       acao.type = "button";
@@ -90,7 +88,101 @@ export function createServicesPanel({
         li.append(abrir);
       }
       ul.append(li);
+      if (s.conflito) ul.append(linhaDeConflito(doc, s));
     }
+  }
+
+  /**
+   * Porta do serviço. Clicável quando o `cmd` tem onde a porta entrar (`podeTrocarPorta`): vira
+   * um campo, Enter troca (reinicia se estiver rodando), Esc desiste. A porta real aparece quando
+   * o processo subiu em outra (Vite pula pra próxima livre sem avisar).
+   */
+  function portaDoServico(doc, s) {
+    const porta = doc.createElement("span");
+    porta.className = "svc-port";
+    if (!s.portNumber) return porta;
+    porta.textContent = s.portaReal ? `${s.portaReal}≠${s.portNumber}` : String(s.portNumber);
+    porta.title = s.portaReal
+      ? `Pediu ${s.portNumber}, subiu em ${s.portaReal} (a pedida estava ocupada)`
+      : s.portaTrocada
+        ? "Porta trocada no Nexos (o nexos.json não mudou)"
+        : "";
+    porta.dataset.trocada = s.portaTrocada ? "1" : "0";
+    if (!s.podeTrocarPorta) return porta;
+    porta.classList.add("editavel");
+    porta.title = `${porta.title ? `${porta.title} · ` : ""}Clique pra trocar a porta`;
+    porta.addEventListener("click", () => {
+      const campo = doc.createElement("input");
+      campo.type = "number";
+      campo.min = "1";
+      campo.max = "65535";
+      campo.className = "svc-port-input";
+      campo.value = String(s.portNumber);
+      let feito = false;
+      const sair = (salvar) => {
+        if (feito) return;
+        feito = true;
+        const nova = Number(campo.value);
+        if (salvar && Number.isInteger(nova) && nova !== s.portNumber) void trocarPorta(s.id, nova);
+        else paint();
+      };
+      campo.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") sair(true);
+        if (e.key === "Escape") sair(false);
+      });
+      campo.addEventListener("blur", () => sair(false));
+      porta.replaceWith(campo);
+      campo.focus();
+      campo.select();
+    });
+    return porta;
+  }
+
+  /** A última subida parou em porta ocupada: diz quem segura e dá as saídas. */
+  function linhaDeConflito(doc, s) {
+    const c = s.conflito;
+    const li = doc.createElement("li");
+    li.className = "svc-conflito";
+    const quem = c.processos.map((p) => `${p.nome || "processo"} (PID ${p.pid})`).join(", ");
+    const txt = doc.createElement("span");
+    txt.className = "svc-conflito-txt";
+    txt.textContent = `Porta ${c.porta} ocupada por ${quem}`;
+    li.append(txt);
+    const botao = (rotulo, title, acao) => {
+      const b = doc.createElement("button");
+      b.type = "button";
+      b.className = "ghost svc-conflito-act";
+      b.textContent = rotulo;
+      b.title = title;
+      b.addEventListener("click", acao);
+      li.append(b);
+    };
+    botao("Matar e subir", `Mata ${quem} e sobe ${s.name}`, () => void acionar(s.id, "start", { matar: true }));
+    if (c.livre && s.podeTrocarPorta) {
+      botao(`Usar ${c.livre}`, `Sobe ${s.name} na porta ${c.livre}`, async () => {
+        if (await trocarPorta(s.id, c.livre)) await acionar(s.id, "start");
+      });
+    }
+    botao("Subir assim mesmo", "Sobe sem liberar a porta (ex.: Docker, que segura a própria porta)", () =>
+      void acionar(s.id, "start", { ignorarPorta: true }),
+    );
+    return li;
+  }
+
+  async function trocarPorta(id, porta) {
+    try {
+      await req(`/v1/services/${encodeURIComponent(id)}/port`, {
+        method: "POST",
+        body: JSON.stringify({ projectPath: getProjectPath(), porta }),
+      });
+    } catch (e) {
+      aoErro(e.message || `não deu pra trocar a porta de ${id}`);
+      await load();
+      return false;
+    }
+    delete portes[id];
+    await load();
+    return true;
   }
 
   function rota() {
@@ -155,11 +247,11 @@ export function createServicesPanel({
     paint();
   }
 
-  async function acionar(id, acao) {
+  async function acionar(id, acao, extra = {}) {
     try {
       await req(`/v1/services/${encodeURIComponent(id)}/${acao}`, {
         method: "POST",
-        body: JSON.stringify({ projectPath: getProjectPath() }),
+        body: JSON.stringify({ projectPath: getProjectPath(), ...extra }),
       });
     } catch (e) {
       aoErro(e.message || `não deu pra ${acao} ${id}`);

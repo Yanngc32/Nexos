@@ -64,6 +64,7 @@ import {
   busyThreads,
   clearThread,
   dropThread,
+  injetarMensagem,
   postMessage,
   retomarTurnoPendente,
   sessionBus,
@@ -176,6 +177,7 @@ import { paginaApk } from "./apk-pagina.ts";
 import { construirApk, estadoAtualBuild } from "./apk-build.ts";
 import { assetLinksPath } from "./apk-keystore.ts";
 import { servirWeb } from "./web.ts";
+import { listarProcessos, matarProcesso } from "./processos.ts";
 import {
   autostartServices,
   listServices,
@@ -185,6 +187,7 @@ import {
   servicesBus,
   servicesChannel,
   startService,
+  trocarPorta,
   stopService,
   trustProject,
 } from "./services.ts";
@@ -847,6 +850,19 @@ export function createApp(home: string, token: string): Hono {
     }
   });
 
+  /** Mensagem pro turno EM VOO (ver `injetarMensagem`). `injetada: false` = manda pela fila. */
+  app.post("/v1/threads/:id/inject", async (c) => {
+    const body = (await c.req.json()) as { text?: string; images?: IncomingImage[] };
+    const text = typeof body.text === "string" ? body.text : "";
+    const images = Array.isArray(body.images) ? body.images : [];
+    if (!text.trim() && images.length === 0) return c.json({ error: "mensagem vazia" }, 400);
+    try {
+      return c.json({ injetada: injetarMensagem(c.req.param("id"), text, home, images) });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
+  });
+
   /** Serve a imagem colada pro chat renderizar o histórico depois de recarregar. */
   app.get("/v1/threads/:id/attachments/:file", (c) => {
     try {
@@ -1023,13 +1039,13 @@ export function createApp(home: string, token: string): Hono {
 
   for (const acao of ["start", "stop", "restart"] as const) {
     app.post(`/v1/services/:id/${acao}`, async (c) => {
-      const body = (await c.req.json().catch(() => ({}))) as { projectPath?: string };
+      const body = (await c.req.json().catch(() => ({}))) as { projectPath?: string; matar?: unknown; ignorarPorta?: unknown };
       if (!body.projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
       try {
         const id = c.req.param("id");
         const status =
           acao === "start"
-            ? startService(body.projectPath, id, home)
+            ? startService(body.projectPath, id, home, { matar: body.matar === true, ignorarPorta: body.ignorarPorta === true })
             : acao === "stop"
               ? stopService(body.projectPath, id, home)
               : await restartService(body.projectPath, id, home);
@@ -1042,6 +1058,29 @@ export function createApp(home: string, token: string): Hono {
       }
     });
   }
+
+  /** Processos soltos que o Nexos pôs de pé, de qualquer projeto (ver processos.ts). */
+  app.get("/v1/processos", (c) => c.json({ processos: listarProcessos(home) }));
+
+  /** Mata pela `chave` da lista — PID cru não passa: o daemon só mata o que ele mesmo listou. */
+  app.post("/v1/processos/matar", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { chave?: unknown };
+    if (typeof body.chave !== "string" || !body.chave) return c.json({ error: "chave obrigatória" }, 400);
+    if (!matarProcesso(home, body.chave)) return c.json({ error: "processo não está mais na lista" }, 404);
+    return c.json({ ok: true });
+  });
+
+  /** Troca a porta do serviço (ver `trocarPorta`): a do `nexos.json` desfaz. */
+  app.post("/v1/services/:id/port", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { projectPath?: string; porta?: unknown };
+    if (!body.projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      return c.json(await trocarPorta(body.projectPath, c.req.param("id"), Number(body.porta), home));
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+    }
+  });
 
   app.get("/v1/probe", async (c) => {
     const url = c.req.query("url");

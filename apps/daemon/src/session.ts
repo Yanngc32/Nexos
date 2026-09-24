@@ -161,6 +161,13 @@ type Live = {
   /** Agente personalizado da conversa; vazio = conta pura. */
   agentId?: string;
   assistantBuf: string;
+  /**
+   * Teve ferramenta (ou fim de resposta, `usage`) desde o último texto: o próximo `text` é outro
+   * bloco do modelo — o "Vejo o arquivo…" entre uma ferramenta e outra, ou a volta dele quando a
+   * tarefa em background termina — e ganha uma linha em branco na frente. Sem isso os blocos
+   * saíam colados no histórico ("…arquivo.Erro no meu…").
+   */
+  blocoNovo?: boolean;
   pendingTurn: PendingTurn | null;
   retryCount: number;
   pendingQuota: boolean;
@@ -903,8 +910,10 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     return;
   }
   if (ev.type === "text") {
-    live.assistantBuf += ev.text;
-    emit(threadId, { ...ev, threadId });
+    const text = live.blocoNovo && live.assistantBuf && !/\s$/.test(live.assistantBuf) ? `\n\n${ev.text}` : ev.text;
+    live.blocoNovo = false;
+    live.assistantBuf += text;
+    emit(threadId, { ...ev, text, threadId });
     return;
   }
   // pensamento é vitrine, não histórico: não entra no JSONL nem no context pack.
@@ -938,6 +947,7 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     return;
   }
   if (ev.type === "usage") {
+    live.blocoNovo = true;
     live.usage = ev;
     appendEvent(
       {
@@ -986,6 +996,7 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     return;
   }
   if (ev.type === "tool") {
+    live.blocoNovo = true;
     const input = capInputPraPersistir(ev.input);
     appendEvent(
       { ts: nowIso(), type: "tool", threadId, name: ev.name, summary: ev.summary, ...(ev.id ? { id: ev.id } : {}), ...(input !== undefined ? { input } : {}) },
@@ -1480,6 +1491,33 @@ export async function postMessage(
 }
 
 /**
+ * Mensagem mandada COM o turno em voo, pro motor ler entre uma ferramenta e outra (ver
+ * `Engine.inject`). Sem trava de thread de propósito: `postMessage` segura a trava o turno
+ * inteiro, e esperar por ela é justamente o que isto evita.
+ *
+ * `false` = não deu pra injetar (sem turno em voo, motor sem suporte, turno fechando) — nada foi
+ * gravado e quem chamou manda pela fila normal.
+ *
+ * O texto que o modelo já escreveu vai pro histórico ANTES da mensagem nova: sem isso o JSONL
+ * ficava "pedido 1, pedido 2, resposta inteira", e a resposta ao pedido 1 parecia vir depois do 2.
+ */
+export function injetarMensagem(threadId: string, text: string, home: string, images: IncomingImage[] = []): boolean {
+  const live = lives.get(threadId);
+  if (!live || !emVoo(live) || !live.engine.inject) return false;
+  const attachments = images.length > 0 ? saveImages(threadId, images, home) : [];
+  if (!live.engine.inject(promptWithAttachments(text, attachments))) return false;
+  if (live.assistantBuf) {
+    appendEvent({ ts: nowIso(), type: "assistant", threadId, text: live.assistantBuf }, home);
+    live.assistantBuf = "";
+  }
+  appendEvent(
+    { ts: nowIso(), type: "user", threadId, text, ...(attachments.length > 0 ? { attachments } : {}) },
+    home,
+  );
+  return true;
+}
+
+/**
  * Despacha a mensagem que ficou parada esperando a decisão de roteamento.
  * Reconstrói o pedido a partir do próprio evento `user` já gravado, então vale
  * igual pra mensagem com anexo. Sem sugestão pendente, não faz nada.
@@ -1499,17 +1537,40 @@ export async function retomarTurnoPendente(threadId: string, home: string): Prom
  * `setTerminal` acordar — antes era laço de 20 ms, ~45 mil despertares num turno
  * de 15 minutos. O teto continua sendo erro: motor que não fecha trava a thread.
  */
+/**
+ * Teto com tarefa em background de pé (Monitor, `run_in_background`): o CLI fica calado esperando
+ * a tarefa, e isso é trabalho, não travamento. Longo, mas finito — tarefa esquecida não segura o
+ * motor pra sempre.
+ */
+const TURNO_BACKGROUND_TETO_MS = 2 * 60 * 60 * 1000;
+const TURNO_CHECAGEM_MS = 15_000;
+
+/**
+ * Espera o turno fechar. Com motor que informa `ocupacao`, o teto é por INATIVIDADE (`ms` sem saída
+ * nenhuma do motor, ou `TURNO_BACKGROUND_TETO_MS` com tarefa em background): antes era fixo desde o
+ * início, e turno longo que seguia trabalhando — ou esperando um Monitor — morria com "engine
+ * timeout" levando junto o processo que o modelo tinha deixado rodando.
+ */
 function waitTerminal(live: Live, ms = TURNO_TETO_MS): Promise<void> {
   if (live.lastTerminal) return Promise.resolve();
+  const inicio = Date.now();
   return new Promise<void>((resolve, reject) => {
     const acorda = (): void => {
-      clearTimeout(timer);
+      clearInterval(timer);
       resolve();
     };
-    const timer = setTimeout(() => {
+    const estourou = (): boolean => {
+      const oc = live.engine.ocupacao?.();
+      if (!oc) return Date.now() - inicio >= ms;
+      const teto = oc.tarefasEmBackground > 0 ? Math.max(ms, TURNO_BACKGROUND_TETO_MS) : ms;
+      return Date.now() - Math.max(inicio, oc.ultimaAtividade) >= teto;
+    };
+    const timer = setInterval(() => {
+      if (!estourou()) return;
+      clearInterval(timer);
       live.terminalWaiters = live.terminalWaiters.filter((w) => w !== acorda);
       reject(new Error("engine timeout"));
-    }, ms);
+    }, Math.min(ms, TURNO_CHECAGEM_MS));
     live.terminalWaiters.push(acorda);
   });
 }

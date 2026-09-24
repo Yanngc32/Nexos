@@ -34,6 +34,86 @@ function waitDone(events: EngineEvent[]): Promise<void> {
 }
 
 describe("CliEngine", () => {
+  it("inject manda mensagem nova pro turno em voo e fecha o stdin no result", async () => {
+    const home = tempHome();
+    addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
+    markReady("c1", home);
+    process.env.NEXOS_CLAUDE_BIN = fake;
+    try {
+      const engine = claudeEngine(home, "c1");
+      const events: EngineEvent[] = [];
+      await engine.start({ threadId: "t-inj", projectPath: spawnCwd("."), profileId: "c1", contextPack: "" }, (ev) => events.push(ev));
+      await engine.send("ESPERA");
+      await new Promise<void>((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error("fixture não chegou a esperar")), ESPERA_MS);
+        const i = setInterval(() => {
+          if (events.some((e) => e.type === "text" && e.text.includes("esperando"))) {
+            clearTimeout(t);
+            clearInterval(i);
+            resolve();
+          }
+        }, 20);
+      });
+      expect(engine.inject("mais uma coisa")).toBe(true);
+      await waitDone(events);
+      const texts = events.filter((e) => e.type === "text").map((e) => (e.type === "text" ? e.text : ""));
+      expect(texts).toContain("injetada:mais uma coisa");
+      expect(texts).not.toContain("sem-injetada");
+      expect(events.some((e) => e.type === "done")).toBe(true);
+      // turno fechado: sem canal, quem chamou cai na fila
+      expect(engine.inject("tarde demais")).toBe(false);
+    } finally {
+      delete process.env.NEXOS_CLAUDE_BIN;
+    }
+  });
+
+  it("result com tarefa em background não fecha o stdin: a tarefa termina e o turno segue", async () => {
+    const home = tempHome();
+    addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
+    markReady("c1", home);
+    process.env.NEXOS_CLAUDE_BIN = fake;
+    try {
+      const engine = claudeEngine(home, "c1");
+      const events: EngineEvent[] = [];
+      await engine.start({ threadId: "t-bg", projectPath: spawnCwd("."), profileId: "c1", contextPack: "" }, (ev) => events.push(ev));
+      await engine.send("BACKGROUND");
+      await waitDone(events);
+      const texts = events.filter((e) => e.type === "text").map((e) => (e.type === "text" ? e.text : ""));
+      expect(texts).toContain("tarefa-terminou");
+      expect(texts).not.toContain("tarefa-morta");
+      expect(engine.ocupacao().tarefasEmBackground).toBe(0);
+    } finally {
+      delete process.env.NEXOS_CLAUDE_BIN;
+    }
+  });
+
+  it("CLI que sai deixando um neto com o pipe aberto fecha o turno no exit, sem esperar o neto", async () => {
+    const home = tempHome();
+    addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
+    markReady("c1", home);
+    process.env.NEXOS_CLAUDE_BIN = fake;
+    try {
+      const engine = claudeEngine(home, "c1");
+      const events: EngineEvent[] = [];
+      await engine.start({ threadId: "t-neto", projectPath: spawnCwd("."), profileId: "c1", contextPack: "" }, (ev) => events.push(ev));
+      const t0 = Date.now();
+      await engine.send("NETO");
+      await waitDone(events);
+      // o neto vive 8s; o turno fecha pelo exit + folga de dreno
+      expect(Date.now() - t0).toBeLessThan(6000);
+      expect(events.some((e) => e.type === "done")).toBe(true);
+    } finally {
+      delete process.env.NEXOS_CLAUDE_BIN;
+    }
+  });
+
+  it("codex não tem inject em voo: stdin é lido uma vez só", async () => {
+    const home = tempHome();
+    addProfile({ id: "x1", engine: "codex" }, home, { skipBinCheck: true });
+    const engine = codexEngine(home, "x1");
+    expect(engine.inject("oi")).toBe(false);
+  });
+
   it("passa CLAUDE_CONFIG_DIR e cwd do projeto", async () => {
     const home = tempHome();
     addProfile({ id: "c1", engine: "claude" }, home, { skipBinCheck: true });
@@ -51,6 +131,8 @@ describe("CliEngine", () => {
     expect(semAddDir(engine.lastArgs)).toEqual([
       "--print",
       "--verbose",
+      "--input-format",
+      "stream-json",
       "--output-format",
       "stream-json",
       "--include-partial-messages",
@@ -237,6 +319,8 @@ describe("CliEngine flags", () => {
     expect(semAddDir(engine.lastArgs)).toEqual([
       "--print",
       "--verbose",
+      "--input-format",
+      "stream-json",
       "--output-format",
       "stream-json",
       "--include-partial-messages",

@@ -1,6 +1,7 @@
 import { createApiClient } from "./api.js";
 import { createFileTree } from "./file-tree.js";
 import { createServicesPanel } from "./services.js";
+import { createProcessosModal } from "./processos-modal.js";
 import { aplicarNoRetrato } from "./agent-events.js";
 import { createAgentStudio } from "./agent-studio.js";
 import { createTeamStudio } from "./team-studio.js";
@@ -5397,6 +5398,24 @@ const newThreadModal = createNewThreadModal({
 
 const dialogo = createDialogo({ el: $ });
 
+const processosModal = createProcessosModal({
+  el: $,
+  req,
+  aoErro: (message) => appendEvent({ type: "error", message }),
+  confirmar: (msg) => dialogo.confirmar(msg),
+});
+$("btn-processos").addEventListener("click", () => {
+  if (!state.ok) {
+    appendEvent({ type: "sys", message: "Liga o motor pra ver os processos." });
+    return;
+  }
+  processosModal.abrir();
+});
+$("btn-proc-close").addEventListener("click", () => processosModal.fechar());
+$("processos-modal").addEventListener("click", (e) => {
+  if (e.target === $("processos-modal")) processosModal.fechar();
+});
+
 const menuContexto = criarMenuContexto({ doc: document });
 
 const tarefasBoard = createTarefasBoard({
@@ -7228,7 +7247,17 @@ function paintQueue() {
       fila.splice(i, 1);
       paintQueue();
     });
-    chip.append(txt, x);
+    chip.append(txt);
+    if (podeEnviarAgora(item)) {
+      const agora = document.createElement("button");
+      agora.type = "button";
+      agora.className = "queue-x queue-agora";
+      agora.title = "Enviar agora: o modelo lê no meio do turno, entre uma ferramenta e outra";
+      agora.textContent = "agora";
+      agora.addEventListener("click", () => void enviarAgora(item));
+      chip.append(agora);
+    }
+    chip.append(x);
     strip.append(chip);
   });
 
@@ -7250,6 +7279,55 @@ function paintQueue() {
 function enfileirar(text, images, elementos = []) {
   filaDa().push({ text, images, ...(elementos.length ? { elementos } : {}) });
   paintQueue();
+}
+
+/**
+ * Só o motor `claude` lê mensagem com o turno em voo (stdin em stream-json no daemon). Elementos
+ * do preview ficam de fora: o caminho de injeção não os monta no prompt.
+ */
+function podeEnviarAgora(item) {
+  return state.talking && !state.queuePaused && selectedProfile()?.engine === "claude" && !item.elementos?.length;
+}
+
+/**
+ * Tira o item da fila e manda pro turno EM VOO (`/inject`). Se o daemon recusar — turno fechando,
+ * motor sem suporte — volta pro mesmo lugar da fila, sem perder nada.
+ */
+async function enviarAgora(item) {
+  const threadId = state.threadId;
+  const fila = filaDa(threadId);
+  const i = fila.indexOf(item);
+  if (i < 0 || !threadId) return;
+  fila.splice(i, 1);
+  paintQueue();
+  const devolver = (message) => {
+    fila.splice(Math.min(i, fila.length), 0, item);
+    paintQueue();
+    appendEvent({ type: "sys", message });
+  };
+  let images = [];
+  try {
+    images = await encodeImages(item.images);
+  } catch (err) {
+    devolver(err.message || "Não consegui ler a imagem — ficou na fila.");
+    return;
+  }
+  let r = null;
+  try {
+    r = await req(`/v1/threads/${threadId}/inject`, {
+      method: "POST",
+      body: JSON.stringify({ text: item.text, ...(images.length ? { images } : {}) }),
+    });
+  } catch {
+    r = null;
+  }
+  if (!r?.injetada) {
+    devolver("O turno já estava fechando — a mensagem ficou na fila e vai logo depois.");
+    return;
+  }
+  if (state.threadId === threadId) {
+    appendEvent({ type: "user", text: item.text, previews: item.images.map((img) => ({ url: img.url, name: img.name })) });
+  }
 }
 
 /**
@@ -8712,6 +8790,7 @@ window.addEventListener("keydown", (e) => {
     if (state.paletteOpen) closePalette();
     else if (state.agents.open) toggleAgents(false);
     $("settings").classList.add("hidden");
+    if (processosModal.aberto()) processosModal.fechar();
     if (!$("login-modal").classList.contains("hidden")) closeLoginModal();
     else if (document.body.dataset.focus === "1" && !state.talking) setFocus(false);
   }

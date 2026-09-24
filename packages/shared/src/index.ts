@@ -248,6 +248,21 @@ export type ServiceStatus = {
   portNumber?: number;
   pid?: number;
   startedAt?: string;
+  /** Porta trocada pela interface (fica no home do Nexos, não no `nexos.json`). */
+  portaTrocada?: boolean;
+  /** O `cmd` tem onde a porta entrar — sem isso (ex.: `docker compose`) a UI não oferece trocar. */
+  podeTrocarPorta?: boolean;
+  /** Porta em que o processo disse que subiu, quando difere da pedida (Vite pula pra próxima). */
+  portaReal?: number;
+  /** Última subida parou porque a porta já estava ocupada. */
+  conflito?: ServiceConflito;
+};
+
+export type ServiceConflito = {
+  porta: number;
+  processos: { pid: number; nome: string }[];
+  /** Próxima porta livre, pra oferecer como troca. */
+  livre?: number;
 };
 
 /** Resposta de `/v1/services`: o arquivo pode estar inválido e aí não há serviço nenhum. */

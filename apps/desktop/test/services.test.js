@@ -181,6 +181,59 @@ describe("ações", () => {
     await vi.waitFor(() => expect(chamadas).toContain("/v1/services/web/stop"));
   });
 
+  it("porta ocupada: mostra quem segura e cada saída manda o pedido certo", async () => {
+    const chamadas = [];
+    const conflito = { porta: 5173, processos: [{ pid: 42, nome: "node.exe" }], livre: 5174 };
+    const { panel, $ } = montar({
+      req: async (rota, opts) => {
+        chamadas.push({ rota, body: opts?.body ? JSON.parse(opts.body) : undefined });
+        return opts ? {} : { services: [svc({ portNumber: 5173, podeTrocarPorta: true, conflito })] };
+      },
+    });
+    await panel.load();
+    const linha = $("svc-list").querySelector(".svc-conflito");
+    expect(linha.textContent).toContain("Porta 5173 ocupada por node.exe (PID 42)");
+    const botoes = [...linha.querySelectorAll("button")];
+    expect(botoes.map((b) => b.textContent)).toEqual(["Matar e subir", "Usar 5174", "Subir assim mesmo"]);
+
+    botoes[0].click();
+    await vi.waitFor(() => expect(chamadas.some((c) => c.rota === "/v1/services/web/start" && c.body?.matar === true)).toBe(true));
+    $("svc-list").querySelector(".svc-conflito").querySelectorAll("button")[1].click();
+    await vi.waitFor(() => expect(chamadas.some((c) => c.rota === "/v1/services/web/port" && c.body?.porta === 5174)).toBe(true));
+  });
+
+  it("porta clicável vira campo; Enter troca, Esc desiste", async () => {
+    const chamadas = [];
+    const { panel, $ } = montar({
+      req: async (rota, opts) => {
+        chamadas.push({ rota, body: opts?.body ? JSON.parse(opts.body) : undefined });
+        return opts ? {} : { services: [svc({ portNumber: 8004, podeTrocarPorta: true })] };
+      },
+    });
+    await panel.load();
+    $("svc-list").querySelector(".svc-port").click();
+    let campo = $("svc-list").querySelector(".svc-port-input");
+    campo.value = "8010";
+    campo.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(chamadas.some((c) => c.rota.endsWith("/port"))).toBe(false);
+
+    $("svc-list").querySelector(".svc-port").click();
+    campo = $("svc-list").querySelector(".svc-port-input");
+    campo.value = "8010";
+    campo.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    await vi.waitFor(() => expect(chamadas.some((c) => c.rota === "/v1/services/web/port" && c.body?.porta === 8010)).toBe(true));
+  });
+
+  it("porta sem como trocar (docker) não é clicável; porta real diferente aparece", async () => {
+    const { panel, $ } = montar({
+      req: async () => ({ services: [svc({ proc: "running", portNumber: 5173, portaReal: 5174 })] }),
+    });
+    await panel.load();
+    const porta = $("svc-list").querySelector(".svc-port");
+    expect(porta.classList.contains("editavel")).toBe(false);
+    expect(porta.textContent).toBe("5174≠5173");
+  });
+
   it("falha de ação vira erro visível, não silêncio", async () => {
     const { panel, erros } = montar({
       req: async (rota) => {

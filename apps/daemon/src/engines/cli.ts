@@ -37,6 +37,36 @@ export const LEMBRETE_DE_FECHAMENTO =
 
 export { parseCliLine };
 
+/** Uma mensagem do usuário no formato do `--input-format stream-json` do `claude`. */
+function linhaDeUsuario(text: string): string {
+  return `${JSON.stringify({ type: "user", message: { role: "user", content: text } })}\n`;
+}
+
+/**
+ * O que decide quando fechar o stdin: o `result` do turno e a lista de tarefas em background
+ * (`system/background_tasks_changed`, que o CLI manda inteira a cada mudança). O `includes` barato
+ * vem antes do JSON.parse porque isto passa por toda linha do stream, token a token.
+ */
+function linhaDeControle(line: string): { result?: true; tarefas?: number } | undefined {
+  if (!line.includes('"result"') && !line.includes("background_tasks_changed")) return undefined;
+  try {
+    const o = JSON.parse(line) as { type?: string; subtype?: string; tasks?: unknown };
+    if (o.type === "result") return { result: true };
+    if (o.type === "system" && o.subtype === "background_tasks_changed" && Array.isArray(o.tasks)) return { tarefas: o.tasks.length };
+  } catch {
+    /* linha que não é JSON */
+  }
+  return undefined;
+}
+
+/** Folga entre o `exit` do CLI e fechar o turno à força, pra drenar o que ainda está no pipe. */
+const SAIDA_DRENO_MS = 2000;
+
+/** Fecha o stdin do turno: sem isso o CLI em `stream-json` espera mais mensagem pra sempre. */
+function fecharEntrada(child: ChildProcessWithoutNullStreams): void {
+  if (!child.stdin.destroyed && !child.stdin.writableEnded) child.stdin.end();
+}
+
 /** CLI perdeu a sessão que `--resume` apontava — vale um retry com o pack. */
 const SESSAO_PERDIDA =
   /no conversation found|session.{0,80}(not found|unknown|expired|invalid)|could not (find|load) session/i;
@@ -433,6 +463,7 @@ export class CliEngine implements Engine {
       if (ev.type === "quota" || ev.type === "auth") suppressClose = true;
       if (ev.type === "done" || ev.type === "error" || ev.type === "quota" || ev.type === "auth") {
         this.finished = true;
+        fecharEntrada(child);
       }
       this.handler?.(ev);
     };
@@ -451,10 +482,28 @@ export class CliEngine implements Engine {
     let outRest = "";
     let errRest = "";
     let stderrBuf = "";
+    this.atividade = { ultima: Date.now(), tarefasEmBackground: 0 };
+    let resultVisto = false;
+    /*
+     * Fecha o stdin só quando o modelo acabou E não sobrou tarefa em background. Medido no CLI
+     * 2.1.280: fechar no `result` com um `run_in_background` (ou Monitor) de pé faz o CLI MATAR a
+     * tarefa (`task_updated status:killed`) e sair; com o stdin aberto a tarefa termina
+     * (`completed`), o CLI avisa o modelo sozinho e abre outro turno — que é o que o modelo
+     * prometeu ("aviso quando terminar").
+     */
+    const talvezFecharEntrada = (): void => {
+      if (resultVisto && this.atividade.tarefasEmBackground === 0) fecharEntrada(child);
+    };
     const flush = (chunk: string, rest: string, stderr: boolean): string => {
       const parts = (rest + chunk).split(/\r?\n/);
       const leftover = parts.pop() ?? "";
       for (const line of parts) {
+        if (!stderr && this.entradaEmStream) {
+          const ctl = linhaDeControle(line);
+          if (ctl?.tarefas !== undefined) this.atividade.tarefasEmBackground = ctl.tarefas;
+          if (ctl?.result) resultVisto = true;
+          if (ctl) talvezFecharEntrada();
+        }
         for (const ev of this.parse(line)) {
           if (stderr && ev.type === "text") continue;
           emit(ev);
@@ -463,15 +512,35 @@ export class CliEngine implements Engine {
       return leftover;
     };
     child.stdout.on("data", (buf: Buffer) => {
+      this.atividade.ultima = Date.now();
       outRest = flush(buf.toString("utf8"), outRest, false);
     });
     child.stderr.on("data", (buf: Buffer) => {
+      this.atividade.ultima = Date.now();
       const s = buf.toString("utf8");
       stderrBuf += s;
       errRest = flush(s, errRest, true);
     });
     child.on("error", (err) => emit({ type: "error", message: err.message }));
-    child.on("close", (code) => {
+    /*
+     * `close` só vem quando TODO dono dos pipes fecha — e processo que o modelo soltou destacado
+     * (`Start-Process`, `nohup … &`) herda o stdout do CLI e segura o pipe depois que o CLI já
+     * saiu. Era isso que deixava o turno "em voo" até o teto matar tudo, inclusive o trabalho
+     * destacado. `exit` + folga pra drenar a saída fecha o turno quando o CLI sai de fato.
+     */
+    let fechado = false;
+    child.on("exit", (code) => {
+      setTimeout(() => {
+        if (fechado) return;
+        child.stdout.destroy();
+        child.stderr.destroy();
+        aoFechar(code);
+      }, SAIDA_DRENO_MS).unref?.();
+    });
+    child.on("close", (code) => aoFechar(code));
+    const aoFechar = (code: number | null): void => {
+      if (fechado) return;
+      fechado = true;
       outRest = flush("\n", outRest, false);
       errRest = flush("\n", errRest, true);
       if (this.aborted || this.finished || suppressClose) return;
@@ -484,11 +553,39 @@ export class CliEngine implements Engine {
       }
       if (code && code !== 0) emit({ type: "error", message: stderr || `exit ${code}` });
       else emit({ type: "done" });
-    });
+    };
     const payload = isNodeScript(this.bin) ? text : full;
-    child.stdin.write(`${payload}\n`);
-    child.stdin.end();
+    if (!this.entradaEmStream) {
+      child.stdin.write(`${payload}\n`);
+      child.stdin.end();
+      return;
+    }
+    // stdin fica aberto pra `inject`; fecha no `result` sem background de pé (`talvezFecharEntrada`)
+    // — o CLI termina o que já recebeu e sai no EOF. Motor que acabou mal também fecha.
+    child.stdin.on("error", () => {});
+    child.stdin.write(linhaDeUsuario(payload));
   }
+
+  /** `claude` com `--input-format stream-json`: stdin aceita mensagem nova durante o turno. */
+  private get entradaEmStream(): boolean {
+    return this.baseArgs.includes("--input-format");
+  }
+
+  /** Ver `Engine.ocupacao`. Reinicia a cada `send`. */
+  private atividade = { ultima: Date.now(), tarefasEmBackground: 0 };
+
+  ocupacao(): { ultimaAtividade: number; tarefasEmBackground: number } {
+    return { ultimaAtividade: this.atividade.ultima, tarefasEmBackground: this.atividade.tarefasEmBackground };
+  }
+
+  inject(text: string): boolean {
+    const child = this.child;
+    if (!this.entradaEmStream || !child || this.finished || this.aborted) return false;
+    if (child.stdin.destroyed || child.stdin.writableEnded) return false;
+    child.stdin.write(linhaDeUsuario(text));
+    return true;
+  }
+
 
   async abort(): Promise<void> {
     this.aborted = true;
@@ -522,7 +619,13 @@ export function claudeEngine(home: string, profileId: string): CliEngine {
     profileId,
     binEnv: "NEXOS_CLAUDE_BIN",
     defaultBin: "claude",
-    args: ["--print", "--verbose", "--output-format", "stream-json", "--include-partial-messages"],
+    /*
+     * `--input-format stream-json` deixa mandar mensagem nova com o turno em voo (ver `inject`).
+     * Medido no CLI 2.1.280: mensagem escrita no stdin durante um `sleep` do Bash foi lida no mesmo
+     * turno — o modelo seguiu a instrução nova no `result` único, sem abrir outro turno. A mensagem
+     * injetada NÃO volta no stream de saída: quem mandou é quem mostra.
+     */
+    args: ["--print", "--verbose", "--input-format", "stream-json", "--output-format", "stream-json", "--include-partial-messages"],
     parse: parseCliLine,
   });
 }

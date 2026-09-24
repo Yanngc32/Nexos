@@ -18,6 +18,9 @@ export class StubEngine implements Engine {
    * isso. A fila é por instância do motor, então cada conversa tem a sua.
    */
   private roteiro: string[] = [];
+  /** Turno "ESPERA" aberto: só fecha quando chega mensagem por `inject`. */
+  private esperandoInjecao = false;
+  injetadas: string[] = [];
 
   constructor(readonly cwd: string) {
     this.lastCwd = cwd;
@@ -28,6 +31,19 @@ export class StubEngine implements Engine {
     this.finished = false;
     this.lastStart = opts;
     this.handler = onEvent;
+  }
+
+  inject(text: string): boolean {
+    if (!this.esperandoInjecao || !this.handler) return false;
+    this.esperandoInjecao = false;
+    this.injetadas.push(text);
+    // como no CLI: a resposta vem depois, pelo stream, nunca dentro da própria escrita no stdin
+    const handler = this.handler;
+    setTimeout(() => {
+      handler({ type: "text", text: "depois" });
+      handler({ type: "done" });
+    }, 0);
+    return true;
   }
 
   updatePack(pack: string): void {
@@ -130,6 +146,20 @@ export class StubEngine implements Engine {
       this.handler({ type: "done" });
       return;
     }
+    if (text === "ESPERA") {
+      this.esperandoInjecao = true;
+      this.handler({ type: "text", text: "antes" });
+      return;
+    }
+    // Texto, ferramenta, texto: dois blocos do modelo que não podem sair colados no histórico.
+    if (text === "TEXTTOOLTEXT") {
+      this.handler({ type: "text", text: "Vejo o arquivo." });
+      this.handler({ type: "tool", name: "Read", summary: "a.ts", id: "toolu_1" });
+      this.handler({ type: "tool_result", id: "toolu_1", result: "ok" });
+      this.handler({ type: "text", text: "Erro no script." });
+      this.handler({ type: "done" });
+      return;
+    }
     // Simula uma ferramenta com id (casável com o resultado) e um `tool_result` chegando depois —
     // é o par que a bolha expansível do chat precisa pra anexar o resultado no lugar certo.
     if (text === "TOOLRESULT") {
@@ -165,6 +195,7 @@ export class StubEngine implements Engine {
 
   async abort(): Promise<void> {
     this.aborted = true;
+    this.esperandoInjecao = false;
     if (!this.finished) {
       this.finished = true;
       this.handler?.({ type: "done" });

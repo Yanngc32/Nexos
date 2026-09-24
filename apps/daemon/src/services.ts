@@ -4,11 +4,11 @@ import type { Readable } from "node:stream";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import type { ProbeResult, ServiceDef, ServiceStatus, ServicesReport } from "@nexos/shared";
+import type { ProbeResult, ServiceConflito, ServiceDef, ServiceStatus, ServicesReport } from "@nexos/shared";
 import { loadConfig, saveConfig } from "./config.ts";
 import { ensureHome, projectKey } from "./home.ts";
 import { assertSlug } from "./ids.ts";
-import { killByPort, killTree } from "./kill-tree.ts";
+import { killByPort, killTree, nomeDoProcesso, portasEscutando } from "./kill-tree.ts";
 
 /** Nome do arquivo que declara os serviços, na raiz do projeto. */
 export const SERVICES_FILE = "nexos.json";
@@ -39,6 +39,12 @@ type Live = {
   pid: number;
   startedAt: string;
   log: string;
+  /** De onde veio: a lista de processos (processos.ts) mostra serviço de qualquer projeto. */
+  projectPath: string;
+  id: string;
+  name: string;
+  cmd: string;
+  porta?: number;
   exitCode?: number;
   /**
    * Porta que a saída do processo revelou de verdade — ferramenta como o Vite cai pra
@@ -63,6 +69,76 @@ export function servicesChannel(projectPath: string): string {
 }
 
 const lives = new Map<string, Live>();
+
+/** Porta ocupada na última tentativa de subir — o serviço ficou parado esperando a pessoa decidir. */
+const conflitos = new Map<string, ServiceConflito>();
+
+/**
+ * Troca de porta feita pela interface, por serviço (`key`). Mora no home do Nexos e não no
+ * `nexos.json`: o arquivo é do repositório da pessoa e o Nexos não escreve nele.
+ */
+function trocasPath(home: string): string {
+  return join(home, "servicos-portas.json");
+}
+
+function lerTrocas(home: string): Record<string, number> {
+  try {
+    const o = JSON.parse(readFileSync(trocasPath(home), "utf8")) as Record<string, unknown>;
+    return Object.fromEntries(Object.entries(o).filter((e): e is [string, number] => Number.isInteger(e[1])));
+  } catch {
+    return {};
+  }
+}
+
+function gravarTroca(home: string, k: string, porta: number | undefined): void {
+  const trocas = lerTrocas(home);
+  if (porta === undefined) delete trocas[k];
+  else trocas[k] = porta;
+  writeFileSync(trocasPath(home), JSON.stringify(trocas, null, 2), "utf8");
+}
+
+/**
+ * O `cmd` rodando em outra porta, ou `null` se não dá pra saber onde a porta entra.
+ * - A porta antiga aparece no comando (`--port 8004`, `:8004`): troca ali.
+ * - `npm/pnpm/yarn/bun <script>` sem porta (o `npm run dev` do Vite): repassa `--port` pro script.
+ * - Qualquer outra coisa (ex.: `docker compose up`): não dá — a porta mora em outro arquivo.
+ */
+export function comandoNaPorta(cmd: string, antiga: number, nova: number): string | null {
+  const naLinha = new RegExp(`(?<![\\d.])${antiga}(?!\\d)`, "g");
+  if (naLinha.test(cmd)) return cmd.replace(naLinha, String(nova));
+  if (/^\s*npm\s/i.test(cmd)) return /\s--(\s|$)/.test(cmd) ? `${cmd} --port ${nova}` : `${cmd} -- --port ${nova}`;
+  if (/^\s*(pnpm|yarn|bun)\s/i.test(cmd)) return `${cmd} --port ${nova}`;
+  return null;
+}
+
+function urlNaPorta(url: string, porta: number): string {
+  try {
+    const u = new URL(url);
+    u.port = String(porta);
+    return u.href;
+  } catch {
+    return url;
+  }
+}
+
+/** O serviço como vai rodar: com a troca de porta aplicada (cmd, url e `PORT`), se houver. */
+function comTroca(def: ServiceDef, projectPath: string, home: string): { def: ServiceDef; trocada: boolean } {
+  const nova = lerTrocas(home)[key(projectPath, def.id)];
+  const antiga = portOf(def.url);
+  if (nova === undefined || antiga === undefined || nova === antiga) return { def, trocada: false };
+  const cmd = comandoNaPorta(def.cmd, antiga, nova);
+  if (cmd === null) return { def, trocada: false };
+  return {
+    def: { ...def, cmd, url: urlNaPorta(def.url as string, nova), env: { ...(def.env ?? {}), PORT: String(nova) } },
+    trocada: true,
+  };
+}
+
+/** Primeira porta livre depois de `porta`, olhando uma foto só do netstat. */
+function proximaLivre(porta: number, ocupadas: Map<number, number[]>): number | undefined {
+  for (let p = porta + 1; p <= Math.min(porta + 100, 65535); p++) if (!ocupadas.has(p)) return p;
+  return undefined;
+}
 
 function pidPath(projectPath: string, id: string, home: string): string {
   const hash = createHash("sha1").update(projectKey(projectPath)).digest("hex").slice(0, 10);
@@ -158,8 +234,12 @@ export function portOf(url?: string): number | undefined {
   }
 }
 
-function statusOf(def: ServiceDef, projectPath: string): ServiceStatus {
-  const live = lives.get(key(projectPath, def.id));
+function statusOf(declarado: ServiceDef, projectPath: string, home: string): ServiceStatus {
+  const { def, trocada } = comTroca(declarado, projectPath, home);
+  const k = key(projectPath, def.id);
+  const live = lives.get(k);
+  const antiga = portOf(declarado.url);
+  const conflito = conflitos.get(k);
   const base: ServiceStatus = {
     id: def.id,
     name: def.name ?? def.id,
@@ -170,19 +250,23 @@ function statusOf(def: ServiceDef, projectPath: string): ServiceStatus {
     proc: "off",
     port: "unknown",
     ...(portOf(def.url) !== undefined ? { portNumber: portOf(def.url) } : {}),
+    ...(trocada ? { portaTrocada: true } : {}),
+    ...(antiga !== undefined && comandoNaPorta(declarado.cmd, antiga, antiga + 1) !== null ? { podeTrocarPorta: true } : {}),
+    ...(conflito ? { conflito } : {}),
   };
   if (!live) return base;
   if (live.exitCode !== undefined) {
     return { ...base, proc: "exited", exitCode: live.exitCode };
   }
-  return { ...base, proc: "running", pid: live.pid, startedAt: live.startedAt };
+  const real = live.actualPort && live.actualPort !== base.portNumber ? { portaReal: live.actualPort } : {};
+  return { ...base, ...real, proc: "running", pid: live.pid, startedAt: live.startedAt };
 }
 
 export function listServices(projectPath: string, home: string): ServicesReport {
   const trusted = isTrusted(projectPath, home);
   try {
     const defs = readServiceDefs(projectPath);
-    return { projectPath: resolve(projectPath), trusted, services: defs.map((d) => statusOf(d, projectPath)) };
+    return { projectPath: resolve(projectPath), trusted, services: defs.map((d) => statusOf(d, projectPath, home)) };
   } catch (e) {
     return { projectPath: resolve(projectPath), trusted, error: (e as Error).message, services: [] };
   }
@@ -198,10 +282,10 @@ function findDef(projectPath: string, id: string): ServiceDef {
   return def;
 }
 
-function emitStatus(projectPath: string, id: string): void {
+function emitStatus(projectPath: string, id: string, home: string): void {
   let status: ServiceStatus | undefined;
   try {
-    status = statusOf(findDef(projectPath, id), projectPath);
+    status = statusOf(findDef(projectPath, id), projectPath, home);
   } catch {
     return;
   }
@@ -215,13 +299,47 @@ function appendLog(projectPath: string, id: string, chunk: string): void {
   servicesBus.emit(projectKey(projectPath), { type: "log", id, chunk });
 }
 
-export function startService(projectPath: string, id: string, home: string): ServiceStatus {
+export type StartOpts = {
+  /** Porta ocupada: mata quem está nela e sobe. */
+  matar?: boolean;
+  /** Sobe sem olhar a porta — Docker, por ex., segura a própria porta e sobe por cima. */
+  ignorarPorta?: boolean;
+};
+
+export function startService(projectPath: string, id: string, home: string, opts: StartOpts = {}): ServiceStatus {
   ensureHome(home);
-  const def = findDef(projectPath, id);
+  const declarado = findDef(projectPath, id);
   const k = key(projectPath, id);
   const atual = lives.get(k);
   // idempotente: já rodando não spawna segundo processo
-  if (atual && atual.exitCode === undefined) return statusOf(def, projectPath);
+  if (atual && atual.exitCode === undefined) return statusOf(declarado, projectPath, home);
+  const { def } = comTroca(declarado, projectPath, home);
+
+  /*
+   * Porta ocupada ANTES de subir: sem isto o Vite pulava pra próxima porta calado, o uvicorn
+   * morria com "address already in use" e o painel mostrava a porta errada. Agora o serviço
+   * fica parado com o conflito dito (quem segura, e uma porta livre) e a pessoa decide.
+   */
+  const porta = portOf(def.url);
+  conflitos.delete(k);
+  let aviso = "";
+  if (porta !== undefined && !opts.ignorarPorta) {
+    const { portas } = portasEscutando();
+    const pids = portas.get(porta) ?? [];
+    if (pids.length && opts.matar) {
+      const r = killByPort(porta);
+      aviso = `[nexo] porta ${porta} liberada: matei ${r.pids.join(", ") || "nada"}\n`;
+    } else if (pids.length) {
+      const livre = proximaLivre(porta, portas);
+      conflitos.set(k, {
+        porta,
+        processos: pids.map((pid) => ({ pid, nome: nomeDoProcesso(pid) })),
+        ...(livre !== undefined ? { livre } : {}),
+      });
+      emitStatus(projectPath, id, home);
+      return statusOf(declarado, projectPath, home);
+    }
+  }
 
   const cwd = resolve(projectPath, def.cwd ?? ".");
   /*
@@ -238,7 +356,17 @@ export function startService(projectPath: string, id: string, home: string): Ser
     shell: true,
   }) as SvcChild;
 
-  const live: Live = { child, pid: child.pid ?? 0, startedAt: new Date().toISOString(), log: "" };
+  const live: Live = {
+    child,
+    pid: child.pid ?? 0,
+    startedAt: new Date().toISOString(),
+    log: aviso,
+    projectPath: resolve(projectPath),
+    id,
+    name: def.name ?? def.id,
+    cmd: def.cmd,
+    ...(porta !== undefined ? { porta } : {}),
+  };
   lives.set(k, live);
   if (child.pid) writeFileSync(pidPath(projectPath, id, home), String(child.pid), "utf8");
 
@@ -259,17 +387,17 @@ export function startService(projectPath: string, id: string, home: string): Ser
   child.on("error", (err) => {
     appendLog(projectPath, id, `\n[nexo] falha ao rodar: ${err.message}\n`);
     live.exitCode = -1;
-    emitStatus(projectPath, id);
+    emitStatus(projectPath, id, home);
   });
   child.on("close", (code) => {
     live.exitCode = code ?? 0;
     clearPid(projectPath, id, home);
     appendLog(projectPath, id, `\n[nexo] saiu com código ${live.exitCode}\n`);
-    emitStatus(projectPath, id);
+    emitStatus(projectPath, id, home);
   });
 
-  emitStatus(projectPath, id);
-  return statusOf(def, projectPath);
+  emitStatus(projectPath, id, home);
+  return statusOf(declarado, projectPath, home);
 }
 
 function clearPid(projectPath: string, id: string, home: string): void {
@@ -283,8 +411,10 @@ function clearPid(projectPath: string, id: string, home: string): void {
 }
 
 export function stopService(projectPath: string, id: string, home: string): ServiceStatus {
-  const def = findDef(projectPath, id);
+  const declarado = findDef(projectPath, id);
+  const { def } = comTroca(declarado, projectPath, home);
   const k = key(projectPath, id);
+  conflitos.delete(k);
   const live = lives.get(k);
   if (live && live.exitCode === undefined) {
     if (live.pid) killTree(live.pid);
@@ -307,8 +437,30 @@ export function stopService(projectPath: string, id: string, home: string): Serv
     );
   }
   clearPid(projectPath, id, home);
-  emitStatus(projectPath, id);
-  return statusOf(def, projectPath);
+  emitStatus(projectPath, id, home);
+  return statusOf(declarado, projectPath, home);
+}
+
+/**
+ * Troca a porta do serviço (ver `comTroca`). A porta do `nexos.json` desfaz a troca. Rodando,
+ * reinicia na porta nova; parado, só grava e vale na próxima subida.
+ */
+export async function trocarPorta(projectPath: string, id: string, porta: number, home: string): Promise<ServiceStatus> {
+  const def = findDef(projectPath, id);
+  const erro = (msg: string): Error => Object.assign(new Error(msg), { status: 400 });
+  if (!Number.isInteger(porta) || porta < 1 || porta > 65535) throw erro("porta inválida (1–65535)");
+  const antiga = portOf(def.url);
+  if (antiga === undefined) throw erro(`"${id}" não tem url com porta no ${SERVICES_FILE}`);
+  if (porta !== antiga && comandoNaPorta(def.cmd, antiga, porta) === null) {
+    throw erro(`não sei onde a porta entra em "${def.cmd}" — ajuste a porta no ${SERVICES_FILE} ou no arquivo que o comando lê`);
+  }
+  const k = key(projectPath, id);
+  gravarTroca(home, k, porta === antiga ? undefined : porta);
+  conflitos.delete(k);
+  const live = lives.get(k);
+  if (live && live.exitCode === undefined) return restartService(projectPath, id, home);
+  emitStatus(projectPath, id, home);
+  return statusOf(def, projectPath, home);
 }
 
 export async function restartService(projectPath: string, id: string, home: string): Promise<ServiceStatus> {
@@ -332,6 +484,29 @@ export function autostartServices(projectPath: string, home: string): ServiceSta
     out.push(startService(projectPath, def.id, home));
   }
   return out;
+}
+
+/** Serviços de pé agora, de todo projeto — base da lista de processos (processos.ts). */
+export function servicosRodando(): {
+  projectPath: string;
+  id: string;
+  name: string;
+  cmd: string;
+  pid: number;
+  startedAt: string;
+  porta?: number;
+}[] {
+  return [...lives.values()]
+    .filter((l) => l.exitCode === undefined && l.pid > 0)
+    .map((l) => ({
+      projectPath: l.projectPath,
+      id: l.id,
+      name: l.name,
+      cmd: l.cmd,
+      pid: l.pid,
+      startedAt: l.startedAt,
+      ...(l.actualPort ?? l.porta ? { porta: l.actualPort ?? l.porta } : {}),
+    }));
 }
 
 /** Derruba tudo: chamado no shutdown do daemon. */
@@ -379,4 +554,5 @@ export function probeUrl(raw: string): Promise<ProbeResult> {
 /** Só pra teste: zera o estado em memória entre casos. */
 export function resetServicesForTest(): void {
   lives.clear();
+  conflitos.clear();
 }

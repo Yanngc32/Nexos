@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -6,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { saveConfig } from "../src/config.ts";
 import {
   autostartServices,
+  comandoNaPorta,
   isTrusted,
   listServices,
   portOf,
@@ -16,6 +18,7 @@ import {
   startService,
   stopAllServices,
   stopService,
+  trocarPorta,
   trustProject,
 } from "../src/services.ts";
 import { tempHome } from "./helpers.ts";
@@ -101,6 +104,79 @@ describe("portOf", () => {
     expect(portOf("https://example.com")).toBe(443);
     expect(portOf(undefined)).toBeUndefined();
     expect(portOf("nem url")).toBeUndefined();
+  });
+});
+
+describe("comandoNaPorta", () => {
+  it("troca a porta onde ela aparece, repassa --port pro script do npm e desiste do resto", () => {
+    expect(comandoNaPorta("python -m uvicorn main:app --host 127.0.0.1 --port 8004", 8004, 8010)).toBe(
+      "python -m uvicorn main:app --host 127.0.0.1 --port 8010",
+    );
+    // não pega 8004 dentro de outro número nem de versão
+    expect(comandoNaPorta("serve --port 18004 --v 1.8004", 8004, 8010)).toBeNull();
+    expect(comandoNaPorta("npm run dev", 5173, 5180)).toBe("npm run dev -- --port 5180");
+    expect(comandoNaPorta("npm run dev -- --host", 5173, 5180)).toBe("npm run dev -- --host --port 5180");
+    expect(comandoNaPorta("pnpm dev", 5173, 5180)).toBe("pnpm dev --port 5180");
+    expect(comandoNaPorta("docker compose up -d api", 8000, 8001)).toBeNull();
+  });
+});
+
+/** Porta livre agora (o SO escolhe; fecha na hora). */
+async function portaLivre(): Promise<number> {
+  const srv = createServer();
+  await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
+  const porta = (srv.address() as { port: number }).port;
+  await new Promise<void>((r) => srv.close(() => r()));
+  return porta;
+}
+
+describe("porta dos serviços", () => {
+  it.runIf(process.platform === "win32")("porta ocupada: não sobe, diz quem segura e oferece uma livre; matar libera", async () => {
+    const home = tempHome();
+    const porta = await portaLivre();
+    const ocupante = spawn(process.execPath, [fixture, "listen", String(porta)], { stdio: ["ignore", "pipe", "ignore"] });
+    try {
+      await new Promise<void>((r) => ocupante.stdout.once("data", () => r()));
+      const dir = projeto([{ id: "svc", cmd: `${node} ${JSON.stringify(fixture)}`, url: `http://127.0.0.1:${porta}` }]);
+      const barrado = startService(dir, "svc", home);
+      expect(barrado.proc).toBe("off");
+      expect(barrado.conflito?.porta).toBe(porta);
+      expect(barrado.conflito?.processos.map((p) => p.pid)).toContain(ocupante.pid);
+      expect(barrado.conflito?.processos[0]?.nome).toMatch(/node/i);
+      expect(barrado.conflito?.livre).toBeGreaterThan(porta);
+
+      const subiu = startService(dir, "svc", home, { matar: true });
+      expect(subiu.proc).toBe("running");
+      expect(subiu.conflito).toBeUndefined();
+      await esperar(() => ocupante.exitCode !== null || ocupante.signalCode !== null);
+    } finally {
+      ocupante.kill();
+    }
+  });
+
+  it("trocar a porta vale no cmd, na url e no PORT; a porta original desfaz", async () => {
+    const home = tempHome();
+    const dir = projeto([{ id: "svc", cmd: `${node} ${JSON.stringify(fixture)} --port 8004`, url: "http://127.0.0.1:8004/docs" }]);
+    expect(listServices(dir, home).services[0]?.podeTrocarPorta).toBe(true);
+    const trocado = await trocarPorta(dir, "svc", 8010, home);
+    expect(trocado.portNumber).toBe(8010);
+    expect(trocado.url).toBe("http://127.0.0.1:8010/docs");
+    expect(trocado.portaTrocada).toBe(true);
+    startService(dir, "svc", home, { ignorarPorta: true });
+    await esperar(() => serviceLogs(dir, "svc").includes("PORT=8010 ARGS=--port 8010"));
+    stopService(dir, "svc", home);
+
+    const volta = await trocarPorta(dir, "svc", 8004, home);
+    expect(volta.portNumber).toBe(8004);
+    expect(volta.portaTrocada).toBeUndefined();
+  });
+
+  it("não troca porta de comando que não a carrega nem porta inválida", async () => {
+    const home = tempHome();
+    const dir = projeto([{ id: "api", cmd: "docker compose up -d api", url: "http://localhost:8000" }]);
+    expect(listServices(dir, home).services[0]?.podeTrocarPorta).toBeUndefined();
+    await expect(trocarPorta(dir, "api", 8001, home)).rejects.toThrow(/não sei onde a porta entra/);
+    await expect(trocarPorta(dir, "api", 70000, home)).rejects.toThrow(/porta inválida/);
   });
 });
 

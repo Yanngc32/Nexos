@@ -12,6 +12,7 @@ import {
   busyThreads,
   clearThread,
   getLive,
+  injetarMensagem,
   limitsOf,
   perfilEmUso,
   pingUsoDeTodasAsContas,
@@ -524,6 +525,44 @@ describe("session", () => {
     await postMessage(t.id, "oi", home);
     const engine = getLive(t.id)?.engine as StubEngine;
     expect(engine.lastStart?.contextPack).not.toContain("nexo_mapa_simbolos");
+  });
+
+  it("injetarMensagem: entra no turno em voo e o histórico fica na ordem em que aconteceu", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    // sem turno em voo: nada é gravado, quem chamou usa a fila
+    expect(injetarMensagem(t.id, "cedo demais", home)).toBe(false);
+    const turno = postMessage(t.id, "ESPERA", home);
+    await vi.waitFor(() => expect(busyThreads()).toContain(t.id));
+    expect(injetarMensagem(t.id, "e mais isto", home)).toBe(true);
+    await turno;
+    expect((getLive(t.id)?.engine as StubEngine).injetadas).toEqual(["e mais isto"]);
+    const trilha = readThread(t.id, home)
+      .filter((e) => e.type === "user" || e.type === "assistant")
+      .map((e) => `${e.type}:${e.type === "user" || e.type === "assistant" ? e.text : ""}`);
+    expect(trilha).toEqual(["user:ESPERA", "assistant:antes", "user:e mais isto", "assistant:depois"]);
+    expect(injetarMensagem(t.id, "tarde demais", home)).toBe(false);
+  });
+
+  it("texto depois de ferramenta vira parágrafo novo, não cola no bloco anterior", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    const textos: string[] = [];
+    const onEv = (ev: { type: string; text?: string }) => {
+      if (ev.type === "text") textos.push(ev.text ?? "");
+    };
+    sessionBus.on(t.id, onEv);
+    try {
+      await postMessage(t.id, "TEXTTOOLTEXT", home);
+    } finally {
+      sessionBus.off(t.id, onEv);
+    }
+    const assistant = readThread(t.id, home).find((e) => e.type === "assistant");
+    expect(assistant && assistant.type === "assistant" ? assistant.text : undefined).toBe("Vejo o arquivo.\n\nErro no script.");
+    // o SSE leva o mesmo separador, senão a tela ao vivo e o histórico divergiam
+    expect(textos).toEqual(["Vejo o arquivo.", "\n\nErro no script."]);
   });
 
   it("evento tool grava id+input, e tool_result grava separado com o mesmo id", async () => {

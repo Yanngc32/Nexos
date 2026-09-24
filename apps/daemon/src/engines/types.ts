@@ -41,5 +41,18 @@ export interface Engine {
    */
   updateOverrides(over: EngineOverrides): void;
   send(text: string): Promise<void>;
+  /**
+   * Mensagem nova no MEIO do turno em voo: o motor lê entre uma ferramenta e outra, sem esperar o
+   * turno acabar. `false` = este motor não tem canal pra isso agora (não suporta, ou o turno já
+   * fechou) e quem chamou deve cair na fila. Só o CLI `claude` (stdin em `stream-json`) suporta.
+   */
+  inject?(text: string): boolean;
+  /**
+   * Quando o motor deu sinal de vida pela última vez e quantas tarefas em background (Bash
+   * `run_in_background`, Monitor) ele tem de pé. Base do teto por INATIVIDADE do turno: turno
+   * longo que segue produzindo, ou esperando tarefa em background, não é motor travado.
+   * Motor sem isso cai no teto fixo desde o início do turno.
+   */
+  ocupacao?(): { ultimaAtividade: number; tarefasEmBackground: number };
   abort(): Promise<void>;
 }
