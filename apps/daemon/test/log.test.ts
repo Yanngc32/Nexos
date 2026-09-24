@@ -90,7 +90,7 @@ describe("log", () => {
     iniciarLog(home);
     registrarErrosSemDono();
     const e = new Error("explodiu");
-    process.emit("uncaughtExceptionMonitor", e, "uncaughtException");
+    (process.emit as (ev: string, ...a: unknown[]) => boolean)("uncaughtExceptionMonitor", e, "uncaughtException");
     const l = linhas(home).find((x) => x.includes("explodiu"));
     expect(l).toMatch(/^\S+ ERRO  \[motor\] exceção sem dono: explodiu /);
     expect(l).toContain('"stack":"Error: explodiu');

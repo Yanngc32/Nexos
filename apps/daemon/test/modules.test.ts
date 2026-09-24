@@ -34,7 +34,7 @@ describe("ensureRtkInstalled", () => {
 
   it("sem cargo e sem script disponível: nunca lança, só loga instrução manual", async () => {
     execFileMock.mockImplementation((_bin, _args, _opts, cb) => cb(new Error("não achado"), undefined));
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const log = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     try {
       const home = tempHome();
       await expect(ensureRtkInstalled(home)).resolves.toBeUndefined();

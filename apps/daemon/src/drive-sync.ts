@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { driveSyncStatePath } from "./home.ts";
+import { log } from "./log.ts";
 import { googleAccount, readGoogleStore, updateGoogleStore } from "./google-auth.ts";
 import {
   acharRaizNexo,
@@ -84,12 +86,39 @@ function nomeSeguro(nome: string): boolean {
 
 type Local = { md5: string; size: number; mtimeMs: number };
 
-function varrerLocal(root: string, base: Record<string, BaseEntry>): Map<string, Local> {
+/** A cada tantos arquivos a varredura devolve a vez pro event loop (o `/health` responde no meio). */
+const CEDER_A_CADA = 200;
+
+function ceder(): Promise<void> {
+  return new Promise((r) => setImmediate(r));
+}
+
+/** md5 lendo em stream: um arquivo grande sem cache não segura o motor enquanto é lido. */
+function md5DoArquivo(abs: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const h = createHash("md5");
+    createReadStream(abs)
+      .on("data", (b) => h.update(b))
+      .on("error", reject)
+      .on("end", () => resolve(h.digest("hex")));
+  });
+}
+
+/**
+ * Assíncrona e cedendo a vez a cada 200 arquivos: a primeira rodada (sem base) relê tudo, e a
+ * versão síncrona segurava o event loop o tempo inteiro. Nas rodadas seguintes quase nada é
+ * relido (tamanho e mtime iguais aos da base).
+ */
+async function varrerLocal(root: string, base: Record<string, BaseEntry>): Promise<Map<string, Local>> {
+  const inicio = Date.now();
+  log.info("sync", "varrerLocal começou", { root });
   const out = new Map<string, Local>();
-  const andar = (dir: string, prefixo: string): void => {
+  let vistos = 0;
+  let relidos = 0;
+  const andar = async (dir: string, prefixo: string): Promise<void> => {
     let nomes: string[];
     try {
-      nomes = readdirSync(dir);
+      nomes = await readdir(dir);
     } catch {
       return;
     }
@@ -99,7 +128,7 @@ function varrerLocal(root: string, base: Record<string, BaseEntry>): Map<string,
       const rel = prefixo ? `${prefixo}/${nome}` : nome;
       let st;
       try {
-        st = statSync(abs);
+        st = await stat(abs);
       } catch {
         continue;
       }
@@ -109,17 +138,28 @@ function varrerLocal(root: string, base: Record<string, BaseEntry>): Map<string,
         // (tem `meta.json`), pra não varrer/subir lixo que não é nosso.
         // `_biblioteca` é o espelho de agentes/times/hooks/skills (biblioteca.ts), não um projeto.
         if (prefixo === "" && nome !== PASTA_BIBLIOTECA && !existsSync(join(abs, "meta.json"))) continue;
-        andar(abs, rel);
+        await andar(abs, rel);
       } else if (st.isFile()) {
         if (rel.split("/").length === 2 && nome === "meta.json") continue;
+        if (++vistos % CEDER_A_CADA === 0) await ceder();
         const anterior = base[rel];
         // mesmo tamanho e mtime da última sync: não relê o arquivo (repo-map pode ser grande)
-        const hash = anterior && anterior.size === st.size && anterior.mtimeMs === st.mtimeMs ? anterior.md5 : md5(readFileSync(abs));
+        let hash: string;
+        if (anterior && anterior.size === st.size && anterior.mtimeMs === st.mtimeMs) hash = anterior.md5;
+        else {
+          try {
+            hash = await md5DoArquivo(abs);
+          } catch {
+            continue; // sumiu entre o stat e a leitura: entra na próxima rodada
+          }
+          relidos += 1;
+        }
         out.set(rel, { md5: hash, size: st.size, mtimeMs: st.mtimeMs });
       }
     }
   };
-  andar(root, "");
+  await andar(root, "");
+  log.info("sync", "varrerLocal terminou", { arquivos: out.size, relidos, ms: Date.now() - inicio });
   return out;
 }
 
@@ -215,7 +255,7 @@ async function rodar(home: string): Promise<ResultadoSync> {
     const rootLocal = projetosRoot(home);
     mkdirSync(rootLocal, { recursive: true });
     // o que ficou na pasta manual antiga (gravado fora do sync pela API) vem pra cá e sobe nesta rodada
-    trazerPastaManualProDrive(home, rootLocal);
+    await trazerPastaManualProDrive(home, rootLocal);
     // antes: o que mudou aqui (agente, time, hook, skill) já vai no espelho que sobe nesta rodada
     anotarBiblioteca(res, sincronizarBiblioteca(home));
 
@@ -225,7 +265,7 @@ async function rodar(home: string): Promise<ResultadoSync> {
       estado = { folderId, root: rootLocal, files: {} };
     }
 
-    const local = varrerLocal(rootLocal, estado.files);
+    const local = await varrerLocal(rootLocal, estado.files);
     let varredura;
     try {
       varredura = await varrerRemoto(home, folderId);

@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { log } from "./log.ts";
 import { createHash } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { copyFile, mkdir, readdir, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { NexoConfig } from "@nexos/shared";
 import { loadConfig } from "./config.ts";
@@ -66,6 +67,18 @@ export function pastaDeCodigo(dir: string): boolean {
   return false;
 }
 
+/** Acima disto a pasta manual não é de dados do Nexos: não copia nada. */
+export const TETO_COPIA_ARQUIVOS = 20_000;
+export const TETO_COPIA_BYTES = 500 * 1024 * 1024;
+
+/** Origem que já bateu no teto NESTA subida: não varre de novo a cada rodada, e avisa uma vez só. */
+const tetoAtingido = new Set<string>();
+
+/** Só pra teste: esquece os tetos desta subida. */
+export function resetTetoCopiaForTest(): void {
+  tetoAtingido.clear();
+}
+
 /**
  * Google conectado: traz pra raiz do Drive (`<home>/drive`) o que estava na pasta manual antiga
  * (`projetosDir`), UMA vez por pasta de origem.
@@ -83,10 +96,16 @@ export function pastaDeCodigo(dir: string): boolean {
  * `varrerLocal` em drive-sync.ts. Sem isso, `projetosDir` apontado pra pasta de CÓDIGO da pessoa
  * (`C:\projects`, com repos, `node_modules`, `.git`) trazia tudo: medido 279.990 arquivos numa
  * máquina, cópia inútil de vários GB que o sync nem sobe.
+ *
+ * **Assíncrona e com teto.** A versão síncrona segurava o event loop do motor a cópia inteira — o
+ * `/health` parava de responder e o motor parecia morto. Agora primeiro LISTA o que copiaria; se
+ * passar de 20 mil arquivos ou 500 MB, não copia nada, avisa (uma vez por subida) e não grava a
+ * marca — a pasta manual com esse tamanho não é de dados do Nexos.
  */
-export function trazerPastaManualProDrive(home: string, destino: string): number {
+export async function trazerPastaManualProDrive(home: string, destino: string): Promise<number> {
   const de = loadConfig(home).projetosDir;
   if (!de || !readGoogleStore(home).refreshToken || !existsSync(de)) return 0;
+  if (tetoAtingido.has(de)) return 0;
   const marca = join(home, "pasta-manual-migrada.json");
   try {
     const feita = JSON.parse(readFileSync(marca, "utf8")) as { de?: string };
@@ -94,31 +113,81 @@ export function trazerPastaManualProDrive(home: string, destino: string): number
   } catch {
     // sem marca: ainda não migrou
   }
-  let copiados = 0;
-  const copiar = (origem: string, alvo: string, raiz: boolean): void => {
-    for (const e of readdirSync(origem, { withFileTypes: true })) {
+  const inicio = Date.now();
+  log.info("copia", "começou a trazer a pasta manual pro Drive", { de, para: destino });
+
+  type Item = { o: string; a: string; bytes: number };
+  const itens: Item[] = [];
+  let bytes = 0;
+  let pulados = 0;
+  let estourou = "";
+  let ultimoProgresso = inicio;
+  const progresso = (fase: string, n: number): void => {
+    const agora = Date.now();
+    if (n % 1000 !== 0 && agora - ultimoProgresso < 10_000) return;
+    ultimoProgresso = agora;
+    const dados = { fase, arquivos: n, bytes, ms: agora - inicio };
+    if (agora - inicio > 30_000) log.info("copia", `progresso: ${n} arquivo(s)`, dados);
+    else log.debug("copia", `progresso: ${n} arquivo(s)`, dados);
+  };
+
+  const listar = async (origem: string, alvo: string, raiz: boolean): Promise<void> => {
+    for (const e of await readdir(origem, { withFileTypes: true })) {
+      if (estourou) return;
       // restos de migrações/escritas antigas não viram dado de projeto
       if (e.name.endsWith(".stale-backup") || e.name.endsWith(".tmp") || e.name === "desktop.ini") continue;
-      if (e.name.startsWith(".") || PASTAS_DE_CODIGO.has(e.name)) continue;
       const o = join(origem, e.name);
+      if (e.name.startsWith(".") || PASTAS_DE_CODIGO.has(e.name)) {
+        if (e.isDirectory()) {
+          pulados += 1;
+          log.debug("copia", "pasta pulada", { pasta: o });
+        }
+        continue;
+      }
       const a = join(alvo, e.name);
       if (e.isDirectory()) {
-        if (!raiz || ehPastaDoNexos(o, e.name)) copiar(o, a, false);
+        if (!raiz || ehPastaDoNexos(o, e.name)) await listar(o, a, false);
+        else {
+          pulados += 1;
+          log.debug("copia", "pasta pulada (não é do Nexos)", { pasta: o });
+        }
       } else if (!raiz && e.isFile() && !existsSync(a)) {
         // arquivo solto na raiz não é de projeto nenhum
-        mkdirSync(alvo, { recursive: true });
-        copyFileSync(o, a);
-        copiados += 1;
+        const tam = (await stat(o)).size;
+        itens.push({ o, a, bytes: tam });
+        bytes += tam;
+        progresso("listando", itens.length);
+        if (itens.length > TETO_COPIA_ARQUIVOS) estourou = `mais de ${TETO_COPIA_ARQUIVOS} arquivos`;
+        else if (bytes > TETO_COPIA_BYTES) estourou = `mais de ${Math.round(TETO_COPIA_BYTES / 1024 / 1024)} MB`;
       }
     }
   };
+
+  let copiados = 0;
   try {
-    copiar(de, destino, true);
+    await listar(de, destino, true);
+    if (pulados) log.info("copia", `${pulados} pasta(s) pulada(s)`, { pulados });
+    if (estourou) {
+      // sem marca: se a pessoa limpar a pasta, a próxima subida tenta de novo
+      tetoAtingido.add(de);
+      log.aviso("copia", `teto atingido (${estourou}), não copiei nada: a pasta manual não parece ser só de dados do Nexos`, {
+        de,
+        arquivos: itens.length,
+        bytes,
+      });
+      return 0;
+    }
+    for (const it of itens) {
+      await mkdir(dirname(it.a), { recursive: true });
+      await copyFile(it.o, it.a);
+      copiados += 1;
+      progresso("copiando", copiados);
+    }
     writeFileSync(marca, JSON.stringify({ de, para: destino, em: new Date().toISOString(), copiados }, null, 2), "utf8");
-    if (copiados) console.error(`nexo: ${copiados} arquivo(s) da pasta ${de} trazidos pra ${destino}`);
+    log.info("copia", `terminou: ${copiados} arquivo(s) trazidos`, { de, para: destino, arquivos: copiados, bytes, ms: Date.now() - inicio });
   } catch (e) {
     // sem marca: tenta de novo na próxima rodada (o que já veio não é copiado duas vezes)
-    console.error(`nexo: não consegui trazer a pasta ${de}: ${(e as Error).message}`);
+    log.erro("copia", "não consegui trazer a pasta manual", { de, copiados, erro: (e as Error).message });
   }
   return copiados;
 }

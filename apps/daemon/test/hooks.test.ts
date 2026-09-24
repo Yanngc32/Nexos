@@ -263,12 +263,12 @@ describe("fireHook", () => {
       }),
       "utf8",
     );
-    const erro = vi.spyOn(console, "error").mockImplementation(() => {});
+    const erro = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     try {
       const r = fireHook("git.post-commit", "/proj", home);
       expect(r).toEqual({ disparado: true });
       await tick(10);
-      expect(erro).toHaveBeenCalledWith(expect.stringContaining("nexo hook"), expect.stringMatching(/agente não existe/));
+      expect(erro).toHaveBeenCalledWith(expect.stringMatching(/AVISO \[hook\] nexo hook .* falhou .*agente não existe/));
       expect(fireHook("git.post-commit", "/proj", home)).toEqual({ disparado: true });
     } finally {
       erro.mockRestore();
@@ -391,13 +391,13 @@ describe("sincronizarHooksDoProjeto", () => {
       JSON.stringify({ repos: [bom, quebrado] }),
       "utf8",
     );
-    const erro = vi.spyOn(console, "error").mockImplementation(() => {});
+    const erro = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     try {
       expect(() =>
         saveRegra({ escopo: { tipo: "global" }, evento: "git.post-commit", agentId: "memoria" }, home),
       ).not.toThrow();
       expect(existsSync(join(bom, ".git", "hooks", "post-commit"))).toBe(true);
-      expect(erro).toHaveBeenCalledWith(expect.stringContaining("sincronizar hooks"), expect.anything());
+      expect(erro).toHaveBeenCalledWith(expect.stringContaining("[hook] sincronizar hooks falhou"));
     } finally {
       erro.mockRestore();
     }

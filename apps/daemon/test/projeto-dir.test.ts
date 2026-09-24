@@ -247,7 +247,7 @@ describe("Google Drive conectado", () => {
 });
 
 describe("Google conectado: traz o que ficou na pasta manual antiga", () => {
-  it("copia só o que falta, não sobrescreve, ignora restos e não repete depois da marca", () => {
+  it("copia só o que falta, não sobrescreve, ignora restos e não repete depois da marca", async () => {
     const home = tempHome();
     const manual = mkdtempSync(join(tmpdir(), "nexo-manual-"));
     mkdirSync(join(manual, "proj-a", "memoria"), { recursive: true });
@@ -261,7 +261,7 @@ describe("Google conectado: traz o que ficou na pasta manual antiga", () => {
     mkdirSync(join(destino, "proj-a"), { recursive: true });
     writeFileSync(join(destino, "proj-a", "meta.json"), "do drive");
 
-    expect(trazerPastaManualProDrive(home, destino)).toBe(1);
+    expect(await trazerPastaManualProDrive(home, destino)).toBe(1);
     expect(readFileSync(join(destino, "proj-a", "memoria", "nota.md"), "utf8")).toBe("da manual");
     expect(readFileSync(join(destino, "proj-a", "meta.json"), "utf8")).toBe("do drive");
     expect(existsSync(join(destino, "proj-velho.stale-backup"))).toBe(false);
@@ -270,11 +270,11 @@ describe("Google conectado: traz o que ficou na pasta manual antiga", () => {
 
     // apagou na raiz nova depois: não volta
     rmSync(join(destino, "proj-a", "memoria", "nota.md"));
-    expect(trazerPastaManualProDrive(home, destino)).toBe(0);
+    expect(await trazerPastaManualProDrive(home, destino)).toBe(0);
     expect(existsSync(join(destino, "proj-a", "memoria", "nota.md"))).toBe(false);
   });
 
-  it("pasta de código (repos, node_modules, arquivo solto) não vem — só projeto nosso e a biblioteca", () => {
+  it("pasta de código (repos, node_modules, arquivo solto) não vem — só projeto nosso e a biblioteca", async () => {
     const home = tempHome();
     const manual = mkdtempSync(join(tmpdir(), "nexo-manual-"));
     // repo qualquer, sem meta.json
@@ -295,7 +295,7 @@ describe("Google conectado: traz o que ficou na pasta manual antiga", () => {
     writeFileSync(googleAuthPath(home), JSON.stringify({ refreshToken: "rt", email: "a@b" }));
     const destino = projetosRoot(home);
 
-    expect(trazerPastaManualProDrive(home, destino)).toBe(2);
+    expect(await trazerPastaManualProDrive(home, destino)).toBe(2);
     expect(existsSync(join(destino, "proj-a", "meta.json"))).toBe(true);
     expect(existsSync(join(destino, "_biblioteca", "agentes", "a.json"))).toBe(true);
     expect(existsSync(join(destino, "proj-a", "node_modules"))).toBe(false);
@@ -304,12 +304,12 @@ describe("Google conectado: traz o que ficou na pasta manual antiga", () => {
     expect(existsSync(join(destino, "solto.txt"))).toBe(false);
   });
 
-  it("sem Google conectado não faz nada", () => {
+  it("sem Google conectado não faz nada", async () => {
     const home = tempHome();
     const manual = mkdtempSync(join(tmpdir(), "nexo-manual-"));
     writeFileSync(join(manual, "a.txt"), "a");
     saveConfig(home, { projetosDir: manual });
-    expect(trazerPastaManualProDrive(home, join(home, "drive"))).toBe(0);
+    expect(await trazerPastaManualProDrive(home, join(home, "drive"))).toBe(0);
     expect(existsSync(join(home, "drive", "a.txt"))).toBe(false);
   });
 });
