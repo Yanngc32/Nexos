@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { log } from "./log.ts";
 
 /**
  * Varre o processo descendente de `pid` direto no WMI (PowerShell), em vez de confiar no
@@ -104,13 +105,29 @@ export function killByPort(port: number): KillByPortResult {
   return { tentou: true, pids: [...pids] };
 }
 
+/**
+ * Mata o que sobrou de uma subida anterior (agentes, serviços). **Nunca o `daemon.pid`**: é o
+ * motor, e quem decide matá-lo é o app, depois de confirmar que o PID é nosso (ver
+ * `apps/desktop/destravar.cjs`). Pular pelo nome, sempre — sem isso, um `up` com o motor travado
+ * derrubava motor e agentes de uma vez.
+ */
 export function reapRunPids(home: string): void {
   const dir = join(home, "run");
   if (!existsSync(dir)) return;
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".pid")) continue;
+    if (name === "daemon.pid") {
+      log.info("motor", "reapRunPids pulou daemon.pid");
+      continue;
+    }
     const path = join(dir, name);
-    const pid = Number(readFileSync(path, "utf8").trim());
+    let pid: number;
+    try {
+      pid = Number(readFileSync(path, "utf8").trim());
+    } catch {
+      continue;
+    }
+    log.info("motor", `reapRunPids matou PID ${pid}`, { pid, arquivo: name });
     killTree(pid);
     try {
       unlinkSync(path);

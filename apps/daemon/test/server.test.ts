@@ -110,7 +110,7 @@ describe("startDaemon", () => {
     if (r.alreadyUp) return;
     live.push(r.server);
     expect(r.hosts[0]).toBe("127.0.0.1");
-    expect(await probeHealth(r.port)).toBe(true);
+    expect(await probeHealth(r.port)).toBe("ok");
   });
 
   it("endereço manual que não existe é falha REGISTRADA, não daemon morto", async () => {
@@ -123,7 +123,7 @@ describe("startDaemon", () => {
     live.push(r.server);
     expect(r.hosts, "o loopback tem que ter subido de qualquer forma").toContain("127.0.0.1");
     expect(r.falhas.map((f) => f.host)).toContain("203.0.113.7");
-    expect(await probeHealth(r.port)).toBe(true);
+    expect(await probeHealth(r.port)).toBe("ok");
   });
 
   it("nunca escuta em endereço mais aberto do que foi pedido", async () => {

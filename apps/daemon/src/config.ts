@@ -2,16 +2,19 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import {
   CAVEMAN_NIVEIS,
   DEFAULT_CONFIG,
+  LOG_NIVEIS,
   SWITCH_MODES,
   TEMAS,
   TYPESAFE_MODOS,
   type CavemanNivel,
+  type LogNivel,
   type NexoConfig,
   type SwitchMode,
   type Tema,
   type TypesafeModo,
 } from "@nexos/shared";
 import { configPath, ensureHome } from "./home.ts";
+import { log } from "./log.ts";
 
 /**
  * `writeFileSync` direto no arquivo final deixa uma janela: processo morto (crash, kill, o
@@ -45,7 +48,7 @@ export function loadConfig(home: string): NexoConfig {
      * padrão e regrava o arquivo, igual ao caminho de "arquivo não existe" acima — perde a
      * config antiga (já estava ilegível mesmo), mas o daemon volta a responder.
      */
-    console.error(`config.json corrompido (${(e as Error).message}) — voltando ao padrão`);
+    log.erro("motor", "config.json corrompido, voltando ao padrão", { erro: (e as Error).message });
     writeJsonAtomico(path, DEFAULT_CONFIG);
     raw = {};
   }
@@ -78,7 +81,12 @@ export function loadConfig(home: string): NexoConfig {
     modulos: cleanModulos(raw.modulos),
     windowsControlEnabled: Boolean(raw.windowsControlEnabled),
     typesafe: { modo: isTypesafeModo(raw.typesafe?.modo) ? raw.typesafe.modo : DEFAULT_CONFIG.typesafe.modo },
+    ...(isLogNivel(raw.logNivel) ? { logNivel: raw.logNivel } : {}),
   };
+}
+
+export function isLogNivel(value: unknown): value is LogNivel {
+  return typeof value === "string" && (LOG_NIVEIS as readonly string[]).includes(value);
 }
 
 function isTema(value: unknown): value is Tema {
@@ -241,6 +249,11 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
     windowsControlEnabled:
       patch.windowsControlEnabled === undefined ? current.windowsControlEnabled : Boolean(patch.windowsControlEnabled),
     typesafe: { modo: isTypesafeModo(patch.typesafe?.modo) ? patch.typesafe.modo : current.typesafe.modo },
+    ...(isLogNivel(patch.logNivel)
+      ? { logNivel: patch.logNivel }
+      : current.logNivel !== undefined
+        ? { logNivel: current.logNivel }
+        : {}),
   };
   writeJsonAtomico(configPath(home), next);
   return next;

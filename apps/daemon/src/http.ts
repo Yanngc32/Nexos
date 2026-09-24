@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { log, nivelDoLog, recarregarNivel } from "./log.ts";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
@@ -793,7 +794,7 @@ export function createApp(home: string, token: string): Hono {
         try {
           sincronizarHooksDoProjeto(projectPath, home);
         } catch (e) {
-          console.error("sincronizar hooks ao abrir projeto:", (e as Error).message || e);
+          log.aviso("hook", "sincronizar hooks ao abrir projeto falhou", { projectPath, erro: (e as Error).message || String(e) });
         }
         // Primeira vez que este projeto abre no Nexos: constrói o índice do repo map (Camada 1) —
         // só se ainda não existir, pra não recalcular à toa em toda abertura (git.post-commit já
@@ -801,7 +802,7 @@ export function createApp(home: string, token: string): Hono {
         try {
           if (!indiceDisponivel(projectPath, home)) construirIndice(projectPath, home, leitorDeResumos(projectPath, home));
         } catch (e) {
-          console.error("construir índice do repo map ao abrir projeto:", (e as Error).message || e);
+          log.aviso("motor", "construir índice do repo map ao abrir projeto falhou", { projectPath, erro: (e as Error).message || String(e) });
         }
         // `nexo.projeto-novo`: só na PRIMEIRA vez que este projeto aparece pro Nexos — fire-and-forget,
         // igual post-commit/post-push (já aconteceu, não tem o que bloquear).
@@ -809,7 +810,7 @@ export function createApp(home: string, token: string): Hono {
           try {
             fireHook("nexo.projeto-novo", projectPath, home);
           } catch (e) {
-            console.error("nexo.projeto-novo:", (e as Error).message || e);
+            log.aviso("hook", "nexo.projeto-novo falhou", { projectPath, erro: (e as Error).message || String(e) });
           }
         }
       }
@@ -1780,7 +1781,7 @@ export function createApp(home: string, token: string): Hono {
       try {
         construirIndice(projectPath, home, leitorDeResumos(projectPath, home));
       } catch (e) {
-        console.error("construir índice do repo map no post-commit:", (e as Error).message || e);
+        log.aviso("hook", "construir índice do repo map no post-commit falhou", { projectPath, erro: (e as Error).message || String(e) });
       }
     }
     try {
@@ -1987,7 +1988,7 @@ export function createApp(home: string, token: string): Hono {
         home,
       );
       void postMessage(threadId, handoff.texto.trimEnd(), home).catch((err) =>
-        console.error(`nexo: envio do plano ${slug} pra ${threadId} falhou: ${(err as Error).message}`),
+        log.erro("turno", `envio do plano ${slug} falhou`, { threadId, erro: (err as Error).message }),
       );
       return c.json({ threadId, handoff: handoff.nome }, 201);
     } catch (e) {
@@ -2325,6 +2326,7 @@ export function createApp(home: string, token: string): Hono {
   app.get("/v1/config", (c) => c.json(loadConfig(home)));
   app.put("/v1/config", async (c) => {
     const cfgAntes = loadConfig(home);
+    const nivelAntes = nivelDoLog();
     const antes = cfgAntes.modulos.repoMapResumos;
     const body = await c.req.json();
     /*
@@ -2340,6 +2342,8 @@ export function createApp(home: string, token: string): Hono {
       );
     }
     const next = saveConfig(home, body);
+    // nível do log vale na hora, sem reiniciar o motor
+    if (recarregarNivel(home) !== nivelAntes) log.info("motor", `nível do log agora é ${nivelDoLog()}`);
     /*
      * Apagar `memoriaDir`/`tarefasDir`/`graphDir` troca o layout daquele tipo pro novo (pasta
      * única por projeto, nome estável entre máquinas). O conteúdo que estava na raiz antiga

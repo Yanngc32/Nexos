@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { log } from "./log.ts";
 import { APIConnectionError, TypeSafeClient, choice, score } from "@typesafe-ai/sdk";
 import {
   CLAUDE_EFFORT_LEVELS,
@@ -348,7 +349,7 @@ export async function escolherExecucao(
     return out;
   } catch (err) {
     registrarFalha(home, store.apiKey, err);
-    console.error("typesafe: falha ao escolher execução:", (err as Error).message || err);
+    log.aviso("turno", "typesafe: falha ao escolher execução", { erro: (err as Error).message || String(err) });
     return vazio;
   }
 }
@@ -433,7 +434,7 @@ function registrarUso(delta: { input_tokens: number; output_tokens: number }, ho
     );
   } catch (e) {
     // Contador de uso é best-effort: nunca pode derrubar uma decisão de roteamento já feita.
-    console.error("typesafe: falha ao gravar contador de uso:", (e as Error).message);
+    log.aviso("turno", "typesafe: falha ao gravar contador de uso", { erro: (e as Error).message });
   }
 }
 
@@ -518,7 +519,7 @@ export async function decidirRoteamento(
     return { tipo: "agente", agentId: a.choice, confianca: a.confidence, probabilidades: a.probabilities };
   } catch (e) {
     registrarFalha(home, store.apiKey, e);
-    console.error("typesafe: falha ao decidir roteamento:", (e as Error).message || e);
+    log.aviso("turno", "typesafe: falha ao decidir roteamento", { erro: (e as Error).message || String(e) });
     return undefined;
   }
 }

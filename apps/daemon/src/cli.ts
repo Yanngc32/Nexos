@@ -22,7 +22,9 @@ import { sincronizarRepoMapResumos } from "./repo-map-auto.ts";
 import { createThread, listThreads, projetosConhecidos, readThread } from "./threads.ts";
 import { pingUsoDeTodasAsContas, postMessage, sessionBus, switchThread } from "./session.ts";
 import { loginProfile } from "./login.ts";
-import { pidPath, startDaemon, waitClosed } from "./server.ts";
+import { CODIGO_TRAVADO, pidPath, startDaemon, waitClosed } from "./server.ts";
+import { iniciarLog, log, registrarErrosSemDono } from "./log.ts";
+import { vigiarCongelamento } from "./congelamento.ts";
 import { fecharTudo, pararDeManter } from "./escuta.ts";
 import { instalarSkill } from "./skill.ts";
 import { apagarBranchesNexo, listarBranchesNexo, podeIsolar } from "./worktree.ts";
@@ -51,11 +53,26 @@ function homeFromEnv(): string {
 
 async function cmdUp(): Promise<void> {
   const home = homeFromEnv();
+  iniciarLog(home);
+  registrarErrosSemDono();
+  log.info("motor", "up começou", {
+    porta: loadConfig(home).port,
+    versao: process.env.NEXOS_APP_VERSION || "",
+    pid: process.pid,
+  });
   const started = await startDaemon(home);
   if (started.alreadyUp) {
+    if (started.travado) {
+      // o app lê o código de saída: motor travado na porta, não "já ligado"
+      console.error(`nexos: motor na porta ${started.port} não responde (PID ${started.pid ?? "?"})`);
+      process.exitCode = CODIGO_TRAVADO;
+      return;
+    }
+    log.info("motor", "já ligado, nada a subir", { porta: started.port });
     console.log(`nexos already up  http://127.0.0.1:${started.port}`);
     return;
   }
+  const pararVigia = vigiarCongelamento();
   // Fire-and-forget, em paralelo ao resto da subida — nunca lançam, então não atrasam nem
   // condicionam o daemon a isso (ver ensureRtkInstalled/ensureCavemanInstalled).
   const modulos = loadConfig(home).modulos;
@@ -63,7 +80,7 @@ async function cmdUp(): Promise<void> {
   if (modulos.caveman) void ensureCavemanInstalled(home);
   // Síncrono e barato (só lê agents.json/hooks.json) — sem network, não precisa de fire-and-forget.
   const r = sincronizarRepoMapResumos(home);
-  if (!r.ok) console.error(`resumos do repo map: ${r.motivo}`);
+  if (!r.ok) log.aviso("motor", "resumos do repo map", { motivo: r.motivo });
   // Move memória/tarefas/repo-map do layout antigo (por-tipo+hash) pro layout novo (pasta única
   // por projeto) pra cada projeto conhecido — best-effort, nunca lança, ver projeto-dir.ts.
   for (const p of projetosConhecidos(home)) migrarProjeto(p, home);
@@ -75,9 +92,9 @@ async function cmdUp(): Promise<void> {
    * Gasto real, pequeno, por conta — decisão explícita do usuário.
    */
   const PING_USO_MS = 30 * 60_000;
-  void pingUsoDeTodasAsContas(home).catch((e) => console.error("ping de uso:", (e as Error).message));
+  void pingUsoDeTodasAsContas(home).catch((e) => log.aviso("turno", "ping de uso falhou", { erro: (e as Error).message }));
   const pingUso = setInterval(() => {
-    void pingUsoDeTodasAsContas(home).catch((e) => console.error("ping de uso:", (e as Error).message));
+    void pingUsoDeTodasAsContas(home).catch((e) => log.aviso("turno", "ping de uso falhou", { erro: (e as Error).message }));
   }, PING_USO_MS);
   /*
    * Sync com o Drive (só se a conta está conectada; a pasta "Nexos" é criada/achada sozinha) e,
@@ -92,11 +109,11 @@ async function cmdUp(): Promise<void> {
       // sem conta Google, a pasta de projetos ainda pode estar numa pasta sincronizada por fora
       // (`projetosDir`): a biblioteca concilia com o espelho dela do mesmo jeito
       const b = sincronizarBiblioteca(home);
-      if (b.erros.length) console.error(`biblioteca: ${b.erros.length} erro(s) — ${b.erros[0]}`);
+      if (b.erros.length) log.aviso("sync", `biblioteca: ${b.erros.length} erro(s)`, { primeiro: b.erros[0] });
       return;
     }
     void sincronizarDrive(home).then((r) => {
-      if (r.erros.length) console.error(`drive: ${r.erros.length} erro(s) no sync — ${r.erros[0]}`);
+      if (r.erros.length) log.aviso("drive", `${r.erros.length} erro(s) no sync`, { primeiro: r.erros[0] });
     });
   };
   syncDrive();
@@ -104,14 +121,17 @@ async function cmdUp(): Promise<void> {
   for (const f of started.falhas) {
     // túnel fora do ar é normal e ele volta sozinho; dizer o motivo evita que
     // "o celular não conecta" vire caça ao tesouro
-    console.error(`nexos: não consegui escutar em ${f.host} (${f.motivo})`);
+    log.aviso("motor", `não consegui escutar em ${f.host}`, { motivo: f.motivo });
   }
   for (const h of started.hosts) {
     const mostrar = h === "0.0.0.0" || h === "::" ? "127.0.0.1" : h;
+    log.info("motor", `escutando em http://${hostNaUrl(mostrar)}:${started.port}`);
     console.log(`nexos up  http://${hostNaUrl(mostrar)}:${started.port}`);
   }
   // serviço é filho nosso: não sobrevive ao daemon
   const shutdown = () => {
+    log.info("motor", "desligando");
+    pararVigia();
     clearInterval(pingUso);
     clearInterval(timerDrive);
     stopAllServices();

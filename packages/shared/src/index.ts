@@ -419,7 +419,15 @@ export type NexoConfig = {
   windowsControlEnabled: boolean;
   /** Roteamento de conversa nova por typesafe.ai. A API key mora fora daqui (typesafe.json), nunca sai em GET /v1/config. */
   typesafe: { modo: TypesafeModo };
+  /**
+   * Nível do `daemon.log` (motor e app). Ausente = `info`. A env `NEXOS_LOG` ganha deste campo
+   * — é o jeito de ligar `debug` numa subida só, sem mexer no config.
+   */
+  logNivel?: LogNivel;
 };
+
+export const LOG_NIVEIS = ["debug", "info", "aviso", "erro"] as const;
+export type LogNivel = (typeof LOG_NIVEIS)[number];
 
 export const CAVEMAN_NIVEIS = ["lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"] as const;
 export type CavemanNivel = (typeof CAVEMAN_NIVEIS)[number];

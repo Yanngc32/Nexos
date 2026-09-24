@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { log } from "./log.ts";
 import { createHash } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -143,7 +144,7 @@ export function garantirGitignore(projectPath: string): void {
     const sep = atual && !atual.endsWith("\n") ? "\n" : "";
     writeFileSync(arq, `${atual}${sep}${atual ? "\n" : ""}# Nexos: memória, tarefas, repo map e design system deste projeto\n.nexos/\n`, "utf8");
   } catch (e) {
-    console.error(`nexo: não consegui ajustar o .gitignore de ${projectPath}: ${(e as Error).message}`);
+    log.aviso("drive", "não consegui ajustar o .gitignore", { projectPath, erro: (e as Error).message });
   }
 }
 
@@ -164,7 +165,7 @@ export function migrarArmazenamento(de: ModoArmazenamento, para: ModoArmazenamen
       if (para === "projeto") garantirGitignore(projectPath);
       n += 1;
     } catch (e) {
-      console.error(`nexo: falha ao mover os dados de ${projectPath}: ${(e as Error).message}`);
+      log.erro("drive", "falha ao mover os dados do projeto", { projectPath, erro: (e as Error).message });
     }
   }
   return n;
@@ -331,7 +332,7 @@ function moverLegado(antigo: string, projectPath: string, tipo: TipoMigravel, ho
       rmSync(antigo, { recursive: true, force: true });
     }
   } catch (e) {
-    console.error(`nexo: falha ao migrar ${tipo.novoSub} de ${projectPath}: ${(e as Error).message}`);
+    log.erro("drive", `falha ao migrar ${tipo.novoSub}`, { projectPath, erro: (e as Error).message });
   }
 }
 

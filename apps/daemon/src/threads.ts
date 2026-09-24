@@ -1,4 +1,5 @@
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { log } from "./log.ts";
 import { dirname, join, resolve, sep } from "node:path";
 import type { ThreadEvent } from "@nexos/shared";
 import { loadConfig } from "./config.ts";
@@ -226,7 +227,7 @@ export function importarConversas(home: string): number {
         writeFileSync(alvo, mesclarJsonl(atual, novas.join("\n")), "utf8");
         mexeu++;
       } catch (e) {
-        console.error(`nexo: falha ao importar conversa ${id}: ${(e as Error).message}`);
+        log.erro("sync", "falha ao importar conversa", { threadId: id, erro: (e as Error).message });
       }
     }
   }
@@ -254,7 +255,7 @@ function espelharNoProjeto(event: ThreadEvent, path: string, linha: string, home
     if (existsSync(espelho)) appendFileSync(espelho, linha, "utf8");
     else copyFileSync(path, espelho);
   } catch (e) {
-    console.error(`nexo: falha ao espelhar conversa ${event.threadId}: ${(e as Error).message}`);
+    log.erro("sync", "falha ao espelhar conversa", { threadId: event.threadId, erro: (e as Error).message });
   }
 }
 

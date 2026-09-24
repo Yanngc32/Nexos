@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { log } from "./log.ts";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -42,17 +43,18 @@ export async function ensureRtkInstalled(home: string): Promise<void> {
   const marca = join(home, "rtk-aviso-instalacao");
   if (existsSync(marca)) return;
   if (await rodar("cargo", ["install", "--git", "https://github.com/rtk-ai/rtk"], INSTALL_TIMEOUT_MS)) {
-    console.log("rtk: instalado via cargo");
+    log.info("motor", "rtk instalado via cargo");
     return;
   }
   if (process.platform !== "win32") {
     const script = "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh";
     if (await rodar("sh", ["-c", script], INSTALL_TIMEOUT_MS)) {
-      console.log("rtk: instalado via install.sh");
+      log.info("motor", "rtk instalado via install.sh");
       return;
     }
   }
-  console.log(
+  log.aviso(
+    "motor",
     "rtk: não consegui instalar automaticamente (sem cargo, e Windows não tem installer de script) — " +
       "baixe o zip e extraia rtk.exe pro PATH: https://github.com/rtk-ai/rtk/releases",
   );
@@ -106,8 +108,8 @@ export async function ensureCavemanInstalled(home: string): Promise<void> {
     const texto = await resp.text();
     mkdirSync(dir, { recursive: true });
     writeFileSync(dest, texto, "utf8");
-    console.log("caveman: skill instalada");
+    log.info("motor", "caveman: skill instalada");
   } catch (e) {
-    console.log(`caveman: não consegui baixar a skill (${(e as Error).message || String(e)}) — tente de novo mais tarde`);
+    log.aviso("motor", "caveman: não consegui baixar a skill, tento de novo mais tarde", { erro: (e as Error).message || String(e) });
   }
 }

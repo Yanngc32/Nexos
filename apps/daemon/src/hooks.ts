@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { log } from "./log.ts";
 import { join } from "node:path";
 import { newHookRuleId } from "./ids.ts";
 import { ensureHome, hooksPath, projectKey } from "./home.ts";
@@ -320,7 +321,7 @@ export function sincronizarHooksGlobal(home: string): void {
     try {
       sincronizarHooksDoProjeto(projectPath, home);
     } catch (e) {
-      console.error(`sincronizar hooks (${projectPath}):`, (e as Error).message || e);
+      log.aviso("hook", "sincronizar hooks falhou", { projectPath, erro: (e as Error).message || String(e) });
     }
   }
 }
@@ -345,7 +346,7 @@ function sincronizarAposMudanca(novo: EscopoHook | undefined, antigo: EscopoHook
     try {
       sincronizarHooksDoProjeto(p, home);
     } catch (e) {
-      console.error(`sincronizar hooks (${p}):`, (e as Error).message || e);
+      log.aviso("hook", "sincronizar hooks falhou", { projectPath: p, erro: (e as Error).message || String(e) });
     }
   }
 }
@@ -424,7 +425,7 @@ async function executarRegras(
       await executarRun(run, home);
     }
   } catch (e) {
-    console.error(`nexo hook (${chave}):`, (e as Error).message || e);
+    log.aviso("hook", `nexo hook ${chave} falhou`, { erro: (e as Error).message || String(e) });
   } finally {
     emVoo.delete(chave);
     // Commit em cima de commit enquanto o agente ainda rodava: o diff mais recente só é lido do

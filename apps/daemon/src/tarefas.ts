@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { log } from "./log.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "./config.ts";
@@ -573,7 +574,7 @@ function dispararAutomacaoDeColuna(t: Tarefa, quadro: Quadro, home: string): voi
     const contexto = `Tarefa ${t.id} — "${t.titulo}"${t.descricao ? `: ${t.descricao}` : ""} — entrou na coluna "${coluna}".`;
     fireHook("tarefa.mudou-coluna", t.projectPath, home, { colunaId: t.colunaId, contexto });
   } catch (e) {
-    console.error(`automação de coluna (tarefa ${t.id}):`, (e as Error).message || e);
+    log.aviso("motor", "automação de coluna falhou", { tarefa: t.id, erro: (e as Error).message || String(e) });
   }
 }
 
