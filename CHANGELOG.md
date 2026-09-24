@@ -6,6 +6,16 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+### Corrigido
+
+### Alterado
+
+### Segurança
+
+## [0.8.1] - 2026-09-24
+
+### Adicionado
+
 - Log completo em `~/.nexos/daemon.log`: toda linha com hora local, nível (`DEBUG`/`INFO`/`AVISO`/`ERRO`) e origem (`[motor]`, `[app]`, `[copia]`…). O arquivo gira sozinho a cada 5 MB (guarda 3 antigos). Nível em `logNivel` no config ou na variável `NEXOS_LOG`, e vale sem reiniciar. O app também escreve no mesmo log. A saída crua do motor foi pra `daemon-saida.log`.
 - Aviso de congelamento: quando o motor fica mais de 2 s sem responder, aparece uma linha no log com a duração.
 - A tela do Google Drive mostra há quanto tempo a sincronização está rodando e quantos arquivos faltam. Acima de 10 minutos, o aviso fica em destaque.
@@ -19,10 +29,6 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 - Sync do Google Drive que nunca terminava uma rodada: agora ele só sobe e baixa o que o Nexos grava (memória, tarefas, repo map, conversas, planejamento, design system, ícone e a biblioteca). Código, `node_modules` e arquivos soltos ficam de fora, dos dois lados, e nada fora da lista é apagado.
 - Uma rodada de sync interrompida continua de onde parou (o estado é gravado a cada projeto e a cada 200 arquivos). Acima de 5 mil operações a rodada para e avisa. A biblioteca (agentes, times, hooks, skills) sincroniza antes dos projetos.
 - Os dados do Nexos nunca mais vão parar dentro de um repositório. Uma pasta de projetos salva que contém repositórios passa a ser ignorada, com aviso nas Configurações. Na subida, os dados que estavam lá são copiados pra pasta padrão, sem apagar nada do repo.
-
-### Alterado
-
-### Segurança
 
 ## [0.8.0] - 2026-09-24
 
