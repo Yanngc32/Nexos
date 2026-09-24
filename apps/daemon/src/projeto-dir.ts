@@ -3,12 +3,12 @@ import { log } from "./log.ts";
 import { createHash } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { copyFile, mkdir, readdir, stat } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { NexoConfig } from "@nexos/shared";
 import { loadConfig } from "./config.ts";
 import { readGoogleStore } from "./google-auth.ts";
 import { projectKey } from "./home.ts";
-import { PASTA_BIBLIOTECA, sincronizavel } from "./sync-decisao.ts";
+import { PASTA_BIBLIOTECA, dadoDoProjeto, sincronizavel } from "./sync-decisao.ts";
 
 /**
  * Pasta única por projeto (memória + tarefas + repo map dentro dela), nomeada de forma
@@ -31,8 +31,111 @@ export type OrigemSlug = "manual" | "git" | "pasta";
  */
 export function projetosRoot(home: string): string {
   if (readGoogleStore(home).refreshToken) return join(home, "drive");
-  const cfg = loadConfig(home);
-  return cfg.projetosDir || join(home, "projetos");
+  const dir = loadConfig(home).projetosDir;
+  if (dir && pastaDeCodigoCache(dir)) {
+    avisarIgnorada(dir);
+    return join(home, "projetos");
+  }
+  return dir || join(home, "projetos");
+}
+
+/**
+ * `projetosDir` salvo que é pasta de repos (ou um repo): **ignorado**, a mesma regra que o
+ * `PUT /v1/config` já aplica pra config nova. Sem isso, projeto sem remote git dentro dela ganhava
+ * o slug do nome da pasta e `projetosDir/<slug>` ERA o próprio repo — o Nexos gravava `meta.json`,
+ * `conversas/` e `repo-map/` dentro do código da pessoa. Devolve a pasta ignorada, ou `""`.
+ */
+export function projetosDirIgnorado(home: string): string {
+  const dir = loadConfig(home).projetosDir;
+  return dir && pastaDeCodigoCache(dir) ? dir : "";
+}
+
+/** `projetosRoot` roda em toda leitura de dado de projeto: a varredura da pasta fica em cache curto. */
+const cacheCodigo = new Map<string, { valor: boolean; em: number }>();
+const CACHE_CODIGO_MS = 60_000;
+
+function pastaDeCodigoCache(dir: string): boolean {
+  const c = cacheCodigo.get(dir);
+  if (c && Date.now() - c.em < CACHE_CODIGO_MS) return c.valor;
+  const valor = pastaDeCodigo(dir);
+  cacheCodigo.set(dir, { valor, em: Date.now() });
+  return valor;
+}
+
+const ignoradaAvisada = new Set<string>();
+
+function avisarIgnorada(dir: string): void {
+  if (ignoradaAvisada.has(dir)) return;
+  ignoradaAvisada.add(dir);
+  log.aviso("drive", `pasta de projetos ${dir} ignorada: tem repositórios git — os dados do Nexos ficam na pasta padrão`, { projetosDir: dir });
+}
+
+/** Só pra teste: esquece cache e avisos desta subida. */
+export function resetProjetosDirForTest(): void {
+  cacheCodigo.clear();
+  ignoradaAvisada.clear();
+}
+
+/**
+ * Subida com `projetosDir` ignorado (ver `projetosRoot`): traz pra raiz padrão os dados do Nexos que
+ * ficaram lá — inclusive os que caíram DENTRO de um repo por colisão de nome. Só os itens da lista
+ * (`dadoDoProjeto`) e o `meta.json`, sem sobrescrever nada; **nada é apagado** da pasta antiga, a
+ * pessoa decide (o log diz onde ficou). Roda antes do servidor subir: se rodasse depois, o projeto
+ * pareceria resetado até a cópia chegar (o bug da migração da 0.5.0). Uma vez por pasta de origem
+ * (marca no home). Best-effort: nunca lança. Devolve quantos projetos trouxe.
+ */
+export function resgatarDaPastaDeRepos(home: string): number {
+  if (readGoogleStore(home).refreshToken) return 0; // conectado: trazerPastaManualProDrive cuida
+  const de = projetosDirIgnorado(home);
+  if (!de) return 0;
+  const marca = join(home, "projetos-dir-ignorado.json");
+  try {
+    if ((JSON.parse(readFileSync(marca, "utf8")) as { de?: string }).de === de) return 0;
+  } catch {
+    // sem marca: ainda não resgatou
+  }
+  const para = join(home, "projetos");
+  let projetos = 0;
+  const deixados: string[] = [];
+  try {
+    for (const e of readdirSync(de, { withFileTypes: true })) {
+      if (!e.isDirectory()) continue;
+      const origem = join(de, e.name);
+      if (e.name === PASTA_BIBLIOTECA) {
+        cpSync(origem, join(para, PASTA_BIBLIOTECA), { recursive: true, force: false, errorOnExist: false });
+        deixados.push(origem);
+        continue;
+      }
+      let slug = e.name;
+      try {
+        const meta = JSON.parse(readFileSync(join(origem, "meta.json"), "utf8")) as { slug?: unknown };
+        if (typeof meta.slug === "string" && normalizarSlug(meta.slug) === meta.slug) slug = meta.slug;
+      } catch {
+        continue; // sem meta.json: não é pasta de projeto do Nexos
+      }
+      const destino = join(para, slug);
+      let trouxe = false;
+      for (const item of readdirSync(origem)) {
+        if (item !== "meta.json" && !dadoDoProjeto(item)) continue;
+        mkdirSync(destino, { recursive: true });
+        cpSync(join(origem, item), join(destino, item), { recursive: true, force: false, errorOnExist: false });
+        trouxe = true;
+      }
+      if (trouxe) {
+        projetos += 1;
+        deixados.push(origem);
+      }
+    }
+    writeFileSync(marca, JSON.stringify({ de, para, em: new Date().toISOString(), projetos }, null, 2), "utf8");
+    log.aviso("drive", `dados de ${projetos} projeto(s) copiados de ${de} pra ${para}; os originais ficaram onde estavam`, {
+      de,
+      para,
+      originaisEm: deixados,
+    });
+  } catch (e) {
+    log.erro("drive", "não consegui trazer os dados da pasta de repos", { de, erro: (e as Error).message });
+  }
+  return projetos;
 }
 
 
@@ -204,7 +307,26 @@ export type ModoArmazenamento = "pasta" | "projeto";
 /** Pasta dos dados de UM projeto no modo dado (padrão: o da config). Não cria nada. */
 export function dirDoProjeto(projectPath: string, home: string, modo: ModoArmazenamento = loadConfig(home).armazenamento): string {
   if (modo === "projeto") return join(projectPath, ".nexos");
-  return join(projetosRoot(home), projectSlug(projectPath, home).slug);
+  const root = projetosRoot(home);
+  const { slug, origem } = projectSlug(projectPath, home);
+  return join(root, nomeSemColisao(root, slug, origem, projectPath));
+}
+
+function comparavel(p: string): string {
+  return resolve(p).replace(/[\u005c]/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+/**
+ * **Trava:** a pasta de dados nunca é o próprio repo, nem fica dentro dele ou acima dele. Com a
+ * raiz de projetos sendo a pasta dos repos, `<raiz>/<slug>` batia com o projeto (Windows não
+ * diferencia maiúsculas). Aí vira `<slug>-<hash curto>`; o hash sai do mesmo insumo do slug (remote
+ * git ou nome da pasta), não do caminho absoluto, pra dar o mesmo nome em toda máquina.
+ */
+function nomeSemColisao(root: string, slug: string, origem: OrigemSlug, projectPath: string): string {
+  const dir = comparavel(join(root, slug));
+  const proj = comparavel(projectPath);
+  if (dir !== proj && !proj.startsWith(`${dir}/`) && !dir.startsWith(`${proj}/`)) return slug;
+  return `${slug}-${createHash("sha1").update(`${origem}:${slug}`).digest("hex").slice(0, 6)}`;
 }
 
 /**
@@ -352,7 +474,9 @@ export function projectDir(projectPath: string, home: string): string {
   const metaPath = join(dir, "meta.json");
   if (!existsSync(metaPath)) {
     mkdirSync(dir, { recursive: true });
-    writeFileSync(metaPath, JSON.stringify({ projectPath, slug, origem }, null, 2), "utf8");
+    // no modo pasta, o nome da pasta (com o sufixo da trava, se houve colisão com o repo)
+    const nome = modo === "pasta" ? basename(dir) : slug;
+    writeFileSync(metaPath, JSON.stringify({ projectPath, slug: nome, origem }, null, 2), "utf8");
     if (modo === "projeto") garantirGitignore(projectPath);
   }
   return dir;

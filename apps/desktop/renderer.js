@@ -7788,6 +7788,14 @@ async function renderMemoria() {
   }
   $("projetos-dir").value = cfg.projetosDir || "";
   pintarBadgePasta("projetos-dir-badge", cfg.projetosDir);
+  // pasta salva que tem repositórios: o motor ignora (senão gravava dado dentro do código)
+  if (cfg.projetosDirIgnorado) {
+    mostrarMsgPasta(
+      "projetos-dir-msg",
+      `Pasta ${cfg.projetosDirIgnorado} ignorada: tem repositórios. Os dados ficam na pasta padrão do Nexos — escolha uma pasta vazia só pra eles.`,
+      "erro",
+    );
+  }
   for (const r of document.querySelectorAll('input[name="armazenamento"]')) r.checked = r.value === (cfg.armazenamento || "pasta");
   // Google Drive conectado: a pasta manual não vale mais (o sync pela API cuida) — some da tela
   let conectado = false;

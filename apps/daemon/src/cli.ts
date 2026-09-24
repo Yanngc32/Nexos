@@ -17,7 +17,7 @@ import { ensureCavemanInstalled, ensureRtkInstalled } from "./modules.ts";
 import { sincronizarDrive } from "./drive-sync.ts";
 import { sincronizarBiblioteca } from "./biblioteca.ts";
 import { googleAccount } from "./google-auth.ts";
-import { migrarProjeto } from "./projeto-dir.ts";
+import { migrarProjeto, resgatarDaPastaDeRepos } from "./projeto-dir.ts";
 import { sincronizarRepoMapResumos } from "./repo-map-auto.ts";
 import { createThread, listThreads, projetosConhecidos, readThread } from "./threads.ts";
 import { pingUsoDeTodasAsContas, postMessage, sessionBus, switchThread } from "./session.ts";
@@ -60,6 +60,9 @@ async function cmdUp(): Promise<void> {
     versao: process.env.NEXOS_APP_VERSION || "",
     pid: process.pid,
   });
+  // antes do servidor: com a pasta de repos ignorada, os dados do projeto já têm que estar na raiz
+  // nova quando a primeira rota ler — senão o projeto parece resetado
+  resgatarDaPastaDeRepos(home);
   const started = await startDaemon(home);
   if (started.alreadyUp) {
     if (started.travado) {

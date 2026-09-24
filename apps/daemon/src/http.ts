@@ -19,7 +19,7 @@ import { disconnectGoogle, googleAccount } from "./google-auth.ts";
 import { cancelGoogleLogin, googleLoginStatus, startEscolherPasta, startGoogleLogin } from "./google-conectar.ts";
 import { driveStatus, sincronizarDrive } from "./drive-sync.ts";
 import { projectKey, tokenPath } from "./home.ts";
-import { migrarArmazenamento, migrarProjeto, migrarRaizLegadaRemovida, pastaDeCodigo, projectSlug } from "./projeto-dir.ts";
+import { migrarArmazenamento, migrarProjeto, migrarRaizLegadaRemovida, pastaDeCodigo, projectSlug, projetosDirIgnorado } from "./projeto-dir.ts";
 import {
   accountInfo,
   addProfile,
@@ -2339,7 +2339,11 @@ export function createApp(home: string, token: string): Hono {
     });
   }
 
-  app.get("/v1/config", (c) => c.json(loadConfig(home)));
+  app.get("/v1/config", (c) => {
+    // pasta de projetos salva que é pasta de repos: ignorada (ver projetosRoot) — a tela avisa
+    const ignorada = projetosDirIgnorado(home);
+    return c.json({ ...loadConfig(home), ...(ignorada ? { projetosDirIgnorado: ignorada } : {}) });
+  });
   app.put("/v1/config", async (c) => {
     const cfgAntes = loadConfig(home);
     const nivelAntes = nivelDoLog();
