@@ -40,6 +40,11 @@ import {
 } from "./services.ts";
 import { contextLines, costLines, limitsLines, threadReport } from "./usage-report.ts";
 
+/** Pasta de quem chamou a CLI: o shim (`scripts/nexo.mjs`) sobe o motor com cwd no daemon e passa a de verdade em `NEXO_CWD`. */
+function cwdDeQuemChamou(): string {
+  return process.env.NEXO_CWD || process.cwd();
+}
+
 function homeFromEnv(): string {
   return ensureHome(nexoHome());
 }
@@ -243,7 +248,7 @@ async function main(): Promise<void> {
 
   if (cmd === "svc") {
     const sub = argv[1];
-    const project = process.cwd();
+    const project = cwdDeQuemChamou();
     if (sub === "ls" || sub === undefined) {
       const rel = listServices(project, home);
       if (rel.error) {
@@ -322,7 +327,7 @@ async function main(): Promise<void> {
     const event = argv[2] ?? "";
     if (!HOOK_EVENT_RE.test(event)) return;
     const branch = arg("--branch", argv) ?? "";
-    const project = process.cwd();
+    const project = cwdDeQuemChamou();
     if (!existsSync(tokenPath(home))) return; // daemon nunca subiu nesta home — falha aberta
     const token = readFileSync(tokenPath(home), "utf8").trim();
     const port = loadConfig(home).port;
@@ -358,7 +363,7 @@ async function main(): Promise<void> {
    * membro por run e ninguém apaga dezenas à mão.
    */
   if (cmd === "branch" && (argv[1] === "ls" || argv[1] === "rm")) {
-    const project = argv[2] && !argv[2].startsWith("--") ? argv[2] : process.cwd();
+    const project = argv[2] && !argv[2].startsWith("--") ? argv[2] : cwdDeQuemChamou();
     const isolar = await podeIsolar(project);
     if (!isolar.pode) {
       console.error(`nexos: ${isolar.motivo}`);
@@ -404,7 +409,7 @@ async function main(): Promise<void> {
   }
 
   if (cmd === "thread" && argv[1] === "ls") {
-    const project = argv[2] ?? process.cwd();
+    const project = argv[2] ?? cwdDeQuemChamou();
     for (const t of listThreads(project, home)) console.log(t.id, t.profileId);
     return;
   }
@@ -412,7 +417,7 @@ async function main(): Promise<void> {
   if (cmd === "thread" && argv[1] === "new") {
     const profileId = argv[2];
     if (!profileId) throw new Error("uso: nexos thread new <perfil>");
-    const t = createThread({ projectPath: process.cwd(), profileId }, home);
+    const t = createThread({ projectPath: cwdDeQuemChamou(), profileId }, home);
     console.log(t.id);
     return;
   }
@@ -436,7 +441,7 @@ async function main(): Promise<void> {
   if (cmd === "chat") {
     const profileId = argv[1];
     if (!profileId) throw new Error("uso: nexos chat <perfil>");
-    const t = createThread({ projectPath: process.cwd(), profileId }, home);
+    const t = createThread({ projectPath: cwdDeQuemChamou(), profileId }, home);
     console.log("thread", t.id);
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     let pendingQuota: { suggested?: string; chatOnly?: boolean } | null = null;
