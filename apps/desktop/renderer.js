@@ -3152,6 +3152,16 @@ function menuDaConversa(e, path, t) {
     { titulo: clip(t.preview || "Conversa nova", 40) },
     { rotulo: "Abrir conversa", icoSvg: ctxIco("abrir"), onSelect: () => void openThreadInRepo(path, t.id) },
     { rotulo: "Nova conversa neste repositório", icoSvg: ctxIco("mais"), onSelect: () => void criarConversaEmRepo(path) },
+    // conversa de plano (Manager) já é plano: não vira outro
+    ...(t.planejamento
+      ? []
+      : [
+          {
+            rotulo: "Planejar a partir desta conversa",
+            icoSvg: icoSvg("planejamento", "ctx-svg"),
+            onSelect: () => void planejarDaConversa(t.id),
+          },
+        ]),
     { rotulo: "Copiar ID", icoSvg: ctxIco("copiar"), onSelect: () => void copiarTexto(t.id, "ID da conversa") },
     { separador: true },
     { rotulo: "Apagar conversa", icoSvg: ctxIco("lixo"), perigo: true, onSelect: () => void deleteThread(t.id) },
@@ -5503,6 +5513,7 @@ const tarefasBoard = createTarefasBoard({
   el: $,
   getProjectPath: () => state.projectPath,
   aoAbrirConversa: (threadId) => openThread(threadId),
+  aoAbrirPlano: (slug) => void abrirPlanoExistente(state.projectPath, slug),
   confirmar: (msg) => dialogo.confirmar(msg),
   avisar: (msg) => dialogo.avisar(msg),
 });
@@ -5533,7 +5544,41 @@ const planejamentoBoard = createPlanejamentoBoard({
     void sendChatMessage(texto);
   },
   aoAbrirConversa: (threadId) => void openThread(threadId),
+  aoAbrirDs: (sistema, card) => void abrirTelaDoDs(sistema, card),
+  aoAbrirTarefa: (id) => void abrirTarefaNoQuadro(id),
 });
+
+/** Anexo do plano → Canvas do DS focado na tela (troca o DS ativo só se a pessoa aceitar). */
+async function abrirTelaDoDs(sistema, card) {
+  setView("ds");
+  const achou = await dsCanvas.focarCard(sistema, card, {
+    confirmarTroca: (nome) => dialogo.confirmar(`Essa tela é do design system "${nome}". Ativar ele no Canvas?`),
+  });
+  if (achou === false && sistema) void dialogo.avisar("Não achei essa tela no Canvas — ela pode ter sido apagada.");
+}
+
+/** Anexo/etapa do plano → Quadro com a tarefa aberta. */
+async function abrirTarefaNoQuadro(id) {
+  setView("tarefas");
+  if (!(await tarefasBoard.abrirTarefa(id))) void dialogo.avisar("Essa tarefa não existe mais no Quadro.");
+}
+
+/**
+ * Plano nascido de uma conversa: o daemon cria o plano no projeto dela e manda a transcrição pro
+ * Agent Manager, que já começa a separar etapas. Abre a Tela de Planejamento na conversa dele.
+ */
+async function planejarDaConversa(threadId) {
+  if (!state.ok) return;
+  const profileId = contaParaPlanejar();
+  if (!profileId) return;
+  try {
+    const r = await req("/v1/planejamento", { method: "POST", body: JSON.stringify({ deThreadId: threadId, profileId }) });
+    if (r.projectPath && !samePath(state.projectPath, r.projectPath)) await bindProject(r.projectPath);
+    await openThread(r.threadId);
+  } catch (e) {
+    dialogo.avisar(`Não criou o planejamento: ${e.message}`);
+  }
+}
 
 /** Conta pra conversa do Manager: a da conversa aberta, senão a primeira pronta. */
 function contaParaPlanejar() {

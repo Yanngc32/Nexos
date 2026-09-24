@@ -6,7 +6,15 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- Planejamento integrado ao resto do Nexos. Um card do plano pode anexar telas do Design System (de qualquer DS do projeto) e tarefas do Quadro. Os anexos aparecem como chips no card e no editor. Clicar abre o Canvas focado na tela ou o Quadro com a tarefa aberta. Anexo cujo alvo foi apagado aparece riscado.
+- "Etapas → Quadro" cria uma tarefa por etapa, cada uma dependendo da anterior. As tarefas ficam sob o marco "Plano: <título>" e os requisitos da etapa viram checklist. Clicar de novo não duplica. O envio pra implementação faz o mesmo (opção ligada por padrão) e liga as tarefas à conversa de implementação. A etapa mostra em que coluna do Quadro está, e a tarefa ganha o botão "Abrir plano".
+- "Planejar a partir desta conversa" no botão direito de uma conversa. O plano nasce no projeto dela, e o Agent Manager recebe a conversa e já começa a separar em etapas. O botão "voltar" do chat leva de volta à conversa de origem.
+- O Agent Manager enxerga as telas do DS e as tarefas do Quadro (`nexo_plano_alvos`) e pode ver uma tela renderizada (`nexo_ds_print`), sem editar nenhuma das duas. O handoff inclui o arquivo `.html` de cada tela anexada.
+
 ### Corrigido
+
+- Trocar de tela e voltar no meio de um turno não some mais com o texto do agente entre as ferramentas. O texto é gravado antes de cada ferramenta, e a fala em curso reaparece e continua de onde estava. Depois do fim do turno, o histórico mostra fala, ferramentas e fala na ordem em que aconteceram, e não mais o texto todo junto no final.
+- Modal "Nova conversa": a lista de branches cortada dentro do card virou uma lista inline. A branch atual aparece primeiro. Há filtro a partir de 7 branches, setas/Enter/Esc funcionam, e uma dica diz quando a conversa vai rodar numa worktree isolada. Sem escolha a fazer (chat geral, pasta sem git ou uma branch só), a conversa é criada direto, sem modal.
 
 ### Alterado
 

@@ -8324,6 +8324,113 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
 .pl-ed-rodape .pl-dica { flex: 1; }
 .pl-ed-apagar { color: var(--danger); }
 
+/* anexos (F7): telas do DS e tarefas do Quadro no card, no editor e no roteiro */
+.pl-card-anexos { display: flex; flex-wrap: wrap; gap: var(--s-1); margin-top: var(--s-3); }
+.pl-anexo {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  font-size: var(--fs-2xs);
+  color: var(--muted);
+}
+.pl-anexo[data-tipo="ds"] { --pl-anexo: var(--accent); }
+.pl-anexo[data-tipo="tarefa"] { --pl-anexo: var(--pl-etapa); }
+.pl-anexo-abrir {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 2px 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.pl-anexo-abrir:hover:not(:disabled) { color: var(--text); }
+.pl-anexo-abrir:focus-visible, .pl-anexo-tirar:focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--r-pill); }
+.pl-anexo-ico { color: var(--pl-anexo, var(--muted)); flex: none; }
+.pl-anexo-nome { min-width: 0; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-anexo[data-existe="0"] .pl-anexo-nome { text-decoration: line-through; color: var(--faint); }
+.pl-anexo[data-existe="0"] .pl-anexo-abrir { cursor: default; }
+.pl-anexo[data-feita="1"] .pl-anexo-ico { color: var(--ok); }
+.pl-anexo-tirar {
+  padding: 2px 8px 2px 2px;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  font-size: var(--fs-2xs);
+  cursor: pointer;
+}
+.pl-anexo-tirar:hover { color: var(--danger); }
+.pl-anexo-mais { align-self: center; font-size: var(--fs-2xs); color: var(--faint); }
+.pl-ed-anexos { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.pl-ed-anexos .pl-anexo { font-size: var(--fs-xs); }
+.pl-ed-anexos .pl-anexo-nome { max-width: 28ch; }
+.pl-ed-anexos-vazio { font-size: var(--fs-xs); color: var(--faint); }
+.pl-ed-seg button[aria-pressed="true"] { color: var(--text); }
+.pl-ed-picker { display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-3); border: 1px solid var(--line-2); border-radius: var(--r-md); background: var(--elev, var(--surface-2)); }
+.pl-ed-picker.hidden { display: none; }
+.pl-ed-picker input {
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+}
+.pl-ed-picker input:focus-visible { outline: none; box-shadow: var(--ring); }
+.pl-ed-picker-lista { display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; }
+.pl-ed-picker-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 6px;
+  align-items: baseline;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.pl-ed-picker-item:hover, .pl-ed-picker-item:focus-visible { background: var(--surface-3); outline: none; }
+.pl-ed-picker-item[data-tipo="ds"] { --pl-anexo: var(--accent); }
+.pl-ed-picker-item[data-tipo="tarefa"] { --pl-anexo: var(--pl-etapa); }
+.pl-ed-picker-nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-ed-picker-det { grid-column: 2; font-size: var(--fs-2xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-ed-picker-vazio { margin: 0; padding: var(--s-3); font-size: var(--fs-xs); color: var(--muted); }
+.pl-etapa-quadro {
+  flex: none;
+  max-width: 9em;
+  padding: 1px 7px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pl-etapa-quadro:hover:not(:disabled) { color: var(--text); border-color: var(--line-3); }
+.pl-etapa-quadro[data-feita="1"] { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.pl-etapa-quadro[data-existe="0"] { text-decoration: line-through; color: var(--faint); cursor: default; }
+.pl-coluna-quadro { color: var(--pl-etapa); }
+.pl-coluna-quadro[data-feita="1"] { color: var(--ok); }
+/* Canvas do DS: tela aberta a partir de um anexo do plano */
+.ds-card.ds-card-foco { box-shadow: 0 0 0 2px var(--accent), var(--sh-2); transition: box-shadow 200ms var(--ease); }
+@media (prefers-reduced-motion: reduce) {
+  .ds-card.ds-card-foco { transition: none; }
+}
+
 /* animação (canvas-anim.js): contorno/cursor vêm de .ds-traco/.ds-cursor */
 .pl-traco { z-index: 4; }
 #btn-pl-anim[aria-pressed="false"] { color: var(--faint); text-decoration: line-through; }

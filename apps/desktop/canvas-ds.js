@@ -1354,6 +1354,34 @@ export function createDsCanvas({
     }
   }
 
+  /**
+   * Leva o Canvas até uma tela (vinda de um anexo do Planejamento): troca pro DS dela se não for o
+   * ativo (perguntando — trocar o ativo muda o DS que as conversas usam) e destaca o card.
+   */
+  async function focarCard(sistema, id, { confirmarTroca = async () => true } = {}) {
+    if (sistema && sistema !== estado.ativo) {
+      const nome = estado.sistemas.find((s) => s.id === sistema)?.nome ?? sistema;
+      if (!(await confirmarTroca(nome))) return false;
+      await trocarSistema(sistema);
+    }
+    const achar = () => el("ds-board")?.querySelector(`.ds-card[data-card="${CSS.escape(id)}"]`);
+    for (let i = 0; i < 20 && !achar(); i++) await new Promise((r) => win.setTimeout(r, 50));
+    const cartao = achar();
+    if (!cartao) return false;
+    const board = el("ds-board");
+    const rb = board.getBoundingClientRect();
+    const rc = cartao.getBoundingClientRect();
+    board.classList.add("suave");
+    vista = { ...vista, x: 32 - ((rc.left - rb.left) / vista.escala) * vista.escala, y: 32 - ((rc.top - rb.top) / vista.escala) * vista.escala };
+    aplicarVista();
+    win.setTimeout(() => board.classList.remove("suave"), 320);
+    cartao.classList.remove("ds-card-foco");
+    void cartao.offsetWidth;
+    cartao.classList.add("ds-card-foco");
+    win.setTimeout(() => cartao.classList.remove("ds-card-foco"), 1800);
+    return true;
+  }
+
   function mostrarNovo() {
     const caixa = el("ds-novo");
     caixa.classList.toggle("hidden");
@@ -2743,5 +2771,6 @@ export function createDsCanvas({
     _vista: () => vista,
     _geracao: () => geracao,
     usarReferencia,
+    focarCard,
   };
 }

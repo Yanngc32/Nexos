@@ -83,6 +83,35 @@ export function sugestoesDeRef(cards, termo, excluir, max = 8) {
     .slice(0, max);
 }
 
+/** Mesma chave do daemon (`chaveDoAnexo`): é o índice de `plano.integracao.anexos`. */
+export function chaveDoAnexo(a) {
+  return a.tipo === "ds" ? `ds:${a.sistema}/${a.card}` : `tarefa:${a.id}`;
+}
+
+/**
+ * Opções do seletor de anexo: telas de todos os DS (ou tarefas do Quadro) que casam com o termo
+ * (sem acento/caixa, em título, seção ou nome do DS), sem as que o card já tem.
+ */
+export function opcoesDeAnexo(alvos, tipo, termo, jaTem = []) {
+  const t = normalizarTitulo(termo || "");
+  const tem = new Set(jaTem.map(chaveDoAnexo));
+  const casa = (...campos) => !t || campos.some((c) => normalizarTitulo(c || "").includes(t));
+  if (tipo === "ds") {
+    const out = [];
+    for (const ds of alvos?.ds ?? []) {
+      for (const c of ds.cards) {
+        const anexo = { tipo: "ds", sistema: ds.sistema, card: c.id };
+        if (tem.has(chaveDoAnexo(anexo)) || !casa(c.titulo, c.secao, ds.nome)) continue;
+        out.push({ anexo, titulo: c.titulo, detalhe: `${ds.nome} · ${c.secao}` });
+      }
+    }
+    return out;
+  }
+  return (alvos?.tarefas ?? [])
+    .filter((x) => !tem.has(`tarefa:${x.id}`) && casa(x.titulo, x.coluna))
+    .map((x) => ({ anexo: { tipo: "tarefa", id: x.id }, titulo: x.titulo, detalhe: x.coluna, feita: x.feita }));
+}
+
 /** Resumo do progresso: concluídas / total. */
 export function progresso(etapas) {
   const total = etapas.length;
@@ -108,6 +137,10 @@ export function createPlanejamentoBoard({
   /** Manda o pedido fixo na conversa do Manager (a conversa ativa, que é a desta tela). */
   aoPedirAoManager = () => {},
   aoAbrirConversa = () => {},
+  /** Anexo de tela do DS: abre o Canvas do DS focado nela. */
+  aoAbrirDs = () => {},
+  /** Anexo de tarefa / selo da etapa: abre o Quadro com a tarefa aberta. */
+  aoAbrirTarefa = () => {},
   fetchImpl = (...a) => globalThis.fetch(...a),
   win = globalThis.window ?? globalThis,
   doc = globalThis.document,
@@ -131,6 +164,8 @@ export function createPlanejamentoBoard({
   let animador = null;
   /** Diálogo de envio: passo atual e, esperando o Manager, os handoffs que já existiam. */
   let envio = null;
+  /** Seletor de anexo aberto no editor: tipo e o que dá pra anexar (lido ao abrir). */
+  let picker = null;
   /** O que esta janela acabou de gravar (`card:<id>:<rev>`, `roteiro:<rev>`): o eco não anima. */
   const proprios = new Set();
 
@@ -279,7 +314,10 @@ export function createPlanejamentoBoard({
     if (editando) {
       const atual = plano.cards.find((c) => c.id === editando.id);
       if (!atual) fecharEditor({ salvar: false });
-      else pintarEtapasDoEditor();
+      else {
+        pintarEtapasDoEditor();
+        pintarAnexosDoEditor();
+      }
     }
   }
 
@@ -308,6 +346,17 @@ export function createPlanejamentoBoard({
       nome.title = "Centralizar a coluna no canvas";
       nome.addEventListener("click", () => centralizarColuna(e.id));
       li.append(num, marca, nome);
+      const q = plano.integracao?.etapas?.[e.id];
+      if (q) {
+        const selo = mk("button", "pl-etapa-quadro", q.existe ? q.coluna || "Quadro" : "apagada");
+        selo.type = "button";
+        selo.dataset.feita = q.feita ? "1" : "0";
+        selo.dataset.existe = q.existe ? "1" : "0";
+        selo.title = q.existe ? `Tarefa no Quadro: ${q.titulo} — abrir` : "A tarefa desta etapa foi apagada do Quadro";
+        selo.disabled = !q.existe;
+        selo.addEventListener("click", () => aoAbrirTarefa(q.tarefaId));
+        li.append(selo);
+      }
       lista.append(li);
     });
   }
@@ -360,6 +409,12 @@ export function createPlanejamentoBoard({
     const sub = mk("span", "pl-coluna-sub");
     if (col.status) sub.append(mk("span", "pl-coluna-status", ROTULO_STATUS[col.status]));
     sub.append(mk("span", "pl-coluna-qtd", `${col.cardIds.length} ${col.cardIds.length === 1 ? "card" : "cards"}`));
+    const q = plano.integracao?.etapas?.[col.id];
+    if (q?.existe) {
+      const selo = mk("span", "pl-coluna-quadro", `Quadro: ${q.coluna}`);
+      selo.dataset.feita = q.feita ? "1" : "0";
+      sub.append(selo);
+    }
     txt.append(sub);
     cab.append(txt);
     n.append(cab);
@@ -396,6 +451,13 @@ export function createPlanejamentoBoard({
     n.append(topo, mk("div", "pl-card-titulo", card.titulo));
     const prev = previaDoCorpo(card.corpo);
     if (prev) n.append(mk("div", "pl-card-prev", prev));
+    if (card.anexos?.length) {
+      const linha = mk("div", "pl-card-anexos");
+      const MAX = 3;
+      for (const a of card.anexos.slice(0, MAX)) linha.append(chipDoAnexo(a));
+      if (card.anexos.length > MAX) linha.append(mk("span", "pl-anexo-mais", `+${card.anexos.length - MAX}`));
+      n.append(linha);
+    }
     const alca = mk("span", "pl-alca");
     alca.title = "Arraste até outro card pra ligar";
     alca.addEventListener("mousedown", (e) => comecarLigacao(e, card.id));
@@ -409,6 +471,40 @@ export function createPlanejamentoBoard({
     n.addEventListener("mouseenter", () => focarArestas(card.id));
     n.addEventListener("mouseleave", () => focarArestas(null));
     return n;
+  }
+
+  /** Chip de um anexo (card do canvas e editor): título resolvido; alvo apagado fica riscado. */
+  function chipDoAnexo(a, { remover } = {}) {
+    const r = plano?.integracao?.anexos?.[chaveDoAnexo(a)];
+    const existe = r ? r.existe : true;
+    const chip = mk("span", "pl-anexo");
+    chip.dataset.tipo = a.tipo;
+    chip.dataset.existe = existe ? "1" : "0";
+    if (r?.feita) chip.dataset.feita = "1";
+    const abrir = mk("button", "pl-anexo-abrir");
+    abrir.type = "button";
+    const titulo = r?.titulo || (a.tipo === "ds" ? a.card : a.id);
+    abrir.append(mk("span", "pl-anexo-ico", a.tipo === "ds" ? "▣" : r?.feita ? "☑" : "☐"), mk("span", "pl-anexo-nome", titulo));
+    abrir.title = existe
+      ? `${a.tipo === "ds" ? "Tela do Design System" : "Tarefa do Quadro"}: ${titulo}${r?.detalhe ? ` (${r.detalhe})` : ""} — abrir`
+      : `${titulo} — não existe mais`;
+    abrir.disabled = !existe;
+    abrir.addEventListener("mousedown", (e) => e.stopPropagation());
+    abrir.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (a.tipo === "ds") aoAbrirDs(a.sistema, a.card);
+      else aoAbrirTarefa(a.id);
+    });
+    chip.append(abrir);
+    if (remover) {
+      const x = mk("button", "pl-anexo-tirar", "✕");
+      x.type = "button";
+      x.title = "Tirar do card";
+      x.setAttribute("aria-label", `Tirar ${titulo} do card`);
+      x.addEventListener("click", () => remover(a));
+      chip.append(x);
+    }
+    return chip;
   }
 
   function pintarArestas() {
@@ -579,7 +675,7 @@ export function createPlanejamentoBoard({
   /* ---------- arrastar card ---------- */
 
   function comecarArrastoDoCard(e, id) {
-    if (e.button !== 0 || e.target.closest(".pl-alca, .pl-card-fonte")) return;
+    if (e.button !== 0 || e.target.closest(".pl-alca, .pl-card-fonte, .pl-anexo")) return;
     e.stopPropagation();
     const p = layout.posicoes[id];
     arrasto = { id, x0: e.clientX, y0: e.clientY, px: p.x, py: p.y, moveu: false };
@@ -815,6 +911,97 @@ export function createPlanejamentoBoard({
     pintarTipoNoForm(base.tipo);
     pintarSituacao(base.status || "aberta");
     mostrarAbaDoCorpo("escrever");
+    fecharPicker();
+    pintarAnexosDoEditor();
+  }
+
+  /* ---------- anexos: telas do DS e tarefas do Quadro ---------- */
+
+  function pintarAnexosDoEditor() {
+    const lista = el("pl-ed-anexos");
+    if (!lista || !editando) return;
+    const card = plano?.cards.find((c) => c.id === editando.id);
+    lista.replaceChildren();
+    const anexos = card?.anexos ?? [];
+    if (!anexos.length) lista.append(mk("span", "pl-ed-anexos-vazio", "Nenhuma tela ou tarefa anexada."));
+    for (const a of anexos) lista.append(chipDoAnexo(a, { remover: (x) => void tirarAnexo(x) }));
+  }
+
+  async function mudarAnexos(transformar) {
+    if (!editando) return;
+    const card = plano?.cards.find((c) => c.id === editando.id);
+    if (!card) return;
+    const id = card.id;
+    const salvo = await salvarCampos(id, { anexos: transformar(card.anexos ?? []) });
+    if (!salvo) return;
+    if (editando?.id === id) editando.original = { ...editando.original, rev: salvo.rev, anexos: salvo.anexos };
+    // o GET traz título/estado de cada anexo: sem recarregar, o chip novo mostraria só o id
+    await recarregar();
+  }
+
+  async function tirarAnexo(a) {
+    const k = chaveDoAnexo(a);
+    await mudarAnexos((lista) => lista.filter((x) => chaveDoAnexo(x) !== k));
+  }
+
+  async function abrirPicker(tipo) {
+    if (!editando) return;
+    if (picker?.tipo === tipo) return fecharPicker();
+    picker = { tipo, alvos: null };
+    el("pl-ed-picker").classList.remove("hidden");
+    el("pl-ed-picker-filtro").value = "";
+    el("pl-ed-picker-filtro").placeholder = tipo === "ds" ? "Buscar tela do Design System…" : "Buscar tarefa do Quadro…";
+    for (const b of [el("btn-pl-ed-anexar-ds"), el("btn-pl-ed-anexar-tarefa")]) b.setAttribute("aria-pressed", b.dataset.tipo === tipo ? "true" : "false");
+    el("pl-ed-picker-lista").replaceChildren(mk("p", "pl-ed-picker-vazio", "Carregando…"));
+    try {
+      picker.alvos = await req(`/v1/planejamento/alvos?${qs()}`);
+    } catch (e) {
+      el("pl-ed-picker-lista").replaceChildren(mk("p", "pl-ed-picker-vazio", `Não carregou: ${e.message}`));
+      return;
+    }
+    if (picker?.tipo !== tipo) return;
+    pintarPicker();
+    el("pl-ed-picker-filtro").focus();
+  }
+
+  function fecharPicker() {
+    picker = null;
+    el("pl-ed-picker")?.classList.add("hidden");
+    for (const b of [el("btn-pl-ed-anexar-ds"), el("btn-pl-ed-anexar-tarefa")]) b?.setAttribute("aria-pressed", "false");
+  }
+
+  function pintarPicker() {
+    if (!picker?.alvos) return;
+    const card = plano?.cards.find((c) => c.id === editando?.id);
+    const opcoes = opcoesDeAnexo(picker.alvos, picker.tipo, el("pl-ed-picker-filtro").value, card?.anexos ?? []);
+    const lista = el("pl-ed-picker-lista");
+    lista.replaceChildren();
+    if (!opcoes.length) {
+      const semNada = picker.tipo === "ds" ? !picker.alvos.ds.some((d) => d.cards.length) : !picker.alvos.tarefas.length;
+      lista.append(
+        mk(
+          "p",
+          "pl-ed-picker-vazio",
+          semNada
+            ? picker.tipo === "ds"
+              ? "Este projeto ainda não tem telas no Design System."
+              : "O Quadro deste projeto está vazio."
+            : "Nada com esse nome.",
+        ),
+      );
+      return;
+    }
+    for (const o of opcoes.slice(0, 60)) {
+      const b = mk("button", "pl-ed-picker-item");
+      b.type = "button";
+      b.dataset.tipo = o.anexo.tipo;
+      b.append(mk("span", "pl-anexo-ico", o.anexo.tipo === "ds" ? "▣" : o.feita ? "☑" : "☐"), mk("span", "pl-ed-picker-nome", o.titulo), mk("span", "pl-ed-picker-det", o.detalhe));
+      b.addEventListener("click", () => {
+        fecharPicker();
+        void mudarAnexos((lista) => [...lista, o.anexo]);
+      });
+      lista.append(b);
+    }
   }
 
   function guardarRascunho() {
@@ -848,6 +1035,7 @@ export function createPlanejamentoBoard({
   async function fecharEditor({ salvar = true } = {}) {
     if (salvar) await salvarEditor();
     editando = null;
+    fecharPicker();
     el("pl-editor")?.classList.add("hidden");
     el("pl-ed-sugestoes")?.classList.add("hidden");
   }
@@ -945,6 +1133,10 @@ export function createPlanejamentoBoard({
     el("pl-envio-tudo-certo").classList.toggle("hidden", !!(r.prontidao.bloqueios.length || r.prontidao.avisos.length));
     el("pl-envio-mesmo-assim").checked = false;
     el("pl-envio-prompt").value = "";
+    // uma tarefa por etapa no Quadro: ligado por padrão quando há etapas
+    const temEtapas = plano.roteiro.etapas.length > 0;
+    el("pl-envio-quadro-campo")?.classList.toggle("hidden", !temEtapas);
+    if (el("pl-envio-quadro")) el("pl-envio-quadro").checked = temEtapas;
     el("pl-envio").classList.remove("hidden");
     mostrarPasso("conferir");
   }
@@ -995,13 +1187,31 @@ export function createPlanejamentoBoard({
     if (!profileId) return avisar("Nenhuma conta pronta pra abrir a conversa de implementação.");
     el("btn-pl-envio-enviar").disabled = true;
     try {
-      const r = await req(rota("/handoff/enviar"), { method: "POST", body: JSON.stringify({ texto, profileId }) });
+      const quadro = !!el("pl-envio-quadro")?.checked && plano.roteiro.etapas.length > 0;
+      const r = await req(rota("/handoff/enviar"), { method: "POST", body: JSON.stringify({ texto, profileId, quadro }) });
       fecharEnvio();
       aoAbrirConversa(r.threadId);
     } catch (e) {
       avisar(`Não enviou: ${e.message}`);
     } finally {
       el("btn-pl-envio-enviar").disabled = false;
+    }
+  }
+
+  /** Etapas → tarefas no Quadro, sem mandar pra implementação (reenviar não duplica). */
+  async function enviarEtapasAoQuadro() {
+    if (!plano) return;
+    if (!plano.roteiro.etapas.length) return avisar("O plano ainda não tem etapas pra virar tarefa.");
+    const novas = plano.roteiro.etapas.filter((e) => !plano.integracao?.etapas?.[e.id]?.existe).length;
+    if (!novas) return avisar("Todas as etapas já têm tarefa no Quadro — clique no selo da etapa pra abrir.");
+    if (!(await confirmar(`Criar ${novas} tarefa(s) no Quadro, uma por etapa, cada uma dependendo da anterior?`))) return;
+    try {
+      const r = await req(rota("/quadro"), { method: "POST" });
+      await recarregar();
+      const criadas = r.tarefas.filter((t) => t.criada).length;
+      avisar(`${criadas} tarefa(s) criada(s) no Quadro${r.marcoId ? `, no marco "Plano: ${plano.roteiro.titulo}"` : ""}.`);
+    } catch (e) {
+      avisar(`Não criou as tarefas: ${e.message}`);
     }
   }
 
@@ -1031,6 +1241,19 @@ export function createPlanejamentoBoard({
     });
     el("btn-pl-novo-vazio")?.addEventListener("click", () => aoNovoPlano(projeto));
     el("btn-pl-card").addEventListener("click", () => void criarCard());
+    el("btn-pl-quadro")?.addEventListener("click", () => void enviarEtapasAoQuadro());
+    el("btn-pl-ed-anexar-ds")?.addEventListener("click", () => void abrirPicker("ds"));
+    el("btn-pl-ed-anexar-tarefa")?.addEventListener("click", () => void abrirPicker("tarefa"));
+    el("pl-ed-picker-filtro")?.addEventListener("input", pintarPicker);
+    el("pl-ed-picker-filtro")?.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        fecharPicker();
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        el("pl-ed-picker-lista").querySelector(".pl-ed-picker-item")?.click();
+      }
+    });
     el("btn-pl-enviar").addEventListener("click", () => void abrirEnvio());
     el("btn-pl-envio-cancelar").addEventListener("click", fecharEnvio);
     el("btn-pl-envio-voltar").addEventListener("click", () => mostrarPasso("conferir"));

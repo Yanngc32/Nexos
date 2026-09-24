@@ -123,6 +123,8 @@ export function createTarefasBoard({
   el,
   getProjectPath,
   aoAbrirConversa,
+  /** Tarefa nascida de plano: abre a Tela de Planejamento dele (slug). */
+  aoAbrirPlano = () => {},
   confirmar = (msg) => Promise.resolve(window.confirm(msg)),
   avisar = (msg) => Promise.resolve(window.alert(msg)),
 }) {
@@ -962,6 +964,8 @@ export function createTarefasBoard({
     preencherParentEDependencias(t?.id, t?.parentId, t?.dependeDe);
     el("btn-tk-apagar").classList.toggle("hidden", !t);
     el("btn-tk-abrir-conversa").classList.toggle("hidden", !t);
+    // tarefa que nasceu de uma etapa de plano: volta pra Tela de Planejamento dele
+    el("btn-tk-abrir-plano")?.classList.toggle("hidden", !t?.origem);
     el("tk-checklist-wrap").classList.toggle("hidden", !t);
     el("tk-comentarios-wrap").classList.toggle("hidden", !t);
     el("tk-checklist-hint").classList.toggle("hidden", Boolean(t));
@@ -1124,11 +1128,25 @@ export function createTarefasBoard({
     el("btn-tk-salvar").addEventListener("click", () => void salvarModal());
     el("btn-tk-apagar").addEventListener("click", () => void apagarModal());
     el("btn-tk-abrir-conversa").addEventListener("click", () => void abrirConversaDaModal());
+    el("btn-tk-abrir-plano")?.addEventListener("click", () => {
+      const t = tarefas.find((x) => x.id === editando);
+      if (!t?.origem) return;
+      fecharModal();
+      aoAbrirPlano(t.origem.plano);
+    });
   }
 
   function abrir() {
     return carregar();
   }
 
-  return { ligar, abrir, editandoId: () => editando };
+  /** Abre o Quadro já com a tarefa aberta (vinda de um anexo/etapa do Planejamento). */
+  async function abrirTarefa(id) {
+    await abrir();
+    if (!tarefas.some((t) => t.id === id)) return false;
+    abrirModal(id);
+    return true;
+  }
+
+  return { ligar, abrir, abrirTarefa, editandoId: () => editando };
 }

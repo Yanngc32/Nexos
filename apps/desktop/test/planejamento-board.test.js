@@ -3,7 +3,15 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { camposMudados, createPlanejamentoBoard, previaDoCorpo, rotuloDaFonte, sugestoesDeRef } from "../planejamento-board.js";
+import {
+  camposMudados,
+  chaveDoAnexo,
+  createPlanejamentoBoard,
+  opcoesDeAnexo,
+  previaDoCorpo,
+  rotuloDaFonte,
+  sugestoesDeRef,
+} from "../planejamento-board.js";
 
 // o markup de verdade da tela, direto do index.html: teste e app não divergem
 const INDEX = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "index.html"), "utf8").replace(/\r\n/g, "\n");
@@ -218,7 +226,8 @@ describe("enviar para implementação", () => {
     document.getElementById("pl-envio-prompt").value = "# Editado";
     document.getElementById("btn-pl-envio-enviar").click();
     await vi.waitFor(() => expect(aoAbrirConversa).toHaveBeenCalledWith("th-impl"));
-    expect(chamadas.find((c) => c.path.includes("/handoff/enviar")).body).toEqual({ texto: "# Editado", profileId: "p1" });
+    // plano com etapas: "uma tarefa por etapa no Quadro" vem ligado
+    expect(chamadas.find((c) => c.path.includes("/handoff/enviar")).body).toEqual({ texto: "# Editado", profileId: "p1", quadro: true });
     expect(document.getElementById("pl-envio").classList.contains("hidden")).toBe(true);
   });
 
@@ -242,5 +251,104 @@ describe("enviar para implementação", () => {
     board._aoEvento({ type: "mudou", slug: "plano-1", alvo: "handoff", origem: "agente" });
     await vi.waitFor(() => expect(document.getElementById("pl-envio-prompt").value).toBe("# Do Manager"));
     expect(document.getElementById("pl-envio-revisar").classList.contains("hidden")).toBe(false);
+  });
+});
+
+describe("anexos e Quadro (F7)", () => {
+  const alvos = {
+    ds: [
+      { sistema: "oficial", nome: "Oficial", ativo: true, cards: [{ id: "login", titulo: "Tela de login", secao: "Telas" }, { id: "botao", titulo: "Botão", secao: "Base" }] },
+      { sistema: "mocks", nome: "Mocks", ativo: false, cards: [{ id: "m1", titulo: "Mock de login", secao: "Outros" }] },
+    ],
+    tarefas: [{ id: "tk-1", titulo: "Fazer login", coluna: "A fazer", feita: false }],
+  };
+
+  it("opções: busca sem acento em título/seção/DS e tira o que o card já tem", () => {
+    expect(opcoesDeAnexo(alvos, "ds", "LOGIN").map((o) => o.anexo.card)).toEqual(["login", "m1"]);
+    expect(opcoesDeAnexo(alvos, "ds", "mocks").map((o) => o.titulo)).toEqual(["Mock de login"]);
+    expect(opcoesDeAnexo(alvos, "ds", "", [{ tipo: "ds", sistema: "oficial", card: "login" }]).map((o) => o.anexo.card)).toEqual(["botao", "m1"]);
+    expect(opcoesDeAnexo(alvos, "tarefa", "fazer")).toEqual([{ anexo: { tipo: "tarefa", id: "tk-1" }, titulo: "Fazer login", detalhe: "A fazer", feita: false }]);
+    expect(chaveDoAnexo({ tipo: "ds", sistema: "a", card: "b" })).toBe("ds:a/b");
+  });
+
+  function planoComAnexos() {
+    const p = planoBase();
+    p.cards[0].anexos = [
+      { tipo: "ds", sistema: "oficial", card: "login" },
+      { tipo: "tarefa", id: "tk-sumiu" },
+    ];
+    p.roteiro.etapas[0].tarefaId = "tk-a";
+    p.integracao = {
+      anexos: {
+        "ds:oficial/login": { existe: true, titulo: "Tela de login", detalhe: "Oficial · Telas" },
+        "tarefa:tk-sumiu": { existe: false, titulo: "Tarefa apagada" },
+      },
+      etapas: { a: { tarefaId: "tk-a", existe: true, titulo: "Etapa A", coluna: "Fazendo", feita: false } },
+    };
+    return p;
+  }
+
+  it("card mostra os anexos resolvidos (apagado riscado) e o clique abre o DS; etapa mostra o selo do Quadro", async () => {
+    const aoAbrirDs = vi.fn();
+    const aoAbrirTarefa = vi.fn();
+    const { board, setPlano } = montar({ deps: { aoAbrirDs, aoAbrirTarefa } });
+    setPlano(planoComAnexos());
+    await board.abrir();
+    const chips = [...document.querySelectorAll('.pl-card[data-id="r1"] .pl-anexo')];
+    expect(chips.map((c) => [c.textContent.replace(/[▣☐☑]/g, ""), c.dataset.existe])).toEqual([
+      ["Tela de login", "1"],
+      ["Tarefa apagada", "0"],
+    ]);
+    chips[0].querySelector("button").click();
+    expect(aoAbrirDs).toHaveBeenCalledWith("oficial", "login");
+    expect(chips[1].querySelector("button").disabled).toBe(true);
+
+    const selo = document.querySelector(".pl-etapa .pl-etapa-quadro");
+    expect(selo.textContent).toBe("Fazendo");
+    selo.click();
+    expect(aoAbrirTarefa).toHaveBeenCalledWith("tk-a");
+    expect(document.querySelector('.pl-coluna[data-id="a"] .pl-coluna-quadro').textContent).toBe("Quadro: Fazendo");
+  });
+
+  it("editor: + Tela abre o seletor, escolher grava o anexo; ✕ tira", async () => {
+    const { board, chamadas } = montar({
+      respostas: {
+        "GET /v1/planejamento/alvos": () => alvos,
+        "PUT /v1/planejamento/plano-1/cards/r1": ({ plano, body }) => ({ ...plano.cards[0], ...body, rev: 2 }),
+      },
+    });
+    await board.abrir();
+    document.querySelector('.pl-card[data-id="r1"]').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    expect(document.getElementById("pl-ed-anexos").textContent).toMatch(/Nenhuma/);
+    document.getElementById("btn-pl-ed-anexar-ds").click();
+    await vi.waitFor(() => expect(document.querySelectorAll(".pl-ed-picker-item").length).toBe(3));
+    const filtro = document.getElementById("pl-ed-picker-filtro");
+    filtro.value = "botão";
+    filtro.dispatchEvent(new Event("input"));
+    const itens = [...document.querySelectorAll(".pl-ed-picker-item")];
+    expect(itens.map((i) => i.querySelector(".pl-ed-picker-nome").textContent)).toEqual(["Botão"]);
+    itens[0].click();
+    await vi.waitFor(() => expect(chamadas.some((c) => c.metodo === "PUT" && c.path.includes("/cards/r1"))).toBe(true));
+    const put = chamadas.find((c) => c.metodo === "PUT" && c.path.includes("/cards/r1"));
+    expect(put.body).toEqual({ anexos: [{ tipo: "ds", sistema: "oficial", card: "botao" }], expectedRev: 1 });
+    expect(document.getElementById("pl-ed-picker").classList.contains("hidden")).toBe(true);
+  });
+
+  it("Etapas → Quadro confirma, cria e avisa; sem etapa nova só avisa", async () => {
+    const { board, chamadas, avisar, setPlano } = montar({
+      respostas: { "POST /v1/planejamento/plano-1/quadro": () => ({ marcoId: "m1", tarefas: [{ etapa: "a", tarefaId: "t1", criada: true }, { etapa: "b", tarefaId: "t2", criada: true }] }) },
+    });
+    await board.abrir();
+    document.getElementById("btn-pl-quadro").click();
+    await vi.waitFor(() => expect(avisar).toHaveBeenCalledWith(expect.stringMatching(/2 tarefa\(s\) criada/)));
+    expect(chamadas.some((c) => c.metodo === "POST" && c.path.includes("/quadro"))).toBe(true);
+
+    const p = planoComAnexos();
+    p.integracao.etapas.b = { tarefaId: "tk-b", existe: true, coluna: "A fazer", feita: false };
+    setPlano(p);
+    await board.recarregar();
+    avisar.mockClear();
+    document.getElementById("btn-pl-quadro").click();
+    await vi.waitFor(() => expect(avisar).toHaveBeenCalledWith(expect.stringMatching(/já têm tarefa/)));
   });
 });

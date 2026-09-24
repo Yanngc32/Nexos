@@ -864,6 +864,7 @@
           <div class="pl-area">
             <div class="pl-barra">
               <button type="button" id="btn-pl-card" class="ghost">+ Card</button>
+              <button type="button" id="btn-pl-quadro" class="ghost" title="Cria uma tarefa por etapa no Quadro, em sequência">Etapas → Quadro</button>
               <span class="pl-dica">Duplo clique abre · Delete apaga · arraste do ponto na borda de um card até outro pra ligar</span>
             </div>
             <div id="pl-faixa-vazia" class="pl-faixa-vazia hidden">
@@ -906,6 +907,20 @@
               <label class="pl-ed-campo"><span class="pl-rotulo">Título</span><input type="text" id="pl-ed-titulo" maxlength="140" /></label>
               <div class="pl-ed-campo"><span class="pl-rotulo">Tipo</span><div id="pl-ed-tipos" class="pl-ed-tipos" role="group" aria-label="Tipo"></div></div>
               <label class="pl-ed-campo"><span class="pl-rotulo">Etapa</span><select id="pl-ed-etapa"></select></label>
+              <div class="pl-ed-campo pl-ed-anexos-campo">
+                <div class="pl-ed-corpo-cab">
+                  <span class="pl-rotulo">Anexos</span>
+                  <div class="pl-ed-seg" role="group" aria-label="Anexar">
+                    <button type="button" id="btn-pl-ed-anexar-ds" data-tipo="ds" aria-pressed="false" title="Anexar uma tela do Design System">+ Tela</button>
+                    <button type="button" id="btn-pl-ed-anexar-tarefa" data-tipo="tarefa" aria-pressed="false" title="Anexar uma tarefa do Quadro">+ Tarefa</button>
+                  </div>
+                </div>
+                <div id="pl-ed-anexos" class="pl-ed-anexos"></div>
+                <div id="pl-ed-picker" class="pl-ed-picker hidden">
+                  <input type="text" id="pl-ed-picker-filtro" autocomplete="off" spellcheck="false" aria-label="Buscar" />
+                  <div id="pl-ed-picker-lista" class="pl-ed-picker-lista" role="listbox"></div>
+                </div>
+              </div>
               <label id="pl-ed-fonte-campo" class="pl-ed-campo hidden"><span class="pl-rotulo">Fonte</span><input type="text" id="pl-ed-fonte" placeholder="https://… ou src/arquivo.ts:12" /></label>
               <div id="pl-ed-situacao-campo" class="pl-ed-campo hidden">
                 <span class="pl-rotulo">Situação</span>
@@ -965,6 +980,7 @@
             <section id="pl-envio-revisar" class="pl-envio-corpo hidden">
               <p class="pl-envio-texto">Edite à vontade: o texto final fica gravado no plano (<code>handoff/</code>) e vai como primeira mensagem da conversa de implementação.</p>
               <textarea id="pl-envio-prompt" spellcheck="false"></textarea>
+              <label id="pl-envio-quadro-campo" class="pl-envio-mesmo-assim"><input type="checkbox" id="pl-envio-quadro" checked /> Criar uma tarefa por etapa no Quadro (a conversa de implementação move elas)</label>
             </section>
             <footer class="pl-envio-rodape">
               <button type="button" id="btn-pl-envio-cancelar" class="ghost">Cancelar</button>
@@ -1399,6 +1415,7 @@
         <p id="tk-checklist-hint" class="tk-hint hidden">Salve a tarefa antes de adicionar checklist ou comentário.</p>
         <p id="tk-f-err" class="login-msg hidden"></p>
         <div class="accent-row">
+          <button type="button" id="btn-tk-abrir-plano" class="ghost hidden" title="Abrir o planejamento de onde esta tarefa veio">Abrir plano</button>
           <button type="button" id="btn-tk-abrir-conversa" class="ghost hidden">Abrir conversa</button>
           <button type="button" id="btn-tk-salvar" class="primary">Salvar</button>
           <button type="button" id="btn-tk-apagar" class="ghost danger hidden">Apagar</button>
