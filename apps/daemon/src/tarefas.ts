@@ -66,6 +66,8 @@ export type Tarefa = {
    * quadro (maior `ordem`): mover pra lá com dependência ainda fora dela é recusado.
    */
   dependeDe?: string[];
+  /** Nasceu do envio de um plano (Tela de Planejamento): de qual plano e etapa. */
+  origem?: { plano: string; etapa: string };
   createdAt: string;
   updatedAt: string;
 };
@@ -507,6 +509,7 @@ export type TarefaInput = {
   tipo?: string | null;
   parentId?: string | null;
   dependeDe?: string[];
+  origem?: { plano: string; etapa: string } | null;
 };
 
 function agora(): string {
@@ -578,6 +581,14 @@ function dispararAutomacaoDeColuna(t: Tarefa, quadro: Quadro, home: string): voi
   }
 }
 
+function limparOrigem(v: unknown): Tarefa["origem"] {
+  if (v === null || v === undefined) return undefined;
+  const o = v as Record<string, unknown>;
+  const ok = (x: unknown) => typeof x === "string" && /^[a-z0-9-]{1,64}$/.test(x);
+  if (!ok(o.plano) || !ok(o.etapa)) throw badRequest("origem inválida");
+  return { plano: o.plano as string, etapa: o.etapa as string };
+}
+
 /**
  * Cria (sem `id`) ou atualiza (com `id`) — upsert campo-a-campo, mesmo idioma de `saveRegra`.
  * Sempre precisa de `projectPath` (mesmo em update): a tarefa mora num arquivo dentro da pasta
@@ -616,6 +627,8 @@ export function salvarTarefa(input: TarefaInput, home: string, criadoPor?: "agen
     input.parentId === undefined ? atual?.parentId : limparParentId(input.parentId, projectPath, home, atual?.id);
   const dependeDe =
     input.dependeDe === undefined ? (atual?.dependeDe ?? []) : limparDependeDe(input.dependeDe, projectPath, home, atual?.id);
+
+  const origem = input.origem === undefined ? atual?.origem : limparOrigem(input.origem);
 
   // Mover pra coluna final (maior `ordem`) com dependência ainda não concluída (fora da coluna
   // final) é bloqueado — dependeDe deixa de ser só informativo nesse um caso.
@@ -664,6 +677,7 @@ export function salvarTarefa(input: TarefaInput, home: string, criadoPor?: "agen
     ...(tipo ? { tipo } : {}),
     ...(parentId ? { parentId } : {}),
     ...(dependeDe.length ? { dependeDe } : {}),
+    ...(origem ? { origem } : {}),
     createdAt: atual?.createdAt ?? ts,
     updatedAt: ts,
   };

@@ -213,6 +213,15 @@ import {
   type EventoPlano,
 } from "./planejamento.ts";
 import { ferramentasDePlanejamento } from "./planejamento-ferramentas.ts";
+import {
+  alvosDeAnexo,
+  blocoDeAnexos,
+  blocoDeTarefas,
+  conversaDeOrigem,
+  enviarAoQuadro,
+  pedidoDeConversa,
+  resolverIntegracao,
+} from "./planejamento-integracao.ts";
 import { montarHandoff, pedidoAoManager, prontidao } from "./planejamento-handoff.ts";
 
 /** Devolve o arquivo da interface web, ou 404 — nunca um caminho de fora dela. */
@@ -1818,7 +1827,7 @@ export function createApp(home: string, token: string): Hono {
    * A conversa do Agent Manager do plano: a que já está ligada a ele, ou uma nova (com
    * `thread_meta.planejamento`) se não houver ou se ela sumiu do disco.
    */
-  const conversaDoManager = (projectPath: string, slug: string, profileId: unknown): string => {
+  const conversaDoManager = (projectPath: string, slug: string, profileId: unknown, origemThreadId?: string): string => {
     const atual = abrirPlano(projectPath, home, slug).roteiro.threadId;
     if (atual && threadHead(atual, home)?.planejamento?.slug === slug) return atual;
     if (typeof profileId !== "string" || !profileId) {
@@ -1826,17 +1835,31 @@ export function createApp(home: string, token: string): Hono {
       err.status = 400;
       throw err;
     }
-    const { id } = createThread({ projectPath, profileId, planejamento: { slug } }, home);
+    // `origemThreadId`: plano nascido de conversa — o botão "voltar" do chat leva pra ela
+    const { id } = createThread({ projectPath, profileId, planejamento: { slug }, ...(origemThreadId ? { origemThreadId } : {}) }, home);
     vincularThread(projectPath, home, slug, id);
     return id;
   };
 
-  /** Cria o plano e, com `profileId`, já a conversa do Manager. */
+  /**
+   * Cria o plano e, com `profileId`, já a conversa do Manager. Com `deThreadId`, o plano nasce de
+   * uma conversa existente: projeto e título vêm dela, e o Manager já recebe a transcrição como
+   * primeiro pedido (sem esperar o turno — a tela só abre o plano).
+   */
   app.post("/v1/planejamento", async (c) => {
-    const projectPath = c.req.query("projectPath") || "";
-    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
     try {
-      const body = (await c.req.json().catch(() => ({}))) as { titulo?: unknown; profileId?: unknown };
+      const body = (await c.req.json().catch(() => ({}))) as { titulo?: unknown; profileId?: unknown; deThreadId?: unknown };
+      if (typeof body.deThreadId === "string" && body.deThreadId) {
+        const origem = conversaDeOrigem(body.deThreadId, home);
+        const plano = criarPlano(origem.projectPath, home, { titulo: body.titulo || origem.titulo });
+        const threadId = conversaDoManager(origem.projectPath, plano.slug, body.profileId, body.deThreadId);
+        void postMessage(threadId, pedidoDeConversa(origem), home).catch((err) =>
+          log.erro("turno", `plano a partir da conversa ${String(body.deThreadId)} falhou`, { threadId, erro: (err as Error).message }),
+        );
+        return c.json({ ...abrirPlano(origem.projectPath, home, plano.slug), projectPath: origem.projectPath, threadId }, 201);
+      }
+      const projectPath = c.req.query("projectPath") || "";
+      if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
       const plano = criarPlano(projectPath, home, { titulo: body.titulo });
       if (body.profileId) conversaDoManager(projectPath, plano.slug, body.profileId);
       return c.json(abrirPlano(projectPath, home, plano.slug), 201);
@@ -1874,11 +1897,20 @@ export function createApp(home: string, token: string): Hono {
     });
   });
 
+  /** O que dá pra anexar num card: telas dos DS do projeto e tarefas do Quadro. */
+  app.get("/v1/planejamento/alvos", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    return c.json(alvosDeAnexo(projectPath, home));
+  });
+
+  /** Plano + `integracao`: estado atual (DS/Quadro) dos anexos dos cards e das tarefas das etapas. */
   app.get("/v1/planejamento/:slug", (c) => {
     const projectPath = c.req.query("projectPath") || "";
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
     try {
-      return c.json(abrirPlano(projectPath, home, c.req.param("slug")));
+      const plano = abrirPlano(projectPath, home, c.req.param("slug"));
+      return c.json({ ...plano, integracao: resolverIntegracao(projectPath, home, plano) });
     } catch (e) {
       return erroDoPlano(c, e);
     }
@@ -1969,7 +2001,9 @@ export function createApp(home: string, token: string): Hono {
     try {
       const plano = abrirPlano(projectPath, home, c.req.param("slug"));
       const p = prontidao(plano);
-      return c.json({ texto: montarHandoff(plano), prontidao: p, pedido: pedidoAoManager(plano, p.bloqueios.length) });
+      const anexos = blocoDeAnexos(plano, resolverIntegracao(projectPath, home, plano));
+      const texto = anexos ? `${montarHandoff(plano).trimEnd()}\n\n${anexos}\n` : montarHandoff(plano);
+      return c.json({ texto, prontidao: p, pedido: pedidoAoManager(plano, p.bloqueios.length) });
     } catch (e) {
       return erroDoPlano(c, e);
     }
@@ -1985,18 +2019,33 @@ export function createApp(home: string, token: string): Hono {
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
     try {
       const slug = c.req.param("slug");
-      const body = (await c.req.json().catch(() => ({}))) as { texto?: unknown; profileId?: unknown };
+      const body = (await c.req.json().catch(() => ({}))) as { texto?: unknown; profileId?: unknown; quadro?: unknown };
       if (typeof body.profileId !== "string" || !body.profileId) return c.json({ error: "profileId obrigatório" }, 400);
+      if (typeof body.texto !== "string" || !body.texto.trim()) return c.json({ error: "texto do handoff obrigatório" }, 400);
       const plano = abrirPlano(projectPath, home, slug);
-      const handoff = escreverHandoff(projectPath, home, slug, body.texto);
       const { id: threadId } = createThread(
         { projectPath, profileId: body.profileId, title: `Implementação: ${plano.roteiro.titulo}`, handoff: { slug } },
         home,
       );
+      // `quadro`: uma tarefa por etapa, já ligada a esta conversa; o texto ganha a lista delas
+      const envio = body.quadro === true && plano.roteiro.etapas.length ? enviarAoQuadro(projectPath, home, slug, { threadId }) : null;
+      const texto = envio ? `${body.texto.trimEnd()}\n\n${blocoDeTarefas(plano, envio)}` : body.texto;
+      const handoff = escreverHandoff(projectPath, home, slug, texto);
       void postMessage(threadId, handoff.texto.trimEnd(), home).catch((err) =>
         log.erro("turno", `envio do plano ${slug} falhou`, { threadId, erro: (err as Error).message }),
       );
-      return c.json({ threadId, handoff: handoff.nome }, 201);
+      return c.json({ threadId, handoff: handoff.nome, ...(envio ? { quadro: envio } : {}) }, 201);
+    } catch (e) {
+      return erroDoPlano(c, e);
+    }
+  });
+
+  /** Etapas → tarefas no Quadro sem enviar pra implementação (idempotente). */
+  app.post("/v1/planejamento/:slug/quadro", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      return c.json(enviarAoQuadro(projectPath, home, c.req.param("slug")), 201);
     } catch (e) {
       return erroDoPlano(c, e);
     }
@@ -2204,6 +2253,8 @@ export function createApp(home: string, token: string): Hono {
       const slug = head.planejamento.slug;
       return responderMcp(c, () => [
         ...ferramentasDePlanejamento(pp, slug, home)(),
+        // do DS só o print (ver a tela); criar/ativar/salvar ficam de fora
+        ...ferramentaDePrintDoDs(threadId, pp, home)().filter((f) => f.name === "nexo_ds_print"),
         ...ferramentaDePerguntar(threadId, home)(),
         ...ferramentasDeRepoMap(pp, home)(),
         ...ferramentaDeResumo(pp, home)(),

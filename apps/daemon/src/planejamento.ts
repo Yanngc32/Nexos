@@ -29,7 +29,14 @@ export type StatusEtapa = (typeof STATUS_ETAPA)[number];
 export const STATUS_AMBIGUIDADE = ["aberta", "resolvida"] as const;
 export type StatusAmbiguidade = (typeof STATUS_AMBIGUIDADE)[number];
 
-export type Etapa = { id: string; titulo: string; status: StatusEtapa };
+/** `tarefaId`: tarefa do Quadro criada pra esta etapa no envio (ver planejamento-integracao.ts). */
+export type Etapa = { id: string; titulo: string; status: StatusEtapa; tarefaId?: string };
+/**
+ * O que um card aponta fora do plano: uma tela do Design System (sistema + id do card do DS) ou
+ * uma tarefa do Quadro. Só o endereço mora aqui; título/estado são resolvidos na leitura, então
+ * alvo que sumiu aparece riscado em vez de quebrar o plano.
+ */
+export type Anexo = { tipo: "ds"; sistema: string; card: string } | { tipo: "tarefa"; id: string };
 export type Roteiro = {
   titulo: string;
   rev: number;
@@ -45,6 +52,7 @@ export type Card = {
   etapa?: string;
   status?: StatusAmbiguidade;
   links: string[];
+  anexos: Anexo[];
   fonte?: string;
   rev: number;
   corpo: string;
@@ -77,6 +85,9 @@ const CORPO_MAX = 20_000;
 const ETAPAS_MAX = 40;
 const CARDS_MAX = 500;
 const LINKS_MAX = 50;
+const ANEXOS_MAX = 20;
+/** Ids de fora (DS, Quadro): mais largos que os do plano (`tk-…`, maiúsculas no DS antigo). */
+const ID_EXTERNO_RE = /^[A-Za-z0-9_-]{1,80}$/;
 const HANDOFF_MAX = 200_000;
 
 /* ---------------------------------------------------------------------------
@@ -219,8 +230,38 @@ export function validarEtapas(v: unknown): Etapa[] {
     vistos.add(id);
     const status = (o.status ?? "pendente") as StatusEtapa;
     if (!STATUS_ETAPA.includes(status)) throw erro(`status inválido na etapa ${id}: ${String(o.status)}`);
-    return { id, titulo: texto(o.titulo, `título da etapa ${id}`, TITULO_MAX), status };
+    const etapa: Etapa = { id, titulo: texto(o.titulo, `título da etapa ${id}`, TITULO_MAX), status };
+    if (typeof o.tarefaId === "string" && ID_EXTERNO_RE.test(o.tarefaId)) etapa.tarefaId = o.tarefaId;
+    return etapa;
   });
+}
+
+/** Chave estável de um anexo (dedup e mapa de resolvidos na tela). */
+export function chaveDoAnexo(a: Anexo): string {
+  return a.tipo === "ds" ? `ds:${a.sistema}/${a.card}` : `tarefa:${a.id}`;
+}
+
+export function validarAnexos(v: unknown): Anexo[] {
+  if (!Array.isArray(v)) throw erro("anexos precisa ser lista");
+  const out: Anexo[] = [];
+  const vistos = new Set<string>();
+  for (const bruto of v) {
+    const o = (bruto ?? {}) as Record<string, unknown>;
+    const idOk = (x: unknown, oque: string): string => {
+      if (typeof x !== "string" || !ID_EXTERNO_RE.test(x)) throw erro(`${oque} inválido no anexo`);
+      return x;
+    };
+    let a: Anexo;
+    if (o.tipo === "ds") a = { tipo: "ds", sistema: idOk(o.sistema, "sistema"), card: idOk(o.card, "card do DS") };
+    else if (o.tipo === "tarefa") a = { tipo: "tarefa", id: idOk(o.id, "id da tarefa") };
+    else throw erro(`tipo de anexo inválido: ${String(o.tipo)} (use ds ou tarefa)`);
+    const k = chaveDoAnexo(a);
+    if (vistos.has(k)) continue;
+    vistos.add(k);
+    out.push(a);
+  }
+  if (out.length > ANEXOS_MAX) throw erro(`no máximo ${ANEXOS_MAX} anexos por card`);
+  return out;
 }
 
 export type CardInput = {
@@ -230,6 +271,7 @@ export type CardInput = {
   etapa?: unknown;
   status?: unknown;
   links?: unknown;
+  anexos?: unknown;
   fonte?: unknown;
   corpo?: unknown;
   criadoEm?: unknown;
@@ -251,7 +293,8 @@ export function validarCard(
   const corpo = typeof input.corpo === "string" ? input.corpo.replace(/\r\n/g, "\n") : "";
   if (corpo.length > CORPO_MAX) throw erro(`corpo passa de ${CORPO_MAX} caracteres`);
 
-  const card: Card = { id, tipo, titulo, links: [], rev, corpo };
+  const card: Card = { id, tipo, titulo, links: [], anexos: [], rev, corpo };
+  if (input.anexos !== undefined && input.anexos !== null) card.anexos = validarAnexos(input.anexos);
   if (typeof input.criadoEm === "string" && !Number.isNaN(Date.parse(input.criadoEm))) card.criadoEm = input.criadoEm;
 
   if (input.etapa !== undefined && input.etapa !== null && input.etapa !== "") {
@@ -345,6 +388,7 @@ function corpoDoCard(c: Card, etapas: Etapa[]): string {
   if (c.status) linhas.push(`- Situação: ${c.status}`);
   if (c.fonte) linhas.push(`- Fonte: ${c.fonte}`);
   if (c.links.length) linhas.push(`- Ligado a: ${c.links.join(", ")}`);
+  for (const a of c.anexos) linhas.push(a.tipo === "ds" ? `- Tela do Design System: ${a.sistema}/${a.card}` : `- Tarefa do Quadro: ${a.id}`);
   linhas.push("");
   if (c.corpo) linhas.push(c.corpo, "");
   return `${linhas.join("\n")}\n`;
@@ -488,6 +532,32 @@ export function abrirPlano(projectPath: string, home: string, slug: string): Pla
 }
 
 /**
+ * O vínculo etapa → tarefa do Quadro não é editado pela tela nem pelo Manager (eles mandam só
+ * id/título/status): etapa que continua no roteiro mantém a tarefa que já tinha.
+ */
+function manterTarefas(novas: Etapa[], atuais: Etapa[]): Etapa[] {
+  return novas.map((e) => {
+    if (e.tarefaId) return e;
+    const antes = atuais.find((a) => a.id === e.id)?.tarefaId;
+    return antes ? { ...e, tarefaId: antes } : e;
+  });
+}
+
+/** Grava o vínculo etapa → tarefa do Quadro (só o envio pro Quadro chama). */
+export function vincularTarefas(projectPath: string, home: string, slug: string, porEtapa: Record<string, string>): Roteiro {
+  const dir = pastaDoPlano(projectPath, home, slug);
+  const atual = roteiroOuErro(dir, slug);
+  const novo: Roteiro = {
+    ...atual,
+    etapas: atual.etapas.map((e) => (porEtapa[e.id] ? { ...e, tarefaId: porEtapa[e.id] } : e)),
+    rev: atual.rev + 1,
+  };
+  escreverRoteiro(dir, novo);
+  emitir(projectPath, { type: "mudou", slug, origem: "tela", alvo: "roteiro" });
+  return novo;
+}
+
+/**
  * Troca as etapas do roteiro (e, se vier, o título). `expectedRev` é o rev que quem chama leu.
  * Etapa removida não apaga cards: eles vão pra "Sem etapa" na tela.
  */
@@ -504,7 +574,7 @@ export function salvarRoteiro(
   const novo: Roteiro = {
     ...atual,
     titulo: input.titulo === undefined ? atual.titulo : texto(input.titulo, "título", TITULO_PLANO_MAX, false) || TITULO_SEM_NOME,
-    etapas: input.etapas === undefined ? atual.etapas : validarEtapas(input.etapas),
+    etapas: input.etapas === undefined ? atual.etapas : manterTarefas(validarEtapas(input.etapas), atual.etapas),
     rev: atual.rev + 1,
   };
   escreverRoteiro(dir, novo);

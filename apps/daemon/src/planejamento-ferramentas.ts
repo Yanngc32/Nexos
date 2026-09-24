@@ -1,4 +1,5 @@
 import type { Conjunto, Ferramenta, Saida } from "./mcp.ts";
+import { alvosDeAnexo } from "./planejamento-integracao.ts";
 import {
   abrirPlano,
   apagarCard,
@@ -33,6 +34,9 @@ export const MCP_TOOLS_PLANEJAMENTO = [
   "mcp__nexo__nexo_plano_ambiguidade_abrir",
   "mcp__nexo__nexo_plano_ambiguidade_resolver",
   "mcp__nexo__nexo_plano_handoff",
+  "mcp__nexo__nexo_plano_alvos",
+  // só leitura do DS: o Manager planeja olhando a tela de verdade (http.ts recorta o conjunto)
+  "mcp__nexo__nexo_ds_print",
 ];
 
 const ROTULO: Record<Card["tipo"], string> = {
@@ -51,6 +55,7 @@ export function planoEmTexto(p: Plano): string {
     `- [[${c.titulo}]] — id \`${c.id}\`, rev ${c.rev}, ${ROTULO[c.tipo]}` +
     `${c.status ? ` (${c.status})` : ""}${c.fonte ? `, fonte ${c.fonte}` : ""}` +
     `${c.links.length ? `, ligado a ${c.links.map((l) => `\`${l}\``).join(", ")}` : ""}` +
+    `${c.anexos.length ? `, anexos ${c.anexos.map((a) => (a.tipo === "ds" ? `tela ${a.sistema}/${a.card}` : `tarefa ${a.id}`)).join(", ")}` : ""}` +
     `${c.corpo ? `\n  ${c.corpo.replace(/\n/g, "\n  ")}` : ""}`;
   const linhas = [`# ${r.titulo}`, `Roteiro rev ${r.rev}.`, "", "## Etapas"];
   if (!r.etapas.length) linhas.push("- nenhuma ainda — comece separando o pedido em etapas (nexo_plano_roteiro)");
@@ -86,6 +91,23 @@ function tentar(f: () => string): Saida {
 }
 
 const REV = { type: "integer", description: "o rev que você leu (nexo_plano_ler); conflito devolve a versão atual" };
+
+const ANEXOS = {
+  type: "array",
+  description:
+    "telas do Design System e tarefas do Quadro que este card usa (veja com nexo_plano_alvos). Substitui a lista inteira.",
+  items: {
+    type: "object",
+    properties: {
+      tipo: { type: "string", enum: ["ds", "tarefa"] },
+      sistema: { type: "string", description: "tipo ds: id do design system" },
+      card: { type: "string", description: "tipo ds: id da tela/card do DS" },
+      id: { type: "string", description: "tipo tarefa: id da tarefa" },
+    },
+    required: ["tipo"],
+    additionalProperties: false,
+  },
+};
 
 export function ferramentasDePlanejamento(projectPath: string, slug: string, home: string): Conjunto {
   return () => {
@@ -170,6 +192,7 @@ export function ferramentasDePlanejamento(projectPath: string, slug: string, hom
             corpo: { type: "string", description: "markdown" },
             fonte: { type: "string" },
             links: { type: "array", items: { type: "string" }, description: "ids de cards relacionados" },
+            anexos: ANEXOS,
           },
           required: ["tipo", "titulo"],
           additionalProperties: false,
@@ -194,6 +217,7 @@ export function ferramentasDePlanejamento(projectPath: string, slug: string, hom
             corpo: { type: "string" },
             fonte: { type: "string" },
             links: { type: "array", items: { type: "string" } },
+            anexos: ANEXOS,
           },
           required: ["id", "expected_rev"],
           additionalProperties: false,
@@ -284,6 +308,26 @@ export function ferramentasDePlanejamento(projectPath: string, slug: string, hom
           }),
       },
       {
+        name: "nexo_plano_alvos",
+        description:
+          "Lista o que dá pra anexar a um card: telas de cada Design System do projeto (sistema, id, título, seção) " +
+          "e tarefas do Quadro (id, título, coluna). Só leitura. Pra ver uma tela, nexo_ds_print com o id dela.",
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        executar: () =>
+          tentar(() => {
+            const a = alvosDeAnexo(projectPath, home);
+            const linhas: string[] = ["## Telas do Design System"];
+            if (!a.ds.length) linhas.push("- este projeto não tem design system");
+            for (const ds of a.ds) {
+              linhas.push(`### ${ds.nome} (sistema \`${ds.sistema}\`${ds.ativo ? ", ativo" : ""})`);
+              linhas.push(...(ds.cards.length ? ds.cards.map((c) => `- \`${c.id}\` — ${c.titulo} (${c.secao})`) : ["- sem telas"]));
+            }
+            linhas.push("", "## Tarefas do Quadro");
+            linhas.push(...(a.tarefas.length ? a.tarefas.map((t) => `- \`${t.id}\` — ${t.titulo} [${t.coluna}]`) : ["- nenhuma"]));
+            return linhas.join("\n");
+          }),
+      },
+      {
         name: "nexo_plano_handoff",
         description:
           "Grava UM prompt de handoff pra conversa de implementação (arquivo novo, nunca sobrescreve). Só quando a " +
@@ -327,6 +371,7 @@ Você é o Agent Manager do plano "${slug}" (arquivos em ${dir}). Seu trabalho �
 ## Conforme a pessoa detalha
 - Registre cada requisito, decisão e nota como card (\`nexo_plano_card_criar\`) na etapa certa; altere com \`nexo_plano_card_atualizar\`, apague com \`nexo_plano_card_apagar\`, sempre com o rev que leu. Conflito = a pessoa mexeu na tela: releia e refaça sobre a versão atual.
 - Ligue cards relacionados com \`nexo_plano_ligar\`. No corpo, cite outros cards como [[Título]]: vira seta no canvas.
+- Telas do Design System e tarefas do Quadro entram no card como \`anexos\` (veja o que existe com \`nexo_plano_alvos\`; olhe a tela com \`nexo_ds_print\`). Anexe a tela que a etapa vai construir ou mudar: a implementação recebe o arquivo dela. Você não cria nem edita telas nem tarefas.
 - Marque o andamento com \`nexo_plano_etapa\`: em_andamento quando a conversa entra na etapa, concluida quando ela está especificada.
 - A pessoa se refere aos cards pelo NOME ([[Nome do card]]): resolva pelo título, ignorando maiúsculas e acentos. Se nenhum ou mais de um bater, pergunte.
 - O título do plano é da pessoa: não mexa.
