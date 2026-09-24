@@ -1489,20 +1489,19 @@
       </div>
     </div>
     <div id="new-thread-modal" class="settings hidden" role="dialog" aria-labelledby="nt-title">
-      <div class="settings-card">
+      <div class="settings-card nt-card">
         <div class="settings-head">
           <h2 id="nt-title">Nova conversa</h2>
           <button type="button" id="btn-nt-fechar" class="ghost">Fechar</button>
         </div>
-        <label class="field hidden" id="nt-branch-field">
-          <span>Branch (fica fixa pro resto desta conversa)</span>
-          <div class="dropdown" id="nt-branch-dd">
-            <button type="button" class="dropdown-trigger" id="nt-branch-trigger"></button>
-            <div class="dropdown-list hidden" id="nt-branch-list" role="listbox"></div>
-          </div>
-        </label>
+        <div class="nt-branch-field hidden" id="nt-branch-field">
+          <span class="nt-eyebrow" id="nt-branch-rotulo">Branch</span>
+          <input type="text" id="nt-branch-filtro" class="nt-branch-filtro hidden" placeholder="Filtrar branches…" aria-label="Filtrar branches" autocomplete="off" spellcheck="false" />
+          <div class="nt-branch-list" id="nt-branch-list" role="listbox" aria-labelledby="nt-branch-rotulo"></div>
+          <p class="nt-branch-dica" id="nt-branch-dica"></p>
+        </div>
         <p id="nt-err" class="login-msg hidden"></p>
-        <div class="accent-row">
+        <div class="nt-acoes">
           <button type="button" id="btn-nt-criar" class="primary">Criar conversa</button>
         </div>
       </div>

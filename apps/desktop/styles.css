@@ -3567,6 +3567,155 @@ button:disabled {
   background: var(--line-2);
 }
 
+/* Nova conversa: branch em lista inline (dropdown absoluto era cortado pelo overflow do card) */
+.nt-card {
+  width: min(460px, calc(100% - 32px));
+}
+
+.nt-branch-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.nt-branch-field.hidden {
+  display: none;
+}
+
+.nt-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.nt-branch-filtro {
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  padding: 8px 10px;
+}
+
+.nt-branch-filtro::placeholder {
+  color: var(--faint);
+}
+
+.nt-branch-filtro:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.nt-branch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 264px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.nt-branch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  padding: 7px 10px 7px 26px;
+  cursor: pointer;
+  position: relative;
+  transition: background-color .12s, border-color .12s;
+}
+
+.nt-branch::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  border: 1px solid var(--line-3);
+}
+
+.nt-branch:hover {
+  background: var(--surface-3);
+}
+
+.nt-branch:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.nt-branch[aria-selected="true"] {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.nt-branch[aria-selected="true"]::before {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.nt-branch-nome {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nt-branch-tag {
+  flex: none;
+  font-size: var(--fs-xs);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.nt-branch-vazio {
+  margin: 0;
+  padding: 10px;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.nt-branch-dica {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.nt-acoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-branch {
+    transition: none;
+  }
+}
+
 .settings-card,
 .palette-card {
   background: var(--surface);
