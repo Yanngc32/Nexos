@@ -3387,6 +3387,13 @@ button:disabled {
   background: var(--surface-2);
 }
 
+/* Topo do chat quando a conversa é longa: só o fim é desenhado, o resto vem sob demanda */
+#log > li.log-anteriores {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 8px;
+}
+
 /* Ação secundária com forma: hairline em vez de preenchimento. Ao lado da
    primária não compete; sozinha, ainda lê como botão. */
 .subtle {

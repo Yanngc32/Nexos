@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
@@ -55,6 +55,15 @@ describe("threads", () => {
     const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
     appendEvent({ ts: "t", type: "assistant", threadId: t.id, text: "resp" }, home);
     expect(readThread(t.id, home).at(-1)).toMatchObject({ type: "assistant", text: "resp" });
+  });
+
+  it("listThreads não serve cabeçalho velho depois de um append", () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    expect(listThreads("/proj", home)[0]?.preview).toBe("Conversa nova");
+    appendEvent({ ts: "2099-01-01T00:00:00.000Z", type: "user", threadId: t.id, text: "primeiro pedido" }, home);
+    expect(listThreads("/proj", home)[0]).toMatchObject({ preview: "primeiro pedido", updatedAt: "2099-01-01T00:00:00.000Z" });
   });
 
   it("removeThread apaga o jsonl", () => {
@@ -128,6 +137,21 @@ describe("threads", () => {
     const a = await createThreadNaBranch({ projectPath: dir, profileId: "p1", branch: "feature" }, home);
     const b = await createThreadNaBranch({ projectPath: dir, profileId: "p1", branch: "feature" }, home);
     expect(threadHead(b.id, home)?.worktreeDir).toBe(threadHead(a.id, home)?.worktreeDir);
+  });
+
+  it("branch já aberta numa worktree de fora (outra instalação) é reaproveitada, e apagar a conversa não a remove", async () => {
+    const home = tempHome();
+    const dir = repoComBranches();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    // árvore criada por outro dono (ex.: o motor do `run.bat dev`), fora de `<home>/worktrees`
+    const deFora = join(mkdtempSync(join(tmpdir(), "wt-fora-")), "arvore");
+    execFileSync("git", ["worktree", "add", deFora, "feature"], { cwd: dir });
+    const t = await createThreadNaBranch({ projectPath: dir, profileId: "p1", branch: "feature" }, home);
+    const head = threadHead(t.id, home);
+    expect(head?.branch).toBe("feature");
+    expect(realpathSync.native(head!.worktreeDir!).toLowerCase()).toBe(realpathSync.native(deFora).toLowerCase());
+    await removeThread(t.id, home);
+    expect(existsSync(join(deFora, "a.txt"))).toBe(true);
   });
 
   it("branch inexistente falha em vez de criar uma nova sem querer", async () => {

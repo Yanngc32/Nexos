@@ -1,5 +1,5 @@
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve, sep } from "node:path";
 import type { ThreadEvent } from "@nexos/shared";
 import { loadConfig } from "./config.ts";
 import { listarBranches } from "./git.ts";
@@ -7,7 +7,7 @@ import { ensureHome, threadPath, threadWorktreeDir } from "./home.ts";
 import { assertSlug, newThreadId } from "./ids.ts";
 import { getProfile, listProfiles } from "./profiles.ts";
 import { projectDir, projectSlug, projetosRoot } from "./projeto-dir.ts";
-import { abrirWorktree, podeIsolar, removerWorktree } from "./worktree.ts";
+import { abrirWorktree, podeIsolar, removerWorktree, worktreeDaBranch } from "./worktree.ts";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -89,6 +89,14 @@ export async function createThreadNaBranch(input: CreateThreadInput, home: strin
   const irma = listThreads(input.projectPath, home).find((t) => t.branch === branch && t.worktreeDir);
   if (irma?.worktreeDir) {
     return createThread({ ...input, branch, worktreeDir: irma.worktreeDir }, home);
+  }
+
+  // a branch já está numa árvore que esta instalação não criou (ex.: a do `run.bat dev`): o git não
+  // deixa abrir outra, então a conversa trabalha nela. Apagar a conversa não remove essa pasta.
+  const deFora = await worktreeDaBranch(input.projectPath, branch);
+  if (deFora) {
+    if (resolve(deFora).toLowerCase() === resolve(input.projectPath).toLowerCase()) return createThread(input, home);
+    return createThread({ ...input, branch, worktreeDir: deFora }, home);
   }
 
   const id = newThreadId();
@@ -264,7 +272,9 @@ export async function removeThread(id: string, home: string): Promise<void> {
   }
   if (head?.projectPath && head.worktreeDir) {
     const aindaUsada = listThreads(head.projectPath, home).some((t) => t.worktreeDir === head.worktreeDir);
-    if (!aindaUsada) await removerWorktree(head.projectPath, head.worktreeDir).catch(() => {});
+    // só a árvore que ESTA instalação criou (dentro de `<home>/worktrees`): a de fora é de outro dono
+    const nossa = resolve(head.worktreeDir).toLowerCase().startsWith(resolve(home, "worktrees").toLowerCase() + sep);
+    if (!aindaUsada && nossa) await removerWorktree(head.projectPath, head.worktreeDir).catch(() => {});
   }
 }
 
@@ -298,8 +308,31 @@ export type ThreadHead = {
   oculta?: boolean;
 };
 
+/**
+ * Cabeçalho por arquivo, válido enquanto `mtime`+`size` não mudarem (append sempre muda o
+ * size; reescrita muda o mtime). Sem isso, cada GET /v1/threads e /v1/projects relia e
+ * parseava TODAS as conversas — o poll de 4s do app fazia isso ~10x e travava o daemon.
+ */
+const cacheDeCabecalho = new Map<string, { mtimeMs: number; size: number; head: ThreadHead | undefined }>();
+
 /** Cabeçalho de uma conversa só. `undefined` = arquivo ilegível ou sem meta. */
 export function threadHead(id: string, home: string): ThreadHead | undefined {
+  let path: string;
+  let st: { mtimeMs: number; size: number };
+  try {
+    path = threadPath(id, home);
+    st = statSync(path);
+  } catch {
+    return undefined;
+  }
+  const hit = cacheDeCabecalho.get(path);
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.head;
+  const head = lerCabecalho(id, home);
+  cacheDeCabecalho.set(path, { mtimeMs: st.mtimeMs, size: st.size, head });
+  return head;
+}
+
+function lerCabecalho(id: string, home: string): ThreadHead | undefined {
   let events: ThreadEvent[];
   try {
     events = readThread(id, home);
@@ -406,18 +439,11 @@ export function projectsFromThreads(home: string): string[] {
   const vistos = new Map<string, { path: string; ts: string }>();
   for (const file of readdirSync(dir)) {
     if (!file.endsWith(".jsonl")) continue;
-    let events: ThreadEvent[];
-    try {
-      events = readThread(file.slice(0, -".jsonl".length), home);
-    } catch {
-      continue;
-    }
-    const meta = events.find((e) => e.type === "thread_meta");
-    if (!meta || meta.type !== "thread_meta" || !meta.projectPath) continue;
-    const chave = meta.projectPath.replace(/[\u005c]/g, "/").replace(/\/+$/, "").toLowerCase();
-    const ts = events.at(-1)?.ts ?? meta.ts;
+    const head = threadHead(file.slice(0, -".jsonl".length), home);
+    if (!head?.projectPath) continue;
+    const chave = head.projectPath.replace(/[\u005c]/g, "/").replace(/\/+$/, "").toLowerCase();
     const atual = vistos.get(chave);
-    if (!atual || atual.ts < ts) vistos.set(chave, { path: meta.projectPath, ts });
+    if (!atual || atual.ts < head.updatedAt) vistos.set(chave, { path: head.projectPath, ts: head.updatedAt });
   }
   return [...vistos.values()]
     .sort((a, b) => (a.ts < b.ts ? 1 : -1))

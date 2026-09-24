@@ -796,6 +796,12 @@ function createWindow() {
 const PAINEL_W = 340;
 const PAINEL_H = 600;
 const PAINEL_VIGIA_MS = 40;
+/**
+ * De quanto em quanto tempo o painel reafirma que fica por cima de tudo. O Windows às vezes tira a
+ * janela da faixa "sempre no topo" (continua com o estilo, mas vai pra trás da janela do Nexos) e
+ * a pílula some sem erro nenhum; o `setAlwaysOnTop` de quando o painel nasce não volta sozinho.
+ */
+const PAINEL_TOPO_MS = 2000;
 /** Folga em volta dos retângulos quentes, em px da página (o cursor não acerta a borda exata). */
 const PAINEL_FOLGA = 10;
 const PAINEL_PADRAO = {
@@ -831,6 +837,7 @@ let painelDentro = false;
 /** `false` ou o lugar em que a pílula está sendo arrastada ({ display, borda, pos }). */
 let painelArrastando = false;
 let painelVigia = null;
+let painelTopoEm = 0;
 
 function painelPrefsPath() {
   return join(app.getPath("userData"), "painel.json");
@@ -921,6 +928,7 @@ function aplicarPainel(p = lerPainel()) {
     w.webContents.setZoomFactor(p.tamanho);
     posicionarPainel(p);
     if (!w.isVisible()) w.showInactive();
+    reforcarTopo();
     ligarVigia();
   }
   if (painel && !painel.isDestroyed()) painel.webContents.send("painel:prefs", p);
@@ -991,6 +999,11 @@ function vigiarPainel() {
     posicionarPainel(lerPainel(), painelArrastando);
     return;
   }
+  const agora = Date.now();
+  if (agora - painelTopoEm >= PAINEL_TOPO_MS) {
+    painelTopoEm = agora;
+    reforcarTopo();
+  }
   const b = painel.getBounds();
   const z = painel.webContents.getZoomFactor();
   const quente = painelAreas.quentes.some((r) => dentroDe(r, c, b, z, PAINEL_FOLGA));
@@ -1001,6 +1014,12 @@ function vigiarPainel() {
     painelDentro = dentro;
     painel.webContents.send("painel:hover", dentro);
   }
+}
+
+/** Volta o painel pra faixa "sempre no topo" (SetWindowPos HWND_TOPMOST, sem roubar foco nem mexer no lugar). */
+function reforcarTopo() {
+  if (!painel || painel.isDestroyed()) return;
+  painel.setAlwaysOnTop(true, "screen-saver");
 }
 
 function ligarVigia() {

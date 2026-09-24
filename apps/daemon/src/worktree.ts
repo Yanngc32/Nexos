@@ -94,6 +94,28 @@ export async function abrirWorktree(
 }
 
 /**
+ * Pasta de uma árvore VIVA que já está com `branch` em checkout, segundo o próprio git — pega
+ * também árvore que o Nexos desta instalação não conhece (outra instalação no mesmo repo, como o
+ * motor do `run.bat dev` em `~/.nexos-dev`, ou `git worktree add` feito à mão). Sem isso a conversa
+ * nova tentava abrir outra árvore e o git recusava ("already checked out at ...").
+ *
+ * `prune` antes: árvore cuja pasta foi apagada continua registrada e seguraria a branch à toa.
+ */
+export async function worktreeDaBranch(projectPath: string, branch: string): Promise<string | undefined> {
+  const repo = resolve(projectPath);
+  await git(["worktree", "prune"], repo);
+  const r = await git(["worktree", "list", "--porcelain"], repo);
+  if (!r.ok) return undefined;
+  const alvo = `branch refs/heads/${branch}`;
+  for (const bloco of r.saida.split(/\r?\n\r?\n/)) {
+    const linhas = bloco.split(/\r?\n/).map((l) => l.trim());
+    const dir = linhas.find((l) => l.startsWith("worktree "))?.slice("worktree ".length);
+    if (dir && linhas.includes(alvo) && existsSync(dir)) return resolve(dir);
+  }
+  return undefined;
+}
+
+/**
  * Tira a árvore do disco. O BRANCH FICA: é ele que guarda o que o agente fez, e
  * apagar trabalho sem alguém ter olhado é exatamente o que não se deve fazer.
  */

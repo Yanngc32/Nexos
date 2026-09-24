@@ -59,6 +59,7 @@ import { rotuloDaFerramenta } from "./rotulos-ferramenta.js";
 import { criarInspectorHost } from "./inspector-host.js";
 import { FASE } from "./inspector-estado.js";
 import { criarNavegadorHost } from "./navegador-host.js";
+import { LIMITE_DO_CHAT, inicioDaJanela, mensagensAntesDe } from "./janela-do-chat.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -201,6 +202,8 @@ const state = {
   pendingImages: [],
   /** Object URLs vivos no log; revogados quando o log é recriado. */
   logShotUrls: [],
+  /** Quantos eventos do fim da conversa o chat desenha (ver janela-do-chat.js). */
+  limiteDoChat: LIMITE_DO_CHAT,
   /**
    * Menu de autocomplete do composer — serve tanto "/" (kind "cmd", sempre a mensagem
    * inteira) quanto "@" (kind "mencao", token em qualquer ponto do texto). A posição do
@@ -3728,19 +3731,40 @@ async function deleteThread(id) {
   await loadThreads();
 }
 
-function renderEvents(events) {
+/** Desenha a conversa — só o fim dela (`state.limiteDoChat` eventos); o resto fica atrás do botão. */
+function renderEvents(events, { manterRolagem = false } = {}) {
   state.events = events;
   const log = $("log");
+  const doFim = log.scrollHeight - log.scrollTop;
   for (const url of state.logShotUrls) URL.revokeObjectURL(url);
   state.logShotUrls = [];
   const prev = log.style.display;
   log.style.display = "none";
   log.replaceChildren();
-  for (const ev of events) appendEvent(ev, false);
+  const inicio = inicioDaJanela(events, state.limiteDoChat);
+  if (inicio > 0) log.append(botaoMensagensAnteriores(events, inicio));
+  for (let i = inicio; i < events.length; i++) appendEvent(events[i], false);
   log.style.display = prev;
-  log.scrollTop = log.scrollHeight;
+  // "mostrar anteriores": o que já estava na tela fica no mesmo lugar, o novo entra em cima
+  log.scrollTop = manterRolagem ? log.scrollHeight - doFim : log.scrollHeight;
   atualizarHistoricoChat();
   atualizarBotaoDescer();
+}
+
+function botaoMensagensAnteriores(events, inicio) {
+  const li = document.createElement("li");
+  li.className = "log-anteriores";
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "ghost";
+  const n = mensagensAntesDe(events, inicio);
+  b.textContent = n ? `Mostrar anteriores (${n} ${n === 1 ? "mensagem sua" : "mensagens suas"})` : "Mostrar anteriores";
+  b.addEventListener("click", () => {
+    state.limiteDoChat += LIMITE_DO_CHAT;
+    renderEvents(state.events, { manterRolagem: true });
+  });
+  li.append(b);
+  return li;
 }
 
 /** Últimas mensagens que a PESSOA mandou nesta conversa — clicar rola até a bolha original. */
@@ -4378,6 +4402,7 @@ async function openThread(id) {
   state.threadId = id;
   localStorage.setItem("nexo.thread", id);
   const events = await req(`/v1/threads/${id}`);
+  state.limiteDoChat = LIMITE_DO_CHAT;
   const meta = events.find((e) => e.type === "thread_meta");
   state.metaAtual = meta || null;
   $("btn-voltar-origem").classList.toggle("hidden", !meta?.origemThreadId);
