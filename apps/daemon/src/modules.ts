@@ -35,8 +35,12 @@ async function rodar(bin: string, args: string[], timeoutMs: number, env?: NodeJ
  * extrair esse zip aqui é risco alto sem como validar em CI; o log deixa a URL certa em vez de
  * arriscar deixar a instalação pela metade.
  */
-export async function ensureRtkInstalled(): Promise<void> {
+export async function ensureRtkInstalled(home: string): Promise<void> {
   if (await rodar("rtk", ["--version"], 10_000)) return;
+  // Sem cargo e no Windows nada muda entre um boot e outro: avisa UMA vez (marca no home) em vez
+  // de repetir a mesma linha em toda subida do daemon. Apagar a marca faz avisar de novo.
+  const marca = join(home, "rtk-aviso-instalacao");
+  if (existsSync(marca)) return;
   if (await rodar("cargo", ["install", "--git", "https://github.com/rtk-ai/rtk"], INSTALL_TIMEOUT_MS)) {
     console.log("rtk: instalado via cargo");
     return;
@@ -52,6 +56,11 @@ export async function ensureRtkInstalled(): Promise<void> {
     "rtk: não consegui instalar automaticamente (sem cargo, e Windows não tem installer de script) — " +
       "baixe o zip e extraia rtk.exe pro PATH: https://github.com/rtk-ai/rtk/releases",
   );
+  try {
+    writeFileSync(marca, new Date().toISOString(), "utf8");
+  } catch {
+    // sem a marca só volta a avisar no próximo boot
+  }
 }
 
 /** Checagem rápida (um `readFileSync` pequeno) — evita pagar um subprocesso inteiro em toda mensagem. */

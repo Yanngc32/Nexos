@@ -59,7 +59,7 @@ async function cmdUp(): Promise<void> {
   // Fire-and-forget, em paralelo ao resto da subida — nunca lançam, então não atrasam nem
   // condicionam o daemon a isso (ver ensureRtkInstalled/ensureCavemanInstalled).
   const modulos = loadConfig(home).modulos;
-  if (modulos.rtk) void ensureRtkInstalled();
+  if (modulos.rtk) void ensureRtkInstalled(home);
   if (modulos.caveman) void ensureCavemanInstalled(home);
   // Síncrono e barato (só lê agents.json/hooks.json) — sem network, não precisa de fire-and-forget.
   const r = sincronizarRepoMapResumos(home);

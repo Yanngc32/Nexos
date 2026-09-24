@@ -78,6 +78,9 @@ export function listarArquivos(projectPath: string): string[] {
       encoding: "utf8",
       timeout: 30_000,
       shell: process.platform === "win32",
+      // projeto sem git é caso previsto (lista vazia): o "fatal: not a git repository" não vai pro log
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     });
     return saida
       .split(/\r?\n/)

@@ -18,7 +18,7 @@ describe("ensureRtkInstalled", () => {
       if (bin === "rtk") return cb(null, { stdout: "rtk 0.28\n" });
       return cb(new Error("não devia chamar"), undefined);
     });
-    await ensureRtkInstalled();
+    await ensureRtkInstalled(tempHome());
     expect(execFileMock).toHaveBeenCalledTimes(1);
   });
 
@@ -28,7 +28,7 @@ describe("ensureRtkInstalled", () => {
       if (bin === "cargo") return cb(null, { stdout: "" });
       return cb(new Error("não devia chamar"), undefined);
     });
-    await ensureRtkInstalled();
+    await ensureRtkInstalled(tempHome());
     expect(execFileMock.mock.calls.map((c) => c[0])).toEqual(["rtk", "cargo"]);
   });
 
@@ -36,8 +36,15 @@ describe("ensureRtkInstalled", () => {
     execFileMock.mockImplementation((_bin, _args, _opts, cb) => cb(new Error("não achado"), undefined));
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
-      await expect(ensureRtkInstalled()).resolves.toBeUndefined();
+      const home = tempHome();
+      await expect(ensureRtkInstalled(home)).resolves.toBeUndefined();
       expect(log).toHaveBeenCalledWith(expect.stringMatching(/não consegui instalar/));
+      // próximo boot: mesma situação, não repete o aviso nem tenta instalar de novo
+      log.mockClear();
+      execFileMock.mockClear();
+      await ensureRtkInstalled(home);
+      expect(log).not.toHaveBeenCalled();
+      expect(execFileMock.mock.calls.map((c) => c[0])).toEqual(["rtk"]);
     } finally {
       log.mockRestore();
     }
