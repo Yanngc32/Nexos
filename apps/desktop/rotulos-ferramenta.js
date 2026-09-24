@@ -12,6 +12,7 @@ const GRUPOS = [
     acoes: {
       abrir: "abrindo a página",
       ler: "lendo a página",
+      markdown: "lendo o conteúdo",
       screenshot: "tirando print",
       clicar: "clicando",
       digitar: "digitando",

@@ -160,6 +160,25 @@ describe("ferramentasDeNavegador", () => {
     resetNavegadorForTest();
     const { threadId } = setup();
     const ferramentas = ferramentasDeNavegador(threadId, "h", "negado")();
-    expect(ferramentas).toHaveLength(5);
+    expect(ferramentas).toHaveLength(6);
+  });
+
+  it("modo questionar: markdown só lê, também não pergunta, e pede a ação \"markdown\" ao renderer", async () => {
+    resetNavegadorForTest();
+    resetPerguntasForTest();
+    const { home, threadId } = setup();
+    const markdown = ferramentasDeNavegador(threadId, home, "questionar")().find((f) => f.name === "nexo_navegador_markdown")!;
+    const eventos: { acao?: string }[] = [];
+    const ouvir = (ev: { type?: string; acao?: string }) => ev.type === "browser_comando" && eventos.push(ev);
+    sessionBus.on(threadId, ouvir);
+    try {
+      const chamada = markdown.executar({});
+      await new Promise((r) => setTimeout(r, 10));
+      expect(eventos.map((e) => e.acao)).toEqual(["markdown"]);
+      expect(responderNavegador(threadId, { ok: true, texto: "# Página" })).toBe(true);
+      expect(await chamada).toEqual({ ok: true, texto: "# Página" });
+    } finally {
+      sessionBus.off(threadId, ouvir);
+    }
   });
 });

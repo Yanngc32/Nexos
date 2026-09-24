@@ -49,6 +49,7 @@ import { cancelLogin, loginStatus, startLogin, submitCode } from "./login-sessio
 import {
   activeAgentId,
   appendEvent,
+  createThread,
   createThreadNaBranch,
   listThreads,
   projectsFromThreads,
@@ -192,6 +193,25 @@ import {
   trustProject,
 } from "./services.ts";
 import { streamSSE } from "hono/streaming";
+import {
+  abrirPlano,
+  apagarCard as apagarCardDoPlano,
+  canalPlanejamento,
+  criarPlano,
+  escreverHandoff,
+  listarHandoffs,
+  listarPlanos,
+  marcarEtapa,
+  planejamentoBus,
+  salvarCard as salvarCardDoPlano,
+  salvarLayout,
+  salvarRoteiro,
+  type CardInput,
+  vincularThread,
+  type EventoPlano,
+} from "./planejamento.ts";
+import { ferramentasDePlanejamento } from "./planejamento-ferramentas.ts";
+import { montarHandoff, pedidoAoManager, prontidao } from "./planejamento-handoff.ts";
 
 /** Devolve o arquivo da interface web, ou 404 — nunca um caminho de fora dela. */
 function responderWeb(c: { req: { path: string }; body: BodyResponder }, caminho: string): Response {
@@ -1772,6 +1792,220 @@ export function createApp(home: string, token: string): Hono {
     }
   });
 
+  /* ---------- Planejamento (planejamento.ts) ---------- */
+
+  /** Mesmo formato de erro das outras rotas; 409 leva a versão atual pra quem chamou refazer. */
+  const erroDoPlano = (c: Context, e: unknown) => {
+    const err = e as Error & { status?: number; atual?: unknown };
+    const status = (err.status ?? 400) as 400;
+    return c.json(err.status === 409 ? { error: err.message, atual: err.atual ?? null } : { error: err.message }, status);
+  };
+
+  app.get("/v1/planejamento", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    return c.json(listarPlanos(projectPath, home));
+  });
+
+  /**
+   * A conversa do Agent Manager do plano: a que já está ligada a ele, ou uma nova (com
+   * `thread_meta.planejamento`) se não houver ou se ela sumiu do disco.
+   */
+  const conversaDoManager = (projectPath: string, slug: string, profileId: unknown): string => {
+    const atual = abrirPlano(projectPath, home, slug).roteiro.threadId;
+    if (atual && threadHead(atual, home)?.planejamento?.slug === slug) return atual;
+    if (typeof profileId !== "string" || !profileId) {
+      const err = new Error("profileId obrigatório pra abrir a conversa do Manager") as Error & { status: number };
+      err.status = 400;
+      throw err;
+    }
+    const { id } = createThread({ projectPath, profileId, planejamento: { slug } }, home);
+    vincularThread(projectPath, home, slug, id);
+    return id;
+  };
+
+  /** Cria o plano e, com `profileId`, já a conversa do Manager. */
+  app.post("/v1/planejamento", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { titulo?: unknown; profileId?: unknown };
+      const plano = criarPlano(projectPath, home, { titulo: body.titulo });
+      if (body.profileId) conversaDoManager(projectPath, plano.slug, body.profileId);
+      return c.json(abrirPlano(projectPath, home, plano.slug), 201);
+    } catch (e) {
+      return erroDoPlano(c, e);
+    }
+  });
+
+  /** Garante a conversa do Manager de um plano existente (reabrir pela lista). */
+  app.post("/v1/planejamento/:slug/manager", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { profileId?: unknown };
+      return c.json({ threadId: conversaDoManager(projectPath, c.req.param("slug"), body.profileId) });
+    } catch (e) {
+      return erroDoPlano(c, e);
+    }
+  });
+
+  /** SSE: um evento por escrita em qualquer plano deste projeto (a tela filtra pelo slug). */
+  app.get("/v1/planejamento/events", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    return streamSSE(c, async (stream) => {
+      const canal = canalPlanejamento(projectPath);
+      const ouvir = (ev: EventoPlano) => void stream.writeSSE({ data: JSON.stringify(ev) });
+      planejamentoBus.on(canal, ouvir);
+      await new Promise<void>((resolve) => {
+        stream.onAbort(() => {
+          planejamentoBus.off(canal, ouvir);
+          resolve();
+        });
+      });
+    });
+  });
+
+  app.get("/v1/planejamento/:slug", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      return c.json(abrirPlano(projectPath, home, c.req.param("slug")));
+    } catch (e) {
+      return erroDoPlano(c, e);
+    }
+  });
+
+  app.put("/v1/planejamento/:slug/roteiro", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { etapas?: unknown; titulo?: unknown; expectedRev?: unknown };
+      return c.json(salvarRoteiro(projectPath, home, c.req.param("slug"), { ...body, expectedRev: body.expectedRev }));
+    } catch (e) {
+      return erroDoPlano(c, e);
+    }
+  });
+
+  app.put("/v1/planejamento/:slug/etapas/:etapa", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { status?: unknown; expectedRev?: unknown };
+      return c.json(
+        marcarEtapa(projectPath, home, c.req.param("slug"), { etapa: c.req.param("etapa"), status: body.status, expectedRev: body.expectedRev }),
+      );
+    } catch (e) {
+      return erroDoPlano(c, e);
+    }
+  });
+
+  /** Cria (sem id na rota: POST) ou atualiza (PUT com id) um card; `expectedRev` no corpo. */
+  app.post("/v1/planejamento/:slug/cards", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as CardInput;
+      return c.json(salvarCardDoPlano(projectPath, home, c.req.param("slug"), { ...body, expectedRev: 0 }), 201);
+    } catch (e) {
+      return erroDoPlano(c, e);
+    }
+  });
+
+  app.put("/v1/planejamento/:slug/cards/:id", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as CardInput & { expectedRev?: unknown };
+      return c.json(salvarCardDoPlano(projectPath, home, c.req.param("slug"), { ...body, id: c.req.param("id"), expectedRev: body.expectedRev }));
+    } catch (e) {
+      return erroDoPlano(c, e);
+    }
+  });
+
+  app.delete("/v1/planejamento/:slug/cards/:id", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      apagarCardDoPlano(projectPath, home, c.req.param("slug"), { id: c.req.param("id"), expectedRev: Number(c.req.query("rev")) });
+      return c.json({ ok: true });
+    } catch (e) {
+      return erroDoPlano(c, e);
+    }
+  });
+
+  app.put("/v1/planejamento/:slug/layout", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      return c.json(salvarLayout(projectPath, home, c.req.param("slug"), await c.req.json().catch(() => ({}))));
+    } catch (e) {
+      return erroDoPlano(c, e);
+    }
+  });
+
+  app.get("/v1/planejamento/:slug/handoff", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      return c.json(listarHandoffs(projectPath, home, c.req.param("slug")));
+    } catch (e) {
+      return erroDoPlano(c, e);
+    }
+  });
+
+  /** Conferência + rascunho automático + o pedido fixo pro Manager (passo 1 e 2 do envio). */
+  app.get("/v1/planejamento/:slug/handoff/rascunho", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const plano = abrirPlano(projectPath, home, c.req.param("slug"));
+      const p = prontidao(plano);
+      return c.json({ texto: montarHandoff(plano), prontidao: p, pedido: pedidoAoManager(plano, p.bloqueios.length) });
+    } catch (e) {
+      return erroDoPlano(c, e);
+    }
+  });
+
+  /**
+   * Envia pra implementação: grava o texto final em `handoff/` (arquivo novo, nunca sobrescreve),
+   * cria a conversa "Implementação: <título>" com `thread_meta.handoff` e manda o texto nela — sem
+   * esperar o turno (a tela só abre a conversa).
+   */
+  app.post("/v1/planejamento/:slug/handoff/enviar", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const slug = c.req.param("slug");
+      const body = (await c.req.json().catch(() => ({}))) as { texto?: unknown; profileId?: unknown };
+      if (typeof body.profileId !== "string" || !body.profileId) return c.json({ error: "profileId obrigatório" }, 400);
+      const plano = abrirPlano(projectPath, home, slug);
+      const handoff = escreverHandoff(projectPath, home, slug, body.texto);
+      const { id: threadId } = createThread(
+        { projectPath, profileId: body.profileId, title: `Implementação: ${plano.roteiro.titulo}`, handoff: { slug } },
+        home,
+      );
+      void postMessage(threadId, handoff.texto.trimEnd(), home).catch((err) =>
+        console.error(`nexo: envio do plano ${slug} pra ${threadId} falhou: ${(err as Error).message}`),
+      );
+      return c.json({ threadId, handoff: handoff.nome }, 201);
+    } catch (e) {
+      return erroDoPlano(c, e);
+    }
+  });
+
+  app.post("/v1/planejamento/:slug/handoff", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { texto?: unknown };
+      return c.json(escreverHandoff(projectPath, home, c.req.param("slug"), body.texto), 201);
+    } catch (e) {
+      return erroDoPlano(c, e);
+    }
+  });
+
   /* ---------- Repo map ---------- */
 
   /**
@@ -1955,6 +2189,19 @@ export function createApp(home: string, token: string): Hono {
     const projectPath = c.req.query("projectPath") || "";
     const runId = c.req.query("runId") || "";
     const threadId = c.req.query("threadId") || "";
+    // Agent Manager (Tela de Planejamento): só o plano DELE (slug e projeto vêm da thread, nunca da
+    // URL), perguntar e o mapa do repo — nada de autoria, tarefas, delegar, navegador ou Windows.
+    const head = threadId && !runId ? threadHead(threadId, home) : undefined;
+    if (head?.planejamento && head.projectPath) {
+      const pp = head.projectPath;
+      const slug = head.planejamento.slug;
+      return responderMcp(c, () => [
+        ...ferramentasDePlanejamento(pp, slug, home)(),
+        ...ferramentaDePerguntar(threadId, home)(),
+        ...ferramentasDeRepoMap(pp, home)(),
+        ...ferramentaDeResumo(pp, home)(),
+      ]);
+    }
     // `nexo_delegar` só em conversa NORMAL (sem runId) — é isso que impede recursão: o que ele
     // dispara é sempre um passo de Run, que nasce COM runId e por isso nunca cai aqui de novo.
     const modoDelegacao = threadId && projectPath && !runId ? modoDeDelegacaoDaThread(threadId, home) : "negado";

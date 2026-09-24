@@ -710,8 +710,9 @@
                 <div id="ds-gerar-form" class="ds-gerar-form">
                   <label>Conta<select id="ds-gerar-conta"></select></label>
                   <p id="ds-gerar-sem-conta" class="ds-gerar-estimativa hidden">
-                    Nenhuma conta neste motor. Faça login em Configurações → Contas e volte aqui.
-                    (No <code>run.bat dev</code> o motor é separado do Nexos instalado, então precisa logar de novo.)
+                    Nenhuma conta neste motor: dá pra gerar tokens e DESIGN.md sem IA (plano B). Pros cards, faça login
+                    em Configurações → Contas. (No <code>run.bat dev</code> o motor é separado do Nexos instalado, então
+                    precisa logar de novo.)
                   </p>
                   <label>Sobre o produto
                     <textarea id="ds-gerar-brief" rows="3" placeholder="Ex.: painel interno de uma oficina mecânica; tom sério, grafite e vermelho da marca, bastante dado em tabela."></textarea>
@@ -826,6 +827,154 @@
             <div id="ds-painel-abas" class="ax-tabs" role="tablist"></div>
             <div id="ds-painel-corpo" class="ds-painel-corpo"></div>
           </aside>
+        </div>
+      </section>
+
+      <section class="pane" id="pane-planejamento">
+        <header class="mod-head pl-head">
+          <div class="pl-head-titulo">
+            <span class="pl-rotulo">Planejamento</span>
+            <input type="text" id="pl-titulo" class="pl-titulo" aria-label="Título do plano" maxlength="120" placeholder="Sem nome" />
+          </div>
+          <span id="pl-selo" class="pl-selo"></span>
+          <select id="pl-planos" class="pl-planos" aria-label="Planos deste projeto"></select>
+          <div class="pl-head-acoes">
+            <button type="button" id="btn-pl-anim" class="ghost" aria-pressed="true" title="Animar o que o Manager muda">Animação</button>
+            <button type="button" id="btn-pl-enviar" class="primary" disabled>Enviar para implementação</button>
+          </div>
+          <button type="button" id="btn-close-planejamento" class="ghost mod-close" title="Fechar (volta só pro chat)">✕</button>
+        </header>
+        <div id="pl-erro" class="pl-erro hidden" role="alert"></div>
+        <div id="pl-vazio-conversa" class="pl-vazio-conversa hidden">
+          <strong>Esta conversa não é um planejamento</strong>
+          <p>O planejamento é uma conversa com o Agent Manager: ele questiona, pesquisa e monta o roteiro e os cards com você — sem mexer no código.</p>
+          <button type="button" id="btn-pl-novo-vazio" class="primary">Novo planejamento</button>
+        </div>
+        <div id="pl-corpo" class="pl-corpo hidden">
+          <aside id="pl-roteiro" class="pl-roteiro" aria-label="Roteiro">
+            <div class="pl-roteiro-cab">
+              <span class="pl-rotulo">Roteiro</span>
+              <span id="pl-roteiro-cont" class="pl-roteiro-cont">0/0</span>
+              <button type="button" id="btn-pl-roteiro-recolher" class="ghost pl-roteiro-recolher" aria-expanded="true" title="Recolher roteiro">‹</button>
+            </div>
+            <div class="pl-progresso"><span id="pl-progresso-barra"></span></div>
+            <ol id="pl-etapas" class="pl-etapas"></ol>
+            <span id="pl-roteiro-alca" class="pl-roteiro-alca" aria-hidden="true"></span>
+          </aside>
+          <div class="pl-area">
+            <div class="pl-barra">
+              <button type="button" id="btn-pl-card" class="ghost">+ Card</button>
+              <span class="pl-dica">Duplo clique abre · Delete apaga · arraste do ponto na borda de um card até outro pra ligar</span>
+            </div>
+            <div id="pl-faixa-vazia" class="pl-faixa-vazia hidden">
+              <strong>Plano em branco</strong>
+              <span>Converse com o Agent Manager pra separar o trabalho em etapas — cada etapa vira uma coluna aqui, com os requisitos, decisões e dúvidas dela.</span>
+              <button type="button" id="btn-pl-card-vazio" class="ghost">+ Card</button>
+            </div>
+            <div id="pl-invalidos" class="pl-invalidos hidden" role="status"></div>
+            <div id="pl-viewport" class="pl-viewport">
+              <div id="pl-board" class="pl-board">
+                <svg id="pl-arestas" class="pl-arestas" aria-hidden="true">
+                  <defs>
+                    <marker id="pl-seta-sequencia" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10Z" /></marker>
+                    <marker id="pl-seta-ligacao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10Z" /></marker>
+                    <marker id="pl-seta-referencia" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10Z" /></marker>
+                  </defs>
+                </svg>
+                <div id="pl-nos" class="pl-nos"></div>
+                <!-- dentro do board: acompanham pan e zoom (mesma animação do Design System) -->
+                <svg id="pl-traco" class="ds-traco pl-traco" aria-hidden="true"></svg>
+                <div id="pl-cursor" class="ds-cursor" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" width="18" height="18"><path d="M2 1.5 13.5 8 8.2 9.3 5.6 14.5Z" /></svg>
+                </div>
+              </div>
+              <div class="pl-zoom" role="group" aria-label="Zoom">
+                <button type="button" id="pl-zoom-mais" class="ghost" title="Aumentar zoom">+</button>
+                <span id="pl-zoom-val">100%</span>
+                <button type="button" id="pl-zoom-menos" class="ghost" title="Diminuir zoom">−</button>
+                <button type="button" id="pl-zoom-ajustar" class="ghost" title="Enquadrar tudo">⛶</button>
+              </div>
+            </div>
+          </div>
+          <aside id="pl-editor" class="pl-editor hidden" aria-label="Editar card">
+            <header class="pl-ed-cab">
+              <strong>Editar card</strong>
+              <code id="pl-ed-id" class="pl-ed-id"></code>
+              <button type="button" id="btn-pl-ed-x" class="ghost" title="Fechar">✕</button>
+            </header>
+            <div class="pl-ed-corpo-rol">
+              <label class="pl-ed-campo"><span class="pl-rotulo">Título</span><input type="text" id="pl-ed-titulo" maxlength="140" /></label>
+              <div class="pl-ed-campo"><span class="pl-rotulo">Tipo</span><div id="pl-ed-tipos" class="pl-ed-tipos" role="group" aria-label="Tipo"></div></div>
+              <label class="pl-ed-campo"><span class="pl-rotulo">Etapa</span><select id="pl-ed-etapa"></select></label>
+              <label id="pl-ed-fonte-campo" class="pl-ed-campo hidden"><span class="pl-rotulo">Fonte</span><input type="text" id="pl-ed-fonte" placeholder="https://… ou src/arquivo.ts:12" /></label>
+              <div id="pl-ed-situacao-campo" class="pl-ed-campo hidden">
+                <span class="pl-rotulo">Situação</span>
+                <div id="pl-ed-situacao" class="pl-ed-seg" role="group" aria-label="Situação">
+                  <button type="button" data-status="aberta">Aberta</button>
+                  <button type="button" data-status="resolvida">Resolvida</button>
+                </div>
+              </div>
+              <div class="pl-ed-campo pl-ed-campo-corpo">
+                <div class="pl-ed-corpo-cab">
+                  <span class="pl-rotulo">Conteúdo</span>
+                  <div class="pl-ed-seg" role="group" aria-label="Modo do conteúdo">
+                    <button type="button" id="pl-ed-aba-escrever">Escrever</button>
+                    <button type="button" id="pl-ed-aba-previa">Prévia</button>
+                  </div>
+                </div>
+                <textarea id="pl-ed-corpo" spellcheck="true" placeholder="Markdown. Cite outro card com [[Título]]."></textarea>
+                <div id="pl-ed-previa" class="pl-ed-previa md hidden"></div>
+                <div id="pl-ed-sugestoes" class="pl-ed-sugestoes hidden" role="listbox"></div>
+              </div>
+            </div>
+            <footer class="pl-ed-rodape">
+              <button type="button" id="btn-pl-ed-apagar" class="ghost pl-ed-apagar">Apagar</button>
+              <span class="pl-dica">Grava sozinho ao sair do card</span>
+              <button type="button" id="btn-pl-ed-fechar" class="ghost">Fechar</button>
+            </footer>
+          </aside>
+        </div>
+        <div id="pl-envio" class="pl-envio hidden" role="dialog" aria-modal="true" aria-labelledby="pl-envio-titulo">
+          <div class="pl-envio-caixa">
+            <header class="pl-envio-cab">
+              <span id="pl-envio-plano" class="pl-rotulo"></span>
+              <strong id="pl-envio-titulo">Enviar para implementação</strong>
+            </header>
+            <ol id="pl-envio-passos" class="pl-envio-passos">
+              <li data-passo="conferir"><span>1</span>Conferir</li>
+              <li data-passo="gerar"><span>2</span>Gerar</li>
+              <li data-passo="revisar"><span>3</span>Revisar prompt</li>
+            </ol>
+            <section id="pl-envio-conferir" class="pl-envio-corpo">
+              <p class="pl-envio-texto">O plano vira o prompt de uma conversa <strong>nova</strong> de implementação neste projeto. Confira antes de gerar.</p>
+              <div id="pl-envio-bloqueios" class="pl-envio-caixinha pl-envio-bloqueio hidden">
+                <span class="pl-rotulo">⚠ Bloqueia o envio</span>
+                <ul id="pl-envio-bloqueios-lista"></ul>
+                <label class="pl-envio-mesmo-assim"><input type="checkbox" id="pl-envio-mesmo-assim" /> Enviar mesmo assim — as ambiguidades vão como pendentes de confirmação</label>
+              </div>
+              <div id="pl-envio-avisos" class="pl-envio-caixinha pl-envio-aviso hidden">
+                <span class="pl-rotulo">Avisos</span>
+                <ul id="pl-envio-avisos-lista"></ul>
+              </div>
+              <p id="pl-envio-tudo-certo" class="pl-envio-texto hidden">Tudo certo: nenhuma ambiguidade aberta, todas as etapas concluídas.</p>
+            </section>
+            <section id="pl-envio-gerando" class="pl-envio-corpo hidden">
+              <p class="pl-envio-texto">Pedi ao Agent Manager pra escrever o prompt — acompanhe no chat. Assim que ele gravar, o texto aparece aqui pra você revisar.</p>
+              <div class="pl-envio-espera" aria-live="polite"><span class="pl-envio-pontos"></span> Esperando o Manager…</div>
+            </section>
+            <section id="pl-envio-revisar" class="pl-envio-corpo hidden">
+              <p class="pl-envio-texto">Edite à vontade: o texto final fica gravado no plano (<code>handoff/</code>) e vai como primeira mensagem da conversa de implementação.</p>
+              <textarea id="pl-envio-prompt" spellcheck="false"></textarea>
+            </section>
+            <footer class="pl-envio-rodape">
+              <button type="button" id="btn-pl-envio-cancelar" class="ghost">Cancelar</button>
+              <span class="pl-envio-espaco"></span>
+              <button type="button" id="btn-pl-envio-voltar" class="ghost hidden">Voltar</button>
+              <button type="button" id="btn-pl-envio-rascunho" class="ghost">Usar rascunho automático</button>
+              <button type="button" id="btn-pl-envio-manager" class="primary">Pedir ao Agent Manager</button>
+              <button type="button" id="btn-pl-envio-enviar" class="primary hidden">Enviar para implementação</button>
+            </footer>
+          </div>
         </div>
       </section>
         </div>
@@ -2227,6 +2376,8 @@
     </div>
     <script src="./node_modules/@xterm/xterm/lib/xterm.js"></script>
     <script src="./node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+    <script src="./node_modules/@mozilla/readability/Readability.js"></script>
+    <script src="./node_modules/turndown/lib/turndown.browser.umd.js"></script>
     <script type="module" src="./renderer.js"></script>
   </body>
 </html>

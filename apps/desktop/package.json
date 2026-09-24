@@ -1,6 +1,6 @@
 {
   "name": "@nexos/desktop",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -13,9 +13,11 @@
     "build:publish": "pnpm run deploy:daemon && electron-builder --win --publish always"
   },
   "dependencies": {
+    "@mozilla/readability": "^0.6.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
-    "electron-updater": "^6.8.9"
+    "electron-updater": "^6.8.9",
+    "turndown": "^7.2.0"
   },
   "devDependencies": {
     "electron": "^33.4.5",

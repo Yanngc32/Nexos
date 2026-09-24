@@ -11,6 +11,7 @@ import { createCloneModal } from "./clone-modal.js";
 import { createNewThreadModal } from "./new-thread-modal.js";
 import { diffDeFerramenta, nomeArquivo, renderDiff } from "./diff-view.js";
 import { createTarefasBoard } from "./tarefas-board.js";
+import { createPlanejamentoBoard } from "./planejamento-board.js";
 import { createDsCanvas, documentoDoPrint } from "./canvas-ds.js";
 import { createBarraTimes } from "./chat-times.js";
 import { capturarReferencia } from "./ds-extrator.js";
@@ -76,11 +77,13 @@ const MODULES = [
   { id: "agentes", name: "Agentes, Times e Hooks", keys: "", ico: "🤖" },
   { id: "tarefas", name: "Tarefas", keys: "", ico: "🗂" },
   { id: "ds", name: "Design System", keys: "", ico: "◧" },
+  { id: "planejamento", name: "Planejamento", keys: "", ico: "🧭" },
   { id: "side-chat", name: "Chat lateral", keys: "Ctrl+Shift+S", ico: "💬" },
 ];
 
 /** Traço de cada tela (24×24, stroke) — um desenho só pra aba, paleta e menu de botão direito. */
 const ICO_PATHS = {
+  planejamento: '<rect x="3" y="5" width="6" height="5" rx="1"/><rect x="15" y="5" width="6" height="5" rx="1"/><rect x="15" y="15" width="6" height="5" rx="1"/><path d="M9 7.5h6M18 10v5"/><path d="M4 14h4M4 18h7"/>',
   ds: '<circle cx="8" cy="8" r="3"/><rect x="13" y="5" width="6" height="6" rx="1"/><path d="M5 19h6M5 15h6"/><rect x="13" y="14" width="6" height="5" rx="2.5"/>',
   file: '<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8Z"/><path d="M14 3v5h5"/>',
   terminal: '<path d="m7 8 4 4-4 4"/><path d="M13 16h4"/>',
@@ -1304,6 +1307,8 @@ function setMotor(on, live = false) {
   syncTalking();
   // A conversa aberta não espera o poll de 4s pra acender/apagar o ponto.
   if (was !== state.talking) renderRepoTree();
+  // "Enviar agora" depende do turno em voo: sem repintar, o chip ficava com o estado de quando entrou
+  if (was !== state.talking) paintQueue();
 }
 
 function syncTalking() {
@@ -1587,7 +1592,7 @@ function updateChatEmptyState() {
   cta.classList.toggle("hidden", !semRepos);
 }
 
-const WORK_PANES = ["file", "terminal", "browser", "canvas", "graph", "agentes", "tarefas", "ds"];
+const WORK_PANES = ["file", "terminal", "browser", "canvas", "graph", "agentes", "tarefas", "ds", "planejamento"];
 
 function chaveSessao(threadId = state.threadId) {
   return chaveWork(threadId, state.projectPath);
@@ -1732,6 +1737,7 @@ function aoMostrarPainel(view) {
   }
   if (view === "tarefas") void tarefasBoard.abrir();
   if (view === "ds") void dsCanvas.abrir();
+  if (view === "planejamento") void planejamentoBoard.abrir();
 }
 
 let workGen = 0;
@@ -2176,6 +2182,7 @@ async function tratarComandoNavegador(ev) {
       else garantirBrowserDaThread(ev.threadId);
       if (ev.acao === "abrir") resultado = await navegadorHost.abrir(ev.url, ev.threadId);
       else if (ev.acao === "ler") resultado = await navegadorHost.ler(ev.threadId);
+      else if (ev.acao === "markdown") resultado = await navegadorHost.markdown(ev.threadId);
       else if (ev.acao === "screenshot") resultado = await navegadorHost.screenshot(ev.threadId);
       else if (ev.acao === "clicar") resultado = await navegadorHost.clicar(ev.ref, ev.threadId);
       else if (ev.acao === "digitar") resultado = await navegadorHost.digitar(ev.ref, ev.texto, ev.threadId);
@@ -2946,6 +2953,7 @@ const REPO_ICO_HTML =
 
 /** Troca o projeto ativo (se preciso) e abre um módulo da paleta nele. */
 async function abrirModuloEmRepo(path, id) {
+  if (id === "planejamento") return abrirTelaDePlanejamento(path);
   if (!samePath(state.projectPath, path)) await bindProject(path);
   setView(id);
 }
@@ -2967,6 +2975,7 @@ function menuDoRepo(e, path) {
   menuContexto.abrir(e, [
     { titulo: folderName(path) },
     { rotulo: "Nova conversa", icoSvg: ctxIco("mais"), onSelect: () => void criarConversaEmRepo(path) },
+    { rotulo: "Novo planejamento", icoSvg: icoSvg("planejamento", "ctx-svg"), onSelect: () => void novoPlanejamento(path) },
     { separador: true },
     {
       rotulo: "Telas",
@@ -3309,6 +3318,17 @@ function renderRepoTree() {
       e.stopPropagation();
       void criarConversaEmRepo(path);
     });
+    const planejar = document.createElement("button");
+    planejar.type = "button";
+    planejar.className = "ghost repo-add repo-planejar";
+    planejar.title = "Novo planejamento neste repositório";
+    planejar.setAttribute("aria-label", "Novo planejamento neste repositório");
+    planejar.innerHTML = icoSvg("planejamento", "repo-planejar-ico");
+    planejar.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void novoPlanejamento(path);
+    });
     const forget = document.createElement("button");
     forget.type = "button";
     forget.className = "ghost repo-forget";
@@ -3320,7 +3340,8 @@ function renderRepoTree() {
       void removeRepo(path);
     });
     sum.append(ico, name, forget);
-    sum.insertBefore(add, forget);
+    sum.insertBefore(planejar, forget);
+    sum.insertBefore(add, planejar);
     sum.addEventListener("contextmenu", (e) => menuDoRepo(e, path));
     det.addEventListener("toggle", () => {
       if (det.open) state.reposOpen.add(normPath(path));
@@ -4426,6 +4447,11 @@ async function openThread(id) {
   marcarLinhaAtiva($("repo-tree"), id);
   listenSse();
   hidratarOuMigrar();
+  // conversa do Agent Manager: a Tela de Planejamento é a tela dela
+  if (meta?.planejamento) {
+    abrirAba(sessaoWork(), "planejamento");
+    persistirWork();
+  }
   aplicarSessaoWork();
   // lista/perfis/quota: não bloqueiam o clique. Forçar fp vazio reconstruía a
   // árvore inteira a cada troca e travava com dezenas de conversas.
@@ -5426,6 +5452,89 @@ const tarefasBoard = createTarefasBoard({
   confirmar: (msg) => dialogo.confirmar(msg),
   avisar: (msg) => dialogo.avisar(msg),
 });
+
+const planejamentoBoard = createPlanejamentoBoard({
+  req,
+  api,
+  headers,
+  el: $,
+  getProjectPath: () => state.projectPath,
+  getSlug: () => state.metaAtual?.planejamento?.slug || "",
+  isOk: () => state.ok,
+  lerEventos,
+  confirmar: (msg) => dialogo.confirmar(msg),
+  avisar: (msg) => dialogo.avisar(msg),
+  aoNovoPlano: (path) => void novoPlanejamento(path),
+  aoAbrirPlano: (path, slug) => void abrirPlanoExistente(path, slug),
+  aoAbrirExterno: (fonte) => {
+    if (/^https?:/i.test(fonte)) void window.nexo.openExternal?.(fonte);
+  },
+  getProfileId: () => state.profileId || state.profiles.find((p) => p.status === "ready")?.id || "",
+  // a conversa ativa é a do Manager (a tela é dela): o pedido vai direto no chat, visível pra pessoa
+  aoPedirAoManager: (texto) => {
+    if (!state.sideChat) {
+      state.sideChat = true;
+      applyWorkLayout();
+    }
+    void sendChatMessage(texto);
+  },
+  aoAbrirConversa: (threadId) => void openThread(threadId),
+});
+
+/** Conta pra conversa do Manager: a da conversa aberta, senão a primeira pronta. */
+function contaParaPlanejar() {
+  const id = state.profileId || state.profiles.find((p) => p.status === "ready")?.id;
+  if (!id) {
+    appendEvent({ type: "error", message: "Nenhuma conta pronta. Configurações → Nova conta." });
+    state.sideChat = true;
+    applyWorkLayout();
+  }
+  return id;
+}
+
+/** Cria o plano + a conversa do Agent Manager e abre a Tela de Planejamento nela. */
+async function novoPlanejamento(path) {
+  if (!state.ok || !path) return;
+  const profileId = contaParaPlanejar();
+  if (!profileId) return;
+  if (!samePath(state.projectPath, path)) await bindProject(path);
+  try {
+    const plano = await req(`/v1/planejamento?projectPath=${encodeURIComponent(path)}`, {
+      method: "POST",
+      body: JSON.stringify({ profileId }),
+    });
+    if (plano.roteiro?.threadId) await openThread(plano.roteiro.threadId);
+  } catch (e) {
+    dialogo.avisar(`Não criou o planejamento: ${e.message}`);
+  }
+}
+
+/** Abre um plano que já existe pela conversa do Manager dele (cria a conversa se sumiu). */
+async function abrirPlanoExistente(path, slug) {
+  const profileId = contaParaPlanejar();
+  if (!profileId) return;
+  try {
+    const { threadId } = await req(`/v1/planejamento/${encodeURIComponent(slug)}/manager?projectPath=${encodeURIComponent(path)}`, {
+      method: "POST",
+      body: JSON.stringify({ profileId }),
+    });
+    await openThread(threadId);
+  } catch (e) {
+    dialogo.avisar(`Não abriu o planejamento: ${e.message}`);
+  }
+}
+
+/** "Planejamento" da paleta/menu: a conversa atual se já é plano; senão o plano mais recente; senão um novo. */
+async function abrirTelaDePlanejamento(path) {
+  if (!path) return;
+  if (samePath(state.projectPath, path) && state.metaAtual?.planejamento) {
+    setView("planejamento");
+    return;
+  }
+  const planos = await req(`/v1/planejamento?projectPath=${encodeURIComponent(path)}`).catch(() => []);
+  if (planos.length) await abrirPlanoExistente(path, planos[0].slug);
+  else await novoPlanejamento(path);
+}
 
 const dsCanvas = createDsCanvas({
   req,
@@ -7253,7 +7362,9 @@ function paintQueue() {
       agora.type = "button";
       agora.className = "queue-x queue-agora";
       agora.title = "Enviar agora: o modelo lê no meio do turno, entre uma ferramenta e outra";
-      agora.textContent = "agora";
+      agora.setAttribute("aria-label", "Enviar agora");
+      // ícone do Enviar, não a palavra: "agora" em texto se misturava com a mensagem
+      agora.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 19V5" /><path d="M6 11l6-6 6 6" /></svg>`;
       agora.addEventListener("click", () => void enviarAgora(item));
       chip.append(agora);
     }
@@ -8580,7 +8691,9 @@ agentStudio.ligar();
 hooksStudio.ligar();
 $("btn-close-tarefas").addEventListener("click", fecharAbaAtual);
 $("btn-close-ds").addEventListener("click", fecharAbaAtual);
+$("btn-close-planejamento").addEventListener("click", fecharAbaAtual);
 tarefasBoard.ligar();
+planejamentoBoard.ligar();
 dialogo.ligar();
 automacaoModal.ligar();
 cloneModal.ligar();
@@ -8698,6 +8811,10 @@ function handleMod(id) {
     return;
   }
   closePalette();
+  if (id === "planejamento") {
+    void abrirTelaDePlanejamento(state.projectPath);
+    return;
+  }
   setView(id);
 }
 

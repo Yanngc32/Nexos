@@ -1850,6 +1850,12 @@ export function createDsCanvas({
       o.selected = p.id === getProfileId();
       sel.append(o);
     }
+    // plano B (ds-sem-ia.ts no daemon): tokens + DESIGN.md por regra, sem conta e sem quota
+    const semIa = doc.createElement("option");
+    semIa.value = "";
+    semIa.textContent = "Sem IA · só tokens e DESIGN.md, por regra";
+    semIa.selected = !perfis.length;
+    sel.append(semIa);
     return sel;
   }
 
@@ -2317,6 +2323,12 @@ export function createDsCanvas({
       o.selected = p.id === getProfileId();
       sel.append(o);
     }
+    // plano B (ds-sem-ia.ts no daemon): tokens + DESIGN.md por regra, sem conta e sem quota
+    const semIa = doc.createElement("option");
+    semIa.value = "";
+    semIa.textContent = "Sem IA · só tokens e DESIGN.md, por regra";
+    semIa.selected = !perfis.length;
+    sel.append(semIa);
     pintarListaSelecao();
     corpo.querySelector("#ds-fb-enviar").addEventListener("click", () => void enviarFeedback(card.id));
     if (geracao?.status === "rodando") {
@@ -2598,7 +2610,6 @@ export function createDsCanvas({
     const perfis = getProfiles() || [];
     // sem conta neste motor (ex.: `run.bat dev`, que tem motor próprio): explica em vez de lista vazia
     el("ds-gerar-sem-conta").classList.toggle("hidden", perfis.length > 0);
-    sel.classList.toggle("hidden", perfis.length === 0);
     for (const p of perfis) {
       const o = doc.createElement("option");
       o.value = p.id;
@@ -2606,6 +2617,12 @@ export function createDsCanvas({
       o.selected = p.id === getProfileId();
       sel.append(o);
     }
+    // plano B (ds-sem-ia.ts no daemon): tokens + DESIGN.md por regra, sem conta e sem quota
+    const semIa = doc.createElement("option");
+    semIa.value = "";
+    semIa.textContent = "Sem IA · só tokens e DESIGN.md, por regra";
+    semIa.selected = !perfis.length;
+    sel.append(semIa);
     if (!planoSecoes) {
       try {
         planoSecoes = (await req("/v1/ds/gerar/plano")).secoes;
@@ -2638,13 +2655,21 @@ export function createDsCanvas({
 
   function pintarEstimativa() {
     const marcadas = secoesMarcadas();
+    if (!el("ds-gerar-conta").value) {
+      const tokens = el("ds-gerar-tokens").checked;
+      el("ds-gerar-estimativa").textContent = tokens
+        ? `Sem IA: tokens e DESIGN.md saem por regra, na hora e sem gastar quota${marcadas.length ? ". As seções de cards ficam de fora: precisam de uma conta." : "."}`
+        : "Sem IA só dá pra gerar os tokens e as regras de uso.";
+      el("ds-gerar-ir").disabled = !tokens;
+      return;
+    }
     const conversas = marcadas.length + (el("ds-gerar-tokens").checked ? 1 : 0);
     const cards = marcadas.reduce((n, i) => n + Number(i.dataset.cards || 0), 0);
     const paralelo = Math.max(1, Math.min(6, Number(el("ds-gerar-paralelo").value) || 3));
     el("ds-gerar-estimativa").textContent = conversas
       ? `≈ ${conversas} conversa${conversas > 1 ? "s" : ""} com o agente e ${cards} card${cards === 1 ? "" : "s"}, até ${paralelo} ao mesmo tempo. Tudo gasta quota da conta escolhida.`
       : "Escolha ao menos uma seção ou os tokens.";
-    el("ds-gerar-ir").disabled = conversas === 0 || !(getProfiles() || []).length;
+    el("ds-gerar-ir").disabled = conversas === 0;
   }
 
   /** Página capturada no Browser (ds-extrator.js), esperando virar referência da geração. */

@@ -16,6 +16,8 @@ import {
   type LintItem,
 } from "./design-system.ts";
 import { coletaVazia, coletarDaUrl, coletarDoCodigo, resumoDaColeta } from "./ds-coleta.ts";
+import { conferirTokens } from "./ds-conformidade.ts";
+import { designSemIa } from "./ds-sem-ia.ts";
 import { KIT_NO_PEDIDO, TIPOS, type TipoCard } from "./ds-kit.ts";
 import { criarLeitor, lerBlocos, semCerca, type Bloco, type OuvintesLeitor } from "./ds-stream.ts";
 import { ATTACH_MAX_BYTES } from "@nexos/shared";
@@ -117,8 +119,14 @@ export function resumoDaReferencia(ref: Referencia): string {
     `Pesos:\n${par(d.pesos, cont, 6)}`,
     `Raios:\n${par(d.raios, cont, 8)}`,
     `Sombras:\n${par(d.sombras, cont, 5)}`,
-    `Espaçamentos (padding/gap):\n${par(d.espacos, cont, 14)}`,
+    d.perfil
+      ? `Tipo de site (heurística por palavra-chave, só dica): ${d.perfil.tipo} · confiança ${d.perfil.confianca}${d.perfil.segundo ? ` · depois ${d.perfil.segundo}` : ""}${Array.isArray(d.perfil.evidencias) && d.perfil.evidencias.length ? ` (${d.perfil.evidencias.join(", ")})` : ""}`
+      : "",
+    `Espaçamentos (padding nos 4 lados/gap):\n${par(d.espacos, cont, 14)}`,
+    `Margens:\n${par(d.margens, cont, 10)}`,
+    `Espaçamento entre letras:\n${par(d.espacamentoLetras, cont, 6)}`,
     `Transições:\n${par(d.transicoes, cont, 4)}`,
+    `Animações:\n${par(d.animacoes, cont, 4)}`,
     `Botões vistos:\n${par(d.botoes, (b) => `- "${b.texto}" fundo ${b.fundo} texto ${b.cor} raio ${b.raio} padding ${b.padding} fonte ${b.fonte}`, 8)}`,
     `Variáveis CSS de :root:\n${par(d.variaveis, ([k, v]) => `- ${k}: ${v}`, 80)}`,
     `Títulos da página: ${Array.isArray(d.titulos) ? d.titulos.join(" | ").slice(0, 600) : ""}`,
@@ -543,14 +551,15 @@ function problemasDoLint(itens: LintItem[]): string[] {
 
 const OBRIGATORIAS = ["--color-bg", "--color-text", "--color-primary", "--font-family-body"];
 
-function validarTokens(bruto: string): { tokens?: unknown; problemas: string[] } {
+/** `problemas` invalidam o JSON; `avisos` (ds-conformidade.ts) deixam gravar e pedem uma correção. */
+function validarTokens(bruto: string): { tokens?: unknown; problemas: string[]; avisos: string[] } {
   let tokens: unknown;
   try {
     tokens = JSON.parse(semCerca(bruto));
   } catch (e) {
-    return { problemas: [`JSON inválido: ${(e as Error).message}`] };
+    return { problemas: [`JSON inválido: ${(e as Error).message}`], avisos: [] };
   }
-  if (!tokens || typeof tokens !== "object" || Array.isArray(tokens)) return { problemas: ["o JSON precisa ser um objeto DTCG"] };
+  if (!tokens || typeof tokens !== "object" || Array.isArray(tokens)) return { problemas: ["o JSON precisa ser um objeto DTCG"], avisos: [] };
   const { vars } = tokensParaCss(tokens);
   const nomes = new Set(vars.map((v) => v.nome));
   const problemas = OBRIGATORIAS.filter((n) => !nomes.has(n)).map((n) => `falta o token ${n}`);
@@ -559,7 +568,7 @@ function validarTokens(bruto: string): { tokens?: unknown; problemas: string[] }
       if (!nomes.has(m[1]!)) problemas.push(`${v.caminho} referencia ${m[1]} que não existe`);
     }
   }
-  return { tokens, problemas };
+  return { tokens, problemas, avisos: problemas.length ? [] : conferirTokens(tokens) };
 }
 
 type Ctx = {
@@ -572,7 +581,21 @@ type Ctx = {
   /** Print da referência: vai no PRIMEIRO turno de cada conversa (correção não precisa de novo). */
   imagens: IncomingImage[];
   salvar: () => void;
+  /** Plano B sem IA (ds-sem-ia.ts), montado depois da coleta. Sem ele, falha do Diretor é erro. */
+  semIa?: () => ReturnType<typeof designSemIa>;
 };
+
+/** Grava tokens + DESIGN.md do plano B. `motivo` = por que não teve IA, vai no título da etapa. */
+function rodarPlanoB(ctx: Ctx, etapa: Etapa, motivo: string): void {
+  const { g, home } = ctx;
+  const r = ctx.semIa!();
+  salvarTokens(g.projectPath, home, r.tokens);
+  salvarDesignMd(g.projectPath, home, r.designMd);
+  for (const p of ["tokens", "DESIGN.md"]) if (!etapa.prontos.includes(p)) etapa.prontos.push(p);
+  etapa.titulo = `Tokens e regras (sem IA: ${motivo})`;
+  etapa.status = "ok";
+  ctx.salvar();
+}
 
 function cancelada(g: Geracao): boolean {
   return canceladas.has(g.id);
@@ -594,18 +617,22 @@ async function rodarDiretor(ctx: Ctx, etapa: Etapa, coleta: string): Promise<voi
     usados: usados.filter((n) => ds.vars.some((v) => v.nome === n)),
   });
   let tokensOk = false;
+  /** Tokens gravados, mas com aviso de conformidade: o próximo `<ds-tokens>` ainda substitui. */
+  let comAviso = false;
   let mdOk = false;
   for (let tentativa = 0; tentativa <= TENTATIVAS; tentativa++) {
     if (cancelada(g)) return;
     const problemas: { id: string; problemas: string[] }[] = [];
     const r = await turnoComBlocos(motor, etapa.threadId, pedido, (b) => {
-      if (b.tipo === "tokens" && !tokensOk) {
+      if (b.tipo === "tokens" && (!tokensOk || comAviso)) {
         const v = validarTokens(b.conteudo);
         if (v.problemas.length) problemas.push({ id: "ds-tokens", problemas: v.problemas });
         else {
           salvarTokens(g.projectPath, home, v.tokens);
+          if (!tokensOk) etapa.prontos.push("tokens");
           tokensOk = true;
-          etapa.prontos.push("tokens");
+          comAviso = v.avisos.length > 0;
+          if (comAviso) problemas.push({ id: "ds-tokens", problemas: v.avisos });
           ctx.salvar();
         }
       } else if (b.tipo === "design-md" && !mdOk) {
@@ -619,7 +646,12 @@ async function rodarDiretor(ctx: Ctx, etapa: Etapa, coleta: string): Promise<voi
         }
       }
     }, tentativa === 0 ? ctx.imagens : []);
-    if (!r.ok) throw new Error(`Diretor: ${r.motivo}`);
+    if (!r.ok) {
+      if (cancelada(g)) return; // turno abortado pelo cancelar: não é falta de modelo
+      // sem modelo (quota, login): o plano B entrega tokens e regras; tokens já aceitos ficam
+      if (!tokensOk && ctx.semIa) return rodarPlanoB(ctx, etapa, r.motivo ?? "o modelo não respondeu");
+      throw new Error(`Diretor: ${r.motivo}`);
+    }
     if (!tokensOk && !problemas.some((p) => p.id === "ds-tokens")) problemas.push({ id: "ds-tokens", problemas: ["o bloco <ds-tokens> não veio"] });
     if (!mdOk && !problemas.some((p) => p.id === "ds-design-md")) problemas.push({ id: "ds-design-md", problemas: ["o bloco <ds-design-md> não veio"] });
     if (!problemas.length) break;
@@ -737,10 +769,12 @@ export function iniciarGeracao(projectPath: string, home: string, input: GerarIn
   const profileId = typeof input.profileId === "string" ? input.profileId : "";
   const perfil = getProfile(profileId, home);
   // status do perfil em disco pode estar velho (login feito por fora): conta sem login de verdade
-  // falha no primeiro turno com "a conta precisa de login", que é a mensagem certa de qualquer jeito
-  if (!perfil) throw erro("escolha uma conta pra gerar");
-  const secoes = secoesPedidas(input.secoes);
+  // falha no primeiro turno com "a conta precisa de login", e aí o Diretor cai no plano B
+  const semIa = !perfil;
   const gerarTokens = input.gerarTokens !== false;
+  if (semIa && !gerarTokens) throw erro("sem conta de IA só dá pra gerar os tokens e o DESIGN.md (plano B, por regra)");
+  // card é HTML escrito por agente: sem conta, não tem quem escreva
+  const secoes = semIa ? [] : secoesPedidas(input.secoes);
   if (!secoes.length && !gerarTokens) throw erro("nada pra gerar: escolha ao menos uma seção");
   const paralelo = Math.max(1, Math.min(6, Math.floor(Number(input.paralelo) || PARALELO_PADRAO)));
   const brief = typeof input.brief === "string" ? input.brief.trim().slice(0, 4000) : "";
@@ -752,7 +786,9 @@ export function iniciarGeracao(projectPath: string, home: string, input: GerarIn
     status: "rodando",
     inicio: new Date().toISOString(),
     etapas: [
-      ...(gerarTokens ? [{ id: "diretor", titulo: "Tokens e regras", status: "pendente" as const, cards: [], prontos: [] }] : []),
+      ...(gerarTokens
+        ? [{ id: "diretor", titulo: semIa ? "Tokens e regras (sem IA)" : "Tokens e regras", status: "pendente" as const, cards: [], prontos: [] }]
+        : []),
       ...secoes.map((s) => ({ id: s.id, titulo: s.titulo, status: "pendente" as const, cards: s.cards.map((c) => c.id), prontos: [] })),
     ],
     plano: secoes.flatMap((s) => s.cards),
@@ -791,7 +827,11 @@ export function iniciarGeracao(projectPath: string, home: string, input: GerarIn
       ]
         .filter(Boolean)
         .join("\n\n");
-      if (diretor) await rodarDiretor(ctx, diretor, textoColeta);
+      ctx.semIa = () => designSemIa({ nome: est.ds!.nome, base: estadoDs(projectPath, home).ds!.tokens, referencia, coleta });
+      if (diretor) {
+        if (semIa) rodarPlanoB(ctx, diretor, "nenhuma conta escolhida");
+        else await rodarDiretor(ctx, diretor, textoColeta);
+      }
       if (cancelada(g)) return;
       await comTeto(
         secoes.map((s) => async () => {

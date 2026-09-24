@@ -1223,7 +1223,7 @@ describe("http mcp", () => {
     addProfile({ id: "p1", engine: "stub" }, home);
     const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
 
-    // padrão (navegadorModo ausente = negado): nenhuma das 5 aparece
+    // padrão (navegadorModo ausente = negado): nenhuma das 6 aparece
     expect(await nomesDasFerramentas(app, `/v1/mcp?threadId=${t.id}`)).not.toContain("nexo_navegador_ler");
 
     updateProfile("p1", home, { navegadorModo: "liberado" });
@@ -1232,6 +1232,7 @@ describe("http mcp", () => {
       expect.arrayContaining([
         "nexo_navegador_abrir",
         "nexo_navegador_ler",
+        "nexo_navegador_markdown",
         "nexo_navegador_screenshot",
         "nexo_navegador_clicar",
         "nexo_navegador_digitar",

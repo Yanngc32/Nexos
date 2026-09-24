@@ -139,6 +139,27 @@ function codexFlags(profile: Profile, over: EngineOverrides = {}, resumindo = fa
 const PREFIXO_WINDOWS_CONTROL = "mcp__nexo__nexo_windows_";
 
 /**
+ * Conversa somente leitura (Agent Manager da Tela de Planejamento): o que ela pode usar sem
+ * pedir, e o que fica NEGADO mesmo que a conta, o agente ou o `settings.json` do usuário
+ * liberem — regra de negação ganha de regra de permissão no CLI, e vale até em
+ * `bypassPermissions`. Nomes antigos e novos das mesmas ferramentas (Task/Agent) entram juntos.
+ */
+export const FERRAMENTAS_SO_LEITURA = ["Read", "Glob", "Grep", "LS", "WebFetch", "WebSearch", "TodoWrite"];
+export const FERRAMENTAS_NEGADAS_SO_LEITURA = [
+  "Write",
+  "Edit",
+  "MultiEdit",
+  "NotebookEdit",
+  "Bash",
+  "BashOutput",
+  "KillShell",
+  "PowerShell",
+  "Monitor",
+  "Task",
+  "Agent",
+];
+
+/**
  * `over` são os ajustes do agente personalizado: vencem os da conta quando existem.
  *
  * `home` é o único parâmetro que existe SÓ pra checar `windowsControlEnabled` —
@@ -229,6 +250,8 @@ export class CliEngine implements Engine {
   private mcpConfig?: string;
   private mcpTools?: string[];
   private mcpHttp?: { url: string; token: string };
+  /** Ver `StartOpts.somenteLeitura`. */
+  private somenteLeitura = false;
   private aborted = false;
   private finished = false;
   /** Sessão do CLI `claude` pra `--resume`. Vazio = pack no stdin, como antes. */
@@ -260,6 +283,7 @@ export class CliEngine implements Engine {
     this.mcpConfig = opts.mcpConfig;
     this.mcpTools = opts.mcpTools;
     this.mcpHttp = opts.mcpHttp;
+    this.somenteLeitura = opts.somenteLeitura === true;
     this.syncArgs();
     this.extra = engineEnv(profile, this.home);
     this.spawnEnv = engineSpawnEnv(profile, this.home);
@@ -301,8 +325,16 @@ export class CliEngine implements Engine {
    * (modelo "Automático") entra por último, ganhando de conta e de agente.
    */
   private syncArgs(): void {
-    const profile = getProfile(this.profileId, this.home);
-    const over: EngineOverrides = { ...agentOverrides(this.agentId, this.home), ...this.overridesDoTurno };
+    const perfilSalvo = getProfile(this.profileId, this.home);
+    const over: EngineOverrides = {
+      ...agentOverrides(this.agentId, this.home),
+      ...this.overridesDoTurno,
+      // somente leitura ganha de conta, agente e turno: pede permissão pra tudo que não está
+      // liberado (em --print isso é negar) e, no codex, sandbox sem escrita
+      ...(this.somenteLeitura ? { permissionMode: "manual" as const, sandboxMode: "read-only" as const } : {}),
+    };
+    // o `allowedTools` da conta (ex.: Bash liberado) não vale aqui: só a lista de leitura
+    const profile = perfilSalvo && this.somenteLeitura ? { ...perfilSalvo, allowedTools: FERRAMENTAS_SO_LEITURA } : perfilSalvo;
     const mcp = this.mcpFlags(profile?.engine);
     /*
      * Retomar a conversa do CLI em vez de nascer amnésico. Sem isso o Nexos
@@ -336,8 +368,13 @@ export class CliEngine implements Engine {
     // A cópia da skill global no perfil é uma só pra todo projeto: o que desliga por projeto é
     // negar a ferramenta Skill daquele nome neste turno (Configurações → Skills).
     if (profile?.engine === "claude") {
-      const off = [...skillsDesligadasNoProjeto(this.home, this.projectPath)];
-      if (off.length) this.args.push("--disallowed-tools", ...off.map((n) => `Skill(${n})`));
+      // UMA ocorrência (a opção é variádica, igual --allowed-tools): skills desligadas + o que a
+      // conversa somente leitura nunca pode usar
+      const off = [
+        ...[...skillsDesligadasNoProjeto(this.home, this.projectPath)].map((n) => `Skill(${n})`),
+        ...(this.somenteLeitura ? FERRAMENTAS_NEGADAS_SO_LEITURA : []),
+      ];
+      if (off.length) this.args.push("--disallowed-tools", ...off);
     }
     this.lastArgs = this.args;
     // Skill de `~/.nexos/skills` só chega no motor se estiver dentro do CLAUDE_CONFIG_DIR

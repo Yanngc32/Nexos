@@ -70,7 +70,13 @@ export function createApiClient({ daemonInfo, onInfo = () => {}, fetchImpl = fet
       res = await chamar().catch(() => res);
     }
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || res.statusText);
+    if (!res.ok) {
+      // status e corpo junto: quem trata 409 (conflito de rev) precisa da versão atual que vem nele
+      const err = new Error(data.error || res.statusText);
+      err.status = res.status;
+      err.data = data;
+      throw err;
+    }
     return data;
   }
 

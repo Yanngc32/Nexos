@@ -7,8 +7,8 @@
  */
 import { pareceUrl, urlDePreview } from "./url.js";
 
-export const KIND_UNICO = new Set(["file", "terminal", "canvas", "graph", "agentes", "tarefas", "ds"]);
-export const KIND_TAB = new Set(["file", "terminal", "browser", "canvas", "graph", "agentes", "tarefas", "ds"]);
+export const KIND_UNICO = new Set(["file", "terminal", "canvas", "graph", "agentes", "tarefas", "ds", "planejamento"]);
+export const KIND_TAB = new Set(["file", "terminal", "browser", "canvas", "graph", "agentes", "tarefas", "ds", "planejamento"]);
 
 const NOMES = {
   file: "Arquivos",
@@ -19,6 +19,7 @@ const NOMES = {
   agentes: "Agentes",
   tarefas: "Tarefas",
   ds: "Design System",
+  planejamento: "Planejamento",
 };
 
 let seq = 0;

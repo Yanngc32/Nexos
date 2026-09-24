@@ -274,6 +274,27 @@ export function agentSnapshots(): AgentSnapshot[] {
 export { sessionBus } from "./bus.ts";
 import { sessionBus } from "./bus.ts";
 import { blocoDoDsParaPack, REGRA_MOCK_NO_CANVAS } from "./ds-sync.ts";
+import { pastaDoPlano } from "./planejamento.ts";
+import { blocoDoHandoff, blocoDoManager, MCP_TOOLS_PLANEJAMENTO } from "./planejamento-ferramentas.ts";
+
+/** O que muda nas instruções fixas conforme o tipo da conversa (ver `opcoesDoPack`). */
+type OpcoesDoPack = { incluirDs?: boolean; oculta?: boolean; planejamento?: string; handoff?: string };
+
+/** Opções do pack a partir do `thread_meta` — um lugar só pros dois caminhos de `ensureLive`. */
+function opcoesDoPack(meta: {
+  oculta?: boolean;
+  semRoteamento?: boolean;
+  planejamento?: { slug: string };
+  handoff?: { slug: string };
+}): OpcoesDoPack {
+  return {
+    // DS fica fora da geração do próprio DS e do Manager (que não mexe em front)
+    incluirDs: !(meta.oculta || meta.semRoteamento || meta.planejamento),
+    oculta: meta.oculta === true,
+    ...(meta.planejamento ? { planejamento: meta.planejamento.slug } : {}),
+    ...(meta.handoff ? { handoff: meta.handoff.slug } : {}),
+  };
+}
 
 function emit(threadId: string, ev: SessionEvent): void {
   sessionBus.emit(threadId, ev);
@@ -350,7 +371,7 @@ function withInstructions(
   projectPath: string | undefined,
   packText: string,
   home: string,
-  opts: { incluirDs?: boolean; oculta?: boolean } = {},
+  opts: OpcoesDoPack = {},
 ): string {
   return juntarPack(instrucoesDoPack(agentId, projectPath, home, opts), packText);
 }
@@ -366,7 +387,7 @@ function packDaConversa(
   projectPath: string | undefined,
   historico: string,
   home: string,
-  opts: { incluirDs?: boolean; oculta?: boolean },
+  opts: OpcoesDoPack,
 ): { contextPack: string; partesDoPack: PartesDoPack } {
   const instrucoes = instrucoesDoPack(agentId, projectPath, home, opts);
   return { contextPack: juntarPack(instrucoes, historico), partesDoPack: { instrucoes, historico } };
@@ -377,7 +398,7 @@ function instrucoesDoPack(
   agentId: string | undefined,
   projectPath: string | undefined,
   home: string,
-  opts: { incluirDs?: boolean; oculta?: boolean } = {},
+  opts: OpcoesDoPack = {},
 ): string {
   const def = agentId ? getAgent(agentId, home) : undefined;
   const instrucoes = def?.instructions?.trim();
@@ -420,7 +441,8 @@ function instrucoesDoPack(
   // Vale em toda conversa com projeto, igual "Perguntar com opções" — quadro de tarefas só serve
   // pra coordenar times/humano se ele reflete trabalho real, não só o que foi planejado no início.
   // Toggle em Configurações → Módulos (`modulos.quadroTarefas`), ligado por padrão.
-  if (modulos.quadroTarefas) {
+  // o Manager não trabalha tarefas: ele planeja (o plano vira tarefa no envio pra implementação)
+  if (modulos.quadroTarefas && !opts.planejamento) {
     blocos.push(
       "# Quadro de tarefas\nEste projeto tem um quadro (`nexo_tarefa_listar` / `nexo_tarefa_salvar`). " +
         "Pergunta ou pedido ÚNICO: não liste o quadro — responda/aja direto. " +
@@ -439,6 +461,9 @@ function instrucoesDoPack(
     if (ds) blocos.push(ds);
     blocos.push(REGRA_MOCK_NO_CANVAS);
   }
+  // Tela de Planejamento: o Manager e a conversa de implementação que nasce do envio
+  if (projectPath && opts.planejamento) blocos.push(blocoDoManager(opts.planejamento, pastaDoPlano(projectPath, home, opts.planejamento)));
+  if (projectPath && opts.handoff) blocos.push(blocoDoHandoff(opts.handoff, pastaDoPlano(projectPath, home, opts.handoff)));
   if (instrucoes) blocos.push(`# Agente: ${def?.name ?? agentId}\n${instrucoes}`);
   if (memoria) blocos.push(`# Memória ${projectPath ? "do projeto" : "geral"}\n${memoria}`);
   // Repo map — Camada 1 (índice, texto fixo, sem custo de LLM) + o nudge da Camada 2 (ferramenta
@@ -553,7 +578,7 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
 
   const existing = lives.get(threadId);
   if (existing && existing.profileId === p.id && existing.agentId === agentId) {
-    const novo = packDaConversa(agentId, meta.projectPath, packed.text, home, { incluirDs: !(meta.oculta || meta.semRoteamento), oculta: meta.oculta === true });
+    const novo = packDaConversa(agentId, meta.projectPath, packed.text, home, opcoesDoPack(meta));
     existing.engine.updatePack(novo.contextPack, novo.partesDoPack);
     // Mesma razão do updatePack: sem isto, mudar `delegacaoModo`/`allowedTools` só valeria depois
     // de um engine NOVO (troca de conta, /clear, reiniciar o motor) — aqui vale já no próximo envio.
@@ -584,12 +609,14 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
       profileId: p.id,
       // As instruções do agente e a memória do projeto abrem o pack (o `api` usa o pack como system
       // de verdade); separadas em `partesDoPack`, o `claude` manda as regras como system prompt.
-      ...packDaConversa(agentId, meta.projectPath, packed.text, home, { incluirDs: !(meta.oculta || meta.semRoteamento), oculta: meta.oculta === true }),
+      ...packDaConversa(agentId, meta.projectPath, packed.text, home, opcoesDoPack(meta)),
       ...(agentId ? { agentId } : {}),
       // Conversa com branch fixa roda na `git worktree` isolada, não na pasta
       // compartilhada do projeto — só o cwd do processo muda (ver StartOpts.cwdOverride).
       ...(meta.worktreeDir ? { cwdOverride: meta.worktreeDir } : {}),
       ...mcpDaConversa(threadId, meta, p, home),
+      // Agent Manager não altera o projeto (engines/cli.ts: só leitura, escrita negada)
+      ...(meta.planejamento ? { somenteLeitura: true } : {}),
     },
     (ev) => onEngineEvent(threadId, home, ev),
   );
@@ -619,7 +646,7 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
  */
 function mcpDaConversa(
   threadId: string,
-  meta: { mcpConfig?: string; mcpTools?: string[]; projectPath?: string; runId?: string; mcpRunId?: string },
+  meta: { mcpConfig?: string; mcpTools?: string[]; projectPath?: string; runId?: string; mcpRunId?: string; planejamento?: { slug: string } },
   perfil: Profile,
   home: string,
 ): { mcpConfig?: string; mcpTools?: string[]; mcpHttp?: { url: string; token: string } } {
@@ -643,6 +670,18 @@ function mcpDaConversa(
   if (perfil.engine !== "claude") return {};
   const arquivo = arquivoDeAutoria(meta.projectPath, meta.runId, threadId, home);
   if (!arquivo) return {};
+  // Agent Manager: só o plano, perguntar e o mapa do repo (leitura) — o conjunto do servidor
+  // (`/v1/mcp`, http.ts) faz o mesmo recorte olhando a thread
+  if (meta.planejamento) {
+    return {
+      mcpConfig: arquivo,
+      mcpTools: [
+        ...MCP_TOOLS_PLANEJAMENTO,
+        ...MCP_TOOLS_PERGUNTAR,
+        ...(meta.projectPath && indiceDisponivel(meta.projectPath, home) ? MCP_TOOLS_REPO_MAP : []),
+      ],
+    };
+  }
   const tools = [
     ...MCP_TOOLS_AUTORIA,
     ...(meta.projectPath && indiceDisponivel(meta.projectPath, home) ? MCP_TOOLS_REPO_MAP : []),

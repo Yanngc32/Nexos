@@ -524,6 +524,13 @@ export type ThreadEvent =
       origemThreadId?: string;
       /** Conversa de trabalho do próprio Nexos (geração do design system): fora da barra lateral. */
       oculta?: boolean;
+      /**
+       * Esta conversa É o Agent Manager do plano `<slug>` (Tela de Planejamento): só lê, pesquisa e
+       * edita o plano pelas ferramentas `plan_*` — sem escrita no projeto, sem Bash, sem delegar.
+       */
+      planejamento?: { slug: string };
+      /** Conversa de implementação nascida do envio do plano `<slug>`: segue o roteiro, não replaneja. */
+      handoff?: { slug: string };
     }
   | {
       ts: string;
@@ -817,6 +824,11 @@ export type StartOpts = {
    * argv nem por arquivo, só pelo ambiente do processo.
    */
   mcpHttp?: { url: string; token: string };
+  /**
+   * Conversa que não pode alterar o projeto (Agent Manager da Tela de Planejamento): só leitura,
+   * web e as ferramentas MCP dela. Ganha de conta e de agente — ver `somenteLeitura` em engines/cli.ts.
+   */
+  somenteLeitura?: boolean;
 };
 
 /* ---------- times de agentes ---------- */

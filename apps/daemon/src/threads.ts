@@ -36,6 +36,10 @@ export type CreateThreadInput = {
   origemThreadId?: string;
   /** Ver `thread_meta.oculta`. */
   oculta?: boolean;
+  /** Ver `thread_meta.planejamento`. */
+  planejamento?: { slug: string };
+  /** Ver `thread_meta.handoff`. */
+  handoff?: { slug: string };
 };
 
 export function createThread(input: CreateThreadInput, home: string, opts: { id?: string } = {}): CreatedThread {
@@ -61,6 +65,8 @@ export function createThread(input: CreateThreadInput, home: string, opts: { id?
     ...(input.semRoteamento ? { semRoteamento: true } : {}),
     ...(input.origemThreadId ? { origemThreadId: input.origemThreadId } : {}),
     ...(input.oculta ? { oculta: true } : {}),
+    ...(input.planejamento ? { planejamento: { slug: input.planejamento.slug } } : {}),
+    ...(input.handoff ? { handoff: { slug: input.handoff.slug } } : {}),
   };
   appendEvent(meta, home);
   return { id };
@@ -306,6 +312,8 @@ export type ThreadHead = {
   /** Passo de time chamado de dentro deste chat — ver `thread_meta.origemThreadId`. */
   origemThreadId?: string;
   oculta?: boolean;
+  /** Conversa do Agent Manager do plano `<slug>`: a barra lateral abre a Tela de Planejamento. */
+  planejamento?: { slug: string };
 };
 
 /**
@@ -366,6 +374,7 @@ function lerCabecalho(id: string, home: string): ThreadHead | undefined {
     // `semRoteamento` também: só a geração do DS cria conversa assim, e as criadas antes do
     // `oculta` existir não têm a marca nova
     ...(meta.oculta || meta.semRoteamento ? { oculta: true } : {}),
+    ...(meta.planejamento ? { planejamento: meta.planejamento } : {}),
   };
 }
 

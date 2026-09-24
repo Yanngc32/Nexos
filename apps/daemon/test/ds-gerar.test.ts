@@ -122,7 +122,7 @@ function esperarFim(projectPath: string): Promise<Geracao> {
 const TOKENS_OK = JSON.stringify({
   color: { $type: "color", bg: { $value: "#101010" }, text: { $value: "#fafafa" }, primary: { $value: "#2255ee" } },
   font: { family: { body: { $type: "fontFamily", $value: ["Inter", "sans-serif"] } } },
-  space: { "2": { $value: "8px" } },
+  space: { "1": { $value: "4px" }, "2": { $value: "8px" }, "3": { $value: "12px" } },
 });
 
 describe("iniciarGeracao", () => {
@@ -259,9 +259,71 @@ describe("iniciarGeracao", () => {
     expect(g.status).toBe("rodando");
   });
 
-  it("só uma geração por projeto; sem conta dá erro", () => {
+  it("tokens com contraste abaixo do AA: grava, pede correção e fica com a versão corrigida", async () => {
+    const ruim = JSON.parse(TOKENS_OK);
+    ruim.color.text.$value = "#333333"; // sobre #101010
+    const { motor, pedidos } = motorFalso((titulo, n) =>
+      titulo.includes("Diretor")
+        ? `<ds-tokens>${n === 1 ? JSON.stringify(ruim) : TOKENS_OK}</ds-tokens><ds-design-md># Regras\nUse o primário só em ação principal, nunca em fundo.</ds-design-md>`
+        : "",
+    );
+    iniciarGeracao(proj, home, { profileId: perfil, secoes: [], usarCodigo: false }, motor);
+    const g = await esperarFim(proj);
+    expect(g.status).toBe("concluida");
+    const diretor = pedidos.filter((p) => p.titulo.includes("Diretor"));
+    expect(diretor).toHaveLength(2);
+    expect(diretor[1]!.pedido).toMatch(/contraste de color\.text sobre color\.bg é 1\.\d+:1/);
+    expect(estadoDs(proj, home).ds!.vars.find((v) => v.nome === "--color-text")!.valor).toBe("#fafafa");
+  });
+
+  it("sem conta: plano B grava tokens e DESIGN.md por regra, a partir da página capturada", async () => {
+    const { motor, pedidos } = motorFalso(() => "");
+    const referencia = {
+      url: "https://painel.test/",
+      dados: {
+        cores: { fundo: [["#0b0b0d", 90], ["#131316", 20]], texto: [["#f2f2f2", 40], ["#8a8f98", 12]], borda: [["#26262b", 8]] },
+        botoes: [{ fundo: "#dabb6c", cor: "#0b0b0d" }],
+        fontes: [["Inter", 30], ["Outfit", 4]],
+        tamanhos: [["14px", 50], ["12px", 8], ["18px", 6], ["24px", 3], ["32px", 1]],
+        espacos: [["8px", 20], ["16px", 18], ["4px", 9], ["24px", 5]],
+        raios: [["6px", 10], ["12px", 4], ["pílula (999px+)", 2]],
+        perfil: { tipo: "dashboard", confianca: "alta" },
+      },
+    };
+    iniciarGeracao(proj, home, { profileId: "nao-existe", secoes: ["core"], usarCodigo: false, referencia }, motor);
+    const g = await esperarFim(proj);
+    expect(g.status).toBe("concluida");
+    expect(g.etapas.map((e) => [e.id, e.status, e.titulo])).toEqual([["diretor", "ok", "Tokens e regras (sem IA: nenhuma conta escolhida)"]]);
+    expect(pedidos).toEqual([]);
+    const ds = estadoDs(proj, home).ds!;
+    const v = (n: string) => ds.vars.find((x) => x.nome === n)?.valor;
+    expect([v("--color-bg"), v("--color-surface"), v("--color-text"), v("--color-primary")]).toEqual(["#0b0b0d", "#131316", "#f2f2f2", "#dabb6c"]);
+    expect(v("--font-size-md")).toBe("14px");
+    expect(ds.designMd).toContain("sem IA");
+    expect(ds.designMd).toContain("dashboard");
+    expect(ds.designMd).not.toContain("Pendências");
+  });
+
+  it("sem conta e sem tokens pedidos: erro claro", () => {
     const { motor } = motorFalso(() => "");
-    expect(() => iniciarGeracao(proj, home, { profileId: "nao-existe" }, motor)).toThrow(/conta/);
+    expect(() => iniciarGeracao(proj, home, { profileId: "nao-existe", gerarTokens: false }, motor)).toThrow(/conta de IA/);
+  });
+
+  it("conta falha no Diretor (quota): cai no plano B em vez de derrubar a geração", async () => {
+    const motor: Motor = {
+      criarConversa: () => "t-quota",
+      turno: async () => ({ ok: false, motivo: "a quota da conta acabou", textoFinal: "" }),
+      abortar: async () => {},
+    };
+    iniciarGeracao(proj, home, { profileId: perfil, secoes: [], usarCodigo: false }, motor);
+    const g = await esperarFim(proj);
+    expect(g.status).toBe("concluida");
+    expect(g.etapas[0]).toMatchObject({ status: "ok", titulo: "Tokens e regras (sem IA: a quota da conta acabou)" });
+    expect(estadoDs(proj, home).ds!.designMd).toContain("plano B");
+  });
+
+  it("só uma geração por projeto", () => {
+    const { motor } = motorFalso(() => "");
     motor.turno = () => new Promise(() => {}); // nunca termina
     iniciarGeracao(proj, home, { profileId: perfil, usarCodigo: false }, motor);
     expect(() => iniciarGeracao(proj, home, { profileId: perfil }, motor)).toThrow(expect.objectContaining({ status: 409 }));

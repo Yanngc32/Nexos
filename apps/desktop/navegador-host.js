@@ -8,6 +8,7 @@
  */
 import { CANAL_NAVEGADOR, TIMEOUT_NAVEGADOR_MS } from "./navegador-protocolo.js";
 import { hrefDoGuest, mesmoHref } from "./browser-pool.js";
+import { coletarDaPagina, paginaParaMarkdown } from "./pagina-markdown.js";
 
 /**
  * `NativeImage.toJPEG()` no renderer (sem `nodeIntegration`) devolve `Uint8Array`.
@@ -102,6 +103,18 @@ export function criarNavegadorHost({ getWebview }) {
     return { ok: true, texto: linhas };
   }
 
+  /** Página inteira em markdown (pagina-markdown.js): serializa no guest, converte aqui. */
+  async function markdown(threadId, libs) {
+    const webview = getWebview(threadId);
+    if (!webview?.executeJavaScript) return { ok: false, texto: "painel Browser indisponível" };
+    try {
+      const pagina = await webview.executeJavaScript(`(${coletarDaPagina.toString()})()`);
+      return { ok: true, texto: paginaParaMarkdown(pagina, libs) };
+    } catch (e) {
+      return { ok: false, texto: e?.message || "falhou ao converter a página" };
+    }
+  }
+
   const LARGURA_MAX_PRINT = 1280;
 
   async function screenshot(threadId) {
@@ -143,6 +156,7 @@ export function criarNavegadorHost({ getWebview }) {
   return {
     abrir,
     ler,
+    markdown,
     screenshot,
     clicar,
     digitar,

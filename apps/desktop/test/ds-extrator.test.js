@@ -18,6 +18,23 @@ describe("extrairDaPagina", () => {
       expect(nomes.indexOf("--color-red-500")).toBeGreaterThan(nomes.indexOf("--space-2"));
     }
   });
+
+  it("perfil do site por palavra-chave em pt-BR (palavra inteira, com acento) e os campos novos", () => {
+    document.head.innerHTML = `<title>Painel de vendas</title>`;
+    document.body.innerHTML = `<nav><a>Relatórios</a><a>Estoque</a><a>Configurações</a></nav><h1>Visão geral</h1>
+      <p>Margem e faturamento do mês. Métricas por loja.</p><p>preçosx não conta</p>`;
+    const d = extrairDaPagina();
+    expect(d.perfil.tipo).toBe("dashboard");
+    expect(d.perfil.confianca).toBe("alta");
+    expect(d.perfil.evidencias.join(" ")).toContain('"relatórios"');
+    for (const campo of ["margens", "espacamentoLetras", "animacoes"]) expect(Array.isArray(d[campo])).toBe(true);
+  });
+
+  it("sem sinal nenhum, o tipo fica indefinido (não chuta marketing)", () => {
+    document.head.innerHTML = `<title>x</title>`;
+    document.body.innerHTML = `<p>abc</p>`;
+    expect(extrairDaPagina().perfil).toMatchObject({ tipo: "indefinido", confianca: "baixa" });
+  });
 });
 
 describe("capturarReferencia", () => {

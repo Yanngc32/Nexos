@@ -27,11 +27,12 @@ import { getProfile } from "./profiles.ts";
  *    (`GET /v1/agents/events`) só escuta `"*"`. Sem badge — é round-trip técnico.
  */
 
-export type AcaoNavegador = "abrir" | "ler" | "screenshot" | "clicar" | "digitar";
+export type AcaoNavegador = "abrir" | "ler" | "markdown" | "screenshot" | "clicar" | "digitar";
 
 export type ArgsNavegador =
   | { acao: "abrir"; url: string }
   | { acao: "ler" }
+  | { acao: "markdown" }
   | { acao: "screenshot" }
   | { acao: "clicar"; ref: string }
   | { acao: "digitar"; ref: string; texto: string };
@@ -105,13 +106,14 @@ export function resetNavegadorForTest(): void {
 export const MCP_TOOLS_NAVEGADOR = [
   "mcp__nexo__nexo_navegador_abrir",
   "mcp__nexo__nexo_navegador_ler",
+  "mcp__nexo__nexo_navegador_markdown",
   "mcp__nexo__nexo_navegador_screenshot",
   "mcp__nexo__nexo_navegador_clicar",
   "mcp__nexo__nexo_navegador_digitar",
 ];
 
 /**
- * As 5 ferramentas `nexo_navegador_*`, presas a ESTE thread e ao `modo` da conta. Só deve entrar
+ * As 6 ferramentas `nexo_navegador_*`, presas a ESTE thread e ao `modo` da conta. Só deve entrar
  * no `Conjunto` quando `modo !== "negado"` — quem decide isso é quem monta o conjunto (http.ts),
  * não esta função (mesmo critério de `ferramentaDeDelegar`).
  */
@@ -153,6 +155,16 @@ export function ferramentasDeNavegador(threadId: string, home: string, modo: Nav
         "leitura anterior.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       executar: () => comandoNavegador(threadId, { acao: "ler" }),
+    },
+    {
+      name: "nexo_navegador_markdown",
+      description:
+        "Lê o CONTEÚDO da página aberta no painel Browser como markdown (títulos, listas, tabelas, " +
+        "links, blocos de código com a linguagem), sem menu/cabeçalho/rodapé. Use pra ler artigo, " +
+        "documentação ou os dados de um painel; pra clicar/digitar use `nexo_navegador_ler`, que dá os refs. " +
+        "Página muito grande vem cortada (o fim do texto avisa).",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      executar: () => comandoNavegador(threadId, { acao: "markdown" }),
     },
     {
       name: "nexo_navegador_screenshot",

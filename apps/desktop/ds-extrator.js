@@ -93,7 +93,10 @@ export function extrairDaPagina() {
   const raios = new Map();
   const sombras = new Map();
   const espacos = new Map();
+  const margens = new Map();
+  const letras = new Map();
   const transicoes = new Map();
+  const animacoes = new Map();
   const botoes = [];
   for (const el of amostra) {
     const cs = getComputedStyle(el);
@@ -106,13 +109,19 @@ export function extrairDaPagina() {
     conta(tamanhos, cs.fontSize);
     conta(pesos, cs.fontWeight);
     if (cs.lineHeight !== "normal") conta(alturas, cs.lineHeight);
+    if (cs.letterSpacing && cs.letterSpacing !== "normal" && cs.letterSpacing !== "0px") conta(letras, cs.letterSpacing);
     // raio "pílula" (9999px, calc(infinity) → 3.35544e+07px) vira um valor só
     if (cs.borderRadius && cs.borderRadius !== "0px") conta(raios, parseFloat(cs.borderRadius) >= 999 ? "pílula (999px+)" : cs.borderRadius);
     if (cs.boxShadow && cs.boxShadow !== "none") conta(sombras, cs.boxShadow);
-    for (const v of [cs.paddingTop, cs.paddingLeft, cs.gap, cs.rowGap]) {
+    // os quatro lados: botão com 8px 16px só contava o 8px (topo) e o 16px (esquerda) por acaso
+    for (const v of [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft, cs.gap, cs.rowGap]) {
       if (v && v !== "normal" && v !== "0px") conta(espacos, v);
     }
+    for (const v of [cs.marginTop, cs.marginRight, cs.marginBottom, cs.marginLeft]) {
+      if (v && v !== "0px" && v !== "auto" && !v.startsWith("-")) conta(margens, v);
+    }
     if (cs.transitionDuration && cs.transitionDuration !== "0s") conta(transicoes, `${cs.transitionDuration} ${cs.transitionTimingFunction}`);
+    if (cs.animationName && cs.animationName !== "none") conta(animacoes, `${cs.animationName} ${cs.animationDuration} ${cs.animationTimingFunction}`);
     if (botoes.length < 8 && el.matches('button, [role="button"], a[class*="btn"], a[class*="button"]')) {
       botoes.push({
         texto: (el.textContent || "").trim().slice(0, 40),
@@ -172,6 +181,45 @@ export function extrairDaPagina() {
   const topo = (m, n) => [...m].sort((a, b) => b[1] - a[1]).slice(0, n);
   const qtd = (s) => document.querySelectorAll(s).length;
 
+  // Tipo de site por palavra-chave + contagem de componente (mesma heurística da extensão DESIGN.md
+  // Inspector, com as palavras em pt-BR). É só dica pro Diretor: quem decide o tom é ele.
+  const TIPOS = {
+    marketing: ["pricing", "get started", "sign up", "free trial", "request demo", "book a demo", "learn more", "testimonials", "customers", "features", "preços", "planos", "comece", "cadastre", "teste grátis", "fale com", "agende", "saiba mais", "depoimentos", "clientes", "recursos", "soluções"],
+    documentacao: ["docs", "documentation", "guide", "api", "reference", "tutorial", "getting started", "installation", "quickstart", "sdk", "cli", "changelog", "documentação", "guia", "referência", "instalação", "primeiros passos"],
+    dashboard: ["dashboard", "analytics", "metrics", "overview", "settings", "admin", "workspace", "billing", "reports", "painel", "métricas", "visão geral", "configurações", "relatórios", "indicadores", "faturamento", "margem", "estoque"],
+    loja: ["cart", "checkout", "add to cart", "shop", "buy now", "shipping", "wishlist", "in stock", "carrinho", "comprar", "adicionar ao carrinho", "frete", "loja", "parcelas", "em estoque", "favoritos"],
+    blog: ["article", "blog", "post", "author", "reading time", "published", "newsletter", "comments", "artigo", "autor", "publicado", "leitura", "comentários", "assine"],
+  };
+  const sinais = [document.title, meta("description"), ...texto("h1, h2, h3", 30), ...texto('nav a, [role="navigation"] a', 20, 30), (document.body.innerText || "").slice(0, 2000), location.href]
+    .join(" ")
+    .toLowerCase();
+  const escapar = (p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const perfis = Object.entries(TIPOS).map(([tipo, palavras]) => {
+    const evidencias = [];
+    let pontos = 0;
+    const somar = (n, porque) => {
+      pontos += n;
+      evidencias.push(porque);
+    };
+    for (const p of palavras) {
+      // palavra inteira, com acento: \b do JS não entende "preços"
+      const n = (sinais.match(new RegExp(`(?<!\\p{L})${escapar(p)}(?!\\p{L})`, "gu")) || []).length;
+      if (n) somar(n, `"${p}" ${n}x`);
+    }
+    if (tipo === "documentacao" && qtd("pre, code") > 3) somar(3, `${qtd("pre, code")} blocos de código`);
+    if (tipo === "dashboard" && qtd("table") > 2) somar(2, `${qtd("table")} tabelas`);
+    if ((tipo === "loja" || tipo === "marketing") && qtd('[class*="pricing" i], [class*="price" i], [id*="pricing" i]') > 0) somar(2, "bloco de preço");
+    return { tipo, pontos, evidencias: evidencias.slice(0, 6) };
+  });
+  perfis.sort((a, b) => b.pontos - a.pontos);
+  const melhor = perfis[0];
+  const perfil = {
+    tipo: melhor.pontos > 0 ? melhor.tipo : "indefinido",
+    confianca: melhor.pontos > 5 ? "alta" : melhor.pontos >= 3 ? "média" : "baixa",
+    evidencias: melhor.evidencias,
+    segundo: perfis[1].pontos > 0 ? perfis[1].tipo : null,
+  };
+
   return {
     url: location.href,
     titulo: document.title,
@@ -189,6 +237,10 @@ export function extrairDaPagina() {
     sombras: topo(sombras, 5),
     espacos: topo(espacos, 14),
     transicoes: topo(transicoes, 4),
+    animacoes: topo(animacoes, 4),
+    margens: topo(margens, 10),
+    espacamentoLetras: topo(letras, 6),
+    perfil,
     botoes,
     // escala de paleta (red-50…red-950 do Tailwind) vai pro fim: são centenas, e esconderiam
     // as semânticas (--primary, --background…) que dizem mais sobre a marca

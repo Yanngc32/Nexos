@@ -12,6 +12,14 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Segurança
 
+## [0.8.0] - 2026-09-24
+
+### Adicionado
+
+- Tela de Planejamento: uma conversa com o Agent Manager, que questiona, pesquisa e monta o plano sem mexer no código. Roteiro de etapas à esquerda, canvas com uma coluna por etapa e cards (requisito, decisão, sugestão com fonte, ambiguidade, nota) ligados por linhas e setas; o chat fica ao lado. Você e o Manager editam o mesmo plano ao mesmo tempo, e o que ele muda aparece animado.
+- "Enviar para implementação": confere o plano (ambiguidade aberta bloqueia), gera o prompt (rascunho automático ou escrito pelo Manager), deixa revisar e abre a conversa de implementação com ele.
+- Design System: melhorias da fase 3 (conformidade, geração sem IA, página em markdown pelo navegador).
+
 ## [0.7.0] - 2026-09-24
 
 ### Adicionado
