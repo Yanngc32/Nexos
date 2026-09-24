@@ -2323,6 +2323,22 @@ export function createApp(home: string, token: string): Hono {
     });
   });
 
+  /*
+   * Só pra teste manual do destrave (`NEXOS_DEBUG=1`): segura o event loop por `ms` — ou pra
+   * sempre, sem `ms` —, que é exatamente o motor travado que o app precisa detectar e reiniciar.
+   */
+  if (process.env.NEXOS_DEBUG === "1") {
+    app.post("/v1/debug/travar", (c) => {
+      const ms = Number(c.req.query("ms") ?? 0);
+      log.aviso("motor", `rota de debug: travando o event loop ${ms > 0 ? `por ${ms} ms` : "pra sempre"}`);
+      const ate = ms > 0 ? Date.now() + ms : Infinity;
+      while (Date.now() < ate) {
+        /* travado de propósito */
+      }
+      return c.json({ ok: true });
+    });
+  }
+
   app.get("/v1/config", (c) => c.json(loadConfig(home)));
   app.put("/v1/config", async (c) => {
     const cfgAntes = loadConfig(home);
