@@ -1273,6 +1273,7 @@ function bannerErro(msg) {
 }
 
 function bannerPadrao() {
+  $("banner").classList.remove("banner-travado");
   $("banner").textContent = BANNER_PADRAO;
 }
 
@@ -1281,6 +1282,10 @@ function bannerPadrao() {
  * primeira abertura parece quebrada e convida a clicar em Ligar no meio da subida.
  */
 function avisoMotorFora(info) {
+  if (info.estado === "sem_resposta") {
+    motorTravado(info.travado || {});
+    return;
+  }
   if (info.starting) {
     $("motor-status").textContent = "Ligando…";
     $("motor-label").textContent = "Ligando…";
@@ -1288,6 +1293,48 @@ function avisoMotorFora(info) {
   } else if (info.erro) {
     bannerErro(info.erro);
   }
+}
+
+/**
+ * Motor que aceita a conexão e não responde: não é "Desligado" (clicar em Ligar não resolvia).
+ * Sem agente vivo o app reinicia sozinho aos 15 s; com agente, ou com um PID que o app não
+ * confirmou ser o motor, a decisão fica com a pessoa (ver destravar.cjs).
+ */
+function motorTravado(t) {
+  $("motor-status").textContent = "Motor travado";
+  $("motor-label").textContent = "Reiniciar";
+  const banner = $("banner");
+  banner.replaceChildren();
+  banner.classList.add("banner-travado");
+  const txt = document.createElement("span");
+  txt.className = "banner-travado-txt";
+  banner.append(txt);
+  const botao = (rotulo, forcar) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "ghost";
+    b.textContent = rotulo;
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      await window.nexo.destravarMotor({ forcar });
+      await refreshDaemon();
+    });
+    banner.append(b);
+  };
+  if (t.destravando) {
+    txt.textContent = "Motor travado — reiniciando…";
+  } else if (t.recusado) {
+    const pid = t.pid ? `PID ${t.pid}` : "o processo na porta";
+    txt.textContent = `Motor travado. Não confirmei que ${pid} é o motor do Nexos (${t.motivo || "sem motivo"}).`;
+    if (t.pid) botao(`Matar PID ${t.pid} e reiniciar`, true);
+  } else if (t.agentes) {
+    txt.textContent = "Motor travado — reiniciar? (o turno em curso será perdido)";
+    botao("Reiniciar", false);
+  } else {
+    const s = t.desde ? Math.round((Date.now() - t.desde) / 1000) : 0;
+    txt.textContent = `Motor travado${s ? ` há ${s} s` : ""} — se não voltar, reinicio sozinho.`;
+  }
+  banner.classList.remove("hidden");
 }
 
 function setMotor(on, live = false) {
@@ -1298,6 +1345,7 @@ function setMotor(on, live = false) {
   const st = $("motor-status");
   st.dataset.on = on ? "1" : "0";
   st.textContent = live ? "Falando" : on ? "Ligado" : "Desligado";
+  if (!on && $("banner").classList.contains("banner-travado")) bannerPadrao();
   if (petState.ok) st.classList.add("sr-only");
   syncPet(on, live);
   $("motor-label").textContent = on ? "Desligar" : "Ligar";

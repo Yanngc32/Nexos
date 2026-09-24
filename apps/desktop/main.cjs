@@ -1,6 +1,8 @@
 const { app, BrowserWindow, Tray, Menu, Notification, dialog, ipcMain, nativeImage, screen, shell } = require("electron");
 const { BORDAS, bordaMaisProxima, retanguloNaBorda } = require("./painel-borda.cjs");
 const atualizador = require("./atualizador.cjs");
+const { criarLog } = require("./log.cjs");
+const { HEALTH_TIMEOUT_MS, agentesVivos, criarVigia, destravar, lerPidDoMotor, saudeDoMotor } = require("./destravar.cjs");
 const { autoUpdater } = require("electron-updater");
 const { execFile, spawn } = require("node:child_process");
 const {
@@ -14,6 +16,7 @@ const {
   realpathSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } = require("node:fs");
 const { readdir, readFile, rm, stat, writeFile } = require("node:fs/promises");
@@ -168,18 +171,40 @@ function readAccentArg() {
   return "";
 }
 
+/** Mesmo `daemon.log` do motor, origem `app`/`saude` (ver log.cjs). */
+const logApp = criarLog({ home: () => nexoHome() });
+
+/** Toda checagem de /health tem prazo: motor travado aceita a conexão e nunca responde. */
+function comPrazo() {
+  return AbortSignal.timeout(HEALTH_TIMEOUT_MS);
+}
+
+/** Conta o tempo seguido sem resposta; aos 15 s dispara `aoTravar`. */
+const vigiaDoMotor = criarVigia({ log: logApp });
+
 async function daemonInfo() {
   const port = readPort();
   const token = existsSync(tokenPath()) ? readFileSync(tokenPath(), "utf8").trim() : "";
-  let ok = false;
-  try {
-    const res = await fetch(`http://127.0.0.1:${port}/health`);
-    ok = res.ok;
-  } catch {
-    ok = false;
+  const estado = await saudeDoMotor(port, { checagem: "daemonInfo", log: logApp });
+  const ok = estado === "ok";
+  if (ok) {
+    motorErro = "";
+    motorTravado = null;
   }
-  if (ok) motorErro = "";
-  return { port, token, ok, home: nexoHome(), starting: motorSubindo !== null, erro: ok ? "" : motorErro };
+  if (vigiaDoMotor.registrar(estado) === "destravar") void aoTravar();
+  return {
+    port,
+    token,
+    ok,
+    estado,
+    home: nexoHome(),
+    starting: motorSubindo !== null || motorDestravando !== null,
+    erro: ok ? "" : motorErro,
+    travado:
+      estado === "sem_resposta"
+        ? { desde: vigiaDoMotor.travadoDesde(), destravando: motorDestravando !== null, ...(motorTravado ?? {}) }
+        : null,
+  };
 }
 
 /**
@@ -195,6 +220,7 @@ async function turnoAtivo() {
     // update instalava com agente no meio do trabalho
     const res = await fetch(`http://127.0.0.1:${info.port}/v1/status/turno-ativo`, {
       headers: { authorization: `Bearer ${info.token}` },
+      signal: comPrazo(),
     });
     if (!res.ok) return false;
     const json = await res.json();
@@ -226,6 +252,26 @@ function daemonLogPath() {
   return join(nexoHome(), "daemon.log");
 }
 
+/**
+ * stdout+stderr do `nexos up`: crash de import, stack que o logger não pegou. Arquivo à parte do
+ * `daemon.log` porque o fd é aberto AQUI e herdado pelo motor — renomear com o motor ligado não
+ * adiantaria (ele continuaria escrevendo no renomeado). Então este rotaciona só na subida, e o
+ * `daemon.log` fica com o logger do motor, que é dono do próprio arquivo e rotaciona sozinho.
+ */
+function daemonSaidaPath() {
+  return join(nexoHome(), "daemon-saida.log");
+}
+
+const SAIDA_MAX_BYTES = 1024 * 1024;
+
+function rotacionarSaida(path) {
+  try {
+    if (statSync(path).size > SAIDA_MAX_BYTES) renameSync(path, `${path}.1`);
+  } catch {
+    /* não existe ainda, ou preso: segue no mesmo */
+  }
+}
+
 function readLogTail(path, maxChars = 4000) {
   try {
     const raw = readFileSync(path, "utf8");
@@ -233,6 +279,13 @@ function readLogTail(path, maxChars = 4000) {
   } catch {
     return "";
   }
+}
+
+/** Fim dos dois logs: o do motor e a saída crua do processo. */
+function tailDosLogs() {
+  const motor = readLogTail(daemonLogPath(), 2000).trim();
+  const saida = readLogTail(daemonSaidaPath(), 2000).trim();
+  return [motor && `— daemon.log —\n${motor}`, saida && `— daemon-saida.log —\n${saida}`].filter(Boolean).join("\n");
 }
 
 /**
@@ -459,6 +512,7 @@ let motorReiniciando = null;
  * na versão velha — era preciso "reiniciar duas vezes".
  */
 async function pararMotor(ms = 8000) {
+  logApp.info("app", "parando o motor");
   await esperarSair(spawnNexo(["down"]), 5000);
   const ate = Date.now() + ms;
   while (Date.now() < ate && (await daemonInfo()).ok) await new Promise((r) => setTimeout(r, 250));
@@ -467,7 +521,7 @@ async function pararMotor(ms = 8000) {
 /** Versão do app que subiu o motor de pé ("" = motor de antes desta checagem). */
 async function versaoDoMotor() {
   try {
-    const res = await fetch(`http://127.0.0.1:${readPort()}/health`);
+    const res = await fetch(`http://127.0.0.1:${readPort()}/health`, { signal: comPrazo() });
     const json = await res.json();
     return typeof json?.app === "string" ? json.app : "";
   } catch {
@@ -559,11 +613,72 @@ function ligarRecargaDev() {
 let motorSubindo = null;
 /** Último erro de subida; some quando o /health responde. */
 let motorErro = "";
+/** Destrave em voo (kill + subir de novo). */
+let motorDestravando = null;
+/**
+ * O que a tela precisa pra decidir o banner do motor travado: `{ pid, agentes }` quando há agente
+ * vivo (pergunta antes), `{ pid, recusado, motivo }` quando o PID não é confirmadamente nosso
+ * (oferece matar na mão). `null` enquanto ainda é só "travado há X s".
+ */
+let motorTravado = null;
+
+/** `nexos up` sai com isto quando a porta tem um motor travado (ver CODIGO_TRAVADO no daemon). */
+const SAIDA_TRAVADO = 3;
+
+/**
+ * 15 s seguidos sem resposta (ou clique em Ligar com o motor travado). Decisão C: sem agente vivo
+ * em `run/`, mata e sobe sozinho; com agente, pergunta — o turno em curso se perde.
+ */
+async function aoTravar() {
+  if (motorDestravando || motorSubindo) return;
+  const home = nexoHome();
+  const agentes = agentesVivos(home);
+  logApp.info("app", `${agentes.length} agente(s) vivo(s) em run/`, { agentes });
+  if (agentes.length) {
+    motorTravado = { pid: lerPidDoMotor(home)?.pid ?? null, agentes: agentes.length };
+    logApp.info("app", "banner: reiniciar o motor travado? (tem agente vivo)");
+    return;
+  }
+  logApp.info("app", "reinício automático (nenhum agente vivo)");
+  const r = await reiniciarTravado({ automatico: true });
+  if (r.ok) avisarDoUpdate("Nexos", "Motor travado, reiniciado.");
+}
+
+/**
+ * Mata o motor travado (PID confirmado, ou `forcar` quando a pessoa pediu) e sobe um novo.
+ * Nunca mata PID que não passou na confirmação sem `forcar`.
+ */
+function reiniciarTravado({ forcar = false, automatico = false } = {}) {
+  if (motorDestravando) return motorDestravando;
+  motorDestravando = (async () => {
+    const inicio = Date.now();
+    const r = await destravar({ home: nexoHome(), port: readPort(), log: logApp, forcar });
+    if (!r.ok) {
+      motorTravado = { pid: r.pid, recusado: Boolean(r.recusado), motivo: r.motivo || "" };
+      return { ok: false, travado: true, error: `Motor travado (PID ${r.pid ?? "?"}): ${r.motivo || "não consegui matar"}` };
+    }
+    motorTravado = null;
+    const sub = await subirMotor();
+    if (sub.ok) {
+      const s = Math.round((Date.now() - inicio) / 100) / 10;
+      logApp.info("app", `motor novo respondendo em ${s} s`, { automatico });
+    } else {
+      logApp.erro("app", "motor novo não subiu depois de destravar", { erro: String(sub.error || "").slice(-500) });
+    }
+    return sub;
+  })().finally(() => {
+    motorDestravando = null;
+  });
+  return motorDestravando;
+}
 
 function subirMotor({ timeoutMs = 60_000, deps = false } = {}) {
   if (motorSubindo) return motorSubindo;
   motorSubindo = (async () => {
-    if ((await daemonInfo()).ok) {
+    const antes = await daemonInfo();
+    // travado não é "sem motor": subir outro por cima só daria "já ligado" (ver aoTravar)
+    if (antes.estado === "sem_resposta") return { ok: false, travado: true, error: "Motor travado: não responde" };
+    if (antes.ok) {
       /*
        * O motor sobrevive ao fechamento do app. Depois de atualizar, o que responde pode ser o da
        * versão anterior — o app novo conversaria com o motor velho até alguém reiniciar de novo.
@@ -577,8 +692,10 @@ function subirMotor({ timeoutMs = 60_000, deps = false } = {}) {
       const r = await ensureDepsInstalled();
       if (!r.ok) return { ok: false, error: `Não consegui instalar dependências:\n${r.log}`.trim() };
     }
-    const logPath = daemonLogPath();
+    const logPath = daemonSaidaPath();
     mkdirSync(nexoHome(), { recursive: true });
+    rotacionarSaida(logPath);
+    logApp.info("app", "subindo o motor", { versao: app.getVersion() });
     let logFd;
     try {
       logFd = openSync(logPath, "a");
@@ -605,7 +722,12 @@ function subirMotor({ timeoutMs = 60_000, deps = false } = {}) {
     }
     // Saiu com "already up" (outro `up` ganhou a corrida) ainda conta como ligado.
     if ((await daemonInfo()).ok) return { ok: true };
-    const tail = readLogTail(logPath).trim();
+    if (child.exitCode === SAIDA_TRAVADO) {
+      logApp.aviso("app", `nexos up saiu com ${SAIDA_TRAVADO}: motor travado na porta`);
+      return { ok: false, travado: true, error: "Motor travado: não responde" };
+    }
+    logApp.erro("app", "motor não subiu", { codigo: child.exitCode, sinal: child.signalCode });
+    const tail = tailDosLogs();
     const motivo = child.exitCode === null && !child.signalCode ? `motor não respondeu em ${timeoutMs / 1000}s` : "";
     return { ok: false, error: [tail, motivo].filter(Boolean).join("\n") || "motor não respondeu" };
   })()
@@ -1216,7 +1338,17 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   handle("daemon:info", () => daemonInfo());
   // Com `deps`: no botão vale o `pnpm install` (conserta dependência nova sem install); no boot, não.
-  handle("daemon:start", () => subirMotor({ deps: true }));
+  handle("daemon:start", async () => {
+    const r = await subirMotor({ deps: true });
+    // clicar em Ligar com o motor travado entra direto no destrave, sem esperar os 15 s
+    if (r.travado) void aoTravar();
+    return r;
+  });
+  handle("daemon:destravar", async (_e, opts) => {
+    const forcar = Boolean(opts?.forcar);
+    logApp.info("app", forcar ? "pessoa pediu pra matar o PID na mão e reiniciar" : "pessoa escolheu reiniciar o motor travado");
+    return reiniciarTravado({ forcar });
+  });
   handle("daemon:stop", () => {
     spawnNexo(["down"]).unref();
     return { ok: true };
@@ -1520,6 +1652,8 @@ app.whenReady().then(async () => {
   });
   // em dev o motor de pé pode ser de uma rodada anterior, com código velho: sobe de novo
   void (DEV ? reiniciarMotorDev() : subirMotor());
+  // A vigia do motor não depende da janela: minimizada ou na bandeja, travou, destrava.
+  setInterval(() => void daemonInfo(), 5000).unref();
   createWindow();
   if (app.isPackaged && process.platform === "win32") {
     // "subi de pé" pro script da troca poder apagar a versão antiga (sem isso ele volta a antiga)

@@ -1801,6 +1801,21 @@ body[data-focus="1"] .work #pane-chat {
   color: #e0b4b0;
 }
 
+/* Motor travado (ver motorTravado em renderer.js): mesmo tom do aviso, com a ação ao lado. */
+.banner-travado {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.banner-travado-txt {
+  flex: 1;
+}
+.banner-travado .ghost {
+  flex: 0 0 auto;
+  border-color: #e0b4b0;
+  color: #e0b4b0;
+}
+
 /* Update baixado/baixando (electron-updater — ver main.cjs). Tom neutro/acento,
    não o vermelho de aviso do `.banner` genérico: não é um problema, é uma notícia. */
 .banner-update {

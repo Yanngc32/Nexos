@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld("nexo", {
   daemonInfo: () => ipcRenderer.invoke("daemon:info"),
   startDaemon: () => ipcRenderer.invoke("daemon:start"),
   stopDaemon: () => ipcRenderer.invoke("daemon:stop"),
+  // motor travado: reinicia (PID confirmado) ou, com `forcar`, mata o PID na mão
+  destravarMotor: (opts) => ipcRenderer.invoke("daemon:destravar", opts),
   openLogin: (id) => ipcRenderer.invoke("profile:login", id),
   toggleWidget: () => ipcRenderer.invoke("widget:toggle"),
   // painel de borda (painel.js) e as Configurações dele (renderer.js)
