@@ -1,4 +1,5 @@
 import { createApiClient } from "./api.js";
+import { textoSyncEmAndamento } from "./drive-status.js";
 import { createFileTree } from "./file-tree.js";
 import { createServicesPanel } from "./services.js";
 import { createProcessosModal } from "./processos-modal.js";
@@ -8242,8 +8243,12 @@ async function renderGoogleDrive() {
       $(id).classList.toggle("hidden", !acc.connected || esperando);
     }
     $("btn-gdrive-sync").disabled = drive.running;
-    $("gdrive-sync-status").textContent =
-      !acc.connected || esperando ? "" : drive.running ? "Sincronizando…" : resumoSyncDrive(drive.last);
+    const emVoo = drive.running ? textoSyncEmAndamento(drive) : null;
+    $("gdrive-sync-status").textContent = !acc.connected || esperando ? "" : emVoo ? emVoo.texto : resumoSyncDrive(drive.last);
+    $("gdrive-sync-status").dataset.tipo = emVoo?.longo ? "aviso" : "";
+    // rodada em voo: a tela acompanha sozinha enquanto está aberta
+    clearTimeout(state.gdriveTimer);
+    if (drive.running) state.gdriveTimer = setTimeout(() => void renderGoogleDrive(), 10_000);
   } catch {
     /* fica no que já estava na tela */
   }

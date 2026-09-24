@@ -4020,6 +4020,10 @@ button:disabled {
   color: var(--muted);
   font-size: 0.9em;
 }
+/* Rodada de sync em voo há mais de 10 min (ver drive-status.js): tem que saltar aos olhos. */
+.set-hint[data-tipo="aviso"] {
+  color: var(--warn);
+}
 
 /* ---- Escolha de tema: dois cartões com miniatura da paleta ----
  * A miniatura precisa das cores CRUAS de cada tema (o tema que não está no ar
