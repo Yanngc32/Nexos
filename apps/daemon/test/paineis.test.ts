@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { sessionBus } from "../src/bus.ts";
 import { loadConfig, saveConfig } from "../src/config.ts";
 import { createApp } from "../src/http.ts";
-import { ferramentaDePainel, montarPedido, resetPaineisForTest, responderPainel } from "../src/paineis.ts";
+import { ferramentaDePainel, ferramentaDePlanejar, montarPedido, resetPaineisForTest, responderPainel } from "../src/paineis.ts";
 import { addProfile } from "../src/profiles.ts";
 import { createThread } from "../src/threads.ts";
 import { tempHome } from "./helpers.ts";
@@ -86,5 +86,27 @@ describe("ferramenta", () => {
     expect(await nomes()).toContain("nexo_abrir_painel");
     saveConfig(home, { paineisDoAgente: { modo: "nunca" } as never });
     expect(await nomes()).not.toContain("nexo_abrir_painel");
+  });
+});
+
+describe("nexo_plano_iniciar", () => {
+  it("pede ao app pra criar o plano desta conversa, mesmo com os painéis em nunca", async () => {
+    const home = tempHome();
+    saveConfig(home, { paineisDoAgente: { modo: "nunca", paineis: [], trazerPraFrente: false } });
+    const pedidos: Record<string, unknown>[] = [];
+    const ouvir = (ev: Record<string, unknown>) => {
+      if (ev.type !== "abrir_painel") return;
+      pedidos.push(ev);
+      responderPainel(String(ev.id), { ok: true, texto: "plano criado" });
+    };
+    sessionBus.on("*", ouvir);
+    try {
+      const [f] = ferramentaDePlanejar("t1")();
+      expect(f!.name).toBe("nexo_plano_iniciar");
+      expect(await f!.executar({})).toEqual({ ok: true, texto: "plano criado" });
+      expect(pedidos[0]).toMatchObject({ threadId: "t1", painel: "planejamento", criarPlano: true, frente: true });
+    } finally {
+      sessionBus.off("*", ouvir);
+    }
   });
 });

@@ -50,7 +50,8 @@ export type Etapa = {
  * uma tarefa do Quadro. Só o endereço mora aqui; título/estado são resolvidos na leitura, então
  * alvo que sumiu aparece riscado em vez de quebrar o plano.
  */
-export type Anexo = { tipo: "ds"; sistema: string; card: string } | { tipo: "tarefa"; id: string };
+/** `referencia`: tela do DS só como modelo de layout — não é o mock desta tela, não pede aprovação. */
+export type Anexo = { tipo: "ds"; sistema: string; card: string; referencia?: true } | { tipo: "tarefa"; id: string };
 export type Design = { veredito: "aprovado" | "reprovado"; motivo?: string; mock: string; hash?: string; em: string };
 export type Roteiro = {
   titulo: string;
@@ -277,7 +278,10 @@ export function validarAnexos(v: unknown): Anexo[] {
       return x;
     };
     let a: Anexo;
-    if (o.tipo === "ds") a = { tipo: "ds", sistema: idOk(o.sistema, "sistema"), card: idOk(o.card, "card do DS") };
+    if (o.tipo === "ds") {
+      a = { tipo: "ds", sistema: idOk(o.sistema, "sistema"), card: idOk(o.card, "card do DS") };
+      if (o.referencia === true) a.referencia = true;
+    }
     else if (o.tipo === "tarefa") a = { tipo: "tarefa", id: idOk(o.id, "id da tarefa") };
     else throw erro(`tipo de anexo inválido: ${String(o.tipo)} (use ds ou tarefa)`);
     const k = chaveDoAnexo(a);
@@ -435,7 +439,9 @@ function corpoDoCard(c: Card, etapas: Etapa[]): string {
   if (c.design) linhas.push(`- Design: ${c.design.veredito}${c.design.motivo ? ` — ${c.design.motivo}` : ""}`);
   if (c.fonte) linhas.push(`- Fonte: ${c.fonte}`);
   if (c.links.length) linhas.push(`- Ligado a: ${c.links.join(", ")}`);
-  for (const a of c.anexos) linhas.push(a.tipo === "ds" ? `- Tela do Design System: ${a.sistema}/${a.card}` : `- Tarefa do Quadro: ${a.id}`);
+  for (const a of c.anexos) {
+    linhas.push(a.tipo === "ds" ? `- Tela do Design System${a.referencia ? " (referência de layout)" : ""}: ${a.sistema}/${a.card}` : `- Tarefa do Quadro: ${a.id}`);
+  }
   linhas.push("");
   if (c.corpo) linhas.push(c.corpo, "");
   return `${linhas.join("\n")}\n`;
@@ -718,6 +724,7 @@ export function salvarCard(
   if (!atual && cards.length >= CARDS_MAX) throw erro(`no máximo ${CARDS_MAX} cards por plano`);
   // etapa que saiu do roteiro não trava a edição de outro campo: o card só fica "Sem etapa"
   const base = atual?.etapa && !roteiro.etapas.some((e) => e.id === atual.etapa) ? { ...atual, etapa: undefined } : atual;
+  if (atual && Array.isArray(input.anexos)) input = { ...input, anexos: herdarReferencia(input.anexos, atual.anexos) };
   const card = validarCard(
     { ...base, ...input, id, criadoEm: atual?.criadoEm ?? new Date().toISOString() },
     { etapas: roteiro.etapas, idsDeCards: ids },
@@ -726,6 +733,20 @@ export function salvarCard(
   escreverCard(dir, card, roteiro.etapas);
   emitir(projectPath, { type: "mudou", slug, origem, alvo: "card", id });
   return card;
+}
+
+/**
+ * Quem reenvia a lista de anexos (a tela, a implementação "mantendo os que já estavam") nem
+ * sempre manda o `referencia`: anexo de tela sem a marca herda a do mesmo anexo já gravado.
+ * `referencia: false` explícito tira a marca.
+ */
+function herdarReferencia(novos: unknown[], atuais: Anexo[]): unknown[] {
+  const refs = new Set(atuais.filter((a) => a.tipo === "ds" && a.referencia).map(chaveDoAnexo));
+  return novos.map((b) => {
+    const o = (b ?? {}) as Record<string, unknown>;
+    if (o.tipo !== "ds" || "referencia" in o) return b;
+    return refs.has(`ds:${String(o.sistema)}/${String(o.card)}`) ? { ...o, referencia: true } : b;
+  });
 }
 
 /** Apaga o card e tira o id dele dos links de quem apontava (esses ganham rev novo). */

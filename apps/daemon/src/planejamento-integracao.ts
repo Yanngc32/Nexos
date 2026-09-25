@@ -315,7 +315,7 @@ export type EstadoDoDesign = "sem_mock" | "aguardando" | "aprovado" | "reprovado
 /** O mock avaliável de um card de tela: a última tela do DS anexada que ainda existe. */
 export function mockDoCard(c: Card, integ: Integracao): { chave: string; hash?: string; titulo: string } | null {
   for (const a of [...c.anexos].reverse()) {
-    if (a.tipo !== "ds") continue;
+    if (a.tipo !== "ds" || a.referencia) continue;
     const r = integ.anexos[chaveDoAnexo(a)];
     if (r?.existe) return { chave: chaveDoAnexo(a), ...(r.hash ? { hash: r.hash } : {}), titulo: r.titulo };
   }

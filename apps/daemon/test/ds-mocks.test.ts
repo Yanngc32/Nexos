@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { tempHome } from "./helpers.ts";
 import { ativarDs, criarDs, definirOficial, dsDoProjeto, estadoDs, painelDeMocks, salvarTokens } from "../src/design-system.ts";
 import { ferramentaDePrintDoDs } from "../src/ds-print.ts";
+import { createApp } from "../src/http.ts";
 import { blocoDoDsParaPack } from "../src/ds-sync.ts";
 
 const projeto = () => mkdtempSync(join(tmpdir(), "nexo-mocks-"));
@@ -108,5 +109,29 @@ describe("painel de mocks", () => {
     mockSalvar(p, home, { titulo: "Perfil", html: TELA });
     expect(estadoDs(p, home).sistemas).toHaveLength(1);
     expect(estadoDs(p, home).ds!.cards).toHaveLength(2);
+  });
+});
+
+describe("GET /v1/ds/tela", () => {
+  it("devolve a tela de um DS que não é o ativo, com os tokens do DS de origem", async () => {
+    const home = tempHome();
+    const p = projeto();
+    criarDs(p, home, { nome: "Marca" });
+    salvarTokens(p, home, { color: { text: { $type: "color", $value: "#123456" } } });
+    expect(mockSalvar(p, home, { titulo: "Login", html: TELA }).ok).toBe(true);
+    const mocks = estadoDs(p, home).sistemas.find((s) => s.mocksDe)!;
+    const card = estadoDs(p, home).ds!.cards[0]!.id;
+    ativarDs(p, home, "marca");
+    const app = createApp(home, "tk");
+    const url = (q: string) => `/v1/ds/tela?projectPath=${encodeURIComponent(p)}&${q}`;
+    const h = { authorization: "Bearer tk" };
+    const res = await app.request(url(`sistema=${mocks.id}&card=${card}`), { headers: h });
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { card: { html: string; titulo: string }; css: string; sistema: { id: string } };
+    expect(b.card).toMatchObject({ titulo: "Login", html: TELA });
+    expect(b.sistema.id).toBe(mocks.id);
+    expect(b.css).toContain("#123456");
+    expect((await app.request(url(`sistema=${mocks.id}&card=nao-existe`), { headers: h })).status).toBe(404);
+    expect((await app.request(url("sistema=nada&card=x"), { headers: h })).status).toBe(404);
   });
 });

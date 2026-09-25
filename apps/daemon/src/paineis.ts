@@ -18,6 +18,7 @@ export const PAINEIS = PAINEIS_DO_AGENTE;
 export type Painel = PainelDoAgente;
 
 export const MCP_TOOLS_PAINEL = ["mcp__nexo__nexo_abrir_painel"];
+export const MCP_TOOLS_PLANEJAR = ["mcp__nexo__nexo_plano_iniciar"];
 
 export type PedidoDePainel = {
   painel: Painel;
@@ -28,6 +29,8 @@ export type PedidoDePainel = {
   caminho?: string;
   /** Config `trazerPraFrente`: troca a aba visível (senão a aba só fica aberta). */
   frente?: boolean;
+  /** `nexo_plano_iniciar`: o app cria o plano a partir desta conversa e abre o Manager. */
+  criarPlano?: boolean;
 };
 
 type Pendente = { resolve: (r: Saida) => void; timeoutId: ReturnType<typeof setTimeout> };
@@ -150,4 +153,24 @@ export function ferramentaDePainel(threadId: string, modoNavegador: NavegadorMod
       },
     ];
   };
+}
+
+/**
+ * `nexo_plano_iniciar`: sem ela, "monta o planejamento" num chat normal virava tarefas no Quadro
+ * (a única ferramenta de organizar que o chat tinha). Faz o mesmo que "Planejar a partir desta
+ * conversa" no app; não depende da config de painéis porque é a pessoa que pediu o plano.
+ */
+export function ferramentaDePlanejar(threadId: string): Conjunto {
+  return () => [
+    {
+      name: "nexo_plano_iniciar",
+      description:
+        "Abre um PLANEJAMENTO na Tela de Planejamento a partir desta conversa: cria o plano no projeto, " +
+        "abre a conversa do Agent Manager e manda pra ele a transcrição desta conversa. Use quando a pessoa " +
+        "pedir pra planejar, montar um plano/planejamento ou usar a tela de planejamento — NÃO crie tarefas " +
+        "no Quadro no lugar disso. Depois de chamar, não continue planejando aqui: o Manager segue de lá.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      executar: () => pedirPainel(threadId, { painel: "planejamento", criarPlano: true, frente: true }),
+    },
+  ];
 }

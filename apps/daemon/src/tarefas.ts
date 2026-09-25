@@ -824,7 +824,8 @@ export function ferramentasDeTarefas(projectPath: string, home: string): Conjunt
           "Cria ou atualiza uma tarefa do quadro deste projeto. Mesmo id = atualiza (mover de coluna " +
           "é só mandar outro colunaId), e campo que você não mandar fica como estava. Não apaga — " +
           "apagar é só na tela, pela pessoa. Mensagem com VÁRIOS pedidos: um card por pedido, depois " +
-          "vá atualizando o da vez (coluna, checklist, comentário) até mover pra coluna final.",
+          "vá atualizando o da vez (coluna, checklist, comentário) até mover pra coluna final. " +
+          "Pedido de planejamento/plano não é tarefa: use nexo_plano_iniciar (Tela de Planejamento).",
         inputSchema: {
           type: "object",
           properties: {

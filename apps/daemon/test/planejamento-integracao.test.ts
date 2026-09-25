@@ -15,7 +15,7 @@ import {
   pedidoDeConversa,
   resolverIntegracao,
 } from "../src/planejamento-integracao.ts";
-import { planoEmTexto } from "../src/planejamento-ferramentas.ts";
+import { ferramentasDePlanejamento, planoEmTexto } from "../src/planejamento-ferramentas.ts";
 import { apagarTarefa, getQuadro, getTarefa, salvarTarefa } from "../src/tarefas.ts";
 import { appendEvent, createThread, readThread, threadHead } from "../src/threads.ts";
 import { addProfile } from "../src/profiles.ts";
@@ -272,7 +272,9 @@ describe("implementação marca o plano", () => {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
     });
     const nomes2 = ((await res2.json()) as { result: { tools: { name: string }[] } }).result.tools.map((x) => x.name);
-    expect(nomes2.some((n) => n.startsWith("nexo_plano_"))).toBe(false);
+    // conversa comum não mexe em plano nenhum: só pode abrir um novo
+    expect(nomes2.filter((n) => n.startsWith("nexo_plano_"))).toEqual(["nexo_plano_iniciar"]);
+    expect(nomes).not.toContain("nexo_plano_iniciar");
   });
 });
 
@@ -313,6 +315,36 @@ describe("aprovação do design da tela", () => {
     avaliarDesign(p, home, slug, { id: tela.id, veredito: "aprovado", expectedRev: atual.rev });
     expect(estado(p, home, slug)).toBe("aprovado");
     expect(planoEmTexto(abrirPlano(p, home, slug), resolverIntegracao(p, home, abrirPlano(p, home, slug)))).toContain("DESIGN APROVADO");
+  });
+
+  it("tela anexada pelo Manager é referência: não pede aprovação; a da implementação é o mock", async () => {
+    const home = tempHome();
+    const p = projeto();
+    const { slug, tela } = comTela(home, p);
+    const modelo = salvarCardDaFerramenta(p, home, { titulo: "Precificação", html: "<div>ref</div>" });
+    const ferr = (papel: "manager" | "implementacao") => {
+      const fs = ferramentasDePlanejamento(p, slug, home, papel)();
+      return (n: string) => fs.find((f) => f.name === n)!;
+    };
+    const ref = { tipo: "ds", sistema: "mocks", card: modelo.id };
+    expect((await ferr("manager")("nexo_plano_card_atualizar").executar({ id: tela.id, expected_rev: tela.rev, anexos: [ref] })).ok).toBe(true);
+    let card = abrirPlano(p, home, slug).cards.find((c) => c.id === tela.id)!;
+    expect(card.anexos[0]).toMatchObject({ referencia: true });
+    expect(estado(p, home, slug)).toBe("sem_mock");
+    expect(planoEmTexto(abrirPlano(p, home, slug))).toContain("(referência)");
+
+    // implementação reenvia a referência sem a marca e acrescenta o mock de verdade
+    const mock = salvarCardDaFerramenta(p, home, { titulo: "Compras mock", html: "<div>v1</div>" });
+    const r = await ferr("implementacao")("nexo_plano_card_atualizar").executar({
+      id: tela.id,
+      expected_rev: card.rev,
+      anexos: [ref, { tipo: "ds", sistema: "mocks", card: mock.id }],
+    });
+    expect(r.ok).toBe(true);
+    card = abrirPlano(p, home, slug).cards.find((c) => c.id === tela.id)!;
+    expect(card.anexos[0]).toMatchObject({ referencia: true });
+    expect(card.anexos[1]).not.toHaveProperty("referencia");
+    expect(estado(p, home, slug)).toBe("aguardando");
   });
 
   it("rota: grava o veredito e manda o resultado pra conversa de implementação do plano", async () => {

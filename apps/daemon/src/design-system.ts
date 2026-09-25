@@ -607,6 +607,26 @@ export function estadoDs(projectPath: string, home: string): DsEstado {
   };
 }
 
+/**
+ * Uma tela de qualquer DS do projeto (não só o ativo), com o CSS dos tokens pra renderizar fora
+ * do Canvas: é o que a Tela de Planejamento mostra quando a pessoa abre um anexo.
+ */
+export function telaDoDs(projectPath: string, home: string, sistemaId: string, cardId: string) {
+  const sistema = lerPonteiro(projectPath, home).sistemas.find((s) => s.id === sistemaId);
+  if (!sistema) throw erro(`design system ${sistemaId} não existe`, 404);
+  const ds = lerSistema(projectPath, home, sistema);
+  const card = ds.cards.find((c) => c.id === cardId);
+  if (!card) throw erro(`a tela ${cardId} não existe em ${sistema.nome}`, 404);
+  return {
+    sistema: { id: sistema.id, nome: sistema.nome },
+    card: { id: card.id, titulo: card.titulo, html: card.html, hash: card.hash },
+    css: ds.css,
+    vars: ds.vars,
+    kitCss: ds.kitCss,
+    projetoAbs: ds.projetoAbs,
+  };
+}
+
 /** O DS oficial lido por inteiro (regras das conversas, conformidade, exportar), ou `null`. */
 export function dsDoProjeto(projectPath: string, home: string): DsCompleto | null {
   const oficial = oficialDe(lerPonteiro(projectPath, home));

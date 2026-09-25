@@ -147,6 +147,7 @@ import {
   criarDs,
   definirOficial,
   estadoDs,
+  telaDoDs,
   listarVersoes,
   promoverVariante,
   restaurarVersao,
@@ -223,7 +224,7 @@ import {
   type EventoPlano,
 } from "./planejamento.ts";
 import { ferramentasDePlanejamento } from "./planejamento-ferramentas.ts";
-import { ferramentaDePainel, responderPainel } from "./paineis.ts";
+import { ferramentaDePainel, ferramentaDePlanejar, responderPainel } from "./paineis.ts";
 import {
   alvosDeAnexo,
   blocoDeTarefas,
@@ -1509,6 +1510,19 @@ export function createApp(home: string, token: string): Hono {
   });
 
   /** Tipos de card e, pros de token, quais tokens o modelo pode mostrar (a lista pra marcar). */
+  /** Uma tela de qualquer DS do projeto, com os tokens: prévia do anexo no planejamento. */
+  app.get("/v1/ds/tela", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    const sistema = c.req.query("sistema") || "";
+    const card = c.req.query("card") || "";
+    if (!projectPath || !sistema || !card) return c.json({ error: "projectPath, sistema e card obrigatórios" }, 400);
+    try {
+      return c.json(telaDoDs(projectPath, home, sistema, card));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
   app.get("/v1/ds/tipos", (c) => {
     const projectPath = c.req.query("projectPath") || "";
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
@@ -1922,7 +1936,7 @@ export function createApp(home: string, token: string): Hono {
         const origem = conversaDeOrigem(body.deThreadId, home);
         const plano = criarPlano(origem.projectPath, home, { titulo: body.titulo || origem.titulo });
         const threadId = conversaDoManager(origem.projectPath, plano.slug, body.profileId, body.deThreadId);
-        void postMessage(threadId, pedidoDeConversa(origem), home).catch((err) =>
+        void postMessage(threadId, pedidoDeConversa(origem), home, [], { automatico: true }).catch((err) =>
           log.erro("turno", `plano a partir da conversa ${String(body.deThreadId)} falhou`, { threadId, erro: (err as Error).message }),
         );
         return c.json({ ...abrirPlano(origem.projectPath, home, plano.slug), projectPath: origem.projectPath, threadId }, 201);
@@ -2142,7 +2156,7 @@ export function createApp(home: string, token: string): Hono {
       const texto = envio ? `${body.texto.trimEnd()}\n\n${blocoDeTarefas(plano, envio)}` : body.texto;
       const handoff = escreverHandoff(projectPath, home, slug, texto);
       vincularImplementacao(projectPath, home, slug, threadId);
-      void postMessage(threadId, handoff.texto.trimEnd(), home).catch((err) =>
+      void postMessage(threadId, handoff.texto.trimEnd(), home, [], { automatico: true }).catch((err) =>
         log.erro("turno", `envio do plano ${slug} falhou`, { threadId, erro: (err as Error).message }),
       );
       return c.json({ threadId, handoff: handoff.nome, ...(envio ? { quadro: envio } : {}) }, 201);
@@ -2394,6 +2408,8 @@ export function createApp(home: string, token: string): Hono {
       ...(modoNavegador !== "negado" ? ferramentasDeNavegador(threadId, home, modoNavegador)() : []),
       ...(threadId && projectPath && !runId ? ferramentaDePrintDoDs(threadId, projectPath, home)() : []),
       ...(threadId && !runId ? ferramentaDePainel(threadId, modoNavegador, home)() : []),
+      // conversa de implementação já nasceu de um plano: não abre outro
+      ...(threadId && projectPath && !runId && !impl?.handoff ? ferramentaDePlanejar(threadId)() : []),
       // Gate mestre: `--allowed-tools` (engines/cli.ts::profileFlags) já barra a CHAMADA
       // incondicionalmente se a config estiver desligada; listar aqui também, e não só lá,
       // é só pra não expor `tools/list` como se a ferramenta existisse quando não pode rodar.

@@ -87,7 +87,7 @@ export function planoEmTexto(p: Plano, integ?: Integracao): string {
     const r = integ?.anexos[chaveDoAnexo(a)];
     if (a.tipo === "tarefa") return `tarefa ${a.id}${r ? (r.existe ? ` "${r.titulo}" [${r.detalhe}]` : " (apagada)") : ""}`;
     const id = `${a.sistema}/${a.card}`;
-    return `tela ${id}${r ? (r.existe ? ` "${r.titulo}" — ${r.arquivo}` : " (apagada)") : ""}`;
+    return `tela ${id}${a.referencia ? " (referência)" : ""}${r ? (r.existe ? ` "${r.titulo}" — ${r.arquivo}` : " (apagada)") : ""}`;
   };
   const estadoDaTela = (c: Card) => {
     const e = integ ? estadoDoDesign(c, integ) : telaSemMock(c) ? "sem_mock" : null;
@@ -149,12 +149,33 @@ const ANEXOS = {
       tipo: { type: "string", enum: ["ds", "tarefa"] },
       sistema: { type: "string", description: "tipo ds: id do design system" },
       card: { type: "string", description: "tipo ds: id da tela/card do DS" },
+      referencia: {
+        type: "boolean",
+        description:
+          "tipo ds: true = tela só de referência (layout parecido), não é o mock desta tela e não pede aprovação. " +
+          "No planejamento é o padrão; na implementação o padrão é mock. Anexo que já existe mantém a marca.",
+      },
       id: { type: "string", description: "tipo tarefa: id da tarefa" },
     },
     required: ["tipo"],
     additionalProperties: false,
   },
 };
+
+/**
+ * O Manager não gera mock (quem gera é a implementação): tela do DS que ele anexa sem dizer é
+ * referência. Sem isso, a tela usada como modelo de layout virava "o mock" e o card já pedia
+ * aprovação no meio do planejamento. Anexo que o card já tinha herda a marca em `salvarCard`.
+ */
+function anexosDoPapel(anexos: unknown, papel: PapelNoPlano, atual: Card | undefined): unknown {
+  if (papel !== "manager" || !Array.isArray(anexos)) return anexos;
+  const ja = new Set((atual?.anexos ?? []).map(chaveDoAnexo));
+  return anexos.map((b) => {
+    const o = (b ?? {}) as Record<string, unknown>;
+    if (o.tipo !== "ds" || "referencia" in o || ja.has(`ds:${String(o.sistema)}/${String(o.card)}`)) return b;
+    return { ...o, referencia: true };
+  });
+}
 
 export function ferramentasDePlanejamento(projectPath: string, slug: string, home: string, papel: PapelNoPlano = "manager"): Conjunto {
   return () => {
@@ -251,7 +272,7 @@ export function ferramentasDePlanejamento(projectPath: string, slug: string, hom
         },
         executar: (a) =>
           tentar(() => {
-            const c = salvarCard(projectPath, home, slug, { ...a, expectedRev: 0 }, "agente");
+            const c = salvarCard(projectPath, home, slug, { ...a, anexos: anexosDoPapel(a.anexos, papel, undefined), expectedRev: 0 }, "agente");
             return `card criado: [[${c.titulo}]] — id \`${c.id}\`, rev ${c.rev}`;
           }),
       },
@@ -278,6 +299,8 @@ export function ferramentasDePlanejamento(projectPath: string, slug: string, hom
         executar: (a) =>
           tentar(() => {
             const { expected_rev, ...campos } = a;
+            const atual = ler().cards.find((c) => c.id === a.id);
+            if (campos.anexos !== undefined) campos.anexos = anexosDoPapel(campos.anexos, papel, atual);
             const c = salvarCard(projectPath, home, slug, { ...campos, expectedRev: expected_rev }, "agente");
             return `card \`${c.id}\` salvo (rev ${c.rev})`;
           }),
@@ -441,7 +464,7 @@ Você é o Agent Manager do plano "${slug}" (arquivos em ${dir}). Seu trabalho �
 ## Conforme a pessoa detalha
 - Registre cada requisito, decisão e nota como card (\`nexo_plano_card_criar\`) na etapa certa; altere com \`nexo_plano_card_atualizar\`, apague com \`nexo_plano_card_apagar\`, sempre com o rev que leu. Conflito = a pessoa mexeu na tela: releia e refaça sobre a versão atual.
 - Ligue cards relacionados com \`nexo_plano_ligar\`. No corpo, cite outros cards como [[Título]]: vira seta no canvas.
-- Telas do Design System e tarefas do Quadro entram no card como \`anexos\` (veja o que existe com \`nexo_plano_alvos\`; olhe a tela com \`nexo_ds_print\`). Anexe a tela que a etapa vai construir ou mudar: a implementação recebe o arquivo dela. Você não cria nem edita telas nem tarefas.
+- Telas do Design System e tarefas do Quadro entram no card como \`anexos\` (veja o que existe com \`nexo_plano_alvos\`; olhe a tela com \`nexo_ds_print\`). Anexe a tela que a etapa vai construir ou mudar, ou uma parecida como modelo: a implementação recebe o arquivo dela. Tela que você anexa entra como REFERÊNCIA (não é o mock, não pede aprovação); o mock da tela nova quem gera é a implementação, a partir da spec do card. Você não cria nem edita telas nem tarefas.
 - Marque o andamento com \`nexo_plano_etapa\`: em_andamento quando a conversa entra na etapa, concluida quando ela está especificada.
 - A pessoa se refere aos cards pelo NOME ([[Nome do card]]): resolva pelo título, ignorando maiúsculas e acentos. Se nenhum ou mais de um bater, pergunte.
 - O título do plano é da pessoa: não mexa.
@@ -477,7 +500,7 @@ Esta conversa nasceu do plano "${slug}", feito com a pessoa na Tela de Planejame
 O plano é o painel que a pessoa acompanha na Tela de Planejamento. Você tem as mesmas ferramentas do planejador (\`nexo_plano_*\`, sempre com o rev que leu; conflito = a pessoa mexeu: releia e refaça):
 - Ao começar uma etapa: \`nexo_plano_implementacao\` com \`em_andamento\`; ao terminar e verificar: \`feita\`. Se a etapa tem tarefa no Quadro, ela anda junto.
 - Cada requisito que ficou pronto: \`nexo_plano_card_atualizar\` com \`feito: true\`.
-- Card de tela (MOCK PENDENTE): antes de codar a tela, gere o mock com \`nexo_mock_salvar\` (painel de mocks do DS oficial — cria na 1ª vez, depois só acrescenta a tela) seguindo a spec do card, confira com \`nexo_ds_print\` e anexe ao card (\`anexos\` com \`{ tipo: "ds", sistema, card }\`, mantendo os que já estavam).
+- Card de tela (MOCK PENDENTE): antes de codar a tela, gere o mock com \`nexo_mock_salvar\` (painel de mocks do DS oficial — cria na 1ª vez, depois só acrescenta a tela) seguindo a spec do card, confira com \`nexo_ds_print\` e anexe ao card (\`anexos\` com \`{ tipo: "ds", sistema, card }\`, mantendo os que já estavam — anexo "(referência)" é só modelo de layout, não é o mock).
 - Depois de anexar, a PESSOA aprova ou reprova o design no card — você não avalia nem marca isso. NÃO codifique a tela antes de "DESIGN APROVADO" (\`nexo_plano_ler\` mostra o estado); enquanto aguarda, siga com outras etapas. A decisão chega nesta conversa como mensagem. Reprovado: refaça o mock seguindo o motivo, no MESMO card do DS (mesmo id no \`nexo_ds_card_salvar\`) — ele volta a aguardar aprovação.
 - Desvio que a pessoa aprovou, ou escolha técnica que o plano não previa: card de decisão (\`nexo_plano_card_criar\`) na etapa, com o porquê.
 - Dúvida que trava: \`nexo_plano_ambiguidade_abrir\` + \`nexo_perguntar\`; resolvida, \`nexo_plano_ambiguidade_resolver\`.
