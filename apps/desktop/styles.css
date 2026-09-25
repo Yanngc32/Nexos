@@ -5351,6 +5351,7 @@ body[data-side-mini="1"] .svc-strip {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   padding: 8px 12px 0;
 }
 
@@ -5363,11 +5364,17 @@ body[data-side-mini="1"] .svc-strip {
   font-size: var(--fs-xs);
 }
 
+/*
+ * `min(260px, 100%)` + `min-width: 0` no chip e no texto: com o chat lateral estreito o chip
+ * de 260px fixos ficava mais largo que o compositor e vazava pela borda — o texto (nowrap)
+ * não encolhia porque item flex não passa do próprio conteúdo sem `min-width: 0`.
+ */
 .queue-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  max-width: 260px;
+  min-width: 0;
+  max-width: min(260px, 100%);
   padding: 3px 4px 3px 8px;
   border: 1px solid var(--line-2);
   border-radius: var(--r-pill);
@@ -5376,6 +5383,8 @@ body[data-side-mini="1"] .svc-strip {
 }
 
 .queue-text {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

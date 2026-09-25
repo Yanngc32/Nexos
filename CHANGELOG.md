@@ -15,6 +15,8 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Corrigido
 
+- A mensagem na fila do chat vazava pela borda do compositor quando o chat lateral estava estreito. Agora ela encolhe e corta o texto com "…".
+
 ### Alterado
 
 ### Segurança
