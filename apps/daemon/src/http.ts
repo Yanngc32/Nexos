@@ -209,6 +209,7 @@ import {
   salvarLayout,
   salvarRoteiro,
   type CardInput,
+  vincularImplementacao,
   vincularThread,
   type EventoPlano,
 } from "./planejamento.ts";
@@ -217,6 +218,7 @@ import {
   alvosDeAnexo,
   blocoDeTarefas,
   conversaDeOrigem,
+  avaliarDesign,
   enviarAoQuadro,
   marcarImplementacaoDaEtapa,
   pedidoDeConversa,
@@ -1940,6 +1942,31 @@ export function createApp(home: string, token: string): Hono {
     }
   });
 
+  /**
+   * Veredito da pessoa sobre o mock de um card de tela. A conversa de implementação do plano
+   * recebe o resultado: no turno em voo (inject) se estiver trabalhando, senão como mensagem nova.
+   */
+  app.post("/v1/planejamento/:slug/cards/:id/design", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { veredito?: unknown; motivo?: unknown; expectedRev?: unknown };
+      const r = avaliarDesign(projectPath, home, c.req.param("slug"), { id: c.req.param("id"), veredito: body.veredito, motivo: body.motivo, expectedRev: body.expectedRev });
+      let avisou = false;
+      if (r.implementacaoThreadId && threadHead(r.implementacaoThreadId, home)) {
+        avisou = true;
+        if (!injetarMensagem(r.implementacaoThreadId, r.mensagem, home)) {
+          void postMessage(r.implementacaoThreadId, r.mensagem, home).catch((err) =>
+            log.erro("turno", "aviso do design pra implementação falhou", { threadId: r.implementacaoThreadId, erro: (err as Error).message }),
+          );
+        }
+      }
+      return c.json({ card: r.card, avisou });
+    } catch (e) {
+      return erroDoPlano(c, e);
+    }
+  });
+
   /** Andamento da implementação de uma etapa (tela); move a tarefa dela no Quadro, se houver. */
   app.put("/v1/planejamento/:slug/etapas/:etapa/implementacao", async (c) => {
     const projectPath = c.req.query("projectPath") || "";
@@ -2047,6 +2074,7 @@ export function createApp(home: string, token: string): Hono {
       const envio = body.quadro === true && plano.roteiro.etapas.length ? enviarAoQuadro(projectPath, home, slug, { threadId }) : null;
       const texto = envio ? `${body.texto.trimEnd()}\n\n${blocoDeTarefas(plano, envio)}` : body.texto;
       const handoff = escreverHandoff(projectPath, home, slug, texto);
+      vincularImplementacao(projectPath, home, slug, threadId);
       void postMessage(threadId, handoff.texto.trimEnd(), home).catch((err) =>
         log.erro("turno", `envio do plano ${slug} falhou`, { threadId, erro: (err as Error).message }),
       );

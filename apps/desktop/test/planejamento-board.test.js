@@ -12,6 +12,7 @@ import {
   rotuloDaFonte,
   sugestoesDeRef,
   MODELO_SPEC_TELA,
+  estadoDoDesign,
   telaSemMock,
 } from "../planejamento-board.js";
 
@@ -401,12 +402,78 @@ describe("card de Tela", () => {
     setPlano(p);
     await board.abrir();
     expect(telaSemMock(p.cards.at(-2))).toBe(true);
-    expect(document.querySelector('.pl-card[data-id="t1"] .pl-card-mock').dataset.pendente).toBe("1");
-    expect(document.querySelector('.pl-card[data-id="t2"] .pl-card-mock').textContent).toBe("mock ✓");
+    expect(document.querySelector('.pl-card[data-id="t1"] .pl-card-mock').dataset.estado).toBe("sem_mock");
+    // t2 tem anexo mas o GET não resolveu (sem integracao): continua valendo como mock
+    expect(document.querySelector('.pl-card[data-id="t2"] .pl-card-mock').dataset.estado).toBe("sem_mock");
 
     document.querySelector('.pl-card[data-id="r1"]').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     document.getElementById("pl-ed-corpo").value = "";
     document.querySelector('#pl-ed-tipos button[data-tipo="tela"]').click();
     expect(document.getElementById("pl-ed-corpo").value).toBe(MODELO_SPEC_TELA);
+  });
+});
+
+describe("aprovação do design", () => {
+  function planoComMock(design) {
+    const p = planoBase();
+    p.cards.push({
+      id: "t1",
+      tipo: "tela",
+      titulo: "Login",
+      etapa: "a",
+      links: [],
+      anexos: [{ tipo: "ds", sistema: "mocks", card: "login" }],
+      rev: 1,
+      corpo: "spec",
+      ...(design ? { design } : {}),
+    });
+    p.integracao = { anexos: { "ds:mocks/login": { existe: true, titulo: "Login mock", hash: "h1" } }, etapas: {} };
+    return p;
+  }
+
+  it("estado: aguardando sem veredito ou com mock/hash diferente; aprovado/reprovado só pro mock avaliado", () => {
+    const integ = { anexos: { "ds:mocks/login": { existe: true, hash: "h1" } } };
+    const card = (design) => ({ tipo: "tela", anexos: [{ tipo: "ds", sistema: "mocks", card: "login" }], design });
+    expect(estadoDoDesign({ tipo: "nota" }, integ)).toBe(null);
+    expect(estadoDoDesign({ tipo: "tela", anexos: [] }, integ)).toBe("sem_mock");
+    expect(estadoDoDesign(card(undefined), integ)).toBe("aguardando");
+    expect(estadoDoDesign(card({ veredito: "aprovado", mock: "ds:mocks/login", hash: "h1" }), integ)).toBe("aprovado");
+    expect(estadoDoDesign(card({ veredito: "aprovado", mock: "ds:mocks/login", hash: "h0" }), integ)).toBe("aguardando");
+    expect(estadoDoDesign(card({ veredito: "reprovado", mock: "ds:mocks/outro" }), integ)).toBe("aguardando");
+  });
+
+  it("mock novo mostra Aprovar/Reprovar no card; aprovar grava; reprovar exige motivo pelo editor", async () => {
+    const { board, chamadas, avisar, setPlano } = montar({
+      respostas: {
+        "POST /v1/planejamento/plano-1/cards/t1/design": ({ plano, body }) => ({
+          card: { ...plano.cards.find((c) => c.id === "t1"), rev: 2, design: { veredito: body.veredito, mock: "ds:mocks/login", hash: "h1", ...(body.motivo ? { motivo: body.motivo } : {}) } },
+          avisou: true,
+        }),
+      },
+    });
+    setPlano(planoComMock());
+    await board.abrir();
+    const no = () => document.querySelector('.pl-card[data-id="t1"]');
+    expect(no().querySelector(".pl-card-mock").dataset.estado).toBe("aguardando");
+    no().querySelector(".pl-design-aprovar").click();
+    await vi.waitFor(() => expect(chamadas.some((c) => c.path.includes("/design"))).toBe(true));
+    expect(chamadas.find((c) => c.path.includes("/design")).body).toEqual({ veredito: "aprovado", expectedRev: 1 });
+    expect(no().querySelector(".pl-card-mock").dataset.estado).toBe("aprovado");
+    expect(no().querySelector(".pl-card-design")).toBe(null);
+
+    // reprovar: pelo editor, sem motivo não vai
+    setPlano(planoComMock());
+    await board.recarregar();
+    chamadas.length = 0;
+    no().querySelector(".pl-design-reprovar").click();
+    expect(document.getElementById("pl-ed-design").classList.contains("hidden")).toBe(false);
+    document.getElementById("btn-pl-ed-reprovar").click();
+    expect(avisar).toHaveBeenCalledWith(expect.stringMatching(/o que mudar/));
+    expect(chamadas.some((c) => c.path.includes("/design"))).toBe(false);
+    document.getElementById("pl-ed-design-motivo").value = "botão maior";
+    document.getElementById("btn-pl-ed-reprovar").click();
+    await vi.waitFor(() => expect(chamadas.some((c) => c.path.includes("/design"))).toBe(true));
+    expect(chamadas.find((c) => c.path.includes("/design")).body).toEqual({ veredito: "reprovado", motivo: "botão maior", expectedRev: 1 });
+    expect(document.getElementById("pl-ed-design-estado").textContent).toBe("Reprovado: botão maior");
   });
 });

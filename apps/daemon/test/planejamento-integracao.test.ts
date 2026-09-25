@@ -1,21 +1,23 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/http.ts";
 import { apagarCard as apagarCardDoDs, criarDs, salvarCardDaFerramenta } from "../src/design-system.ts";
 import { abrirPlano, criarPlano, salvarCard, salvarRoteiro, validarAnexos } from "../src/planejamento.ts";
 import {
   alvosDeAnexo,
   conversaDeOrigem,
+  avaliarDesign,
   enviarAoQuadro,
+  estadoDoDesign,
   marcarImplementacaoDaEtapa,
   pedidoDeConversa,
   resolverIntegracao,
 } from "../src/planejamento-integracao.ts";
 import { planoEmTexto } from "../src/planejamento-ferramentas.ts";
 import { apagarTarefa, getQuadro, getTarefa, salvarTarefa } from "../src/tarefas.ts";
-import { appendEvent, createThread, threadHead } from "../src/threads.ts";
+import { appendEvent, createThread, readThread, threadHead } from "../src/threads.ts";
 import { addProfile } from "../src/profiles.ts";
 import { tempHome } from "./helpers.ts";
 
@@ -271,5 +273,74 @@ describe("implementação marca o plano", () => {
     });
     const nomes2 = ((await res2.json()) as { result: { tools: { name: string }[] } }).result.tools.map((x) => x.name);
     expect(nomes2.some((n) => n.startsWith("nexo_plano_"))).toBe(false);
+  });
+});
+
+describe("aprovação do design da tela", () => {
+  function comTela(home: string, p: string) {
+    const slug = planoComEtapas(p, home);
+    criarDs(p, home, { nome: "Mocks" });
+    const tela = salvarCard(p, home, slug, { tipo: "tela", titulo: "Login", etapa: "tela", corpo: "spec", expectedRev: 0 });
+    return { slug, tela };
+  }
+  const estado = (p: string, home: string, slug: string) => {
+    const plano = abrirPlano(p, home, slug);
+    return estadoDoDesign(plano.cards.find((c) => c.tipo === "tela")!, resolverIntegracao(p, home, plano));
+  };
+
+  it("sem mock → aguardando → reprovado; mock editado volta a aguardar; aprovado", () => {
+    const home = tempHome();
+    const p = projeto();
+    const { slug, tela } = comTela(home, p);
+    expect(estado(p, home, slug)).toBe("sem_mock");
+    expect(() => avaliarDesign(p, home, slug, { id: tela.id, veredito: "aprovado", expectedRev: tela.rev })).toThrow(/mock/);
+
+    const mock = salvarCardDaFerramenta(p, home, { titulo: "Login mock", html: "<div>v1</div>" });
+    const comMock = salvarCard(p, home, slug, { id: tela.id, anexos: [{ tipo: "ds", sistema: "mocks", card: mock.id }], expectedRev: tela.rev });
+    expect(estado(p, home, slug)).toBe("aguardando");
+
+    expect(() => avaliarDesign(p, home, slug, { id: tela.id, veredito: "reprovado", expectedRev: comMock.rev })).toThrow(/mudar/);
+    const r = avaliarDesign(p, home, slug, { id: tela.id, veredito: "reprovado", motivo: "botão maior", expectedRev: comMock.rev });
+    expect(r.card.design).toMatchObject({ veredito: "reprovado", motivo: "botão maior", mock: `ds:mocks/${mock.id}` });
+    expect(r.mensagem).toMatch(/REPROVADO[\s\S]*botão maior/);
+    expect(estado(p, home, slug)).toBe("reprovado");
+
+    // implementador refaz o mesmo card do DS: conteúdo novo, volta a aguardar
+    salvarCardDaFerramenta(p, home, { id: mock.id, titulo: "Login mock", html: "<div>v2</div>" });
+    expect(estado(p, home, slug)).toBe("aguardando");
+
+    const atual = abrirPlano(p, home, slug).cards.find((c) => c.id === tela.id)!;
+    avaliarDesign(p, home, slug, { id: tela.id, veredito: "aprovado", expectedRev: atual.rev });
+    expect(estado(p, home, slug)).toBe("aprovado");
+    expect(planoEmTexto(abrirPlano(p, home, slug), resolverIntegracao(p, home, abrirPlano(p, home, slug)))).toContain("DESIGN APROVADO");
+  });
+
+  it("rota: grava o veredito e manda o resultado pra conversa de implementação do plano", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const p = projeto();
+    const { slug, tela } = comTela(home, p);
+    const mock = salvarCardDaFerramenta(p, home, { titulo: "Login mock", html: "<div>v1</div>" });
+    const comMock = salvarCard(p, home, slug, { id: tela.id, anexos: [{ tipo: "ds", sistema: "mocks", card: mock.id }], expectedRev: tela.rev });
+    const app = createApp(home, "tk");
+    const h = { authorization: "Bearer tk", "content-type": "application/json" };
+    const envio = await app.request(`/v1/planejamento/${slug}/handoff/enviar?projectPath=${encodeURIComponent(p)}`, {
+      method: "POST",
+      headers: h,
+      body: JSON.stringify({ texto: "# mapa", profileId: "p1" }),
+    });
+    const { threadId } = (await envio.json()) as { threadId: string };
+    expect(abrirPlano(p, home, slug).roteiro.implementacaoThreadId).toBe(threadId);
+
+    const res = await app.request(`/v1/planejamento/${slug}/cards/${tela.id}/design?projectPath=${encodeURIComponent(p)}`, {
+      method: "POST",
+      headers: h,
+      body: JSON.stringify({ veredito: "reprovado", motivo: "cores erradas", expectedRev: comMock.rev }),
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { avisou: boolean }).avisou).toBe(true);
+    await vi.waitFor(() =>
+      expect(readThread(threadId, home).some((e) => e.type === "user" && e.text.includes("Design REPROVADO") && e.text.includes("cores erradas"))).toBe(true),
+    );
   });
 });

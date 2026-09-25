@@ -92,7 +92,8 @@ export function comoTrabalhar(slug: string): string[] {
     `- Este texto é só o mapa. O conteúdo completo (requisitos, decisões com o porquê, specs de tela, ambiguidades) está no plano \`${slug}\`: leia com \`nexo_plano_ler\` ANTES de começar e releia sempre que precisar de detalhe — o plano é a fonte da verdade, não este texto.`,
     "- Declare as etapas como o seu plano (TodoWrite), na ordem, e siga sem replanejar. Se o código contradisser o plano, diga o que encontrou e pergunte antes de desviar.",
     "- Mantenha o plano em dia: `nexo_plano_implementacao` (em_andamento ao começar a etapa, feita ao terminar e verificar) e `feito: true` em cada requisito pronto (`nexo_plano_card_atualizar`).",
-    '- Cards de **Tela** trazem a spec completa da tela. Antes de codar a tela, gere o mock no Canvas: design system "Mocks" (`nexo_ds_listar`; se não existir, `nexo_ds_criar` com base "ativo"), grave com `nexo_ds_card_salvar` seguindo a spec e os tokens, confira com `nexo_ds_print`, e anexe o mock ao card (`nexo_plano_card_atualizar` com `anexos` + `{ tipo: "ds", sistema, card }`, mantendo os anexos que já estavam). Depois implemente a tela no código a partir do mock.',
+    '- Cards de **Tela** trazem a spec completa da tela. Antes de codar a tela, gere o mock no Canvas: design system "Mocks" (`nexo_ds_listar`; se não existir, `nexo_ds_criar` com base "ativo"), grave com `nexo_ds_card_salvar` seguindo a spec e os tokens, confira com `nexo_ds_print`, e anexe o mock ao card (`nexo_plano_card_atualizar` com `anexos` + `{ tipo: "ds", sistema, card }`, mantendo os anexos que já estavam).',
+    '- A pessoa aprova ou reprova o design no card. Só codifique a tela depois de "DESIGN APROVADO" (`nexo_plano_ler`); enquanto aguarda, siga com outras etapas — a decisão chega aqui como mensagem. Reprovado: refaça o mock seguindo o motivo, no mesmo card do DS (mesmo id), e ele volta a aguardar.',
   ];
 }
 

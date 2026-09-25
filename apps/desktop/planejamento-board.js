@@ -126,6 +126,29 @@ export function telaSemMock(card) {
   return card?.tipo === "tela" && !(card.anexos ?? []).some((a) => a.tipo === "ds");
 }
 
+/**
+ * Mesma regra do daemon (`estadoDoDesign`): o mock é a última tela do DS anexada que existe; o
+ * veredito só vale pra ela e pro conteúdo avaliado (hash). `null` = não é tela.
+ */
+export function estadoDoDesign(card, integracao) {
+  if (card?.tipo !== "tela") return null;
+  let mock = null;
+  for (const a of [...(card.anexos ?? [])].reverse()) {
+    if (a.tipo !== "ds") continue;
+    const r = integracao?.anexos?.[chaveDoAnexo(a)];
+    if (r?.existe) {
+      mock = { chave: chaveDoAnexo(a), hash: r.hash };
+      break;
+    }
+  }
+  if (!mock) return "sem_mock";
+  const d = card.design;
+  if (!d || d.mock !== mock.chave || (d.hash && mock.hash && d.hash !== mock.hash)) return "aguardando";
+  return d.veredito;
+}
+
+const ROTULO_DESIGN = { sem_mock: "mock pendente", aguardando: "aguardando aprovação", aprovado: "design aprovado", reprovado: "design reprovado" };
+
 /** Mesma chave do daemon (`chaveDoAnexo`): é o índice de `plano.integracao.anexos`. */
 export function chaveDoAnexo(a) {
   return a.tipo === "ds" ? `ds:${a.sistema}/${a.card}` : `tarefa:${a.id}`;
@@ -360,6 +383,7 @@ export function createPlanejamentoBoard({
       else {
         pintarEtapasDoEditor();
         pintarAnexosDoEditor();
+        pintarDesignDoEditor();
       }
     }
   }
@@ -495,11 +519,16 @@ export function createPlanejamentoBoard({
     const topo = mk("div", "pl-card-topo");
     const t = ROTULO_TIPO[card.tipo] ?? ROTULO_TIPO.nota;
     topo.append(mk("span", "pl-card-ico", t.ico), mk("span", "pl-card-tipo", t.rotulo));
-    if (card.tipo === "tela") {
-      const pendente = telaSemMock(card);
-      const m = mk("span", "pl-card-mock", pendente ? "mock pendente" : "mock ✓");
-      m.dataset.pendente = pendente ? "1" : "0";
-      m.title = pendente ? "A implementação gera o mock a partir da spec e anexa aqui" : "Mock anexado";
+    const design = estadoDoDesign(card, plano.integracao);
+    if (design) {
+      const m = mk("span", "pl-card-mock", ROTULO_DESIGN[design]);
+      m.dataset.estado = design;
+      m.title =
+        design === "sem_mock"
+          ? "A implementação gera o mock a partir da spec e anexa aqui"
+          : design === "reprovado" && card.design?.motivo
+            ? `Reprovado: ${card.design.motivo}`
+            : ROTULO_DESIGN[design];
       topo.append(m);
     }
     if (card.feito) {
@@ -524,6 +553,7 @@ export function createPlanejamentoBoard({
     n.append(topo, mk("div", "pl-card-titulo", card.titulo));
     const prev = previaDoCorpo(card.corpo);
     if (prev) n.append(mk("div", "pl-card-prev", prev));
+    if (design === "aguardando") n.append(botoesDoDesign(card));
     if (card.anexos?.length) {
       const linha = mk("div", "pl-card-anexos");
       const MAX = 3;
@@ -544,6 +574,67 @@ export function createPlanejamentoBoard({
     n.addEventListener("mouseenter", () => focarArestas(card.id));
     n.addEventListener("mouseleave", () => focarArestas(null));
     return n;
+  }
+
+  /** Aprovar/Reprovar no próprio card: aparece quando o mock chegou e ninguém avaliou ainda. */
+  function botoesDoDesign(card) {
+    const linha = mk("div", "pl-card-design");
+    const aprovar = mk("button", "pl-design-aprovar", "Aprovar design");
+    const reprovar = mk("button", "pl-design-reprovar", "Reprovar");
+    for (const b of [aprovar, reprovar]) {
+      b.type = "button";
+      b.addEventListener("mousedown", (e) => e.stopPropagation());
+    }
+    aprovar.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void avaliarDesign(card.id, "aprovado");
+    });
+    // reprovar pede o que mudar: abre o editor já no campo do motivo
+    reprovar.addEventListener("click", (e) => {
+      e.stopPropagation();
+      abrirEditor(card.id);
+      el("pl-ed-design-motivo")?.focus();
+    });
+    linha.append(aprovar, reprovar);
+    return linha;
+  }
+
+  async function avaliarDesign(id, veredito, motivo = "") {
+    const card = plano?.cards.find((c) => c.id === id);
+    if (!card) return;
+    if (veredito === "reprovado" && !motivo.trim()) {
+      avisar("Diga o que mudar no design pra reprovar.");
+      el("pl-ed-design-motivo")?.focus();
+      return;
+    }
+    try {
+      const r = await req(rota(`/cards/${encodeURIComponent(id)}/design`), {
+        method: "POST",
+        body: JSON.stringify({ veredito, ...(motivo.trim() ? { motivo: motivo.trim() } : {}), expectedRev: card.rev }),
+      });
+      proprios.add(`card:${r.card.id}:${r.card.rev}`);
+      plano.cards = plano.cards.map((c) => (c.id === id ? r.card : c));
+      if (editando?.id === id) editando.original = { ...editando.original, rev: r.card.rev, design: r.card.design };
+      if (el("pl-ed-design-motivo")) el("pl-ed-design-motivo").value = "";
+      pintar();
+      if (!r.avisou) avisar("Avaliação gravada. Nenhuma conversa de implementação ligada a este plano pra avisar.");
+    } catch (e) {
+      avisar(`Não gravou a avaliação: ${e.message}`);
+      void recarregar();
+    }
+  }
+
+  /** Seção de design no editor: estado, motivo da última reprovação e os botões. */
+  function pintarDesignDoEditor() {
+    const caixa = el("pl-ed-design");
+    if (!caixa || !editando) return;
+    const card = plano?.cards.find((c) => c.id === editando.id);
+    const estado = card ? estadoDoDesign(card, plano.integracao) : null;
+    caixa.classList.toggle("hidden", !estado || estado === "sem_mock");
+    if (!estado || estado === "sem_mock") return;
+    caixa.dataset.estado = estado;
+    el("pl-ed-design-estado").textContent =
+      estado === "reprovado" && card.design?.motivo ? `Reprovado: ${card.design.motivo}` : ROTULO_DESIGN[estado][0].toUpperCase() + ROTULO_DESIGN[estado].slice(1);
   }
 
   /** Chip de um anexo (card do canvas e editor): título resolvido; alvo apagado fica riscado. */
@@ -1009,6 +1100,7 @@ export function createPlanejamentoBoard({
     fecharPicker();
     pintarAnexosDoEditor();
     el("pl-ed-feito").checked = !!card.feito;
+    pintarDesignDoEditor();
   }
 
   /* ---------- anexos: telas do DS e tarefas do Quadro ---------- */
@@ -1338,6 +1430,8 @@ export function createPlanejamentoBoard({
     el("btn-pl-novo-vazio")?.addEventListener("click", () => aoNovoPlano(projeto));
     el("btn-pl-card").addEventListener("click", () => void criarCard());
     el("btn-pl-quadro")?.addEventListener("click", () => void enviarEtapasAoQuadro());
+    el("btn-pl-ed-aprovar")?.addEventListener("click", () => editando && void avaliarDesign(editando.id, "aprovado", el("pl-ed-design-motivo").value));
+    el("btn-pl-ed-reprovar")?.addEventListener("click", () => editando && void avaliarDesign(editando.id, "reprovado", el("pl-ed-design-motivo").value));
     el("pl-ed-feito")?.addEventListener("change", (e) => {
       if (!editando) return;
       const id = editando.id;

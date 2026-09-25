@@ -1,5 +1,12 @@
 import type { Conjunto, Ferramenta, Saida } from "./mcp.ts";
-import { alvosDeAnexo, marcarImplementacaoDaEtapa, resolverIntegracao, type Integracao } from "./planejamento-integracao.ts";
+import {
+  alvosDeAnexo,
+  estadoDoDesign,
+  marcarImplementacaoDaEtapa,
+  resolverIntegracao,
+  type EstadoDoDesign,
+  type Integracao,
+} from "./planejamento-integracao.ts";
 import { telaSemMock } from "./planejamento-handoff.ts";
 import {
   abrirPlano,
@@ -64,6 +71,13 @@ const ROTULO: Record<Card["tipo"], string> = {
   nota: "Nota",
 };
 
+const DESIGN: Record<EstadoDoDesign, string> = {
+  sem_mock: "MOCK PENDENTE",
+  aguardando: "DESIGN AGUARDANDO APROVAÇÃO (não codar ainda)",
+  aprovado: "DESIGN APROVADO",
+  reprovado: "DESIGN REPROVADO",
+};
+
 /**
  * Plano em texto pro modelo: roteiro com rev, e cada card com id, rev e [[Título]]. Com `integ`,
  * anexo de tela sai com título e o caminho do .html (é o que a implementação lê).
@@ -75,10 +89,16 @@ export function planoEmTexto(p: Plano, integ?: Integracao): string {
     const id = `${a.sistema}/${a.card}`;
     return `tela ${id}${r ? (r.existe ? ` "${r.titulo}" — ${r.arquivo}` : " (apagada)") : ""}`;
   };
+  const estadoDaTela = (c: Card) => {
+    const e = integ ? estadoDoDesign(c, integ) : telaSemMock(c) ? "sem_mock" : null;
+    if (!e) return "";
+    const motivo = e === "reprovado" && c.design?.motivo ? `: ${c.design.motivo.replace(/\s+/g, " ")}` : "";
+    return `, ${DESIGN[e]}${motivo}`;
+  };
   const r = p.roteiro;
   const linhaCard = (c: Card) =>
     `- [[${c.titulo}]] — id \`${c.id}\`, rev ${c.rev}, ${ROTULO[c.tipo]}` +
-    `${c.status ? ` (${c.status})` : ""}${c.feito ? ", IMPLEMENTADO" : ""}${telaSemMock(c) ? ", MOCK PENDENTE" : ""}${c.fonte ? `, fonte ${c.fonte}` : ""}` +
+    `${c.status ? ` (${c.status})` : ""}${c.feito ? ", IMPLEMENTADO" : ""}${estadoDaTela(c)}${c.fonte ? `, fonte ${c.fonte}` : ""}` +
     `${c.links.length ? `, ligado a ${c.links.map((l) => `\`${l}\``).join(", ")}` : ""}` +
     `${c.anexos.length ? `, anexos: ${c.anexos.map(anexo).join("; ")}` : ""}` +
     `${c.corpo ? `\n  ${c.corpo.replace(/\n/g, "\n  ")}` : ""}`;
@@ -457,7 +477,8 @@ Esta conversa nasceu do plano "${slug}", feito com a pessoa na Tela de Planejame
 O plano é o painel que a pessoa acompanha na Tela de Planejamento. Você tem as mesmas ferramentas do planejador (\`nexo_plano_*\`, sempre com o rev que leu; conflito = a pessoa mexeu: releia e refaça):
 - Ao começar uma etapa: \`nexo_plano_implementacao\` com \`em_andamento\`; ao terminar e verificar: \`feita\`. Se a etapa tem tarefa no Quadro, ela anda junto.
 - Cada requisito que ficou pronto: \`nexo_plano_card_atualizar\` com \`feito: true\`.
-- Card de tela (MOCK PENDENTE): antes de codar a tela, gere o mock no design system "Mocks" (\`nexo_ds_listar\`; sem ele, \`nexo_ds_criar\` com base "ativo") seguindo a spec do card, grave com \`nexo_ds_card_salvar\`, confira com \`nexo_ds_print\` e anexe ao card (\`anexos\` com \`{ tipo: "ds", sistema, card }\`, mantendo os que já estavam). Depois implemente a partir do mock.
+- Card de tela (MOCK PENDENTE): antes de codar a tela, gere o mock no design system "Mocks" (\`nexo_ds_listar\`; sem ele, \`nexo_ds_criar\` com base "ativo") seguindo a spec do card, grave com \`nexo_ds_card_salvar\`, confira com \`nexo_ds_print\` e anexe ao card (\`anexos\` com \`{ tipo: "ds", sistema, card }\`, mantendo os que já estavam).
+- Depois de anexar, a PESSOA aprova ou reprova o design no card — você não avalia nem marca isso. NÃO codifique a tela antes de "DESIGN APROVADO" (\`nexo_plano_ler\` mostra o estado); enquanto aguarda, siga com outras etapas. A decisão chega nesta conversa como mensagem. Reprovado: refaça o mock seguindo o motivo, no MESMO card do DS (mesmo id no \`nexo_ds_card_salvar\`) — ele volta a aguardar aprovação.
 - Desvio que a pessoa aprovou, ou escolha técnica que o plano não previa: card de decisão (\`nexo_plano_card_criar\`) na etapa, com o porquê.
 - Dúvida que trava: \`nexo_plano_ambiguidade_abrir\` + \`nexo_perguntar\`; resolvida, \`nexo_plano_ambiguidade_resolver\`.
 - Trabalho novo que apareceu: acrescente a etapa com \`nexo_plano_roteiro\` (mantendo os ids das que existem) só depois de combinar com a pessoa.

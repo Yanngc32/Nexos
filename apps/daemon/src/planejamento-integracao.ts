@@ -4,6 +4,7 @@ import {
   abrirPlano,
   chaveDoAnexo,
   marcarImplementacao,
+  salvarCard,
   vincularTarefas,
   type Card,
   type EstadoImplementacao,
@@ -34,6 +35,8 @@ export type AnexoResolvido = {
   arquivo?: string;
   /** Tarefa: está na coluna final do Quadro. */
   feita?: boolean;
+  /** DS: hash do html do card — o veredito do design vale pra este conteúdo. */
+  hash?: string;
 };
 export type EtapaNoQuadro = { tarefaId: string; existe: boolean; titulo?: string; coluna?: string; feita: boolean };
 export type Integracao = { anexos: Record<string, AnexoResolvido>; etapas: Record<string, EtapaNoQuadro> };
@@ -116,6 +119,7 @@ export function resolverIntegracao(projectPath: string, home: string, plano: Pla
         titulo: c.titulo,
         detalhe: `${ds.nome} · ${secao}`,
         arquivo: join(pastaAbsoluta(projectPath, home, ds), "cards", `${c.id}.html`),
+        hash: c.hash,
       };
     }
   }
@@ -300,6 +304,72 @@ export function blocoDeTarefas(p: Plano, envio: EnvioAoQuadro): string {
     "Cada etapa virou uma tarefa no Quadro deste projeto. Marcar a etapa com nexo_plano_implementacao já move a tarefa dela (em_andamento → coluna de andamento, feita → coluna final).",
     ...envio.tarefas.map((t, i) => `${i + 1}. ${titulo(t.etapa)} — tarefa \`${t.tarefaId}\``),
   ].join("\n");
+}
+
+/* ---------------------------------------------------------------------------
+ * Aprovação do design (card de tela)
+ * ------------------------------------------------------------------------- */
+
+export type EstadoDoDesign = "sem_mock" | "aguardando" | "aprovado" | "reprovado";
+
+/** O mock avaliável de um card de tela: a última tela do DS anexada que ainda existe. */
+export function mockDoCard(c: Card, integ: Integracao): { chave: string; hash?: string; titulo: string } | null {
+  for (const a of [...c.anexos].reverse()) {
+    if (a.tipo !== "ds") continue;
+    const r = integ.anexos[chaveDoAnexo(a)];
+    if (r?.existe) return { chave: chaveDoAnexo(a), ...(r.hash ? { hash: r.hash } : {}), titulo: r.titulo };
+  }
+  return null;
+}
+
+/**
+ * Onde está o design de um card de tela. O veredito só vale pro mock e conteúdo que foram
+ * avaliados: mock trocado ou editado (hash novo) volta a `aguardando`. `null` = não é tela.
+ */
+export function estadoDoDesign(c: Card, integ: Integracao): EstadoDoDesign | null {
+  if (c.tipo !== "tela") return null;
+  const mock = mockDoCard(c, integ);
+  if (!mock) return "sem_mock";
+  const d = c.design;
+  if (!d || d.mock !== mock.chave || (d.hash && mock.hash && d.hash !== mock.hash)) return "aguardando";
+  return d.veredito;
+}
+
+/** A pessoa aprova ou reprova o mock atual de um card de tela. Reprovar exige o motivo. */
+export function avaliarDesign(
+  projectPath: string,
+  home: string,
+  slug: string,
+  input: { id: unknown; veredito: unknown; motivo?: unknown; expectedRev: unknown },
+): { card: Card; mensagem: string; implementacaoThreadId?: string } {
+  const plano = abrirPlano(projectPath, home, slug);
+  const card = plano.cards.find((c) => c.id === input.id);
+  if (!card) throw Object.assign(new Error(`card ${String(input.id)} não existe`), { status: 404 });
+  if (card.tipo !== "tela") throw Object.assign(new Error("só card de tela tem design pra avaliar"), { status: 400 });
+  if (input.veredito !== "aprovado" && input.veredito !== "reprovado") {
+    throw Object.assign(new Error("veredito inválido: use aprovado ou reprovado"), { status: 400 });
+  }
+  const motivo = typeof input.motivo === "string" ? input.motivo.trim() : "";
+  if (input.veredito === "reprovado" && !motivo) throw Object.assign(new Error("diga o que mudar pra reprovar"), { status: 400 });
+  const mock = mockDoCard(card, resolverIntegracao(projectPath, home, plano));
+  if (!mock) throw Object.assign(new Error("a tela ainda não tem mock anexado"), { status: 400 });
+  const design = {
+    veredito: input.veredito,
+    mock: mock.chave,
+    ...(mock.hash ? { hash: mock.hash } : {}),
+    ...(motivo ? { motivo } : {}),
+    em: new Date().toISOString(),
+  };
+  const salvo = salvarCard(projectPath, home, slug, { id: card.id, design, expectedRev: input.expectedRev });
+  const mensagem =
+    input.veredito === "aprovado"
+      ? `Design APROVADO: a tela [[${card.titulo}]] (card \`${card.id}\`, mock "${mock.titulo}") pode ser implementada no código a partir do mock.${motivo ? `\n\nObservação: ${motivo}` : ""}`
+      : `Design REPROVADO: a tela [[${card.titulo}]] (card \`${card.id}\`, mock "${mock.titulo}") precisa mudar antes de ir pro código.\n\nO que mudar: ${motivo}\n\nRefaça o mock seguindo isso (mesmo card do DS, com nexo_ds_card_salvar), confira com nexo_ds_print e aguarde nova avaliação.`;
+  return {
+    card: salvo,
+    mensagem,
+    ...(plano.roteiro.implementacaoThreadId ? { implementacaoThreadId: plano.roteiro.implementacaoThreadId } : {}),
+  };
 }
 
 /* ---------------------------------------------------------------------------

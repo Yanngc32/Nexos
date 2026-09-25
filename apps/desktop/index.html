@@ -908,6 +908,15 @@
               <div class="pl-ed-campo"><span class="pl-rotulo">Tipo</span><div id="pl-ed-tipos" class="pl-ed-tipos" role="group" aria-label="Tipo"></div></div>
               <label class="pl-ed-campo"><span class="pl-rotulo">Etapa</span><select id="pl-ed-etapa"></select></label>
               <label class="pl-ed-feito"><input type="checkbox" id="pl-ed-feito" /> Implementado</label>
+              <div id="pl-ed-design" class="pl-ed-campo pl-ed-design hidden">
+                <span class="pl-rotulo">Design da tela</span>
+                <p id="pl-ed-design-estado" class="pl-ed-design-estado"></p>
+                <textarea id="pl-ed-design-motivo" rows="3" placeholder="O que mudar (obrigatório pra reprovar; opcional ao aprovar)"></textarea>
+                <div class="pl-ed-design-acoes">
+                  <button type="button" id="btn-pl-ed-reprovar" class="ghost pl-design-reprovar">Reprovar</button>
+                  <button type="button" id="btn-pl-ed-aprovar" class="primary">Aprovar design</button>
+                </div>
+              </div>
               <div class="pl-ed-campo pl-ed-anexos-campo">
                 <div class="pl-ed-corpo-cab">
                   <span class="pl-rotulo">Anexos</span>

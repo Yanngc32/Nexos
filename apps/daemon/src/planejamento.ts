@@ -51,12 +51,15 @@ export type Etapa = {
  * alvo que sumiu aparece riscado em vez de quebrar o plano.
  */
 export type Anexo = { tipo: "ds"; sistema: string; card: string } | { tipo: "tarefa"; id: string };
+export type Design = { veredito: "aprovado" | "reprovado"; motivo?: string; mock: string; hash?: string; em: string };
 export type Roteiro = {
   titulo: string;
   rev: number;
   etapas: Etapa[];
   /** Conversa do Agent Manager deste plano — reabrir o plano volta pra ela. */
   threadId?: string;
+  /** Última conversa de implementação aberta pelo envio: é quem recebe o veredito do design. */
+  implementacaoThreadId?: string;
   criadoEm: string;
 };
 export type Card = {
@@ -69,6 +72,11 @@ export type Card = {
   anexos: Anexo[];
   /** Já implementado (a conversa de implementação marca requisito por requisito). */
   feito?: boolean;
+  /**
+   * Card de tela: o veredito da pessoa sobre o mock. `mock` é a chave do anexo avaliado e `hash`
+   * o conteúdo dele naquele momento — mock trocado ou editado volta a aguardar avaliação.
+   */
+  design?: Design;
   fonte?: string;
   rev: number;
   corpo: string;
@@ -281,6 +289,20 @@ export function validarAnexos(v: unknown): Anexo[] {
   return out;
 }
 
+/** Veredito gravado (vem do disco ou da rota de avaliação); forma errada = sem veredito. */
+function validarDesign(v: unknown): Design | undefined {
+  const o = v as Partial<Design> | null | undefined;
+  if (!o || (o.veredito !== "aprovado" && o.veredito !== "reprovado")) return undefined;
+  if (typeof o.mock !== "string" || typeof o.em !== "string") return undefined;
+  return {
+    veredito: o.veredito,
+    mock: o.mock,
+    em: o.em,
+    ...(typeof o.motivo === "string" && o.motivo.trim() ? { motivo: o.motivo.trim().slice(0, 4000) } : {}),
+    ...(typeof o.hash === "string" ? { hash: o.hash } : {}),
+  };
+}
+
 export type CardInput = {
   id?: unknown;
   tipo?: unknown;
@@ -290,6 +312,7 @@ export type CardInput = {
   links?: unknown;
   anexos?: unknown;
   feito?: unknown;
+  design?: unknown;
   fonte?: unknown;
   corpo?: unknown;
   criadoEm?: unknown;
@@ -314,6 +337,8 @@ export function validarCard(
   const card: Card = { id, tipo, titulo, links: [], anexos: [], rev, corpo };
   if (input.anexos !== undefined && input.anexos !== null) card.anexos = validarAnexos(input.anexos);
   if (input.feito === true) card.feito = true;
+  const design = validarDesign(input.design);
+  if (design && tipo === "tela") card.design = design;
   if (typeof input.criadoEm === "string" && !Number.isNaN(Date.parse(input.criadoEm))) card.criadoEm = input.criadoEm;
 
   if (input.etapa !== undefined && input.etapa !== null && input.etapa !== "") {
@@ -407,6 +432,7 @@ function corpoDoCard(c: Card, etapas: Etapa[]): string {
   if (c.etapa) linhas.push(`- Etapa: ${etapas.find((e) => e.id === c.etapa)?.titulo ?? c.etapa}`);
   if (c.status) linhas.push(`- Situação: ${c.status}`);
   if (c.feito) linhas.push("- Implementado: sim");
+  if (c.design) linhas.push(`- Design: ${c.design.veredito}${c.design.motivo ? ` — ${c.design.motivo}` : ""}`);
   if (c.fonte) linhas.push(`- Fonte: ${c.fonte}`);
   if (c.links.length) linhas.push(`- Ligado a: ${c.links.join(", ")}`);
   for (const a of c.anexos) linhas.push(a.tipo === "ds" ? `- Tela do Design System: ${a.sistema}/${a.card}` : `- Tarefa do Quadro: ${a.id}`);
@@ -430,6 +456,7 @@ function lerRoteiro(dir: string): Roteiro | null {
     rev: typeof d.rev === "number" ? d.rev : 0,
     etapas,
     ...(typeof d.threadId === "string" && d.threadId ? { threadId: d.threadId } : {}),
+    ...(typeof d.implementacaoThreadId === "string" && d.implementacaoThreadId ? { implementacaoThreadId: d.implementacaoThreadId } : {}),
     criadoEm: typeof d.criadoEm === "string" ? d.criadoEm : new Date(0).toISOString(),
   };
 }
@@ -651,6 +678,13 @@ export function marcarEtapa(
   if (!atual.etapas.some((e) => e.id === input.etapa)) throw erro(`etapa ${String(input.etapa)} não está no roteiro`);
   const etapas = atual.etapas.map((e) => (e.id === input.etapa ? { ...e, status } : e));
   return salvarRoteiro(projectPath, home, slug, { etapas, expectedRev: input.expectedRev }, origem);
+}
+
+/** Liga a conversa de implementação ao plano (sem mexer no rev: não é conteúdo). */
+export function vincularImplementacao(projectPath: string, home: string, slug: string, threadId: string): void {
+  const dir = pastaDoPlano(projectPath, home, slug);
+  const atual = roteiroOuErro(dir, slug);
+  escreverRoteiro(dir, { ...atual, implementacaoThreadId: threadId });
 }
 
 /** Liga a conversa do Agent Manager ao plano (sem mexer no rev: não é conteúdo). */

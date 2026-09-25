@@ -8448,7 +8448,25 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
 .pl-coluna-impl[data-estado="em_andamento"] { color: var(--warn); }
 .pl-coluna-impl[data-estado="feita"] { color: var(--ok); }
 .pl-card-mock { flex: none; border: 1px solid currentColor; border-radius: var(--r-pill); padding: 1px 7px; text-transform: none; letter-spacing: 0; color: var(--ok); }
-.pl-card-mock[data-pendente="1"] { color: var(--warn); border-style: dashed; }
+.pl-card-mock[data-estado="sem_mock"] { color: var(--faint); border-style: dashed; }
+.pl-card-mock[data-estado="aguardando"] { color: var(--warn); }
+.pl-card-mock[data-estado="reprovado"] { color: var(--danger); }
+.pl-card-design { display: flex; gap: var(--s-2); margin-top: var(--s-3); }
+.pl-card-design button { flex: 1; padding: 4px 8px; border-radius: var(--r-sm); font-size: var(--fs-xs); cursor: pointer; }
+.pl-design-aprovar { border: 1px solid color-mix(in srgb, var(--ok) 55%, transparent); background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok); }
+.pl-design-aprovar:hover { background: color-mix(in srgb, var(--ok) 22%, transparent); }
+.pl-design-reprovar { border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent); background: none; color: var(--danger); }
+.pl-design-reprovar:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.pl-card-design button:focus-visible { outline: none; box-shadow: var(--ring); }
+.pl-ed-design { padding: var(--s-4); border: 1px solid var(--line-2); border-radius: var(--r-md); }
+.pl-ed-design.hidden { display: none; }
+.pl-ed-design[data-estado="aguardando"] { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.pl-ed-design-estado { margin: 0; font-size: var(--fs-sm); color: var(--text); }
+.pl-ed-design[data-estado="aprovado"] .pl-ed-design-estado { color: var(--ok); }
+.pl-ed-design[data-estado="reprovado"] .pl-ed-design-estado { color: var(--danger); }
+.pl-ed-design textarea { font: inherit; font-size: var(--fs-sm); color: var(--text); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: 6px 8px; resize: vertical; }
+.pl-ed-design textarea:focus-visible { outline: none; box-shadow: var(--ring); }
+.pl-ed-design-acoes { display: flex; justify-content: flex-end; gap: var(--s-3); }
 .pl-card-feito { flex: none; color: var(--ok); text-transform: none; letter-spacing: 0; }
 .pl-card[data-feito="1"] .pl-card-titulo { color: var(--muted); }
 .pl-ed-feito { display: flex; align-items: center; gap: var(--s-3); font-size: var(--fs-sm); color: var(--muted); }
