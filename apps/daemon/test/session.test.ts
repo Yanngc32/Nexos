@@ -15,6 +15,7 @@ import {
   injetarMensagem,
   limitsOf,
   perfilEmUso,
+  perfilEmVoo,
   pingUsoDeTodasAsContas,
   postMessage,
   retomarTurnoPendente,
@@ -543,6 +544,20 @@ describe("session", () => {
       .map((e) => `${e.type}:${e.type === "user" || e.type === "assistant" ? e.text : ""}`);
     expect(trilha).toEqual(["user:ESPERA", "assistant:antes", "user:e mais isto", "assistant:depois"]);
     expect(injetarMensagem(t.id, "tarde demais", home)).toBe(false);
+  });
+
+  it("perfilEmVoo só com turno rodando; conversa aberta e parada não segura o clique no anel", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    const turno = postMessage(t.id, "ESPERA", home);
+    await vi.waitFor(() => expect(busyThreads()).toContain(t.id));
+    expect(perfilEmVoo("p1")).toBe(true);
+    injetarMensagem(t.id, "segue", home);
+    await turno;
+    // motor continua de pé (perfilEmUso), mas sem turno: o clique pode pingar
+    expect(perfilEmUso("p1")).toBe(true);
+    expect(perfilEmVoo("p1")).toBe(false);
   });
 
   it("texto antes da ferramenta vai pro disco antes dela (reabrir no meio do turno não perde a fala)", async () => {

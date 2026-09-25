@@ -15,6 +15,7 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Corrigido
 
+- Clicar no anel de uso de uma conta no painel de borda não atualizava o consumo quando a conta tinha alguma conversa aberta (o caso da conta do dia a dia): o clique era ignorado até o próximo turno. Agora só não atualiza se houver um turno rodando naquele momento, e aí o número chega por esse turno.
 - A mensagem na fila do chat vazava pela borda do compositor quando o chat lateral estava estreito. Agora ela encolhe e corta o texto com "…".
 
 ### Alterado

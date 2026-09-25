@@ -240,6 +240,15 @@ export function perfilEmUso(profileId: string): boolean {
   return [...lives.values()].some((l) => l.profileId === profileId);
 }
 
+/**
+ * Conta com turno RODANDO agora — o `limits` dela chega nesse turno. Diferente de `perfilEmUso`:
+ * o motor fica de pé depois do turno, então conversa aberta e parada também conta como "em uso",
+ * e o clique no anel (que é pedido explícito de "lê agora") nunca atualizava a conta do dia a dia.
+ */
+export function perfilEmVoo(profileId: string): boolean {
+  return [...lives.values()].some((l) => l.profileId === profileId && emVoo(l));
+}
+
 /** Rabo do que o agente está escrevendo agora: o painel mostra o fim, não o começo. */
 const TAIL_CHARS = 400;
 
@@ -955,14 +964,15 @@ export async function pingUsoDeTodasAsContas(home: string): Promise<void> {
 
 /**
  * Atualiza o uso de UMA conta agora (o clique no anel do painel). Mesmo ping descartável do
- * `pingUsoDeTodasAsContas`, com as mesmas regras: só `claude` (codex não reporta janela) e não
- * gasta nada se a conta já está numa conversa — o `limits` dela chega no próprio turno.
+ * `pingUsoDeTodasAsContas`: só `claude` (codex não reporta janela). Só não pinga com turno em voo
+ * (`perfilEmVoo`) — aí o `limits` chega no próprio turno. Conversa aberta e parada NÃO segura: o
+ * uso dela pode ter mudado fora do Nexos, e quem clicou pediu o número de agora.
  */
 export async function pingUsoDaConta(id: string, home: string): Promise<"ok" | "em-uso" | "sem-suporte" | "indisponivel"> {
   const p = getProfile(id, home);
   if (!p) return "indisponivel";
   if (p.engine !== "claude") return "sem-suporte";
-  if (perfilEmUso(p.id)) return "em-uso";
+  if (perfilEmVoo(p.id)) return "em-uso";
   const pronta = p.status === "ready" ? p : applyLoginResult(p.id, home);
   if (pronta.status !== "ready") return "indisponivel";
   await pingUso(pronta, home);
