@@ -18,6 +18,7 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 ### Corrigido
 
 - Trocar de tela e voltar no meio de um turno não some mais com o texto do agente entre as ferramentas. O texto é gravado antes de cada ferramenta, e a fala em curso reaparece e continua de onde estava. Depois do fim do turno, o histórico mostra fala, ferramentas e fala na ordem em que aconteceram, e não mais o texto todo junto no final.
+- Print do navegador (`nexo_navegador_screenshot`) com o preview escondido (você em outra conversa ou em outro painel): antes o print travava até estourar o prazo. Agora o preview fica transparente e visível só pro print, e o agente vê a página em background sem aparecer nada na sua tela. Print que não volta em 8 s vira erro claro.
 - Modal "Nova conversa": a lista de branches cortada dentro do card virou uma lista inline. A branch atual aparece primeiro. Há filtro a partir de 7 branches, setas/Enter/Esc funcionam, e uma dica diz quando a conversa vai rodar numa worktree isolada. Sem escolha a fazer (chat geral, pasta sem git ou uma branch só), a conversa é criada direto, sem modal.
 
 ### Alterado

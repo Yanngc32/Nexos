@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { criarNavegadorHost, jpegParaBase64 } from "../navegador-host.js";
+import { comPreviewPintado, criarNavegadorHost, estaPintado, jpegParaBase64 } from "../navegador-host.js";
 import { CANAL_NAVEGADOR, TIMEOUT_NAVEGADOR_MS } from "../navegador-protocolo.js";
 
 function criarWebviewFake(over = {}) {
@@ -98,7 +98,7 @@ describe("screenshot", () => {
     const r = await host.screenshot();
     expect(r.ok).toBe(false);
     expect(r.imagem).toBeUndefined();
-    expect(r.texto).toMatch(/visível/);
+    expect(r.texto).toMatch(/sem conteúdo/);
   });
 
   it("Uint8Array (o que o renderer Electron devolve) vira Base64 de verdade, não lista de bytes", async () => {
@@ -185,5 +185,66 @@ describe("clicar / digitar", () => {
     host.receberLido({ itens: [{ ref: "ref_b", papel: "link", texto: "B" }] }, "t-b");
     expect(await a).toEqual({ ok: true, texto: "ref_a: [button] A" });
     expect(await b).toEqual({ ok: true, texto: "ref_b: [link] B" });
+  });
+});
+
+describe("print com o preview escondido", () => {
+  function webviewComEstilo(visibilidade) {
+    const wv = criarWebviewFake();
+    wv.style = { visibility: "", opacity: "", pointerEvents: "" };
+    wv._herdado = visibilidade;
+    return wv;
+  }
+  // getComputedStyle falso: estilo inline ganha do herdado, igual ao CSS
+  const win = {
+    getComputedStyle: (el) => ({ visibility: el.style.visibility || el._herdado, opacity: el.style.opacity || "1" }),
+    requestAnimationFrame: (f) => f(),
+  };
+
+  it("estaPintado: escondido (herdado do painel ou .stowed) não; visível sim; sem estilo = sim", () => {
+    expect(estaPintado(webviewComEstilo("hidden"), win)).toBe(false);
+    expect(estaPintado(webviewComEstilo("visible"), win)).toBe(true);
+    expect(estaPintado(criarWebviewFake(), win)).toBe(true);
+  });
+
+  it("revela transparente só durante a captura e devolve o estilo como estava", async () => {
+    const wv = webviewComEstilo("hidden");
+    wv.style.visibility = "";
+    let durante;
+    const r = await comPreviewPintado(wv, async () => {
+      durante = { ...wv.style };
+      return "img";
+    }, { win, esperar: async () => {} });
+    expect(r).toBe("img");
+    expect(durante).toEqual({ visibility: "visible", opacity: "0", pointerEvents: "none" });
+    expect(wv.style).toEqual({ visibility: "", opacity: "", pointerEvents: "" });
+  });
+
+  it("devolve o estilo mesmo se a captura falhar", async () => {
+    const wv = webviewComEstilo("hidden");
+    await expect(comPreviewPintado(wv, async () => { throw new Error("x"); }, { win, esperar: async () => {} })).rejects.toThrow("x");
+    expect(wv.style.visibility).toBe("");
+  });
+
+  it("screenshot com o preview escondido captura com ele revelado", async () => {
+    const wv = webviewComEstilo("hidden");
+    let estiloNaCaptura;
+    wv.capturePage = vi.fn(() => {
+      estiloNaCaptura = wv.style.visibility;
+      return Promise.resolve({ isEmpty: () => false, getSize: () => ({ width: 800, height: 600 }), toJPEG: () => ({ toString: () => "QUJD" }) });
+    });
+    const host = criarNavegadorHost({ getWebview: () => wv, win });
+    const r = await host.screenshot("t1");
+    expect(r.ok).toBe(true);
+    expect(estiloNaCaptura).toBe("visible");
+    expect(wv.style.visibility).toBe("");
+  });
+
+  it("captura que nunca volta vira erro claro no teto", async () => {
+    const wv = criarWebviewFake({ capturePage: vi.fn(() => new Promise(() => {})) });
+    const host = criarNavegadorHost({ getWebview: () => wv, win });
+    const p = host.screenshot("t1");
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(await p).toEqual({ ok: false, texto: expect.stringMatching(/não respondeu/) });
   });
 });

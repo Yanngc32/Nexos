@@ -37,7 +37,49 @@ function bytesParaBase64(bytes) {
   return btoa(bin);
 }
 
-export function criarNavegadorHost({ getWebview }) {
+/**
+ * O `<webview>` está sendo pintado? Guardado no pool (`.stowed`) ou dentro de um painel escondido
+ * ele herda `visibility: hidden` — e aí o `capturePage` não volta vazio: TRAVA (medido no Electron
+ * 33, também pelo processo principal e com `stayHidden:false`). Sem estilo computado (teste) = sim.
+ */
+export function estaPintado(webview, win = globalThis) {
+  if (!webview?.style || typeof win.getComputedStyle !== "function") return true;
+  const cs = win.getComputedStyle(webview);
+  return cs.visibility === "visible" && Number(cs.opacity || 1) > 0;
+}
+
+/** Dois quadros: o primeiro aplica o estilo, o segundo garante que o guest já compôs. */
+function doisQuadros(win = globalThis) {
+  if (typeof win.requestAnimationFrame !== "function") return Promise.resolve();
+  return new Promise((ok) => win.requestAnimationFrame(() => win.requestAnimationFrame(ok)));
+}
+
+/**
+ * Print com o preview escondido (a pessoa em outra conversa ou outro painel): o `<webview>` fica
+ * visível pro compositor e transparente pra pessoa (`visibility: visible` explícito vence o
+ * `hidden` herdado do painel; `opacity: 0` não mostra nada) só durante a captura, e volta.
+ * Jogar pra fora da tela não serve: a captura sai vazia. Medido com Electron 33.
+ */
+export async function comPreviewPintado(webview, f, { win = globalThis, esperar = doisQuadros } = {}) {
+  if (estaPintado(webview, win)) return f();
+  const antes = { visibility: webview.style.visibility, opacity: webview.style.opacity, pointerEvents: webview.style.pointerEvents };
+  webview.style.visibility = "visible";
+  webview.style.opacity = "0";
+  webview.style.pointerEvents = "none";
+  try {
+    await esperar(win);
+    return await f();
+  } finally {
+    webview.style.visibility = antes.visibility;
+    webview.style.opacity = antes.opacity;
+    webview.style.pointerEvents = antes.pointerEvents;
+  }
+}
+
+/** Teto da captura: guest que não pinta nunca responde — melhor erro claro que a ferramenta parada. */
+const CAPTURA_TETO_MS = 8000;
+
+export function criarNavegadorHost({ getWebview, win = globalThis }) {
   /** Comando local em voo, por thread — mesma regra do daemon (um por conversa). */
   const pendentes = new Map();
 
@@ -121,9 +163,15 @@ export function criarNavegadorHost({ getWebview }) {
     const webview = getWebview(threadId);
     if (!webview?.capturePage) return { ok: false, texto: "painel Browser indisponível" };
     try {
-      let imagem = await webview.capturePage();
+      let tetoId;
+      const teto = new Promise((ok) => {
+        tetoId = setTimeout(() => ok(null), CAPTURA_TETO_MS);
+      });
+      let imagem = await comPreviewPintado(webview, () => Promise.race([webview.capturePage(), teto]), { win });
+      clearTimeout(tetoId);
+      if (!imagem) return { ok: false, texto: "o preview não respondeu ao print a tempo — a página ainda está carregando?" };
       if (imagem.isEmpty()) {
-        return { ok: false, texto: "painel Browser sem conteúdo pra capturar — a aba Browser está aberta e visível?" };
+        return { ok: false, texto: "painel Browser sem conteúdo pra capturar — a página carregou?" };
       }
       const { width } = imagem.getSize();
       if (width > LARGURA_MAX_PRINT) {
