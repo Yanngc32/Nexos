@@ -6,6 +6,16 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+### Corrigido
+
+### Alterado
+
+### Segurança
+
+## [0.9.0] - 2026-09-25
+
+### Adicionado
+
 - Planejamento integrado ao resto do Nexos. Um card do plano pode anexar telas do Design System (de qualquer DS do projeto) e tarefas do Quadro. Os anexos aparecem como chips no card e no editor. Clicar abre o Canvas focado na tela ou o Quadro com a tarefa aberta. Anexo cujo alvo foi apagado aparece riscado.
 - "Etapas → Quadro" cria uma tarefa por etapa, cada uma dependendo da anterior. As tarefas ficam sob o marco "Plano: <título>" e os requisitos da etapa viram checklist. Clicar de novo não duplica. O envio pra implementação faz o mesmo (opção ligada por padrão) e liga as tarefas à conversa de implementação. A etapa mostra em que coluna do Quadro está, e a tarefa ganha o botão "Abrir plano".
 - "Planejar a partir desta conversa" no botão direito de uma conversa. O plano nasce no projeto dela, e o Agent Manager recebe a conversa e já começa a separar em etapas. O botão "voltar" do chat leva de volta à conversa de origem.
@@ -24,8 +34,6 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 ### Alterado
 
 - O prompt de "Enviar para implementação" agora é só o mapa do plano: resumo, estrutura (etapas e ids dos cards) e o id do plano. O conteúdo completo a conversa de implementação lê pelas ferramentas do plano (`nexo_plano_ler`). Assim o que mudar no plano depois do envio também chega nela. `nexo_plano_ler` traz o caminho do `.html` de cada tela anexada.
-
-### Segurança
 
 ## [0.8.1] - 2026-09-24
 
