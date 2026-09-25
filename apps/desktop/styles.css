@@ -8471,6 +8471,11 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
 .pl-card[data-feito="1"] .pl-card-titulo { color: var(--muted); }
 .pl-ed-feito { display: flex; align-items: center; gap: var(--s-3); font-size: var(--fs-sm); color: var(--muted); }
 
+/* Configurações → Painéis do agente */
+.cfg-paineis-lista { display: grid; grid-template-columns: repeat(2, auto); gap: var(--s-2) var(--s-5); font-size: var(--fs-sm); color: var(--text); }
+.cfg-paineis-lista label { display: flex; align-items: center; gap: var(--s-2); cursor: pointer; }
+#cfg-paineis-detalhe.hidden { display: none; }
+
 /* Canvas do DS: tela aberta a partir de um anexo do plano */
 .ds-card.ds-card-foco { box-shadow: 0 0 0 2px var(--accent), var(--sh-2); transition: box-shadow 200ms var(--ease); }
 @media (prefers-reduced-motion: reduce) {

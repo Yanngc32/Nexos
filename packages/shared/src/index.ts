@@ -441,6 +441,12 @@ export type NexoConfig = {
    * existir no `--allowed-tools` do CLI.
    */
   windowsControlEnabled: boolean;
+  /**
+   * `nexo_abrir_painel`: o agente abre na área de trabalho o painel que o trabalho pede
+   * (navegador, design, quadro…). `modo` sempre/perguntar/nunca; `paineis` = quais ele pode abrir;
+   * `trazerPraFrente` = troca a aba que a pessoa está vendo (senão a aba só fica aberta).
+   */
+  paineisDoAgente: PaineisDoAgente;
   /** Roteamento de conversa nova por typesafe.ai. A API key mora fora daqui (typesafe.json), nunca sai em GET /v1/config. */
   typesafe: { modo: TypesafeModo };
   /**
@@ -449,6 +455,12 @@ export type NexoConfig = {
    */
   logNivel?: LogNivel;
 };
+
+export const PAINEIS_DO_AGENTE = ["navegador", "design", "planejamento", "tarefas", "arquivo", "terminal"] as const;
+export type PainelDoAgente = (typeof PAINEIS_DO_AGENTE)[number];
+export const MODOS_PAINEL = ["sempre", "perguntar", "nunca"] as const;
+export type ModoPainel = (typeof MODOS_PAINEL)[number];
+export type PaineisDoAgente = { modo: ModoPainel; paineis: PainelDoAgente[]; trazerPraFrente: boolean };
 
 export const LOG_NIVEIS = ["debug", "info", "aviso", "erro"] as const;
 export type LogNivel = (typeof LOG_NIVEIS)[number];
@@ -490,6 +502,7 @@ export const DEFAULT_CONFIG: NexoConfig = {
     coletaDesign: true,
   },
   windowsControlEnabled: false,
+  paineisDoAgente: { modo: "sempre", paineis: [...PAINEIS_DO_AGENTE], trazerPraFrente: true },
   typesafe: { modo: "desligado" },
 };
 

@@ -3,6 +3,8 @@ import {
   CAVEMAN_NIVEIS,
   DEFAULT_CONFIG,
   LOG_NIVEIS,
+  MODOS_PAINEL,
+  PAINEIS_DO_AGENTE,
   SWITCH_MODES,
   TEMAS,
   TYPESAFE_MODOS,
@@ -11,6 +13,7 @@ import {
   type NexoConfig,
   type SwitchMode,
   type Tema,
+  type PaineisDoAgente,
   type TypesafeModo,
 } from "@nexos/shared";
 import { configPath, ensureHome } from "./home.ts";
@@ -80,6 +83,7 @@ export function loadConfig(home: string): NexoConfig {
     ...(isTetoTokens(raw.repoMapTetoTokens) ? { repoMapTetoTokens: raw.repoMapTetoTokens } : {}),
     modulos: cleanModulos(raw.modulos),
     windowsControlEnabled: Boolean(raw.windowsControlEnabled),
+    paineisDoAgente: limparPaineis(raw.paineisDoAgente, DEFAULT_CONFIG.paineisDoAgente),
     typesafe: { modo: isTypesafeModo(raw.typesafe?.modo) ? raw.typesafe.modo : DEFAULT_CONFIG.typesafe.modo },
     ...(isLogNivel(raw.logNivel) ? { logNivel: raw.logNivel } : {}),
   };
@@ -103,6 +107,18 @@ function isTetoTokens(value: unknown): value is number {
 
 function isCavemanNivel(value: unknown): value is CavemanNivel {
   return typeof value === "string" && (CAVEMAN_NIVEIS as readonly string[]).includes(value);
+}
+
+/** Campo a campo por cima de `base`: o que vier inválido fica como estava. */
+function limparPaineis(value: unknown, base: PaineisDoAgente): PaineisDoAgente {
+  const o = (value ?? {}) as Partial<PaineisDoAgente>;
+  return {
+    modo: typeof o.modo === "string" && (MODOS_PAINEL as readonly string[]).includes(o.modo) ? o.modo : base.modo,
+    paineis: Array.isArray(o.paineis)
+      ? PAINEIS_DO_AGENTE.filter((p) => (o.paineis as unknown[]).includes(p))
+      : [...base.paineis],
+    trazerPraFrente: typeof o.trazerPraFrente === "boolean" ? o.trazerPraFrente : base.trazerPraFrente,
+  };
 }
 
 function cleanModulos(value: unknown): NexoConfig["modulos"] {
@@ -248,6 +264,7 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
     },
     windowsControlEnabled:
       patch.windowsControlEnabled === undefined ? current.windowsControlEnabled : Boolean(patch.windowsControlEnabled),
+    paineisDoAgente: limparPaineis(patch.paineisDoAgente, current.paineisDoAgente),
     typesafe: { modo: isTypesafeModo(patch.typesafe?.modo) ? patch.typesafe.modo : current.typesafe.modo },
     ...(isLogNivel(patch.logNivel)
       ? { logNivel: patch.logNivel }

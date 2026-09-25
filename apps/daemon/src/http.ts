@@ -214,6 +214,7 @@ import {
   type EventoPlano,
 } from "./planejamento.ts";
 import { ferramentasDePlanejamento } from "./planejamento-ferramentas.ts";
+import { ferramentaDePainel, responderPainel } from "./paineis.ts";
 import {
   alvosDeAnexo,
   blocoDeTarefas,
@@ -2300,6 +2301,8 @@ export function createApp(home: string, token: string): Hono {
         // do DS só o print (ver a tela); criar/ativar/salvar ficam de fora
         ...ferramentaDePrintDoDs(threadId, pp, home)().filter((f) => f.name === "nexo_ds_print"),
         ...ferramentaDePerguntar(threadId, home)(),
+        // Manager mostra o design/plano/quadro enquanto planeja; navegador só sem url (sem controle)
+        ...ferramentaDePainel(threadId, "negado", home)(),
         ...ferramentasDeRepoMap(pp, home)(),
         ...ferramentaDeResumo(pp, home)(),
       ]);
@@ -2324,6 +2327,7 @@ export function createApp(home: string, token: string): Hono {
       ...(modoDelegacao !== "negado" ? ferramentaDeDelegar(threadId, projectPath, modoDelegacao, home)() : []),
       ...(modoNavegador !== "negado" ? ferramentasDeNavegador(threadId, home, modoNavegador)() : []),
       ...(threadId && projectPath && !runId ? ferramentaDePrintDoDs(threadId, projectPath, home)() : []),
+      ...(threadId && !runId ? ferramentaDePainel(threadId, modoNavegador, home)() : []),
       // Gate mestre: `--allowed-tools` (engines/cli.ts::profileFlags) já barra a CHAMADA
       // incondicionalmente se a config estiver desligada; listar aqui também, e não só lá,
       // é só pra não expor `tools/list` como se a ferramenta existisse quando não pode rodar.
@@ -2363,6 +2367,15 @@ export function createApp(home: string, token: string): Hono {
   });
 
   /** O app devolve o print pedido por `nexo_ds_print` (ds-print.ts). */
+  /** O app abriu (ou não) o painel pedido por `nexo_abrir_painel` — ver paineis.ts. */
+  app.post("/v1/paineis/:id/responder", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { ok?: boolean; texto?: string };
+    if (typeof body.ok !== "boolean") return c.json({ error: 'faltou "ok"' }, 400);
+    const ok = responderPainel(c.req.param("id"), { ok: body.ok, texto: typeof body.texto === "string" ? body.texto : "" });
+    if (!ok) return c.json({ error: "nenhum pedido de painel pendente com esse id" }, 404);
+    return c.json({ ok: true });
+  });
+
   app.post("/v1/ds/print/:id/responder", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { ok?: boolean; texto?: string; imagem?: { dataBase64: string; mimeType: string } };
     if (typeof body.ok !== "boolean") return c.json({ error: 'faltou "ok"' }, 400);

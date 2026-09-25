@@ -5789,6 +5789,53 @@ async function tratarPrintDoDs(ev) {
   }
 }
 
+/** Painel do agente (`nexo_abrir_painel`, daemon/paineis.ts) → aba da área de trabalho. */
+const VIEW_DO_PAINEL = { navegador: "browser", design: "ds", planejamento: "planejamento", tarefas: "tarefas", arquivo: "file", terminal: "terminal" };
+
+/**
+ * Abre o painel pedido pelo agente na sessão de trabalho DA CONVERSA dele. `frente` (config
+ * `trazerPraFrente`) troca a aba visível; sem ele a aba fica aberta atrás da que a pessoa está
+ * vendo. Foco fino (tela do DS, tarefa, arquivo) só quando o painel ficou na frente.
+ */
+async function tratarAbrirPainel(ev) {
+  const responder = (r) => req(`/v1/paineis/${encodeURIComponent(ev.id)}/responder`, { method: "POST", body: JSON.stringify(r) }).catch(() => {});
+  const view = VIEW_DO_PAINEL[ev.painel];
+  if (!view) return void responder({ ok: false, texto: `painel desconhecido: ${ev.painel}` });
+  try {
+    const s = sessaoWork(ev.threadId);
+    const antes = s.activeId;
+    if (view === "browser") garantirBrowserDaThread(ev.threadId, ev.url);
+    else abrirAba(s, view);
+    const naFrente = ev.frente !== false || !antes;
+    if (!naFrente && antes !== s.activeId && s.tabs.some((t) => t.id === antes)) s.activeId = antes;
+    persistirWork(ev.threadId);
+    const atual = chaveSessao() === chaveSessao(ev.threadId);
+    if (atual) aplicarSessaoWork();
+    const notas = [];
+    if (!atual) notas.push("a pessoa está em outra conversa: a aba fica pronta quando ela voltar pra esta");
+    else if (!naFrente) notas.push("aba aberta sem trocar a que a pessoa está vendo (configuração dela)");
+    if (atual && naFrente) {
+      if (view === "ds" && ev.card) {
+        const ok = await dsCanvas.focarCard(ev.sistema || "", ev.card, {
+          confirmarTroca: (nome) => dialogo.confirmar(`O agente quer mostrar uma tela do design system "${nome}". Ativar ele no Canvas?`),
+        });
+        if (!ok) notas.push(`não achei a tela "${ev.card}" no Canvas`);
+      }
+      if (view === "tarefas" && ev.tarefa && !(await tarefasBoard.abrirTarefa(ev.tarefa))) notas.push(`a tarefa ${ev.tarefa} não existe no Quadro`);
+      if (view === "file" && ev.caminho) {
+        try {
+          await fileTree.open(ev.caminho);
+        } catch {
+          notas.push(`não abriu o arquivo ${ev.caminho}`);
+        }
+      }
+    }
+    await responder({ ok: true, texto: `painel ${ev.painel} aberto${ev.url ? ` em ${ev.url}` : ""}${notas.length ? ` — ${notas.join("; ")}` : ""}` });
+  } catch (e) {
+    await responder({ ok: false, texto: `não abriu o painel: ${e?.message || e}` });
+  }
+}
+
 function applyAgentEvent(ev) {
   const id = ev.threadId;
   if (!id) return;
@@ -5798,6 +5845,10 @@ function applyAgentEvent(ev) {
   }
   if (ev.type === "ds_print") {
     void tratarPrintDoDs(ev);
+    return;
+  }
+  if (ev.type === "abrir_painel") {
+    void tratarAbrirPainel(ev);
     return;
   }
   // Contagem GLOBAL de perguntas pendentes: vem do bus "*", então soma de QUALQUER conversa —
@@ -7938,6 +7989,7 @@ async function renderModulos() {
   $("mod-quadro-tarefas").checked = cfg.modulos?.quadroTarefas !== false;
   $("mod-coleta-design").checked = cfg.modulos?.coletaDesign !== false;
   $("mod-windows-control").checked = Boolean(cfg.windowsControlEnabled);
+  pintarPaineisDoAgente(cfg.paineisDoAgente);
   atualizarBannerWindowsControl(Boolean(cfg.windowsControlEnabled));
 }
 
@@ -8063,6 +8115,35 @@ $("btn-browser-ds").addEventListener("click", async () => {
     btn.disabled = false;
   }
 });
+
+/* ---------- Configurações → Painéis do agente (`nexo_abrir_painel`) ---------- */
+
+function pintarPaineisDoAgente(p) {
+  const cfg = p || { modo: "sempre", paineis: Object.keys(VIEW_DO_PAINEL), trazerPraFrente: true };
+  $("cfg-paineis-modo").value = cfg.modo;
+  $("cfg-paineis-frente").checked = cfg.trazerPraFrente !== false;
+  for (const c of document.querySelectorAll("#cfg-paineis-lista input[type=checkbox]")) c.checked = cfg.paineis.includes(c.value);
+  $("cfg-paineis-detalhe").classList.toggle("hidden", cfg.modo === "nunca");
+}
+
+async function salvarPaineisDoAgente() {
+  $("cfg-paineis-err").textContent = "";
+  const paineisDoAgente = {
+    modo: $("cfg-paineis-modo").value,
+    trazerPraFrente: $("cfg-paineis-frente").checked,
+    paineis: [...document.querySelectorAll("#cfg-paineis-lista input[type=checkbox]")].filter((c) => c.checked).map((c) => c.value),
+  };
+  $("cfg-paineis-detalhe").classList.toggle("hidden", paineisDoAgente.modo === "nunca");
+  try {
+    const cfg = await req("/v1/config", { method: "PUT", body: JSON.stringify({ paineisDoAgente }) });
+    pintarPaineisDoAgente(cfg.paineisDoAgente);
+  } catch (err) {
+    $("cfg-paineis-err").textContent = err.message || "Não gravou.";
+    await renderModulos();
+  }
+}
+for (const id of ["cfg-paineis-modo", "cfg-paineis-frente"]) $(id).addEventListener("change", () => void salvarPaineisDoAgente());
+$("cfg-paineis-lista").addEventListener("change", () => void salvarPaineisDoAgente());
 
 /** Fora de `modulos`: é chave de topo do config (ver NexoConfig), não um módulo externo comum. */
 async function salvarControleDoWindows(valor) {

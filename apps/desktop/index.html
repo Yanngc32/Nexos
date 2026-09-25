@@ -2227,6 +2227,51 @@
                   </div>
                 </div>
               </div>
+              <p class="set-grupo-tit">Painéis do agente</p>
+              <div class="set-grupo">
+                <div class="set-row">
+                  <div class="set-txt">
+                    <h4>Agente abre painéis</h4>
+                    <p>
+                      O agente abre sozinho o painel que o trabalho pede: o navegador pra testar uma tela, o Design
+                      System pra criar um design, o Quadro, o plano, um arquivo ou o terminal.
+                    </p>
+                    <p id="cfg-paineis-err" class="set-err"></p>
+                  </div>
+                  <div class="set-ctl">
+                    <select id="cfg-paineis-modo" aria-label="Agente abre painéis">
+                      <option value="sempre">Sempre</option>
+                      <option value="perguntar">Perguntar antes</option>
+                      <option value="nunca">Nunca</option>
+                    </select>
+                  </div>
+                </div>
+                <div id="cfg-paineis-detalhe">
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Quais painéis</h4>
+                      <p>Os que ficarem desmarcados o agente não abre.</p>
+                    </div>
+                    <div class="set-ctl cfg-paineis-lista" id="cfg-paineis-lista" role="group" aria-label="Painéis que o agente pode abrir">
+                      <label><input type="checkbox" value="navegador" /> Navegador</label>
+                      <label><input type="checkbox" value="design" /> Design</label>
+                      <label><input type="checkbox" value="planejamento" /> Planejamento</label>
+                      <label><input type="checkbox" value="tarefas" /> Tarefas</label>
+                      <label><input type="checkbox" value="arquivo" /> Arquivos</label>
+                      <label><input type="checkbox" value="terminal" /> Terminal</label>
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Trazer pra frente</h4>
+                      <p>Ligado: o painel aberto vira a aba que você está vendo. Desligado: a aba abre atrás, sem tirar você do que está olhando.</p>
+                    </div>
+                    <div class="set-ctl">
+                      <input id="cfg-paineis-frente" type="checkbox" aria-label="Trazer o painel aberto pelo agente pra frente" />
+                    </div>
+                  </div>
+                </div>
+              </div>
               <p class="set-grupo-tit">Permissões do sistema</p>
               <div class="set-grupo">
                 <div class="set-row set-row-perigo">

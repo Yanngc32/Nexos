@@ -16,6 +16,7 @@ import { MCP_TOOLS_PERGUNTAR, temPerguntaPendente } from "./perguntas.ts";
 import { MCP_TOOLS_DELEGAR, resetContadorDeDelegacao } from "./delegar.ts";
 import { MCP_TOOLS_NAVEGADOR } from "./navegador.ts";
 import { MCP_TOOLS_DS_PRINT } from "./ds-print.ts";
+import { MCP_TOOLS_PAINEL } from "./paineis.ts";
 import { MCP_TOOLS_WINDOWS_CONTROL } from "./windows-control.ts";
 import { MCP_TOOLS_TAREFA } from "./tarefas.ts";
 import { expandirSkill } from "./skills.ts";
@@ -702,6 +703,7 @@ function mcpDaConversa(
       mcpTools: [
         ...MCP_TOOLS_PLANEJAMENTO,
         ...MCP_TOOLS_PERGUNTAR,
+        ...(loadConfig(home).paineisDoAgente.modo !== "nunca" ? MCP_TOOLS_PAINEL : []),
         ...(meta.projectPath && indiceDisponivel(meta.projectPath, home) ? MCP_TOOLS_REPO_MAP : []),
       ],
     };
@@ -724,6 +726,8 @@ function mcpDaConversa(
     ...(!meta.runId && perfil.navegadorModo && perfil.navegadorModo !== "negado" ? MCP_TOOLS_NAVEGADOR : []),
     // print do card do design system renderizado (ds-print.ts): conversa normal de projeto
     ...(!meta.runId && meta.projectPath ? MCP_TOOLS_DS_PRINT : []),
+    // abrir o painel certo na área de trabalho (navegador, design, quadro…): conversa normal
+    ...(!meta.runId && loadConfig(home).paineisDoAgente.modo !== "nunca" ? MCP_TOOLS_PAINEL : []),
     // Gate GLOBAL, não por conta (ver windows-control.ts): mexe em QUALQUER app da máquina, não
     // só o Nexos. `profileFlags` em engines/cli.ts filtra de novo, incondicional — esta linha só
     // evita listar a ferramenta quando já se sabe de antemão que a chamada vai ser barrada.
