@@ -302,24 +302,6 @@ export function blocoDeTarefas(p: Plano, envio: EnvioAoQuadro): string {
   ].join("\n");
 }
 
-/** Bloco pro handoff: telas do DS e tarefas que os cards anexaram, com o arquivo de cada tela. */
-export function blocoDeAnexos(p: Plano, integ: Integracao): string {
-  const linhas: string[] = [];
-  for (const c of p.cards) {
-    for (const a of c.anexos) {
-      const r = integ.anexos[chaveDoAnexo(a)];
-      if (!r?.existe) continue;
-      linhas.push(
-        a.tipo === "ds"
-          ? `- [[${c.titulo}]] → tela do Design System "${r.titulo}" (${r.detalhe}): ${r.arquivo}`
-          : `- [[${c.titulo}]] → tarefa do Quadro "${r.titulo}" (\`${a.id}\`, ${r.detalhe})`,
-      );
-    }
-  }
-  if (!linhas.length) return "";
-  return ["## Telas e tarefas anexadas", "Use as telas do Design System como referência visual (leia o .html) e siga os tokens dele.", ...linhas].join("\n");
-}
-
 /* ---------------------------------------------------------------------------
  * Plano a partir de conversa
  * ------------------------------------------------------------------------- */

@@ -22,7 +22,8 @@ import { projectDir, projectDirSemCriar } from "./projeto-dir.ts";
  * Toda escrita emite em `planejamentoBus` (canal por projeto): é o que alimenta o SSE da tela.
  */
 
-export const TIPOS_CARD = ["etapa", "requisito", "decisao", "sugestao", "ambiguidade", "nota"] as const;
+/** `tela`: spec completa de uma tela; a implementação gera o mock no DS e anexa ao card. */
+export const TIPOS_CARD = ["etapa", "requisito", "decisao", "sugestao", "ambiguidade", "tela", "nota"] as const;
 export type TipoCard = (typeof TIPOS_CARD)[number];
 export const STATUS_ETAPA = ["pendente", "em_andamento", "concluida"] as const;
 export type StatusEtapa = (typeof STATUS_ETAPA)[number];

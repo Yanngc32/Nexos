@@ -42,18 +42,42 @@ describe("prontidão", () => {
 });
 
 describe("rascunho", () => {
-  it("é determinístico e traz etapas, requisitos, decisões com porquê, fonte, abertas e como trabalhar", () => {
+  it("é determinístico e é só o mapa: id do plano, resumo, estrutura e como trabalhar — sem o corpo dos cards", () => {
     const home = tempHome();
-    const plano = abrirPlano(P, home, planoPronto(home));
+    const slug = planoPronto(home);
+    const plano = abrirPlano(P, home, slug);
     const t = montarHandoff(plano);
     expect(montarHandoff(plano)).toBe(t);
     expect(t).toMatch(/^# Implementação: Login novo/);
-    expect(t).toContain("1. **API** (`api`) — concluída\n   - Decisão: JWT (`cards/jwt.md`)\n   - Sugestão: Hono (`cards/hono.md`)");
-    expect(t).toContain("## Cards fora das etapas\n\n- Nota: Solta");
-    expect(t).toContain("### JWT (`cards/jwt.md`)\n\nPorque é stateless.");
-    expect(t).toContain("Fonte: https://hono.dev");
-    expect(t).toContain("**SSO?** (`cards/sso.md`) — sem decisão");
-    expect(t).toContain("## Como trabalhar");
+    expect(t).toContain(`Plano \`${slug}\``);
+    expect(t).toContain("3 etapas e 1 requisito, 1 decisão, 1 sugestão, 1 ambiguidade, 1 nota.");
+    expect(t).toContain("1. **API** (`api`)\n   - Decisão: JWT (`jwt`)\n   - Sugestão: Hono (`hono`)");
+    expect(t).toContain("Fora das etapas:\n- Nota: Solta (`solta`)");
+    expect(t).toContain("Ambiguidade **SSO?** (`sso`) sem decisão");
+    expect(t).toContain("nexo_plano_ler");
+    expect(t).not.toContain("Porque é stateless.");
+    expect(t).not.toContain("E-mail e senha.");
+  });
+
+  it("card de tela: conta no resumo, marca mock pendente/anexado e sem spec avisa na prontidão", () => {
+    const home = tempHome();
+    const slug = planoPronto(home);
+    salvarCard(P, home, slug, { expectedRev: 0, id: "login", tipo: "tela", titulo: "Login", etapa: "tela", corpo: "curta" });
+    salvarCard(P, home, slug, {
+      expectedRev: 0,
+      id: "painel",
+      tipo: "tela",
+      titulo: "Painel",
+      etapa: "tela",
+      corpo: "Spec completa do painel com estados, layout e dados de exemplo.",
+      anexos: [{ tipo: "ds", sistema: "mocks", card: "painel" }],
+    });
+    const plano = abrirPlano(P, home, slug);
+    const t = montarHandoff(plano);
+    expect(t).toContain("1 de 2 tela(s) ainda sem mock.");
+    expect(t).toContain("   - Tela: Login (`login`) — mock pendente\n   - Tela: Painel (`painel`) — mock anexado");
+    expect(t).toContain("nexo_ds_card_salvar");
+    expect(prontidao(plano).avisos.filter((a) => a.tipo === "tela-sem-spec").map((a) => a.ref)).toEqual(["login"]);
   });
 
   it("pedido ao Manager avisa das ambiguidades abertas", () => {

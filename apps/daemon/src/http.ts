@@ -215,7 +215,6 @@ import {
 import { ferramentasDePlanejamento } from "./planejamento-ferramentas.ts";
 import {
   alvosDeAnexo,
-  blocoDeAnexos,
   blocoDeTarefas,
   conversaDeOrigem,
   enviarAoQuadro,
@@ -2020,9 +2019,7 @@ export function createApp(home: string, token: string): Hono {
     try {
       const plano = abrirPlano(projectPath, home, c.req.param("slug"));
       const p = prontidao(plano);
-      const anexos = blocoDeAnexos(plano, resolverIntegracao(projectPath, home, plano));
-      const texto = anexos ? `${montarHandoff(plano).trimEnd()}\n\n${anexos}\n` : montarHandoff(plano);
-      return c.json({ texto, prontidao: p, pedido: pedidoAoManager(plano, p.bloqueios.length) });
+      return c.json({ texto: montarHandoff(plano), prontidao: p, pedido: pedidoAoManager(plano, p.bloqueios.length) });
     } catch (e) {
       return erroDoPlano(c, e);
     }

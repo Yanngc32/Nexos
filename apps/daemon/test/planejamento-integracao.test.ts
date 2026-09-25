@@ -7,13 +7,13 @@ import { apagarCard as apagarCardDoDs, criarDs, salvarCardDaFerramenta } from ".
 import { abrirPlano, criarPlano, salvarCard, salvarRoteiro, validarAnexos } from "../src/planejamento.ts";
 import {
   alvosDeAnexo,
-  blocoDeAnexos,
   conversaDeOrigem,
   enviarAoQuadro,
   marcarImplementacaoDaEtapa,
   pedidoDeConversa,
   resolverIntegracao,
 } from "../src/planejamento-integracao.ts";
+import { planoEmTexto } from "../src/planejamento-ferramentas.ts";
 import { apagarTarefa, getQuadro, getTarefa, salvarTarefa } from "../src/tarefas.ts";
 import { appendEvent, createThread, threadHead } from "../src/threads.ts";
 import { addProfile } from "../src/profiles.ts";
@@ -83,7 +83,8 @@ describe("anexos do card", () => {
     expect(integ.anexos[`ds:${ds.id}/${tela.id}`]).toMatchObject({ existe: true, titulo: "Tela de login" });
     expect(integ.anexos[`ds:${ds.id}/${tela.id}`]!.arquivo).toMatch(/cards[\\/]tela-de-login\.html$/);
     expect(integ.anexos[`tarefa:${tarefa.id}`]).toMatchObject({ existe: true, titulo: "Fazer login", feita: false });
-    expect(blocoDeAnexos(plano, integ)).toMatch(/Tela de login.*\.html/);
+    // o que a implementação lê: título e caminho do .html da tela anexada
+    expect(planoEmTexto(plano, integ)).toMatch(/tela [^ ]+ "Tela de login" — .*tela-de-login\.html/);
 
     apagarCardDoDs(p, home, tela.id);
     apagarTarefa(p, home, tarefa.id);

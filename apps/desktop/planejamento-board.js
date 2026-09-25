@@ -33,6 +33,7 @@ export const TIPOS = [
   { id: "decisao", rotulo: "Decisão", ico: "✓" },
   { id: "sugestao", rotulo: "Sugestão", ico: "✧" },
   { id: "ambiguidade", rotulo: "Ambiguidade", ico: "?" },
+  { id: "tela", rotulo: "Tela", ico: "▭" },
   { id: "nota", rotulo: "Nota", ico: "✎" },
   { id: "etapa", rotulo: "Etapa", ico: "⚑" },
 ];
@@ -84,6 +85,45 @@ export function sugestoesDeRef(cards, termo, excluir, max = 8) {
   return cards
     .filter((c) => c.id !== excluir && (!t || normalizarTitulo(c.titulo).includes(t)))
     .slice(0, max);
+}
+
+/**
+ * Esqueleto da spec de um card de Tela: entra no corpo vazio quando a pessoa escolhe o tipo. É a
+ * partir desse texto que a implementação gera o mock — quanto mais completo, menos chute.
+ */
+export const MODELO_SPEC_TELA = `## Objetivo
+Pra que serve e quem usa.
+
+## Onde entra
+Como se chega nela e pra onde ela leva.
+
+## Layout
+De cima pra baixo: blocos, hierarquia, o que tem destaque.
+
+## Componentes e dados
+Cada componente com o conteúdo e dados de exemplo reais.
+
+## Estados
+- Vazio:
+- Carregando:
+- Erro:
+- Sucesso:
+
+## Interações
+O que cada ação faz (clique, teclado, validação).
+
+## Textos
+Títulos, rótulos, mensagens.
+
+## Responsivo e acessibilidade
+
+## Design System
+Tokens e componentes a usar (anexe as telas de referência).
+`;
+
+/** Card de tela ainda sem o mock anexado (anexo de tela do DS). */
+export function telaSemMock(card) {
+  return card?.tipo === "tela" && !(card.anexos ?? []).some((a) => a.tipo === "ds");
 }
 
 /** Mesma chave do daemon (`chaveDoAnexo`): é o índice de `plano.integracao.anexos`. */
@@ -455,6 +495,13 @@ export function createPlanejamentoBoard({
     const topo = mk("div", "pl-card-topo");
     const t = ROTULO_TIPO[card.tipo] ?? ROTULO_TIPO.nota;
     topo.append(mk("span", "pl-card-ico", t.ico), mk("span", "pl-card-tipo", t.rotulo));
+    if (card.tipo === "tela") {
+      const pendente = telaSemMock(card);
+      const m = mk("span", "pl-card-mock", pendente ? "mock pendente" : "mock ✓");
+      m.dataset.pendente = pendente ? "1" : "0";
+      m.title = pendente ? "A implementação gera o mock a partir da spec e anexa aqui" : "Mock anexado";
+      topo.append(m);
+    }
     if (card.feito) {
       const f = mk("span", "pl-card-feito", "✓ feito");
       f.title = "Implementado";
@@ -1406,6 +1453,8 @@ export function createPlanejamentoBoard({
       b.append(mk("span", "pl-card-ico", t.ico), mk("span", "", t.rotulo));
       b.addEventListener("click", () => {
         pintarTipoNoForm(t.id);
+        // tela com corpo vazio ganha o esqueleto da spec
+        if (t.id === "tela" && !el("pl-ed-corpo").value.trim()) el("pl-ed-corpo").value = MODELO_SPEC_TELA;
         guardarRascunho();
       });
       el("pl-ed-tipos").append(b);

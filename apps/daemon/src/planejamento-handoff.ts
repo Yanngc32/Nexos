@@ -4,10 +4,18 @@ import type { Card, Plano } from "./planejamento.ts";
  * "Enviar para implementação": a conferência do plano antes do envio, o rascunho automático do
  * prompt (determinístico: mesmo plano → mesmo texto) e o pedido fixo quando quem escreve é o
  * Agent Manager. Puro — as rotas (http.ts) só chamam. Base: `handoffReadiness.ts`/`handoffFlow.ts`
- * do agent-code; o formato do rascunho é o que vimos funcionando lá.
+ * do agent-code.
+ *
+ * O prompt é só o MAPA do plano (resumo, estrutura e o id): a conversa de implementação tem as
+ * ferramentas `nexo_plano_*` e lê o conteúdo completo de lá. Copiar os cards pro prompt deixava o
+ * texto enorme e congelado — o que a pessoa mudasse no plano depois do envio não chegava.
  */
 
-export type Pendencia = { tipo: "ambiguidade-aberta" | "roteiro-vazio" | "etapa-sem-card" | "etapa-nao-concluida" | "card-invalido"; texto: string; ref?: string };
+export type Pendencia = {
+  tipo: "ambiguidade-aberta" | "roteiro-vazio" | "etapa-sem-card" | "etapa-nao-concluida" | "card-invalido" | "tela-sem-spec";
+  texto: string;
+  ref?: string;
+};
 export type Prontidao = { bloqueios: Pendencia[]; avisos: Pendencia[] };
 
 const ROTULO: Record<Card["tipo"], string> = {
@@ -15,11 +23,17 @@ const ROTULO: Record<Card["tipo"], string> = {
   decisao: "Decisão",
   sugestao: "Sugestão",
   ambiguidade: "Ambiguidade",
+  tela: "Tela",
   nota: "Nota",
   etapa: "Etapa",
 };
-const ORDEM: Record<Card["tipo"], number> = { requisito: 0, decisao: 1, sugestao: 2, ambiguidade: 3, nota: 4, etapa: 5 };
+const ORDEM: Record<Card["tipo"], number> = { tela: 0, requisito: 1, decisao: 2, sugestao: 3, ambiguidade: 4, nota: 5, etapa: 6 };
 const STATUS: Record<string, string> = { pendente: "pendente", em_andamento: "em andamento", concluida: "concluída" };
+
+/** Card de tela com spec e ainda sem o mock anexado (tela do DS). */
+export function telaSemMock(c: Card): boolean {
+  return c.tipo === "tela" && !c.anexos.some((a) => a.tipo === "ds");
+}
 
 export function ambiguidadeAberta(c: Card): boolean {
   return c.tipo === "ambiguidade" && c.status !== "resolvida";
@@ -39,61 +53,86 @@ export function prontidao(p: Plano): Prontidao {
   for (const e of etapas) {
     if (e.status !== "concluida") avisos.push({ tipo: "etapa-nao-concluida", ref: e.id, texto: `A etapa "${e.titulo}" ainda está ${STATUS[e.status]}.` });
   }
+  for (const c of p.cards) {
+    if (c.tipo === "tela" && c.corpo.trim().length < 40) {
+      avisos.push({ tipo: "tela-sem-spec", ref: c.id, texto: `A tela "${c.titulo}" está sem spec: o mock vai sair no chute.` });
+    }
+  }
   for (const i of p.invalidos) avisos.push({ tipo: "card-invalido", ref: i.arquivo, texto: `O card ${i.arquivo} não pôde ser lido e fica de fora.` });
   return { bloqueios, avisos };
 }
 
 const porTipo = (a: Card, b: Card) => ORDEM[a.tipo] - ORDEM[b.tipo] || a.titulo.localeCompare(b.titulo);
-const arquivo = (c: Card) => `cards/${c.id}.md`;
+
+const PLURAL: Record<Card["tipo"], string> = {
+  tela: "telas",
+  requisito: "requisitos",
+  decisao: "decisões",
+  sugestao: "sugestões",
+  ambiguidade: "ambiguidades",
+  nota: "notas",
+  etapa: "etapas",
+};
+
+/** "2 telas, 1 requisito, 3 decisões" — na ordem de `ORDEM`. */
+function contagem(cards: Card[]): string {
+  const n: Partial<Record<Card["tipo"], number>> = {};
+  for (const c of cards) n[c.tipo] = (n[c.tipo] ?? 0) + 1;
+  return (Object.keys(ORDEM) as Card["tipo"][])
+    .filter((t) => n[t])
+    .map((t) => `${n[t]} ${n[t] === 1 ? ROTULO[t].toLowerCase() : PLURAL[t]}`)
+    .join(", ");
+}
+
+/** Instruções fixas de como a conversa de implementação usa o plano (vão no fim do prompt). */
+export function comoTrabalhar(slug: string): string[] {
+  return [
+    "## Como trabalhar",
+    "",
+    `- Este texto é só o mapa. O conteúdo completo (requisitos, decisões com o porquê, specs de tela, ambiguidades) está no plano \`${slug}\`: leia com \`nexo_plano_ler\` ANTES de começar e releia sempre que precisar de detalhe — o plano é a fonte da verdade, não este texto.`,
+    "- Declare as etapas como o seu plano (TodoWrite), na ordem, e siga sem replanejar. Se o código contradisser o plano, diga o que encontrou e pergunte antes de desviar.",
+    "- Mantenha o plano em dia: `nexo_plano_implementacao` (em_andamento ao começar a etapa, feita ao terminar e verificar) e `feito: true` em cada requisito pronto (`nexo_plano_card_atualizar`).",
+    '- Cards de **Tela** trazem a spec completa da tela. Antes de codar a tela, gere o mock no Canvas: design system "Mocks" (`nexo_ds_listar`; se não existir, `nexo_ds_criar` com base "ativo"), grave com `nexo_ds_card_salvar` seguindo a spec e os tokens, confira com `nexo_ds_print`, e anexe o mock ao card (`nexo_plano_card_atualizar` com `anexos` + `{ tipo: "ds", sistema, card }`, mantendo os anexos que já estavam). Depois implemente a tela no código a partir do mock.',
+  ];
+}
 
 /** O prompt da conversa de implementação, montado só do plano (sem gastar turno do Manager). */
 export function montarHandoff(p: Plano): string {
   const r = p.roteiro;
   const etapaIds = new Set(r.etapas.map((e) => e.id));
-  const secao = (titulo: string, cards: Card[], corpo: (c: Card) => string[]) =>
-    cards.length ? ["", `## ${titulo}`, ...cards.flatMap((c) => ["", `### ${c.titulo} (\`${arquivo(c)}\`)`, ...corpo(c)])] : [];
-  const texto = (c: Card) => (c.corpo.trim() ? ["", c.corpo.trim()] : []);
-
+  const abertas = p.cards.filter(ambiguidadeAberta);
+  const telas = p.cards.filter((c) => c.tipo === "tela");
   const linhas = [
     `# Implementação: ${r.titulo}`,
     "",
-    `Esta conversa implementa o planejamento **${r.titulo}**, feito com a pessoa na Tela de Planejamento. O plano detalhado está em \`${p.dir}\`: \`roteiro.md\` (as etapas, na ordem) e \`cards/\` (um arquivo por card).`,
+    `Plano \`${p.slug}\`, feito com a pessoa na Tela de Planejamento.`,
     "",
-    "## Objetivo",
+    "## Resumo",
     "",
-    `${r.titulo}. Entregar as ${r.etapas.length} etapas do roteiro, na ordem, respeitando os requisitos e as decisões abaixo.`,
+    `${r.etapas.length} ${r.etapas.length === 1 ? "etapa" : "etapas"}${p.cards.length ? ` e ${contagem(p.cards)}` : ""}.` +
+      (telas.length ? ` ${telas.filter(telaSemMock).length} de ${telas.length} tela(s) ainda sem mock.` : ""),
     "",
-    "## Etapas, na ordem",
+    "## Estrutura",
     "",
   ];
+  const linhaCard = (c: Card) =>
+    `${ROTULO[c.tipo]}: ${c.titulo} (\`${c.id}\`)${c.tipo === "tela" ? (telaSemMock(c) ? " — mock pendente" : " — mock anexado") : ""}${ambiguidadeAberta(c) ? " — ABERTA" : ""}`;
   r.etapas.forEach((e, i) => {
-    linhas.push(`${i + 1}. **${e.titulo}** (\`${e.id}\`) — ${STATUS[e.status]}`);
-    for (const c of p.cards.filter((c) => c.etapa === e.id).sort(porTipo)) linhas.push(`   - ${ROTULO[c.tipo]}: ${c.titulo} (\`${arquivo(c)}\`)`);
+    linhas.push(`${i + 1}. **${e.titulo}** (\`${e.id}\`)`);
+    for (const c of p.cards.filter((c) => c.etapa === e.id).sort(porTipo)) linhas.push(`   - ${linhaCard(c)}`);
   });
   if (!r.etapas.length) linhas.push("_O roteiro está vazio._");
   const fora = p.cards.filter((c) => !c.etapa || !etapaIds.has(c.etapa)).sort(porTipo);
-  if (fora.length) linhas.push("", "## Cards fora das etapas", "", ...fora.map((c) => `- ${ROTULO[c.tipo]}: ${c.titulo} (\`${arquivo(c)}\`)`));
-
-  const de = (t: Card["tipo"]) => p.cards.filter((c) => c.tipo === t).sort(porTipo);
-  linhas.push(...secao("Requisitos", de("requisito"), texto));
-  linhas.push(...secao("Decisões (com o porquê)", de("decisao"), texto));
-  linhas.push(...secao("Sugestões (com fonte)", de("sugestao"), (c) => [...(c.fonte ? ["", `Fonte: ${c.fonte}`] : []), ...texto(c)]));
-  const abertas = de("ambiguidade").filter(ambiguidadeAberta);
-  const resolvidas = de("ambiguidade").filter((c) => !ambiguidadeAberta(c));
-  linhas.push(...secao("Ambiguidades resolvidas", resolvidas, texto));
+  if (fora.length) linhas.push("", "Fora das etapas:", ...fora.map((c) => `- ${linhaCard(c)}`));
   if (abertas.length) {
-    linhas.push("", "## Ambiguidades ainda abertas", "");
-    linhas.push(...abertas.map((c) => `- **${c.titulo}** (\`${arquivo(c)}\`) — sem decisão: confirme com a pessoa antes de implementar o que depende dela.`));
+    linhas.push(
+      "",
+      "## Atenção",
+      "",
+      ...abertas.map((c) => `- Ambiguidade **${c.titulo}** (\`${c.id}\`) sem decisão: confirme com a pessoa antes de implementar o que depende dela.`),
+    );
   }
-  linhas.push(...secao("Notas", de("nota"), texto));
-  linhas.push(
-    "",
-    "## Como trabalhar",
-    "",
-    "- Antes de começar, declare as etapas acima como o seu plano (TodoWrite), na mesma ordem, e siga-as sem replanejar.",
-    `- Consulte \`${p.dir}\` (roteiro e cards) sempre que precisar de detalhe: os cards são a fonte das decisões.`,
-    "- Se o código real contradisser o plano, diga à pessoa o que encontrou e pergunte antes de desviar dele.",
-  );
+  linhas.push("", ...comoTrabalhar(p.slug));
   return `${linhas.join("\n")}\n`;
 }
 
@@ -105,8 +144,11 @@ export function pedidoAoManager(p: Plano, abertas = 0): string {
   const linhas = [
     "Gere agora o handoff deste planejamento para a conversa de implementação.",
     "",
-    "Grave com `nexo_plano_handoff` UM prompt autocontido. Ele precisa trazer: o objetivo; as etapas do roteiro na ordem, com os cards de cada uma; os requisitos; as decisões com o porquê; as sugestões com a fonte; as ambiguidades resolvidas; riscos e critérios de aceite; e a instrução de declarar as etapas como plano (TodoWrite) e consultar " +
-      `\`${p.dir}\` sem replanejar. A conversa de implementação só verá esse texto e os cards.`,
+    `Grave com \`nexo_plano_handoff\` UM prompt CURTO — é o mapa, não o plano. A conversa de implementação tem as ferramentas do plano e lê o conteúdo completo dele sozinha (plano \`${p.slug}\`). O prompt traz: o objetivo em 2 a 5 frases; a estrutura (etapas na ordem, cada uma com os títulos e ids dos cards); riscos e critérios de aceite, se houver. NÃO copie o corpo dos cards.`,
+    "",
+    "Termine o prompt exatamente com esta seção:",
+    "",
+    ...comoTrabalhar(p.slug),
     "",
     "Não implemente nada e não altere cards nem o roteiro agora: só grave o prompt e, no fim, diga que gravou.",
   ];

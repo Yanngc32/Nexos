@@ -1,8 +1,10 @@
 import type { Conjunto, Ferramenta, Saida } from "./mcp.ts";
-import { alvosDeAnexo, marcarImplementacaoDaEtapa } from "./planejamento-integracao.ts";
+import { alvosDeAnexo, marcarImplementacaoDaEtapa, resolverIntegracao, type Integracao } from "./planejamento-integracao.ts";
+import { telaSemMock } from "./planejamento-handoff.ts";
 import {
   abrirPlano,
   apagarCard,
+  chaveDoAnexo,
   ESTADOS_IMPLEMENTACAO,
   escreverHandoff,
   marcarEtapa,
@@ -58,17 +60,27 @@ const ROTULO: Record<Card["tipo"], string> = {
   decisao: "Decisão",
   sugestao: "Sugestão",
   ambiguidade: "Ambiguidade",
+  tela: "Tela",
   nota: "Nota",
 };
 
-/** Plano em texto pro modelo: roteiro com rev, e cada card com id, rev e [[Título]]. */
-export function planoEmTexto(p: Plano): string {
+/**
+ * Plano em texto pro modelo: roteiro com rev, e cada card com id, rev e [[Título]]. Com `integ`,
+ * anexo de tela sai com título e o caminho do .html (é o que a implementação lê).
+ */
+export function planoEmTexto(p: Plano, integ?: Integracao): string {
+  const anexo = (a: Card["anexos"][number]) => {
+    const r = integ?.anexos[chaveDoAnexo(a)];
+    if (a.tipo === "tarefa") return `tarefa ${a.id}${r ? (r.existe ? ` "${r.titulo}" [${r.detalhe}]` : " (apagada)") : ""}`;
+    const id = `${a.sistema}/${a.card}`;
+    return `tela ${id}${r ? (r.existe ? ` "${r.titulo}" — ${r.arquivo}` : " (apagada)") : ""}`;
+  };
   const r = p.roteiro;
   const linhaCard = (c: Card) =>
     `- [[${c.titulo}]] — id \`${c.id}\`, rev ${c.rev}, ${ROTULO[c.tipo]}` +
-    `${c.status ? ` (${c.status})` : ""}${c.feito ? ", IMPLEMENTADO" : ""}${c.fonte ? `, fonte ${c.fonte}` : ""}` +
+    `${c.status ? ` (${c.status})` : ""}${c.feito ? ", IMPLEMENTADO" : ""}${telaSemMock(c) ? ", MOCK PENDENTE" : ""}${c.fonte ? `, fonte ${c.fonte}` : ""}` +
     `${c.links.length ? `, ligado a ${c.links.map((l) => `\`${l}\``).join(", ")}` : ""}` +
-    `${c.anexos.length ? `, anexos ${c.anexos.map((a) => (a.tipo === "ds" ? `tela ${a.sistema}/${a.card}` : `tarefa ${a.id}`)).join(", ")}` : ""}` +
+    `${c.anexos.length ? `, anexos: ${c.anexos.map(anexo).join("; ")}` : ""}` +
     `${c.corpo ? `\n  ${c.corpo.replace(/\n/g, "\n  ")}` : ""}`;
   const linhas = [`# ${r.titulo}`, `Roteiro rev ${r.rev}.`, "", "## Etapas"];
   if (!r.etapas.length) linhas.push("- nenhuma ainda — comece separando o pedido em etapas (nexo_plano_roteiro)");
@@ -143,7 +155,11 @@ export function ferramentasDePlanejamento(projectPath: string, slug: string, hom
           "Lê o plano inteiro: roteiro (etapas com id e status, e o rev do roteiro) e cada card com id, rev, " +
           "tipo, [[Título]] e corpo. CHAME PRIMEIRO, e de novo antes de escrever se a pessoa pode ter editado na tela.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
-        executar: () => tentar(() => planoEmTexto(ler())),
+        executar: () =>
+          tentar(() => {
+            const p = ler();
+            return planoEmTexto(p, resolverIntegracao(projectPath, home, p));
+          }),
       },
       {
         name: "nexo_plano_roteiro",
@@ -196,7 +212,8 @@ export function ferramentasDePlanejamento(projectPath: string, slug: string, hom
         name: "nexo_plano_card_criar",
         description:
           "Cria um card: requisito, decisao (com o porquê no corpo), sugestao (exige fonte: URL http/https ou " +
-          "arquivo do projeto como src/a.ts:12 — sem fonte, é decisão ou nota), nota. Ambiguidade: use " +
+          "arquivo do projeto como src/a.ts:12 — sem fonte, é decisão ou nota), tela (SPEC COMPLETA da tela no " +
+          "corpo — a implementação gera o mock a partir dela), nota. Ambiguidade: use " +
           "nexo_plano_ambiguidade_abrir. Cite outros cards no corpo como [[Título]]: vira seta no canvas.",
         inputSchema: {
           type: "object",
@@ -414,6 +431,10 @@ Você é o Agent Manager do plano "${slug}" (arquivos em ${dir}). Seu trabalho �
 - Sugestão só quando for RELEVANTE pro objetivo e verificável, com o ganho concreto e a fonte (URL ou arquivo:linha do projeto). Sem fonte é opinião: fica na conversa ou vira nota. Na dúvida, não sugira.
 - Sem opção melhor: registre a escolha da pessoa como decisão, com o porquê.
 
+## Telas
+- Toda tela nova ou que muda vira um card \`tela\` na etapa dela, com a SPEC COMPLETA no corpo — quem implementa vai gerar o mock só a partir dela, sem te perguntar. Cubra: objetivo e quem usa; onde entra e como se chega nela; layout e hierarquia (de cima pra baixo); cada componente com o conteúdo e dados de exemplo reais; estados (vazio, carregando, erro, sucesso, sem permissão); interações e o que cada ação faz; textos e mensagens; responsivo; acessibilidade; e quais tokens/componentes do Design System usar (veja com \`nexo_plano_alvos\` e \`nexo_ds_print\`).
+- Tela que já existe no DS: anexe ela ao card como referência. Você não faz o mock — ele é anexado ao card pela implementação.
+
 ## Ambiguidades
 - Leituras diferentes que mudam o resultado: \`nexo_plano_ambiguidade_abrir\` com a SUA opinião, ligada aos cards envolvidos, e pergunte com \`nexo_perguntar\`. Quando a pessoa decidir, \`nexo_plano_ambiguidade_resolver\`.
 
@@ -429,13 +450,14 @@ Você é o Agent Manager do plano "${slug}" (arquivos em ${dir}). Seu trabalho �
 export function blocoDoHandoff(slug: string, dir: string): string {
   return `# Implementação do plano "${slug}"
 Esta conversa nasceu do plano "${slug}", feito com a pessoa na Tela de Planejamento. O plano detalhado está em ${dir} (leia com Read/Glob/Grep pelo caminho absoluto): \`roteiro.md\` (etapas, na ordem) e \`cards/*.md\` (requisitos, decisões com o porquê, sugestões com fonte, ambiguidades resolvidas, notas).
-- Antes de começar, leia o plano com \`nexo_plano_ler\` e declare as etapas do roteiro como o seu plano (TodoWrite), na mesma ordem, e siga-as.
+- O prompt que abriu esta conversa é só o mapa. Antes de começar, leia o plano com \`nexo_plano_ler\` (é a fonte da verdade) e declare as etapas do roteiro como o seu plano (TodoWrite), na mesma ordem, e siga-as.
 - Não replaneje: plano, decisões e ambiguidades já foram resolvidos com a pessoa. Se o código real contradisser o plano, diga o que encontrou e pergunte antes de desviar.
 
 ## Mantenha o plano em dia enquanto implementa
 O plano é o painel que a pessoa acompanha na Tela de Planejamento. Você tem as mesmas ferramentas do planejador (\`nexo_plano_*\`, sempre com o rev que leu; conflito = a pessoa mexeu: releia e refaça):
 - Ao começar uma etapa: \`nexo_plano_implementacao\` com \`em_andamento\`; ao terminar e verificar: \`feita\`. Se a etapa tem tarefa no Quadro, ela anda junto.
 - Cada requisito que ficou pronto: \`nexo_plano_card_atualizar\` com \`feito: true\`.
+- Card de tela (MOCK PENDENTE): antes de codar a tela, gere o mock no design system "Mocks" (\`nexo_ds_listar\`; sem ele, \`nexo_ds_criar\` com base "ativo") seguindo a spec do card, grave com \`nexo_ds_card_salvar\`, confira com \`nexo_ds_print\` e anexe ao card (\`anexos\` com \`{ tipo: "ds", sistema, card }\`, mantendo os que já estavam). Depois implemente a partir do mock.
 - Desvio que a pessoa aprovou, ou escolha técnica que o plano não previa: card de decisão (\`nexo_plano_card_criar\`) na etapa, com o porquê.
 - Dúvida que trava: \`nexo_plano_ambiguidade_abrir\` + \`nexo_perguntar\`; resolvida, \`nexo_plano_ambiguidade_resolver\`.
 - Trabalho novo que apareceu: acrescente a etapa com \`nexo_plano_roteiro\` (mantendo os ids das que existem) só depois de combinar com a pessoa.

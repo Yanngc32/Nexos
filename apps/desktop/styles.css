@@ -7965,6 +7965,7 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
   --pl-sugestao: var(--warn);
   --pl-ambiguidade: var(--danger);
   --pl-nota: #8d8a86;
+  --pl-tela: var(--accent);
   --pl-tipo: var(--pl-nota);
   position: relative;
 }
@@ -7974,6 +7975,7 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
 #pane-planejamento [data-tipo="sugestao"] { --pl-tipo: var(--pl-sugestao); }
 #pane-planejamento [data-tipo="ambiguidade"] { --pl-tipo: var(--pl-ambiguidade); }
 #pane-planejamento [data-tipo="nota"] { --pl-tipo: var(--pl-nota); }
+#pane-planejamento [data-tipo="tela"] { --pl-tipo: var(--pl-tela); }
 
 .pl-rotulo {
   font-size: var(--fs-2xs);
@@ -8445,6 +8447,8 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
 .pl-etapa-impl[data-estado="feita"] { color: var(--ok); }
 .pl-coluna-impl[data-estado="em_andamento"] { color: var(--warn); }
 .pl-coluna-impl[data-estado="feita"] { color: var(--ok); }
+.pl-card-mock { flex: none; border: 1px solid currentColor; border-radius: var(--r-pill); padding: 1px 7px; text-transform: none; letter-spacing: 0; color: var(--ok); }
+.pl-card-mock[data-pendente="1"] { color: var(--warn); border-style: dashed; }
 .pl-card-feito { flex: none; color: var(--ok); text-transform: none; letter-spacing: 0; }
 .pl-card[data-feito="1"] .pl-card-titulo { color: var(--muted); }
 .pl-ed-feito { display: flex; align-items: center; gap: var(--s-3); font-size: var(--fs-sm); color: var(--muted); }

@@ -11,6 +11,8 @@ import {
   previaDoCorpo,
   rotuloDaFonte,
   sugestoesDeRef,
+  MODELO_SPEC_TELA,
+  telaSemMock,
 } from "../planejamento-board.js";
 
 // o markup de verdade da tela, direto do index.html: teste e app não divergem
@@ -385,5 +387,26 @@ describe("implementação marcada no plano", () => {
     caixa.dispatchEvent(new Event("change"));
     await vi.waitFor(() => expect(chamadas.some((c) => c.metodo === "PUT" && c.path.includes("/cards/r1"))).toBe(true));
     expect(chamadas.find((c) => c.metodo === "PUT" && c.path.includes("/cards/r1")).body).toEqual({ feito: false, expectedRev: 1 });
+  });
+});
+
+describe("card de Tela", () => {
+  it("mostra mock pendente até ter tela do DS anexada; escolher o tipo no editor põe o esqueleto da spec", async () => {
+    const { board, setPlano } = montar();
+    const p = planoBase();
+    p.cards.push(
+      { id: "t1", tipo: "tela", titulo: "Login", etapa: "a", links: [], anexos: [], rev: 1, corpo: "spec" },
+      { id: "t2", tipo: "tela", titulo: "Painel", etapa: "a", links: [], anexos: [{ tipo: "ds", sistema: "mocks", card: "painel" }], rev: 1, corpo: "spec" },
+    );
+    setPlano(p);
+    await board.abrir();
+    expect(telaSemMock(p.cards.at(-2))).toBe(true);
+    expect(document.querySelector('.pl-card[data-id="t1"] .pl-card-mock').dataset.pendente).toBe("1");
+    expect(document.querySelector('.pl-card[data-id="t2"] .pl-card-mock').textContent).toBe("mock ✓");
+
+    document.querySelector('.pl-card[data-id="r1"]').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    document.getElementById("pl-ed-corpo").value = "";
+    document.querySelector('#pl-ed-tipos button[data-tipo="tela"]').click();
+    expect(document.getElementById("pl-ed-corpo").value).toBe(MODELO_SPEC_TELA);
   });
 });
