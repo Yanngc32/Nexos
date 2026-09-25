@@ -2999,28 +2999,302 @@ li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
   margin-right: auto;
 }
 
+.chat-empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-8);
+  overflow: auto;
+}
+
+/* com o vazio na tela, o log (vazio) não disputa a altura com ele */
+#pane-chat:has(#chat-empty:not(.hidden)) .log-wrap {
+  display: none;
+}
+
+/* card fb-vazio do DS: caixa tracejada, mago no círculo, uma ação primária */
+.chat-empty-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--s-5);
+  width: min(520px, 100%);
+  padding: 32px var(--s-8);
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+
 .chat-empty-ico {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.chat-empty-ico img {
   width: 40px;
   height: 40px;
-  margin: 0 auto 14px;
-  color: var(--accent);
-  display: block;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.chat-empty-eb {
+  font-size: var(--fs-xs);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .chat-empty-title {
-  margin: 0 0 6px;
+  margin: 0;
   color: var(--text);
-  font-size: var(--fs-2xl);
+  font-size: var(--fs-3xl);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: var(--ls-title);
 }
 
 .chat-empty-sub {
   margin: 0;
+  max-width: 380px;
   color: var(--muted);
   font-size: var(--fs-md);
+  line-height: var(--lh-prose);
 }
 
-.chat-empty-cta {
-  margin: 18px 0 0;
+.chat-empty-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s-3);
+  margin-top: var(--s-1);
+}
+
+.chat-empty-bt {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 32px;
+  margin: 0;
+  padding: 0 var(--s-5);
+  font-weight: 500;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+}
+
+.chat-empty-bt:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.chat-empty-bt.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.chat-empty-bt.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, #fff 10%, var(--accent));
+}
+
+.chat-empty-bt svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* --- Tela de abertura (card tela-de-abertura-loading do DS Mocks) --- */
+.abertura {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-5);
+  padding: var(--s-8);
+  background: var(--bg);
+  -webkit-app-region: drag;
+  transition: opacity 300ms var(--ease), visibility 0s linear 300ms;
+}
+
+.abertura.saindo {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.abertura button {
+  -webkit-app-region: no-drag;
+}
+
+.ab-palco {
+  height: 128px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  margin-bottom: var(--s-1);
+}
+
+.ab-mago {
+  display: block;
+  image-rendering: pixelated;
+}
+
+.abertura[data-fase="travado"] .ab-mago,
+.abertura[data-fase="erro"] .ab-mago {
+  opacity: .5;
+}
+
+.ab-marca {
+  margin: 0;
+  color: var(--text);
+  font-size: 32px;
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: -.02em;
+}
+
+.ab-status {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 500;
+  line-height: var(--lh-ui);
+  text-align: center;
+}
+
+.ab-meta {
+  max-width: 420px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.ab-passos {
+  list-style: none;
+  margin: var(--s-1) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  width: 190px;
+}
+
+.ab-passos li {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-ui);
+  color: var(--faint);
+}
+
+.ab-ic {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: block;
+}
+
+.ab-passos .ab-feito { color: var(--muted); }
+.ab-passos .ab-feito .ab-ic { color: var(--ok); }
+.ab-passos .ab-agora { color: var(--text); }
+.ab-passos .ab-agora .ab-ic { color: var(--accent-text); animation: ab-pulso 1.2s var(--ease) infinite; }
+.ab-passos .ab-erro { color: var(--text); }
+.ab-passos .ab-erro .ab-ic { color: var(--danger); }
+
+.ab-aviso {
+  margin: 0;
+  max-width: 280px;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-ui);
+  color: var(--muted);
+  text-align: center;
+}
+
+.ab-aviso-est {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  color: var(--warn);
+}
+
+.ab-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s-3);
+  margin-top: var(--s-1);
+}
+
+.ab-acoes button {
+  min-height: 28px;
+  margin: 0;
+  padding: var(--s-1) var(--s-5);
+  font-weight: 500;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+}
+
+.ab-acoes button:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.ab-acoes button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.ab-acoes button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, #fff 10%, var(--accent));
+}
+
+.ab-acoes button.ab-link {
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+}
+
+.ab-barra {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.ab-barra span {
+  display: block;
+  width: 35%;
+  height: 100%;
+  background: var(--accent);
+  animation: ab-corre 1.6s var(--ease) infinite;
+}
+
+.abertura[data-fase="travado"] .ab-barra span,
+.abertura[data-fase="erro"] .ab-barra span {
+  width: 100%;
+  animation: none;
+  background: var(--warn);
+}
+
+@keyframes ab-pulso { 50% { opacity: .35; } }
+@keyframes ab-corre { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ab-passos .ab-agora .ab-ic,
+  .ab-barra span { animation: none; }
+  .abertura { transition: none; }
 }
 
 #composer {

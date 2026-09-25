@@ -6,6 +6,8 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- Tela de abertura: enquanto o motor liga, o app mostra o mago e os passos (motor, contas e projetos, última conversa) em vez da janela vazia. Passados 25 s, ela explica a demora e oferece tentar de novo, ver o log ou entrar assim mesmo. Com o motor travado, mostra a contagem pro reinício automático e o botão de reiniciar agora. Motor lento na subida também não deixa mais a última conversa fechada.
+- Tela vazia nova (sem projeto nenhum): mago, "Nenhum projeto ainda" e os botões "Adicionar projeto" e "Clonar do GitHub".
 - Acessibilidade no app de celular, pra teclado (bluetooth, varredura) e leitor de tela (TalkBack, VoiceOver):
   - As linhas de conversa, de run e das folhas passam a entrar no Tab, abrem com Enter ou Espaço e são anunciadas como botão. Antes só respondiam ao toque.
   - O grupo de passos de um run diz se está aberto ou fechado.

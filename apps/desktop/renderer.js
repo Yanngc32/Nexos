@@ -10,6 +10,7 @@ import { createHooksStudio } from "./hooks-studio.js";
 import { createAutomacaoModal } from "./automacao-modal.js";
 import { createCloneModal } from "./clone-modal.js";
 import { conversasProntas } from "./fila-fundo.js";
+import { faseDaAbertura } from "./abertura.js";
 import { createNewThreadModal } from "./new-thread-modal.js";
 import { diffDeFerramenta, nomeArquivo, renderDiff } from "./diff-view.js";
 import { createTarefasBoard } from "./tarefas-board.js";
@@ -1634,14 +1635,16 @@ function setComposer(on) {
 function updateChatEmptyState() {
   const title = $("chat-empty-title");
   const sub = $("chat-empty-sub");
-  const cta = $("chat-empty-cta");
-  if (!title || !sub || !cta) return;
-  const semRepos = state.repos.length === 0;
-  title.textContent = semRepos ? "Bem-vindo ao Nexos" : "Escolhe uma conversa";
+  const acoes = $("chat-empty-acoes");
+  if (!title || !sub || !acoes) return;
+  const n = state.repos.length;
+  const semRepos = n === 0;
+  $("chat-empty-eb").textContent = `Projetos · ${n}`;
+  title.textContent = semRepos ? "Nenhum projeto ainda" : "Escolhe uma conversa";
   sub.textContent = semRepos
-    ? "Abra uma pasta pra começar a conversar com o agente."
+    ? "Abra uma pasta do seu computador ou clone um repositório do GitHub pra começar a conversar com os agentes."
     : "Escolhe uma conversa à esquerda ou cria outra.";
-  cta.classList.toggle("hidden", !semRepos);
+  acoes.classList.toggle("hidden", !semRepos);
 }
 
 const WORK_PANES = ["file", "terminal", "browser", "canvas", "graph", "agentes", "tarefas", "ds", "planejamento"];
@@ -2637,6 +2640,11 @@ function pickPaletteItem(item) {
 async function refreshDaemon() {
   const info = await window.nexo.daemonInfo();
   aplicarInfoDoMotor(info);
+  if (state.abertura?.ativa) {
+    state.abertura.info = info;
+    if (info.ok) state.abertura.passos.motor = true;
+    pintarAbertura();
+  }
   // preserva o "falando": o poll não pode derrubar o estado no meio da resposta
   setMotor(info.ok, info.ok && state.talking);
   if (!info.ok) {
@@ -8944,6 +8952,7 @@ dialogo.ligar();
 automacaoModal.ligar();
 cloneModal.ligar();
 $("btn-clonar").addEventListener("click", () => cloneModal.abrir());
+$("chat-empty-clonar").addEventListener("click", () => cloneModal.abrir());
 newThreadModal.ligar();
 $("btn-tk-automacao").addEventListener("click", () => void abrirAutomacao());
 
@@ -9256,6 +9265,131 @@ function initBarOverflow() {
 initCombobox();
 initBarOverflow();
 
+/**
+ * Tela de abertura (abertura.js decide a fase). Cobre a janela do boot até a última conversa
+ * abrir; `refreshDaemon` alimenta o retrato do motor. Os dados moram em `state.abertura` porque o
+ * `refreshDaemon` roda de listeners declarados antes daqui.
+ */
+state.abertura = {
+  ativa: true,
+  desde: Date.now(),
+  info: {},
+  comConversa: false,
+  passos: { motor: false, dados: false, conversa: false },
+  relogio: null,
+  chave: "",
+};
+const abertura = state.abertura;
+
+const AB_ICONES = {
+  feito: '<svg class="ab-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg>',
+  agora: '<svg class="ab-ic" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3.5" fill="currentColor"/></svg>',
+  espera: '<svg class="ab-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="4.5"/></svg>',
+  erro: '<svg class="ab-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></svg>',
+};
+
+function sairDaAbertura() {
+  if (!abertura.ativa) return;
+  abertura.ativa = false;
+  clearInterval(abertura.relogio);
+  const el = $("abertura");
+  el.classList.add("saindo");
+  el.setAttribute("aria-hidden", "true");
+  el.addEventListener("transitionend", () => el.remove(), { once: true });
+  setTimeout(() => el.remove(), 600);
+}
+
+function pintarAbertura() {
+  if (!abertura.ativa) return;
+  const f = faseDaAbertura({ ...abertura, agora: Date.now() });
+  if (!f) {
+    sairDaAbertura();
+    return;
+  }
+  const el = $("abertura");
+  el.dataset.fase = f.fase;
+  el.setAttribute("role", f.fase === "travado" || f.fase === "erro" ? "alert" : "status");
+  const mago = $("ab-mago");
+  const src = `pets/nexo/mago/${f.mago}.png`;
+  if (mago.getAttribute("src") !== src) mago.setAttribute("src", src);
+  $("ab-status").textContent = f.status;
+  $("ab-meta").textContent = f.meta || "";
+  $("ab-meta").classList.toggle("hidden", !f.meta);
+
+  const passos = $("ab-passos");
+  passos.classList.toggle("hidden", !f.passos);
+  if (f.passos) {
+    passos.replaceChildren(
+      ...f.passos.map((p) => {
+        const li = document.createElement("li");
+        if (p.estado !== "espera") li.className = `ab-${p.estado}`;
+        li.innerHTML = AB_ICONES[p.estado];
+        li.append(p.rotulo);
+        return li;
+      }),
+    );
+  }
+
+  const aviso = $("ab-aviso");
+  aviso.classList.toggle("hidden", !f.aviso && !f.nota);
+  aviso.replaceChildren();
+  if (f.aviso) {
+    if (f.avisoEstado) {
+      const est = document.createElement("span");
+      est.className = "ab-aviso-est";
+      est.textContent = f.aviso;
+      aviso.append(est);
+    } else aviso.append(f.aviso);
+  }
+  if (f.nota) aviso.append(document.createElement("br"), f.nota);
+
+  // botões só são refeitos quando mudam: refazer a cada segundo tirava o foco do teclado
+  const acoes = $("ab-acoes");
+  const chave = f.acoes.map((a) => a.id + a.rotulo).join("|");
+  acoes.classList.toggle("hidden", !f.acoes.length);
+  if (chave !== abertura.chave) {
+    abertura.chave = chave;
+    acoes.replaceChildren(
+      ...f.acoes.map((a) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = a.rotulo;
+        if (a.pri) b.className = "primary";
+        else if (a.link) b.className = "ab-link";
+        b.addEventListener("click", () => void acaoDaAbertura(a.id, b));
+        return b;
+      }),
+    );
+  }
+}
+
+async function acaoDaAbertura(id, botao) {
+  if (id === "entrar") {
+    sairDaAbertura();
+    return;
+  }
+  if (id === "log") {
+    const home = abertura.info.home;
+    if (home) await window.nexo.revealPath?.(home).catch(() => {});
+    return;
+  }
+  botao.disabled = true;
+  try {
+    if (id === "tentar") {
+      abertura.desde = Date.now();
+      abertura.info = { starting: true };
+      abertura.chave = "";
+      pintarAbertura();
+      await window.nexo.startDaemon();
+    } else if (id === "destravar" || id === "forcar") {
+      await window.nexo.destravarMotor({ forcar: id === "forcar" });
+    }
+    await refreshDaemon();
+  } finally {
+    botao.disabled = false;
+  }
+}
+
 const bootQuery = new URLSearchParams(location.search);
 const bootAccent = bootQuery.get("accent");
 applyTema(bootQuery.get("tema") || localStorage.getItem("nexo.tema") || DEFAULT_TEMA);
@@ -9269,11 +9403,26 @@ aplicarSessaoWork();
 updatePalTerm();
 paintAgents();
 void (async () => {
+  abertura.comConversa = Boolean(state.threadId && state.projectPath);
+  pintarAbertura();
+  abertura.relogio = setInterval(pintarAbertura, 1000);
   if (state.projectPath) await window.nexo.setProject?.(state.projectPath);
   loadCanvas();
   await loadFileTree();
-  await refreshDaemon();
-  if (state.ok && state.threadId && state.projectPath) {
+  // Motor ainda subindo: espera aqui (a tela de abertura mostra o passo) em vez de abrir sem a
+  // conversa — antes, motor lento no boot deixava a última conversa fechada.
+  for (;;) {
+    try {
+      await refreshDaemon();
+    } catch {
+      /* motor caiu no meio da carga: tenta de novo no próximo passo */
+    }
+    if (state.ok) break;
+    await new Promise((r) => setTimeout(r, abertura.ativa ? 1000 : 4000));
+  }
+  abertura.passos.dados = true;
+  pintarAbertura();
+  if (state.threadId && state.projectPath) {
     try {
       await openThread(state.threadId);
     } catch {
@@ -9284,6 +9433,8 @@ void (async () => {
       aplicarSessaoWork();
     }
   }
+  abertura.passos.conversa = true;
+  pintarAbertura();
 })();
 setInterval(refreshDaemon, 4000);
 
