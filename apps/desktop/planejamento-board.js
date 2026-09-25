@@ -14,7 +14,7 @@
  */
 
 import { criarAnimador } from "./canvas-anim.js";
-import { ajustarATela, zoomEm } from "./canvas-ds.js";
+import { ajustarATela, baseHrefDoProjeto, montarSrcdoc, urlsDeFontes, zoomEm } from "./canvas-ds.js";
 import { renderMd } from "./markdown.js";
 import {
   CARD_H,
@@ -127,14 +127,15 @@ export function telaSemMock(card) {
 }
 
 /**
- * Mesma regra do daemon (`estadoDoDesign`): o mock é a última tela do DS anexada que existe; o
+ * Mesma regra do daemon (`estadoDoDesign`): o mock é a última tela do DS anexada que existe (tela
+ * marcada como referência de layout não conta); o
  * veredito só vale pra ela e pro conteúdo avaliado (hash). `null` = não é tela.
  */
 export function estadoDoDesign(card, integracao) {
   if (card?.tipo !== "tela") return null;
   let mock = null;
   for (const a of [...(card.anexos ?? [])].reverse()) {
-    if (a.tipo !== "ds") continue;
+    if (a.tipo !== "ds" || a.referencia) continue;
     const r = integracao?.anexos?.[chaveDoAnexo(a)];
     if (r?.existe) {
       mock = { chave: chaveDoAnexo(a), hash: r.hash };
@@ -203,7 +204,9 @@ export function createPlanejamentoBoard({
   /** Manda o pedido fixo na conversa do Manager (a conversa ativa, que é a desta tela). */
   aoPedirAoManager = () => {},
   aoAbrirConversa = () => {},
-  /** Anexo de tela do DS: abre o Canvas do DS focado nela. */
+  /** Plano (re)carregado do daemon: a tela cheia usa pra achar as conversas do Manager e da implementação. */
+  aoCarregarPlano = () => {},
+  /** "Abrir no Canvas" da prévia do anexo de tela: abre o Canvas do DS focado nela. */
   aoAbrirDs = () => {},
   /** Anexo de tarefa / selo da etapa: abre o Quadro com a tarefa aberta. */
   aoAbrirTarefa = () => {},
@@ -230,6 +233,8 @@ export function createPlanejamentoBoard({
   let animador = null;
   /** Diálogo de envio: passo atual e, esperando o Manager, os handoffs que já existiam. */
   let envio = null;
+  /** Prévia do anexo de tela aberta: o anexo (pra "Abrir no Canvas"). */
+  let previa = null;
   /** Seletor de anexo aberto no editor: tipo e o que dá pra anexar (lido ao abrir). */
   let picker = null;
   /** O que esta janela acabou de gravar (`card:<id>:<rev>`, `roteiro:<rev>`): o eco não anima. */
@@ -282,6 +287,7 @@ export function createPlanejamentoBoard({
       carregando = false;
     }
     pintar();
+    if (plano) aoCarregarPlano(plano);
     if (animar && anterior && plano) animarDiferenca(diffPlano(anterior, plano, proprios));
     proprios.clear();
   }
@@ -649,14 +655,19 @@ export function createPlanejamentoBoard({
     abrir.type = "button";
     const titulo = r?.titulo || (a.tipo === "ds" ? a.card : a.id);
     abrir.append(mk("span", "pl-anexo-ico", a.tipo === "ds" ? "▣" : r?.feita ? "☑" : "☐"), mk("span", "pl-anexo-nome", titulo));
+    if (a.referencia) {
+      chip.dataset.referencia = "1";
+      abrir.append(mk("span", "pl-anexo-ref", "ref."));
+    }
+    const oque = a.tipo === "ds" ? (a.referencia ? "Referência de layout (não é o mock desta tela)" : "Tela do Design System") : "Tarefa do Quadro";
     abrir.title = existe
-      ? `${a.tipo === "ds" ? "Tela do Design System" : "Tarefa do Quadro"}: ${titulo}${r?.detalhe ? ` (${r.detalhe})` : ""} — abrir`
+      ? `${oque}: ${titulo}${r?.detalhe ? ` (${r.detalhe})` : ""} — ${a.tipo === "ds" ? "ver a tela" : "abrir"}`
       : `${titulo} — não existe mais`;
     abrir.disabled = !existe;
     abrir.addEventListener("mousedown", (e) => e.stopPropagation());
     abrir.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (a.tipo === "ds") aoAbrirDs(a.sistema, a.card);
+      if (a.tipo === "ds") void abrirPrevia(a, titulo);
       else aoAbrirTarefa(a.id);
     });
     chip.append(abrir);
@@ -1329,6 +1340,40 @@ export function createPlanejamentoBoard({
     mostrarPasso("conferir");
   }
 
+  /** Tela do DS anexada, renderizada aqui mesmo (sem trocar pro Canvas) com os tokens do DS dela. */
+  async function abrirPrevia(a, titulo) {
+    previa = a;
+    el("pl-previa-ds").textContent = a.sistema;
+    el("pl-previa-titulo").textContent = titulo;
+    el("pl-previa-ref").classList.toggle("hidden", !a.referencia);
+    const frame = el("pl-previa-frame");
+    const msg = el("pl-previa-msg");
+    frame.srcdoc = "";
+    frame.classList.add("hidden");
+    msg.textContent = "Carregando a tela…";
+    msg.classList.remove("hidden");
+    el("pl-previa").classList.remove("hidden");
+    el("btn-pl-previa-fechar").focus();
+    try {
+      const t = await req(`/v1/ds/tela?${qs()}&sistema=${encodeURIComponent(a.sistema)}&card=${encodeURIComponent(a.card)}`);
+      if (previa !== a) return;
+      el("pl-previa-ds").textContent = t.sistema.nome;
+      el("pl-previa-titulo").textContent = t.card.titulo;
+      const doc = montarSrcdoc({ css: t.css, baseHref: baseHrefDoProjeto(t.projetoAbs), fontes: urlsDeFontes(t.vars), kit: t.kitCss || "" });
+      frame.srcdoc = doc.replace("<body></body>", `<body>${t.card.html}</body>`);
+      frame.classList.remove("hidden");
+      msg.classList.add("hidden");
+    } catch (e) {
+      if (previa === a) msg.textContent = `Não deu pra abrir a tela: ${e.message}`;
+    }
+  }
+
+  function fecharPrevia() {
+    previa = null;
+    el("pl-previa").classList.add("hidden");
+    el("pl-previa-frame").srcdoc = "";
+  }
+
   function fecharEnvio() {
     envio = null;
     el("pl-envio").classList.add("hidden");
@@ -1453,6 +1498,15 @@ export function createPlanejamentoBoard({
     });
     el("btn-pl-enviar").addEventListener("click", () => void abrirEnvio());
     el("btn-pl-envio-cancelar").addEventListener("click", fecharEnvio);
+    el("btn-pl-previa-fechar")?.addEventListener("click", fecharPrevia);
+    el("btn-pl-previa-canvas")?.addEventListener("click", () => {
+      const a = previa;
+      fecharPrevia();
+      if (a) aoAbrirDs(a.sistema, a.card);
+    });
+    el("pl-previa")?.addEventListener("click", (e) => {
+      if (e.target === el("pl-previa")) fecharPrevia();
+    });
     el("btn-pl-envio-voltar").addEventListener("click", () => mostrarPasso("conferir"));
     el("btn-pl-envio-rascunho").addEventListener("click", () => envio && irParaRevisao(envio.rascunho.trimEnd()));
     el("btn-pl-envio-manager").addEventListener("click", () => void pedirAoManager());
@@ -1533,7 +1587,8 @@ export function createPlanejamentoBoard({
       }
       if (e.key === "Enter" && selecionado?.tipo === "card") abrirEditor(selecionado.id);
       if (e.key === "Escape") {
-        if (envio) fecharEnvio();
+        if (previa) fecharPrevia();
+        else if (envio) fecharEnvio();
         else if (editando) void fecharEditor();
         else selecionar(null);
       }

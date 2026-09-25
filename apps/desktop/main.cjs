@@ -892,6 +892,10 @@ function createWindow() {
     else if (k === "j" && !input.shift && !input.alt) mod = "terminal";
     else if (k === "b" && input.shift) mod = "browser";
     else if (k === "s" && input.shift) mod = "side-chat";
+    // área de chats: Ctrl+1/2/3 foca o chat N, Ctrl+Shift+M minimiza, Ctrl+B mostra/recolhe a sidebar
+    else if (["1", "2", "3"].includes(k) && !input.shift && !input.alt) mod = `chat-${k}`;
+    else if (k === "m" && input.shift) mod = "chat-min";
+    else if (k === "b" && !input.shift && !input.alt) mod = "sidebar";
     else if (k === "w" && input.shift) {
       event.preventDefault();
       alternarPainel();

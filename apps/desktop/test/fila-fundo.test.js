@@ -16,6 +16,11 @@ describe("conversasProntas (fila das conversas não abertas)", () => {
     expect(conversasProntas(base())).toEqual(["b"]);
   });
 
+  it("com vários chats na tela, nenhum deles entra (cada um anda pelo SSE dele)", () => {
+    const filas = { aberta: [{ text: "x" }], b: [{ text: "1" }], c: [{ text: "2" }] };
+    expect(conversasProntas(base({ filas, atual: undefined, abertas: ["aberta", "b"] }))).toEqual(["c"]);
+  });
+
   it("espera turno em voo, pergunta pendente e envio em curso", () => {
     expect(conversasProntas(base({ agentes: [{ threadId: "b", busy: true }] }))).toEqual([]);
     expect(conversasProntas(base({ agentes: [{ threadId: "b", aguardando: true }] }))).toEqual([]);

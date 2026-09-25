@@ -845,7 +845,11 @@
       </section>
 
       <section class="pane" id="pane-planejamento">
-        <header class="mod-head pl-head">
+        <header class="mod-head pl-head" role="toolbar" aria-label="Plano">
+          <button type="button" id="btn-pl-voltar" class="ghost pl-voltar" title="Volta pra conversa que estava aberta">← Voltar</button>
+          <button type="button" id="btn-pl-side" class="ghost ico-only pl-side" title="Mostrar a barra lateral" aria-label="Mostrar a barra lateral" aria-pressed="false">
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" focusable="false"><rect x="1.5" y="2" width="11" height="10" rx="1.5" /><path d="M5 2v10" /></svg>
+          </button>
           <div class="pl-head-titulo">
             <span class="pl-rotulo">Planejamento</span>
             <input type="text" id="pl-titulo" class="pl-titulo" aria-label="Título do plano" maxlength="120" placeholder="Sem nome" />
@@ -973,6 +977,23 @@
             </footer>
           </aside>
         </div>
+        <div id="pl-previa" class="pl-envio pl-previa hidden" role="dialog" aria-modal="true" aria-labelledby="pl-previa-titulo">
+          <div class="pl-envio-caixa pl-previa-caixa">
+            <header class="pl-previa-cab">
+              <div class="pl-previa-tit">
+                <span id="pl-previa-ds" class="pl-rotulo"></span>
+                <strong id="pl-previa-titulo"></strong>
+              </div>
+              <span id="pl-previa-ref" class="pl-previa-ref hidden" title="Modelo de layout, não é o mock desta tela">Referência</span>
+              <button type="button" id="btn-pl-previa-canvas" class="ghost">Abrir no Canvas</button>
+              <button type="button" id="btn-pl-previa-fechar" class="ghost" title="Fechar (Esc)" aria-label="Fechar prévia">✕</button>
+            </header>
+            <div class="pl-previa-corpo">
+              <iframe id="pl-previa-frame" class="pl-previa-frame" sandbox="" title="Prévia da tela"></iframe>
+              <p id="pl-previa-msg" class="pl-previa-msg hidden"></p>
+            </div>
+          </div>
+        </div>
         <div id="pl-envio" class="pl-envio hidden" role="dialog" aria-modal="true" aria-labelledby="pl-envio-titulo">
           <div class="pl-envio-caixa">
             <header class="pl-envio-cab">
@@ -1020,33 +1041,10 @@
         </div>
       </div>
       <section class="pane hidden" id="pane-chat">
+        <!-- só no plano em tela cheia: altura da faixa de chats (Manager e Implementação) -->
+        <div id="split-plano" class="split-plano" role="separator" aria-orientation="horizontal" aria-label="Altura dos chats" tabindex="0"></div>
         <div id="split-chat" class="splitter" role="separator" aria-orientation="vertical" title="Arraste pra redimensionar"></div>
         <button type="button" id="btn-focus-exit" class="focus-exit hidden" title="Sair do foco (Esc)">⤡</button>
-        <header class="chat-head" id="chat-head">
-          <button type="button" id="btn-voltar-origem" class="ghost crumb-voltar hidden" title="Voltar pro chat que chamou este time">↩ Voltar ao chat</button>
-          <svg class="crumb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-            <path d="M4 20a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1Z" />
-          </svg>
-          <button type="button" id="crumb-repo" class="crumb-repo" title="Ver este projeto na barra esquerda">
-            Sem projeto
-          </button>
-          <span class="crumb-sep" aria-hidden="true">›</span>
-          <!--
-            Antes do título de propósito: `.crumb-thread` é `flex:1` e empurraria o botão pra
-            extremidade direita do cabeçalho — bem embaixo do `.meter` (absolute, right:12px,
-            z-index:4, fundo opaco), que o cobriria por inteiro.
-          -->
-          <button type="button" id="btn-roteamento" class="ghost ico-only roteamento-btn hidden" title="Ver decisão de roteamento" aria-label="Ver decisão de roteamento" aria-expanded="false">
-            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-              <circle cx="5" cy="12" r="2.5" />
-              <circle cx="19" cy="5" r="2.5" />
-              <circle cx="19" cy="19" r="2.5" />
-              <path d="M7.3 10.8 16.7 6.2" />
-              <path d="M7.3 13.2 16.7 17.8" />
-            </svg>
-          </button>
-          <span class="crumb-thread" id="crumb-thread">Nenhuma conversa</span>
-        </header>
         <div id="banner" class="banner hidden">Motor desligado. Liga pra conversar.</div>
         <div id="windows-control-banner" class="banner banner-windows-control hidden" role="status" aria-live="polite">
           <span aria-hidden="true">⚠</span>
@@ -1061,33 +1059,186 @@
           <div class="banner-update-bar hidden" id="update-banner-bar"><i id="update-banner-fill"></i></div>
           <button type="button" id="btn-update-restart" class="primary hidden">Reiniciar agora</button>
         </div>
-        <div id="log-wrap" class="log-wrap">
-          <ol id="log" class="log"></ol>
-          <div id="chat-history-rail" class="chat-history-rail hidden" aria-label="Histórico de mensagens enviadas"></div>
-          <button
-            type="button"
-            id="btn-scroll-bottom"
-            class="scroll-bottom-btn hidden"
-            title="Ir para o fim da conversa"
-            aria-label="Ir para o fim da conversa"
-          >⌄</button>
-        </div>
-        <!-- Estado vazio: card fb-vazio do DS (primeiro uso = sem projeto; senão, escolher conversa) -->
-        <div id="chat-empty" class="chat-empty">
-          <div class="chat-empty-box">
-            <div class="chat-empty-ico"><img src="pets/nexo/mago/work-logo.png" alt="" /></div>
-            <div id="chat-empty-eb" class="chat-empty-eb">Conversas</div>
-            <h2 id="chat-empty-title" class="chat-empty-title">Escolhe uma conversa</h2>
-            <p id="chat-empty-sub" class="chat-empty-sub">Escolhe uma conversa à esquerda ou cria outra.</p>
-            <div id="chat-empty-acoes" class="chat-empty-acoes hidden">
-              <button type="button" id="chat-empty-cta" class="primary chat-empty-bt">
-                <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M7 2v10M2 7h10" /></svg>
-                Adicionar projeto
+        <!-- área de chats (area-de-chats.js): até 3 <section class="chat">; os ids de dentro são por chat (IDS_DO_CHAT) -->
+        <div id="chat-cols" class="chat-cols">
+          <section class="chat" role="region" aria-label="Conversa">
+            <header class="chat-head" id="chat-head">
+              <span class="chat-etq hidden"></span>
+              <span class="chat-selo hidden" title="Há um mock de tela esperando você aprovar no card do plano">Mock aguardando aprovação</span>
+              <span class="chat-pill hidden" aria-live="off"></span>
+              <button type="button" id="btn-voltar-origem" class="ghost crumb-voltar hidden" title="Voltar pro chat que chamou este time">↩ Voltar ao chat</button>
+              <svg class="crumb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M4 20a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1Z" />
+              </svg>
+              <button type="button" id="crumb-repo" class="crumb-repo" title="Ver este projeto na barra esquerda">
+                Sem projeto
               </button>
-              <button type="button" id="chat-empty-clonar" class="chat-empty-bt">Clonar do GitHub</button>
+              <span class="crumb-sep" aria-hidden="true">›</span>
+              <!--
+                Antes do título de propósito: `.crumb-thread` é `flex:1` e empurraria o botão pra
+                extremidade direita do cabeçalho — bem embaixo do `.meter` (absolute, right:12px,
+                z-index:4, fundo opaco), que o cobriria por inteiro.
+              -->
+              <button type="button" id="btn-roteamento" class="ghost ico-only roteamento-btn hidden" title="Ver decisão de roteamento" aria-label="Ver decisão de roteamento" aria-expanded="false">
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                  <circle cx="5" cy="12" r="2.5" />
+                  <circle cx="19" cy="5" r="2.5" />
+                  <circle cx="19" cy="19" r="2.5" />
+                  <path d="M7.3 10.8 16.7 6.2" />
+                  <path d="M7.3 13.2 16.7 17.8" />
+                </svg>
+              </button>
+              <span class="crumb-thread" id="crumb-thread">Nenhuma conversa</span>
+              <span class="chat-janela hidden">
+                <button type="button" class="chat-ic" data-janela="minimizar" title="Minimizar" aria-label="Minimizar">
+                  <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" focusable="false"><path d="M2 9h8" /></svg>
+                </button>
+                <button type="button" class="chat-ic" data-janela="maximizar" title="Maximizar" aria-label="Maximizar">
+                  <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" focusable="false"><path d="M7 2h3v3M5 10H2V7M10 2L7 5M2 10l3-3" /></svg>
+                </button>
+                <button type="button" class="chat-ic" data-janela="fechar" title="Fechar da tela" aria-label="Fechar da tela">
+                  <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" focusable="false"><path d="M3 3l6 6M9 3l-6 6" /></svg>
+                </button>
+              </span>
+            </header>
+            <div class="chat-recon hidden" role="status">Reconectando…</div>
+            <div id="log-wrap" class="log-wrap">
+              <ol id="log" class="log"></ol>
+              <div id="chat-history-rail" class="chat-history-rail hidden" aria-label="Histórico de mensagens enviadas"></div>
+              <button
+                type="button"
+                id="btn-scroll-bottom"
+                class="scroll-bottom-btn hidden"
+                title="Ir para o fim da conversa"
+                aria-label="Ir para o fim da conversa"
+              >⌄</button>
             </div>
-          </div>
+            <!-- Estado vazio: card fb-vazio do DS (primeiro uso = sem projeto; senão, escolher conversa) -->
+            <div id="chat-empty" class="chat-empty">
+              <div class="chat-empty-box">
+                <div class="chat-empty-ico"><img src="pets/nexo/mago/work-logo.png" alt="" /></div>
+                <div id="chat-empty-eb" class="chat-empty-eb">Conversas</div>
+                <h2 id="chat-empty-title" class="chat-empty-title">Escolhe uma conversa</h2>
+                <p id="chat-empty-sub" class="chat-empty-sub">Escolhe uma conversa à esquerda ou cria outra.</p>
+                <div id="chat-empty-acoes" class="chat-empty-acoes hidden">
+                  <button type="button" id="chat-empty-cta" class="primary chat-empty-bt">
+                    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M7 2v10M2 7h10" /></svg>
+                    Adicionar projeto
+                  </button>
+                  <button type="button" id="chat-empty-clonar" class="chat-empty-bt">Clonar do GitHub</button>
+                  <button type="button" class="primary chat-empty-bt chat-empty-enviar hidden">Enviar para implementação</button>
+                </div>
+              </div>
+            </div>
+            <div class="composer-wrap">
+              <div id="think-bar" class="think-bar hidden" aria-live="polite">
+                <span class="think-glyph" id="think-glyph">✳</span>
+                <span class="think-word" id="think-word">Pensando</span>
+                <span class="think-meta" id="think-meta"></span>
+              </div>
+              <div id="pet-stage" class="pet-stage" title="Motor desligado" data-state="off">
+                <canvas
+                  id="pet-sprite"
+                  class="pet-sprite"
+                  width="94"
+                  height="123"
+                  data-state="off"
+                ></canvas>
+              </div>
+            <!-- times/subagentes que este chat chamou, trabalhando (chat-times.js) -->
+            <div id="times-bar" class="times-bar hidden" aria-live="polite"></div>
+            <form id="composer">
+              <div id="slash-menu" class="slash-menu hidden" role="listbox" aria-label="Comandos"></div>
+              <div id="queue-strip" class="queue-strip hidden" aria-live="polite"></div>
+              <div id="attach-strip" class="attach-strip hidden" aria-live="polite"></div>
+              <textarea
+                id="input"
+                rows="3"
+                placeholder="Pergunta, pede mudança, ou descreve o que fazer…"
+                disabled
+              ></textarea>
+              <div class="bar">
+                <select id="profile-select" aria-label="Conta"></select>
+                <select id="model-select" aria-label="Modelo" title="Modelo do motor">
+                  <option value="">Modelo: padrão</option>
+                  <option value="auto">Automático</option>
+                  <option value="opus">Opus</option>
+                  <option value="sonnet">Sonnet</option>
+                  <option value="haiku">Haiku</option>
+                  <option value="fable">Fable</option>
+                </select>
+                <input
+                  type="text"
+                  id="model-custom"
+                  class="hidden"
+                  placeholder="modelo (ex: gpt-5.1)"
+                  aria-label="Modelo (texto livre)"
+                  maxlength="64"
+                />
+                <select id="mode-select" aria-label="Modo de permissão" title="Modo de permissão do motor">
+                  <option value="">Modo: padrão</option>
+                  <option value="auto" title="Claude gerencia decisões de permissão">Automático</option>
+                  <option value="manual" title="Sempre perguntar antes de fazer alterações">Manual</option>
+                  <option value="acceptEdits" title="Aceitar automaticamente todas as edições">Aceitar edições</option>
+                  <option value="plan" title="Criar um plano antes de fazer alterações">Planejar</option>
+                  <option value="bypassPermissions" title="Aceita todas as permissões">Ignorar permissões</option>
+                </select>
+                <label class="effort" title="Esforço de raciocínio (mais esforço = mais token e mais lento)">
+                  <input type="range" id="effort-range" min="0" max="6" step="1" value="0" />
+                  <span id="effort-label" class="effort-label">Esforço: padrão</span>
+                </label>
+                <button type="button" id="btn-login" class="ghost hidden">Login</button>
+                <button type="button" id="btn-import-login" class="ghost hidden">Já loguei</button>
+                <p id="profiles-empty" class="empty inline hidden">Sem contas</p>
+                <button
+                  type="button"
+                  id="btn-attach"
+                  class="ghost ico-only"
+                  title="Anexar imagem (ou Ctrl+V)"
+                  aria-label="Anexar imagem"
+                >
+                  <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                  </svg>
+                </button>
+                <input
+                  type="file"
+                  id="attach-input"
+                  accept="image/png,image/jpeg,image/gif,image/webp"
+                  multiple
+                  hidden
+                />
+                <button
+                  type="button"
+                  id="btn-bar-more"
+                  class="ghost ico-only bar-more hidden"
+                  title="Modelo, modo e esforço"
+                  aria-label="Mais opções"
+                  aria-expanded="false"
+                >
+                  ⋯
+                </button>
+              </div>
+              <div id="bar-more-panel" class="bar-more-panel hidden"></div>
+              <button type="button" id="btn-abort" class="send-fab ghost hidden" title="Parar" aria-label="Parar">
+                <svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              </button>
+              <button type="submit" class="send-fab primary" id="btn-send" disabled title="Enviar" aria-label="Enviar">
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                  <path d="M12 19V5" />
+                  <path d="M6 11l6-6 6 6" />
+                </svg>
+              </button>
+            </form>
+            </div>
+          </section>
+          <div class="chat-cols-vazio hidden">Clique num chip pra expandir</div>
+          <div class="chat-alvo hidden" aria-hidden="true"></div>
         </div>
+        <div id="chat-chips" class="chat-chips hidden" role="toolbar" aria-label="Chats minimizados"></div>
+        <div id="chat-anuncio" class="sr-only" aria-live="polite"></div>
         <div id="meter" class="meter hidden">
           <button
             type="button"
@@ -1142,109 +1293,6 @@
             </button>
             <div id="meter-all" class="meter-all hidden"></div>
           </div>
-        </div>
-        <div class="composer-wrap">
-          <div id="think-bar" class="think-bar hidden" aria-live="polite">
-            <span class="think-glyph" id="think-glyph">✳</span>
-            <span class="think-word" id="think-word">Pensando</span>
-            <span class="think-meta" id="think-meta"></span>
-          </div>
-          <div id="pet-stage" class="pet-stage" title="Motor desligado" data-state="off">
-            <canvas
-              id="pet-sprite"
-              class="pet-sprite"
-              width="94"
-              height="123"
-              data-state="off"
-            ></canvas>
-          </div>
-        <!-- times/subagentes que este chat chamou, trabalhando (chat-times.js) -->
-        <div id="times-bar" class="times-bar hidden" aria-live="polite"></div>
-        <form id="composer">
-          <div id="slash-menu" class="slash-menu hidden" role="listbox" aria-label="Comandos"></div>
-          <div id="queue-strip" class="queue-strip hidden" aria-live="polite"></div>
-          <div id="attach-strip" class="attach-strip hidden" aria-live="polite"></div>
-          <textarea
-            id="input"
-            rows="3"
-            placeholder="Pergunta, pede mudança, ou descreve o que fazer…"
-            disabled
-          ></textarea>
-          <div class="bar">
-            <select id="profile-select" aria-label="Conta"></select>
-            <select id="model-select" aria-label="Modelo" title="Modelo do motor">
-              <option value="">Modelo: padrão</option>
-              <option value="auto">Automático</option>
-              <option value="opus">Opus</option>
-              <option value="sonnet">Sonnet</option>
-              <option value="haiku">Haiku</option>
-              <option value="fable">Fable</option>
-            </select>
-            <input
-              type="text"
-              id="model-custom"
-              class="hidden"
-              placeholder="modelo (ex: gpt-5.1)"
-              aria-label="Modelo (texto livre)"
-              maxlength="64"
-            />
-            <select id="mode-select" aria-label="Modo de permissão" title="Modo de permissão do motor">
-              <option value="">Modo: padrão</option>
-              <option value="auto" title="Claude gerencia decisões de permissão">Automático</option>
-              <option value="manual" title="Sempre perguntar antes de fazer alterações">Manual</option>
-              <option value="acceptEdits" title="Aceitar automaticamente todas as edições">Aceitar edições</option>
-              <option value="plan" title="Criar um plano antes de fazer alterações">Planejar</option>
-              <option value="bypassPermissions" title="Aceita todas as permissões">Ignorar permissões</option>
-            </select>
-            <label class="effort" title="Esforço de raciocínio (mais esforço = mais token e mais lento)">
-              <input type="range" id="effort-range" min="0" max="6" step="1" value="0" />
-              <span id="effort-label" class="effort-label">Esforço: padrão</span>
-            </label>
-            <button type="button" id="btn-login" class="ghost hidden">Login</button>
-            <button type="button" id="btn-import-login" class="ghost hidden">Já loguei</button>
-            <p id="profiles-empty" class="empty inline hidden">Sem contas</p>
-            <button
-              type="button"
-              id="btn-attach"
-              class="ghost ico-only"
-              title="Anexar imagem (ou Ctrl+V)"
-              aria-label="Anexar imagem"
-            >
-              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-              </svg>
-            </button>
-            <input
-              type="file"
-              id="attach-input"
-              accept="image/png,image/jpeg,image/gif,image/webp"
-              multiple
-              hidden
-            />
-            <button
-              type="button"
-              id="btn-bar-more"
-              class="ghost ico-only bar-more hidden"
-              title="Modelo, modo e esforço"
-              aria-label="Mais opções"
-              aria-expanded="false"
-            >
-              ⋯
-            </button>
-          </div>
-          <div id="bar-more-panel" class="bar-more-panel hidden"></div>
-          <button type="button" id="btn-abort" class="send-fab ghost hidden" title="Parar" aria-label="Parar">
-            <svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
-              <rect x="6" y="6" width="12" height="12" rx="2" />
-            </svg>
-          </button>
-          <button type="submit" class="send-fab primary" id="btn-send" disabled title="Enviar" aria-label="Enviar">
-            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-              <path d="M12 19V5" />
-              <path d="M6 11l6-6 6 6" />
-            </svg>
-          </button>
-        </form>
         </div>
       </section>
     </div>

@@ -3010,7 +3010,7 @@ li.tool[data-open="1"] .tool-toggle { transform: rotate(180deg); }
 }
 
 /* com o vazio na tela, o log (vazio) não disputa a altura com ele */
-#pane-chat:has(#chat-empty:not(.hidden)) .log-wrap {
+.chat:has(#chat-empty:not(.hidden)) .log-wrap {
   display: none;
 }
 
@@ -8232,6 +8232,7 @@ body[data-side-mini="1"] .foot-acao {
 .you-auto summary::after { content: "ver tudo"; margin-left: auto; font-size: var(--fs-xs); color: var(--faint); }
 .you-auto details[open] summary::after { content: "recolher"; }
 .you-auto .who { margin: 0; }
+.you-auto .you-auto-md { margin-top: var(--s-4); font-size: var(--fs-sm); max-height: 420px; overflow-y: auto; }
 .you-auto .you-text { margin-top: var(--s-4); white-space: pre-wrap; font-size: var(--fs-sm); color: var(--muted); max-height: 420px; overflow-y: auto; }
 
 /* resultado de um time chamado deste chat */
@@ -8653,7 +8654,6 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
   left: 0;
   top: 0;
   width: 248px;
-  max-height: 120px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -8674,7 +8674,7 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
 }
 .pl-card-topo { display: flex; align-items: center; gap: 6px; font-size: var(--fs-2xs); font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--pl-tipo); }
 .pl-card-ico { width: 1.1em; text-align: center; }
-.pl-card-tipo { flex: 1; }
+.pl-card-tipo { flex: 1 0 auto; }
 .pl-card-fonte {
   padding: 0;
   border: 0;
@@ -8684,6 +8684,8 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
   letter-spacing: 0;
   color: var(--pl-sugestao);
   cursor: pointer;
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: 50%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -8855,6 +8857,8 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
   cursor: pointer;
 }
 .pl-anexo-tirar:hover { color: var(--danger); }
+.pl-anexo-ref { flex: none; margin-left: 4px; color: var(--faint); }
+.pl-anexo[data-referencia="1"] { border-style: dashed; }
 .pl-anexo-mais { align-self: center; font-size: var(--fs-2xs); color: var(--faint); }
 .pl-ed-anexos { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 .pl-ed-anexos .pl-anexo { font-size: var(--fs-xs); }
@@ -8937,12 +8941,14 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
 .pl-card-mock[data-estado="sem_mock"] { color: var(--faint); border-style: dashed; }
 .pl-card-mock[data-estado="aguardando"] { color: var(--warn); }
 .pl-card-mock[data-estado="reprovado"] { color: var(--danger); }
-.pl-card-design { display: flex; gap: var(--s-2); margin-top: var(--s-3); }
-.pl-card-design button { flex: 1; padding: 4px 8px; border-radius: var(--r-sm); font-size: var(--fs-xs); cursor: pointer; }
-.pl-design-aprovar { border: 1px solid color-mix(in srgb, var(--ok) 55%, transparent); background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok); }
-.pl-design-aprovar:hover { background: color-mix(in srgb, var(--ok) 22%, transparent); }
-.pl-design-reprovar { border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent); background: none; color: var(--danger); }
-.pl-design-reprovar:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.pl-card-design { display: flex; gap: var(--s-1); margin-top: var(--s-2); }
+/* botões pequenos e neutros: o estado já está no selo "aguardando aprovação" (1 cor de estado por bloco) */
+.pl-card-design button { padding: 2px 8px; border-radius: var(--r-sm); font: 500 var(--fs-2xs) / 1.4 var(--font-ui); cursor: pointer; }
+.pl-design-aprovar { border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text); }
+.pl-design-aprovar:hover { background: var(--surface-3); }
+.pl-design-reprovar { border: 1px solid transparent; background: none; color: var(--muted); }
+.pl-design-reprovar:hover { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+.pl-card-design button:focus-visible { outline: none; box-shadow: var(--ring); }
 .pl-card-design button:focus-visible { outline: none; box-shadow: var(--ring); }
 .pl-ed-design { padding: var(--s-4); border: 1px solid var(--line-2); border-radius: var(--r-md); }
 .pl-ed-design.hidden { display: none; }
@@ -8984,6 +8990,15 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
 /* diálogo "Enviar para implementação" (dentro do pane, sobre o canvas) */
 .pl-envio { position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--bg) 60%, transparent); }
 .pl-envio.hidden { display: none; }
+.pl-envio-caixa.pl-previa-caixa { width: min(1180px, calc(100% - 48px)); height: calc(100% - 48px); }
+.pl-previa-cab { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-4) var(--s-4) var(--s-4) var(--s-6); border-bottom: 1px solid var(--line); }
+.pl-previa-tit { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pl-previa-tit strong { font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-previa-ref { flex: none; border: 1px dashed var(--line-2); border-radius: var(--r-pill); padding: 1px 8px; font-size: var(--fs-2xs); color: var(--muted); }
+.pl-previa-corpo { flex: 1; min-height: 0; display: flex; }
+.pl-previa-frame { flex: 1; width: 100%; border: 0; border-radius: 0 0 var(--r-lg) var(--r-lg); background: var(--bg); }
+.pl-previa-frame.hidden { display: none; }
+.pl-previa-msg { margin: auto; color: var(--muted); font-size: var(--fs-sm); }
 .pl-envio-caixa { width: min(640px, calc(100% - 48px)); max-height: calc(100% - 48px); display: flex; flex-direction: column; background: var(--elev, var(--surface-2)); border: 1px solid var(--line-2); border-radius: var(--r-lg); box-shadow: var(--sh-3); }
 .pl-envio-cab { display: flex; flex-direction: column; gap: 4px; padding: var(--s-6) var(--s-7) var(--s-4); }
 .pl-envio-cab strong { font-size: var(--fs-lg); }
@@ -9011,3 +9026,453 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
 .pl-envio-rodape { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-5) var(--s-7) var(--s-6); border-top: 1px solid var(--line); }
 .pl-envio-rodape button.hidden { display: none; }
 .pl-envio-espaco { flex: 1; }
+
+/* ---------- área de chats: até 3 conversas lado a lado (area-de-chats.js) ---------- */
+
+.chat-cols {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.chat {
+  position: relative;
+  flex: var(--peso, 1) 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat.hidden,
+.chat-div.hidden {
+  display: none;
+}
+
+/* divisor entre chats: 6px de pega, 1px de linha */
+.chat-div {
+  position: relative;
+  flex: 0 0 6px;
+  cursor: col-resize;
+  background: var(--bg);
+}
+
+.chat-div::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+  background: var(--line);
+}
+
+.chat-div:hover::after,
+.chat-div:focus-visible::after {
+  background: var(--accent-line);
+}
+
+.chat-div:focus-visible {
+  outline: none;
+}
+
+/* com mais de um chat, o em foco ganha a borda de cima e o título claro */
+.chat-cols[data-varios="1"] .chat-head {
+  border-top: 2px solid transparent;
+  background: var(--surface-2);
+}
+
+.chat-cols[data-varios="1"] .chat[data-foco="1"] .chat-head {
+  border-top-color: var(--accent);
+}
+
+.chat-cols[data-varios="1"] .chat:not([data-foco="1"]) .crumb-thread {
+  color: var(--muted);
+}
+
+/* medidor mora no cabeçalho do chat em foco (o renderer muda de casa) */
+.chat-head > .meter {
+  position: relative;
+  top: auto;
+  right: auto;
+  flex: none;
+  /* não empurra a altura do cabeçalho */
+  margin-block: -6px;
+}
+
+.chat-janela {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+}
+
+.chat-janela.hidden {
+  display: none;
+}
+
+.chat-ic {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.chat-ic:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.chat-ic.hidden {
+  display: none;
+}
+
+.chat-ic svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* estado do chat: cabeçalho e chip (pillDoChat) */
+.chat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-2xs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.chat-pill.hidden {
+  display: none;
+}
+
+.chat-pill[data-tipo="rodando"] {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.chat-pill[data-tipo="rodando"]::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: currentColor;
+  animation: chat-pulso 1.2s var(--ease) infinite;
+}
+
+.chat-pill[data-tipo="pergunta"] {
+  background: var(--surface-3);
+  color: var(--warn);
+  border: 1px solid var(--warn);
+}
+
+.chat-pill[data-tipo="terminou"] {
+  background: var(--surface-3);
+  color: var(--ok);
+}
+
+.chat-pill[data-tipo="terminou"]::before {
+  content: "✓";
+}
+
+.chat-pill[data-tipo="erro"] {
+  background: var(--surface-3);
+  color: var(--danger);
+}
+
+.chat-recon {
+  flex: none;
+  padding: 2px 12px;
+  font-size: var(--fs-xs);
+  color: var(--warn);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.chat-recon.hidden {
+  display: none;
+}
+
+.chat-cols-vazio {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--faint);
+  font-size: var(--fs-sm);
+}
+
+.chat-cols-vazio.hidden {
+  display: none;
+}
+
+/* barra de chips: chats minimizados (ou que não couberam) */
+.chat-chips {
+  flex: none;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  overflow-x: auto;
+}
+
+.chat-chips.hidden {
+  display: none;
+}
+
+.chat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  height: 20px;
+  max-width: 220px;
+  padding: 0 4px 0 8px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.chat-chip:hover {
+  background: var(--surface-3);
+}
+
+.chat-chip-tit {
+  max-width: 180px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.chat-chip .chat-pill {
+  height: 14px;
+  padding: 0 6px;
+}
+
+.chat-chip[data-tipo="pergunta"] {
+  border-color: var(--warn);
+  animation: chat-chama 2s var(--ease) infinite;
+}
+
+.chat-chip-cont {
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: var(--r-pill);
+  background: var(--warn);
+  color: var(--bg);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* alvo do arraste de conversa: metade (dividir) ou chat inteiro (substituir) */
+.chat-alvo {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  border-radius: var(--r-sm);
+}
+
+.chat-alvo[data-tipo="substituir"] {
+  border: 2px dashed var(--accent-text);
+}
+
+.chat-alvo[data-tipo="esquerda"] {
+  border-right: 2px solid var(--accent-text);
+}
+
+.chat-alvo[data-tipo="direita"] {
+  border-left: 2px solid var(--accent-text);
+}
+
+.chat-alvo.hidden {
+  display: none;
+}
+
+@keyframes chat-pulso {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes chat-chama {
+  50% {
+    background: var(--surface-3);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-pill[data-tipo="rodando"]::before,
+  .chat-chip[data-tipo="pergunta"] {
+    animation: none;
+  }
+}
+
+/* ---------- Planejamento em tela cheia: canvas em cima, Manager e Implementação embaixo ---------- */
+
+.split-plano {
+  display: none;
+}
+
+body[data-plano="1"] .work {
+  flex-direction: column;
+}
+
+body[data-plano="1"] #work-main {
+  position: static;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+body[data-plano="1"] #work-tabs,
+body[data-plano="1"] #split-chat,
+body[data-plano="1"] #btn-close-planejamento,
+body[data-plano="1"] .focus-exit {
+  display: none !important;
+}
+
+body[data-plano="1"] .work #pane-chat {
+  display: flex !important;
+  flex: 0 0 var(--faixa-plano, 40%);
+  min-height: 0;
+  order: 2;
+  border-left: 0;
+  border-top: 1px solid var(--line);
+  z-index: 2;
+}
+
+/* os dois minimizados: só a barra de chips, o canvas fica com a altura */
+body[data-plano="1"] .work #pane-chat[data-tudo-min="1"] {
+  flex: 0 0 auto;
+}
+
+body[data-plano="1"] #pane-chat[data-tudo-min="1"] .chat-cols {
+  display: none;
+}
+
+body[data-plano="1"] .split-plano {
+  display: block;
+  flex: 0 0 6px;
+  cursor: row-resize;
+  position: relative;
+  background: var(--bg);
+}
+
+body[data-plano="1"] .split-plano::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 1px;
+  background: var(--line);
+}
+
+body[data-plano="1"] .split-plano:hover::after,
+body[data-plano="1"] .split-plano:focus-visible::after {
+  background: var(--accent-line);
+}
+
+body[data-plano="1"] .split-plano:focus-visible {
+  outline: none;
+}
+
+body[data-plano="1"] #pane-chat[data-tudo-min="1"] .split-plano {
+  display: none;
+}
+
+/* faixa baixa: o composer não reserva a altura toda do maguinho */
+body[data-plano="1"] .composer-wrap {
+  padding-top: 44px;
+  margin-bottom: 10px;
+}
+
+.pl-voltar,
+.pl-side {
+  display: none;
+  flex: none;
+}
+
+body[data-plano="1"] .pl-voltar,
+body[data-plano="1"] .pl-side {
+  display: inline-flex;
+  align-items: center;
+}
+
+.pl-side svg {
+  width: 14px;
+  height: 14px;
+}
+
+.pl-side[aria-pressed="true"] {
+  color: var(--accent-text);
+}
+
+/* etiqueta dos chats do plano e selo do mock esperando aprovação */
+.chat-etq {
+  flex: none;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+}
+
+.chat-selo {
+  flex: none;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--warn);
+  color: var(--warn);
+  font-size: var(--fs-2xs);
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.chat-etq.hidden,
+.chat-selo.hidden {
+  display: none;
+}
+
+#btn-pl-enviar.hidden {
+  display: none;
+}
+
+/* Implementação ainda sem conversa: só o estado vazio com o envio, sem composer */
+.chat[data-fixo="implementacao"]:has(#chat-empty:not(.hidden)) .composer-wrap {
+  display: none;
+}

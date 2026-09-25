@@ -108,6 +108,14 @@ describe("tela", () => {
     expect(document.getElementById("pl-corpo").classList.contains("hidden")).toBe(true);
   });
 
+  it("avisa quem abriu a tela a cada plano carregado (tela cheia liga Manager e Implementação)", async () => {
+    const aoCarregarPlano = vi.fn();
+    const { board } = montar({ deps: { aoCarregarPlano } });
+    await board.abrir();
+    expect(aoCarregarPlano).toHaveBeenCalledTimes(1);
+    expect(aoCarregarPlano.mock.calls[0][0].roteiro.titulo).toBe("Meu plano");
+  });
+
   it("pinta título, roteiro, colunas, cards e setas", async () => {
     const { board } = montar();
     await board.abrir();
@@ -291,10 +299,18 @@ describe("anexos e Quadro (F7)", () => {
     return p;
   }
 
-  it("card mostra os anexos resolvidos (apagado riscado) e o clique abre o DS; etapa mostra o selo do Quadro", async () => {
+  it("card mostra os anexos resolvidos (apagado riscado); clique abre a prévia da tela e dela o Canvas; etapa mostra o selo do Quadro", async () => {
     const aoAbrirDs = vi.fn();
     const aoAbrirTarefa = vi.fn();
-    const { board, setPlano } = montar({ deps: { aoAbrirDs, aoAbrirTarefa } });
+    const tela = {
+      sistema: { id: "oficial", nome: "Oficial" },
+      card: { id: "login", titulo: "Tela de login", html: '<div class="x">Entrar</div>' },
+      css: ":root{--color-bg:#111}",
+      vars: [],
+      kitCss: "",
+      projetoAbs: "/proj",
+    };
+    const { board, setPlano, chamadas } = montar({ deps: { aoAbrirDs, aoAbrirTarefa }, respostas: { "GET /v1/ds/tela": () => tela } });
     setPlano(planoComAnexos());
     await board.abrir();
     const chips = [...document.querySelectorAll('.pl-card[data-id="r1"] .pl-anexo')];
@@ -303,7 +319,17 @@ describe("anexos e Quadro (F7)", () => {
       ["Tarefa apagada", "0"],
     ]);
     chips[0].querySelector("button").click();
+    await vi.waitFor(() => expect(document.getElementById("pl-previa-frame").classList.contains("hidden")).toBe(false));
+    expect(chamadas.some((c) => c.path.startsWith("/v1/ds/tela?") && c.path.includes("sistema=oficial") && c.path.includes("card=login"))).toBe(true);
+    expect(document.getElementById("pl-previa").classList.contains("hidden")).toBe(false);
+    expect(document.getElementById("pl-previa-titulo").textContent).toBe("Tela de login");
+    const srcdoc = document.getElementById("pl-previa-frame").getAttribute("srcdoc");
+    expect(srcdoc).toContain('<div class="x">Entrar</div>');
+    expect(srcdoc).toContain("--color-bg:#111");
+    expect(aoAbrirDs).not.toHaveBeenCalled();
+    document.getElementById("btn-pl-previa-canvas").click();
     expect(aoAbrirDs).toHaveBeenCalledWith("oficial", "login");
+    expect(document.getElementById("pl-previa").classList.contains("hidden")).toBe(true);
     expect(chips[1].querySelector("button").disabled).toBe(true);
 
     const selo = document.querySelector(".pl-etapa .pl-etapa-quadro");
@@ -440,6 +466,8 @@ describe("aprovação do design", () => {
     expect(estadoDoDesign(card({ veredito: "aprovado", mock: "ds:mocks/login", hash: "h1" }), integ)).toBe("aprovado");
     expect(estadoDoDesign(card({ veredito: "aprovado", mock: "ds:mocks/login", hash: "h0" }), integ)).toBe("aguardando");
     expect(estadoDoDesign(card({ veredito: "reprovado", mock: "ds:mocks/outro" }), integ)).toBe("aguardando");
+    // tela só de referência de layout não é mock: não pede aprovação
+    expect(estadoDoDesign({ tipo: "tela", anexos: [{ tipo: "ds", sistema: "mocks", card: "login", referencia: true }] }, integ)).toBe("sem_mock");
   });
 
   it("mock novo mostra Aprovar/Reprovar no card; aprovar grava; reprovar exige motivo pelo editor", async () => {

@@ -14,7 +14,7 @@ import { faseDaAbertura } from "./abertura.js";
 import { createNewThreadModal } from "./new-thread-modal.js";
 import { diffDeFerramenta, nomeArquivo, renderDiff } from "./diff-view.js";
 import { createTarefasBoard } from "./tarefas-board.js";
-import { createPlanejamentoBoard } from "./planejamento-board.js";
+import { createPlanejamentoBoard, estadoDoDesign } from "./planejamento-board.js";
 import { createDsCanvas, documentoDoPrint } from "./canvas-ds.js";
 import { createBarraTimes } from "./chat-times.js";
 import { capturarReferencia } from "./ds-extrator.js";
@@ -65,8 +65,26 @@ import { criarInspectorHost } from "./inspector-host.js";
 import { FASE } from "./inspector-estado.js";
 import { criarNavegadorHost } from "./navegador-host.js";
 import { LIMITE_DO_CHAT, inicioDaJanela, mensagensAntesDe } from "./janela-do-chat.js";
+import { criarAreaDeChats, criarEstadoDoChat, elementoDoChat, ligarEstadoDoChat, ouvirConversa } from "./chat-instancia.js";
+import {
+  MAX_CHATS,
+  alvoDoSoltar,
+  arrastarDivisor,
+  distribuir,
+  lerRetratoDaArea,
+  lerRetratoDoPlano,
+  pillDoChat,
+  quemSaiPraAbrir,
+  reordenar,
+  retratoDaArea,
+  retratoDoPlano,
+  rotuloDoChip,
+} from "./area-de-chats.js";
 
-const $ = (id) => document.getElementById(id);
+/** Chat que o código em curso desenha; ligado quando a área de chats nasce (mais abaixo). */
+let chatAtual = () => null;
+/** Id de chat (`IDS_DO_CHAT`) é procurado dentro do chat atual; o resto, no documento. */
+const $ = (id) => elementoDoChat(document, chatAtual(), id);
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const DEFAULT_ACCENT = "#7c5cbf";
@@ -267,6 +285,33 @@ const state = {
   /** Aba ativa da tela unificada Agentes/Times/Hooks (`#pane-agentes`). */
   axTab: "agentes",
 };
+
+/**
+ * O que é de UMA conversa (threadId, events, SSE, pensar, medidor, composer…) mora na instância
+ * do chat; `state.<campo>` passa a ler o chat atual (ver chat-instancia.js). Por enquanto a tela
+ * tem um chat só (o `#pane-chat` de sempre).
+ */
+const areaDeChats = criarAreaDeChats(criarEstadoDoChat({ el: { root: document.querySelector("#chat-cols > .chat") } }));
+ligarEstadoDoChat(state, areaDeChats);
+chatAtual = () => areaDeChats.atual();
+/** Plano aberto em tela cheia (entrarNoPlano): { slug, path, manager, impl, antes, lateral }; null = fora. */
+let planoAberto = null;
+/** Último plano visto: sair pela sidebar e voltar em "Planejamento" cai nele de novo. */
+let ultimoPlano = null;
+
+/** Molde de um chat novo: o bloco do chat como veio do HTML, sem o maguinho (ele é um só e segue o foco). */
+const MOLDE_DO_CHAT = (() => {
+  const molde = areaDeChats.foco.el.root.cloneNode(true);
+  molde.querySelector("#pet-stage")?.remove();
+  return molde;
+})();
+
+/** Listeners de dentro do chat: cada `fn` roda (com o chat como atual) em todo chat que existe e em cada um que nascer. */
+const ligacoesDoChat = [];
+function porChat(fn) {
+  ligacoesDoChat.push(fn);
+  for (const chat of areaDeChats.chats) areaDeChats.comChat(chat, () => fn(chat));
+}
 
 const { api, aplicar: aplicarInfoDoMotor, headers, renovarCredenciais, req, reqBlob } = createApiClient({
   daemonInfo: () => window.nexo.daemonInfo(),
@@ -773,6 +818,8 @@ function pintarCompactando(on, motivo) {
 }
 
 function paintContext() {
+  // medidor é um só e mostra o chat em foco
+  if (!areaDeChats.ehFoco()) return;
   const m = state.meter;
   const win = m.contextWindow || 200_000;
   const used = m.contextTokens || 0;
@@ -814,6 +861,8 @@ function paintQuotaTrigger(cinco, sem) {
 }
 
 function paintLimits() {
+  // medidor é um só e mostra o chat em foco
+  if (!areaDeChats.ehFoco()) return;
   const l = state.meter.limits;
   const cinco = l?.fiveHour;
   const sem = l?.sevenDay;
@@ -825,6 +874,8 @@ function paintLimits() {
 }
 
 function paintFacts() {
+  // medidor é um só e mostra o chat em foco
+  if (!areaDeChats.ehFoco()) return;
   const m = state.meter;
   const t = m.totals;
   const engineAtivo = selectedProfile()?.engine;
@@ -842,6 +893,8 @@ function paintFacts() {
 }
 
 function paintMeter() {
+  // medidor é um só e mostra o chat em foco
+  if (!areaDeChats.ehFoco()) return;
   $("meter").classList.toggle("hidden", !state.threadId);
   paintContext();
   paintLimits();
@@ -850,12 +903,19 @@ function paintMeter() {
 
 async function refreshMeter() {
   if (!state.threadId || !state.ok) return;
+  const chat = areaDeChats.atual();
+  const threadId = chat.threadId;
   let data;
   try {
-    data = await req(`/v1/threads/${state.threadId}/usage`);
+    data = await req(`/v1/threads/${threadId}/usage`);
   } catch {
     return;
   }
+  if (chat.threadId !== threadId) return;
+  areaDeChats.comChat(chat, () => guardarUso(data));
+}
+
+function guardarUso(data) {
   state.meter = {
     ...state.meter,
     totals: data.totals,
@@ -959,7 +1019,8 @@ function startThink() {
   $("think-word").textContent = THINK_VERBS[0];
   $("think-meta").textContent = "";
   $("think-bar").classList.remove("hidden");
-  t.timer = setInterval(thinkTick, 300);
+  const chat = areaDeChats.atual();
+  t.timer = setInterval(() => areaDeChats.comChat(chat, thinkTick), 300);
 }
 
 function stopThink() {
@@ -1296,16 +1357,19 @@ function syncPet(on, live) {
 
 /** Mensagem enviada: pensa até chegar texto ou ferramenta. Motor desligado segue dormindo. */
 function petPensando() {
+  if (!areaDeChats.ehFoco()) return;
   if (petAtual() === "off" || petAtual() === "") return;
   setPet("think");
 }
 
 function petComecouAResponder() {
+  if (!areaDeChats.ehFoco()) return;
   if (petAtual() === "think") setPet("work");
 }
 
 /** Turno acabou sem comemorar (erro, parado, outra conversa). */
 function petParou() {
+  if (!areaDeChats.ehFoco()) return;
   if (petAtual() === "think" || petAtual() === "work") setPet("idle");
 }
 
@@ -1501,6 +1565,13 @@ function setMotor(on, live = false) {
   state.talking = Boolean(on && live);
   if (state.talking) startThink();
   else stopThink();
+  // chat sem foco: só o turno dele; barra do motor e maguinho contam o chat em foco
+  if (!areaDeChats.ehFoco()) {
+    syncTalking();
+    if (was !== state.talking) paintQueue();
+    pintarEstadosDosChats();
+    return;
+  }
   const st = $("motor-status");
   st.dataset.on = on ? "1" : "0";
   st.textContent = live ? "Falando" : on ? "Ligado" : "Desligado";
@@ -1787,10 +1858,27 @@ function setComposer(on) {
  * com repositório mas sem conversa aberta, só falta escolher uma à esquerda.
  */
 function updateChatEmptyState() {
+  for (const chat of areaDeChats.chats) areaDeChats.comChat(chat, pintarVazioDoChat);
+}
+
+function pintarVazioDoChat() {
   const title = $("chat-empty-title");
   const sub = $("chat-empty-sub");
   const acoes = $("chat-empty-acoes");
   if (!title || !sub || !acoes) return;
+  const enviar = acoes.querySelector(".chat-empty-enviar");
+  // Implementação do plano ainda sem conversa: o vazio chama pro envio
+  const impl = areaDeChats.atual().fixo === "implementacao";
+  $("chat-empty-cta").classList.toggle("hidden", impl);
+  $("chat-empty-clonar").classList.toggle("hidden", impl);
+  enviar.classList.toggle("hidden", !impl);
+  if (impl) {
+    $("chat-empty-eb").textContent = "Implementação";
+    title.textContent = "Nada em implementação ainda";
+    sub.textContent = "Quando o plano estiver pronto, envie pra uma conversa implementar. Ela aparece aqui e marca o andamento no plano.";
+    acoes.classList.remove("hidden");
+    return;
+  }
   const n = state.repos.length;
   const semRepos = n === 0;
   $("chat-empty-eb").textContent = `Projetos · ${n}`;
@@ -1881,7 +1969,8 @@ function applyWorkLayout() {
     $(`pane-${id}`).classList.toggle("is-on", state.view === id);
   }
   // Sem módulo aberto o chat vira o conteúdo principal — não depende de sideChat aqui.
-  $("pane-chat").classList.toggle("hidden", !state.sideChat && !noModule);
+  // No plano a faixa de chats (Manager e Implementação) sempre aparece.
+  $("pane-chat").classList.toggle("hidden", !state.sideChat && !noModule && !planoAberto);
   pintarAbas();
 }
 
@@ -1964,8 +2053,18 @@ function ligarGuestBrowser(tabId, href) {
 }
 
 function aplicarSessaoWork() {
+  // no plano a área é o canvas; as abas da conversa voltam no "← Voltar"
+  if (planoAberto) {
+    mostrarPlanoNaTela();
+    return;
+  }
   const gen = ++workGen;
   const s = sessaoWork();
+  // aba de planejamento de antes da tela cheia: o plano agora abre como tela própria
+  if (s.tabs.some((t) => t.kind === "planejamento")) {
+    for (const t of s.tabs.filter((x) => x.kind === "planejamento")) fecharAba(s, t.id);
+    persistirWork();
+  }
   const tab = abaAtiva(s);
   if (!tab) {
     inspectorHost.desligar();
@@ -2041,6 +2140,11 @@ function setView(view, opts = {}) {
   }
   if (view === "none") {
     closeModule();
+    return;
+  }
+  // Planejamento é tela própria (plano em tela cheia), não aba da sessão da conversa
+  if (view === "planejamento") {
+    void abrirTelaDePlanejamento(state.projectPath);
     return;
   }
   const s = sessaoWork();
@@ -2800,15 +2904,15 @@ async function refreshDaemon() {
     pintarAbertura();
   }
   // preserva o "falando": o poll não pode derrubar o estado no meio da resposta
-  setMotor(info.ok, info.ok && state.talking);
+  for (const chat of areaDeChats.chats) areaDeChats.comChat(chat, () => setMotor(info.ok, info.ok && state.talking));
   if (!info.ok) {
-    state.sseOn = false;
+    for (const chat of areaDeChats.chats) chat.sseOn = false;
     avisoMotorFora(info);
     return;
   }
   // Rede de segurança: stream morto por qualquer motivo, o poll reabre. Sem isso
   // o envio funcionava, o daemon respondia, e a tela ficava parada até recarregar.
-  if (state.threadId && !state.sseOn) listenSse();
+  for (const chat of areaDeChats.chats) if (chat.threadId && !chat.sseOn) listenSse(chat);
   try {
     const cfg = await req("/v1/config");
     if (cfg.accent) applyAccent(cfg.accent);
@@ -2855,14 +2959,9 @@ async function refreshDaemon() {
 }
 
 
-async function loadProfiles() {
-  // Nada de importar o login global sozinho: era isso que fazia dois perfis
-  // virarem a mesma conta. Copiar credencial só no botão "Já loguei".
-  const list = await req("/v1/profiles");
-  const fp = JSON.stringify(list);
-  if (fp === state.fpProfiles) return;
-  state.fpProfiles = fp;
-  state.profiles = list;
+/** Seletor de conta do composer do chat atual (cada chat tem o seu). */
+function pintarSeletorDeConta() {
+  const list = state.profiles;
   const sel = $("profile-select");
   sel.replaceChildren();
   $("profiles-empty").classList.toggle("hidden", list.length > 0);
@@ -2876,6 +2975,17 @@ async function loadProfiles() {
   }
   if (state.profileId) sel.value = state.profileId;
   syncLoginBtn();
+}
+
+async function loadProfiles() {
+  // Nada de importar o login global sozinho: era isso que fazia dois perfis
+  // virarem a mesma conta. Copiar credencial só no botão "Já loguei".
+  const list = await req("/v1/profiles");
+  const fp = JSON.stringify(list);
+  if (fp === state.fpProfiles) return;
+  state.fpProfiles = fp;
+  state.profiles = list;
+  for (const chat of areaDeChats.chats) areaDeChats.comChat(chat, pintarSeletorDeConta);
   paintAllowList();
   paintDelegList();
   paintNavList();
@@ -3316,6 +3426,7 @@ function menuDaConversa(e, path, t) {
   menuContexto.abrir(e, [
     { titulo: clip(t.preview || "Conversa nova", 40) },
     { rotulo: "Abrir conversa", icoSvg: ctxIco("abrir"), onSelect: () => void openThreadInRepo(path, t.id) },
+    { rotulo: "Abrir ao lado", icoSvg: ctxIco("abrir"), onSelect: () => void abrirChatAoLado(t.id, path) },
     { rotulo: "Nova conversa neste repositório", icoSvg: ctxIco("mais"), onSelect: () => void criarConversaEmRepo(path) },
     // conversa de plano (Manager) já é plano: não vira outro
     ...(t.planejamento
@@ -3393,6 +3504,7 @@ function menuDaConversaGeral(e, t) {
   menuContexto.abrir(e, [
     { titulo: clip(t.preview || "Conversa nova", 40) },
     { rotulo: "Abrir conversa", icoSvg: ctxIco("abrir"), onSelect: () => void openThreadInGlobal(t.id) },
+    { rotulo: "Abrir ao lado", icoSvg: ctxIco("abrir"), onSelect: () => void abrirChatAoLado(t.id, null) },
     { rotulo: "Nova conversa no chat geral", icoSvg: ctxIco("mais"), onSelect: () => void criarConversaGeral() },
     { rotulo: "Importar zip (Claude.ai export)…", icoSvg: ctxIco("enviar"), onSelect: () => void importarZipGeral() },
     { rotulo: "Copiar ID", icoSvg: ctxIco("copiar"), onSelect: () => void copiarTexto(t.id, "ID da conversa") },
@@ -3502,8 +3614,12 @@ function montarSecaoChatGeral() {
       dot.title = "Agente trabalhando nesta conversa";
       li.prepend(dot);
     }
-    li.addEventListener("click", () => void openThreadInGlobal(t.id));
+    li.addEventListener("click", (e) => {
+      if (e.ctrlKey || e.metaKey) void abrirChatAoLado(t.id, null);
+      else void openThreadInGlobal(t.id);
+    });
     li.addEventListener("contextmenu", (e) => menuDaConversaGeral(e, t));
+    linhaAbreAoLado(li, t.id, null);
     ul.append(li);
   }
   det.append(sum, ul);
@@ -3625,8 +3741,12 @@ function renderRepoTree() {
         dot.title = "Agente trabalhando nesta conversa";
         li.prepend(dot);
       }
-      li.addEventListener("click", () => void openThreadInRepo(path, t.id));
+      li.addEventListener("click", (e) => {
+        if (e.ctrlKey || e.metaKey) void abrirChatAoLado(t.id, path);
+        else void openThreadInRepo(path, t.id);
+      });
       li.addEventListener("contextmenu", (e) => menuDaConversa(e, path, t));
+      linhaAbreAoLado(li, t.id, path);
       return li;
     };
 
@@ -3960,6 +4080,9 @@ async function deleteThread(id) {
     appendEvent({ type: "error", message: e.message || "Não apagou." });
     return;
   }
+  // aberta noutro chat da tela: ele sai
+  const naTela = areaDeChats.doThread(id);
+  if (naTela && naTela !== areaDeChats.foco) fecharChatDaTela(naTela);
   if (state.threadId === id) {
     state.abortSse?.abort();
     browserPool.descartarThread(chaveSessao(id));
@@ -4245,15 +4368,26 @@ function detalheAuto(ev, valor, rotular = (v) => v) {
   return `confiança ${pct}%`;
 }
 
+/** Handoff/plano gravados antes de irem com `automatico`: reconhece pelo começo do texto (handoff é markdown com título). */
+function pedidoDoPlanoSemMarca(ev) {
+  const t = ev.text || "";
+  if (state.metaAtual?.handoff) return t.startsWith("# ");
+  if (state.metaAtual?.planejamento) return t.startsWith("Monte o plano a partir da conversa");
+  return false;
+}
+
 function appendEvent(ev, scroll = true) {
   const log = $("log");
   const li = document.createElement("li");
-  if (ev.type === "user" && ev.automatico) {
+  if (ev.type === "user" && (ev.automatico || pedidoDoPlanoSemMarca(ev))) {
     // pedido que o Nexos montou (passo de time, geração do DS): recolhido, abre no clique
     li.className = "you you-auto";
-    li.innerHTML = `<details><summary><span class="who">Nexos</span><span class="you-auto-txt"></span></summary><div class="you-text"></div></details>`;
+    // handoff e plano-a-partir-de-conversa são markdown montado pelo Nexos: lê melhor renderizado
+    const md = Boolean(state.metaAtual?.handoff || state.metaAtual?.planejamento);
+    li.innerHTML = `<details><summary><span class="who">Nexos</span><span class="you-auto-txt"></span></summary><div class="${md ? "md you-auto-md" : "you-text"}"></div></details>`;
     li.querySelector(".you-auto-txt").textContent = rotuloDoContexto();
-    li.querySelector(".you-text").textContent = ev.text;
+    if (md) renderMd(li.querySelector(".you-auto-md"), ev.text);
+    else li.querySelector(".you-text").textContent = ev.text;
   } else if (ev.type === "run_resultado") {
     li.className = "run-resultado";
     li.dataset.status = ev.status;
@@ -4509,80 +4643,87 @@ function appendEvent(ev, scroll = true) {
 
 
 
-/* markdown no streaming: no máximo um render por frame, e um final no done */
-let streamPending = null;
-let streamRaf = 0;
-
+/* markdown no streaming: no máximo um render por frame, e um final no done (por chat) */
 function scheduleStreamRender(el, text) {
-  streamPending = { el, text };
-  if (streamRaf) return;
-  streamRaf = requestAnimationFrame(() => {
-    streamRaf = 0;
-    if (streamPending) renderMd(streamPending.el, streamPending.text);
+  const st = state.stream;
+  st.pending = { el, text };
+  if (st.raf) return;
+  st.raf = requestAnimationFrame(() => {
+    st.raf = 0;
+    if (st.pending) renderMd(st.pending.el, st.pending.text);
   });
 }
 
 function flushStreamRender() {
-  if (streamRaf) cancelAnimationFrame(streamRaf);
-  streamRaf = 0;
-  if (streamPending) renderMd(streamPending.el, streamPending.text);
-  streamPending = null;
+  const st = state.stream;
+  if (st.raf) cancelAnimationFrame(st.raf);
+  st.raf = 0;
+  if (st.pending) renderMd(st.pending.el, st.pending.text);
+  st.pending = null;
 }
 
-$("log").addEventListener("scroll", atualizarBotaoDescer);
-$("btn-scroll-bottom").addEventListener("click", () => {
-  $("log").scrollTo({ top: $("log").scrollHeight, behavior: "smooth" });
+porChat((chat) => {
+  $("log").addEventListener("scroll", () => areaDeChats.comChat(chat, atualizarBotaoDescer));
+});
+porChat(() => {
+  $("btn-scroll-bottom").addEventListener("click", () => {
+    $("log").scrollTo({ top: $("log").scrollHeight, behavior: "smooth" });
+  });
 });
 
 /** Delegado (não por bolha): pega tanto as ferramentas que chegam ao vivo quanto as de uma conversa reaberta. */
-$("log").addEventListener("click", (e) => {
-  const confirmar = e.target.closest(".pergunta-confirmar");
-  if (confirmar) {
-    const li = confirmar.closest("li.pergunta");
-    const marcadas = [...li.querySelectorAll(".pergunta-opcao.marcada")].map((b) => b.dataset.valor);
-    if (marcadas.length) void responderPergunta(li, marcadas.join("; "));
-    return;
-  }
-  const opcao = e.target.closest(".pergunta-opcao");
-  if (opcao) {
-    const li = opcao.closest("li.pergunta");
-    if (li.dataset.multi === "1") {
-      // Multi-seleção: só marca/desmarca — quem envia é o botão Confirmar.
-      opcao.classList.toggle("marcada");
-      const confirmarBtn = li.querySelector(".pergunta-confirmar");
-      confirmarBtn.disabled = !li.querySelector(".pergunta-opcao.marcada");
+porChat(() => {
+  $("log").addEventListener("click", (e) => {
+    const confirmar = e.target.closest(".pergunta-confirmar");
+    if (confirmar) {
+      const li = confirmar.closest("li.pergunta");
+      const marcadas = [...li.querySelectorAll(".pergunta-opcao.marcada")].map((b) => b.dataset.valor);
+      if (marcadas.length) void responderPergunta(li, marcadas.join("; "));
       return;
     }
-    void responderPergunta(li, opcao.dataset.valor);
-    return;
-  }
-  const outroToggle = e.target.closest(".pergunta-outro-toggle");
-  if (outroToggle) {
-    const form = outroToggle.closest("li.pergunta")?.querySelector(".pergunta-form-outro");
-    if (!form) return;
-    form.classList.remove("hidden");
-    outroToggle.classList.add("hidden");
-    form.querySelector("input")?.focus();
-    return;
-  }
-  const linha = e.target.closest(".tool-line");
-  if (!linha) return;
-  const li = linha.closest("li.tool");
-  const detalhe = li?.querySelector(".tool-detail");
-  if (!detalhe) return;
-  const abrir = detalhe.classList.contains("hidden");
-  detalhe.classList.toggle("hidden", !abrir);
-  li.dataset.open = abrir ? "1" : "0";
+    const opcao = e.target.closest(".pergunta-opcao");
+    if (opcao) {
+      const li = opcao.closest("li.pergunta");
+      if (li.dataset.multi === "1") {
+        // Multi-seleção: só marca/desmarca — quem envia é o botão Confirmar.
+        opcao.classList.toggle("marcada");
+        const confirmarBtn = li.querySelector(".pergunta-confirmar");
+        confirmarBtn.disabled = !li.querySelector(".pergunta-opcao.marcada");
+        return;
+      }
+      void responderPergunta(li, opcao.dataset.valor);
+      return;
+    }
+    const outroToggle = e.target.closest(".pergunta-outro-toggle");
+    if (outroToggle) {
+      const form = outroToggle.closest("li.pergunta")?.querySelector(".pergunta-form-outro");
+      if (!form) return;
+      form.classList.remove("hidden");
+      outroToggle.classList.add("hidden");
+      form.querySelector("input")?.focus();
+      return;
+    }
+    const linha = e.target.closest(".tool-line");
+    if (!linha) return;
+    const li = linha.closest("li.tool");
+    const detalhe = li?.querySelector(".tool-detail");
+    if (!detalhe) return;
+    const abrir = detalhe.classList.contains("hidden");
+    detalhe.classList.toggle("hidden", !abrir);
+    li.dataset.open = abrir ? "1" : "0";
+  });
 });
 
-$("log").addEventListener("submit", (e) => {
-  const form = e.target.closest(".pergunta-form");
-  if (!form) return;
-  e.preventDefault();
-  const input = form.querySelector("input");
-  const valor = input.value.trim();
-  if (!valor) return;
-  void responderPergunta(form.closest("li.pergunta"), valor);
+porChat(() => {
+  $("log").addEventListener("submit", (e) => {
+    const form = e.target.closest(".pergunta-form");
+    if (!form) return;
+    e.preventDefault();
+    const input = form.querySelector("input");
+    const valor = input.value.trim();
+    if (!valor) return;
+    void responderPergunta(form.closest("li.pergunta"), valor);
+  });
 });
 
 /**
@@ -4638,7 +4779,515 @@ async function responderPergunta(li, resposta) {
 
 
 
-async function openThread(id) {
+/* ---------- área de chats: até 3 conversas na tela (area-de-chats.js decide, aqui desenha) ---------- */
+
+const colunasDosChats = document.getElementById("chat-cols");
+/** Chat maximizado (os outros viram chip sem perder o próprio "minimizado"); null = nenhum. */
+let chatMaximizado = null;
+/** Pergunta já anunciada (aria-live) por chat: anuncia só a que chegou agora. */
+const perguntasAnunciadas = new WeakMap();
+
+function tituloDoChat(chat) {
+  if (chat.fixo === "manager") return "Manager";
+  if (chat.fixo === "implementacao") return "Implementação";
+  if (!chat.threadId) return "Nenhuma conversa";
+  const found = threadStub(chat.threadId);
+  const primeira = chat.events.find((e) => e.type === "user");
+  return found?.stub.preview || chat.metaAtual?.title || clip(primeira?.text ?? "", 80) || "Conversa nova";
+}
+
+/** Estado que o cabeçalho e o chip mostram (pillDoChat). */
+function pillDe(chat) {
+  const agente = state.agents.list.find((a) => a.threadId === chat.threadId);
+  return pillDoChat({
+    perguntas: chat.threadId && state.agents.perguntasPendentes.has(chat.threadId) ? 1 : 0,
+    erro: chat.erroDoTurno,
+    rodando: Boolean(chat.talking || agente?.busy),
+    desde: agente?.busy ? agente.startedAt : 0,
+    terminou: chat.terminouNaoVisto,
+  });
+}
+
+function pintarPill(el, pill) {
+  el.classList.toggle("hidden", !pill);
+  if (!pill) return;
+  el.dataset.tipo = pill.tipo;
+  el.textContent = pill.texto;
+}
+
+/** Pills dos cabeçalhos, faixa "Reconectando…", chips e anúncio de pergunta nova. Barato: no máximo 3 chats. */
+function pintarEstadosDosChats() {
+  const varios = areaDeChats.chats.length > 1;
+  for (const chat of areaDeChats.chats) {
+    const root = chat.el.root;
+    const pill = pillDe(chat);
+    const titulo = tituloDoChat(chat);
+    root.setAttribute("aria-label", titulo);
+    // um chat só: a tela segue como sempre foi (o pensando e o Parar já dizem o estado)
+    pintarPill(root.querySelector(".chat-pill"), varios ? pill : null);
+    const etq = root.querySelector(".chat-etq");
+    etq.classList.toggle("hidden", !chat.fixo);
+    etq.textContent = chat.fixo === "manager" ? "Manager" : chat.fixo === "implementacao" ? "Implementação" : "";
+    const aguardando = chat.fixo === "implementacao" && Boolean(planoAberto?.mockAguardando);
+    const selo = root.querySelector(".chat-selo");
+    selo.classList.toggle("hidden", !aguardando);
+    root.querySelector(".chat-recon").classList.toggle("hidden", !(varios && state.ok && chat.threadId && !chat.sseOn));
+    const tinha = perguntasAnunciadas.get(chat) || false;
+    const tem = pill?.tipo === "pergunta";
+    if (tem && !tinha && !areaDeChats.ehFoco(chat)) $("chat-anuncio").textContent = `${titulo} fez uma pergunta`;
+    perguntasAnunciadas.set(chat, tem);
+  }
+  pintarChips();
+}
+
+function pintarChips() {
+  const bar = $("chat-chips");
+  const { chips } = distribuirChats();
+  bar.classList.toggle("hidden", chips.length === 0);
+  bar.replaceChildren();
+  for (const chat of chips) {
+    const pill = pillDe(chat);
+    const titulo = tituloDoChat(chat);
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chat-chip";
+    b.dataset.tipo = pill?.tipo || "";
+    b.title = chat.minimizado ? "Restaurar" : "Mostrar este chat";
+    b.setAttribute("aria-label", rotuloDoChip(titulo, pill));
+    if (pill && pill.tipo !== "pergunta") {
+      const p = document.createElement("span");
+      p.className = "chat-pill";
+      // no chip, rodando é só o ponto pulsando; o resto leva o texto curto
+      pintarPill(p, { ...pill, texto: pill.tipo === "rodando" ? "" : pill.texto });
+      b.append(p);
+    }
+    const t = document.createElement("span");
+    t.className = "chat-chip-tit";
+    t.textContent = titulo;
+    b.append(t);
+    if (pill?.tipo === "pergunta") {
+      const n = document.createElement("span");
+      n.className = "chat-chip-cont";
+      n.textContent = String(pill.contador);
+      b.append(n);
+    }
+    b.addEventListener("click", () => void restaurarChat(chat));
+    bar.append(b);
+  }
+}
+
+/** Chats da tela agora: no plano, Manager e Implementação; fora dele, os normais. */
+function chatsDaVez() {
+  return planoAberto ? [planoAberto.manager, planoAberto.impl] : areaDeChats.chats.filter((c) => !c.fixo);
+}
+
+function distribuirChats() {
+  return distribuir({
+    chats: chatsDaVez(),
+    foco: areaDeChats.foco,
+    largura: colunasDosChats.clientWidth,
+    maximizado: chatMaximizado,
+  });
+}
+
+/** Põe os chats na ordem, com divisor entre os abertos; esconde os que viraram chip. */
+function desenharArea() {
+  const chats = chatsDaVez();
+  for (const c of areaDeChats.chats) {
+    c.el.root.dataset.fixo = c.fixo;
+    if (chats.includes(c)) continue;
+    c.el.root.classList.add("hidden");
+    c.el.root.dataset.foco = "0";
+  }
+  if (chatMaximizado && !chats.includes(chatMaximizado)) chatMaximizado = null;
+  const { abertos } = distribuirChats();
+  for (const d of colunasDosChats.querySelectorAll(":scope > .chat-div")) d.remove();
+  const vazio = colunasDosChats.querySelector(".chat-cols-vazio");
+  let anterior = null;
+  for (const chat of chats) {
+    const root = chat.el.root;
+    if (root.nextElementSibling !== vazio || root.parentElement !== colunasDosChats) colunasDosChats.insertBefore(root, vazio);
+    const aberto = abertos.includes(chat);
+    root.classList.toggle("hidden", !aberto);
+    root.dataset.foco = areaDeChats.ehFoco(chat) ? "1" : "0";
+    root.style.setProperty("--peso", String(chat.peso || 1));
+    const janela = root.querySelector(".chat-janela");
+    janela.classList.toggle("hidden", chats.length < 2);
+    // chats do plano são fixos: sem ×
+    janela.querySelector('[data-janela="fechar"]').classList.toggle("hidden", Boolean(chat.fixo));
+    const max = janela.querySelector('[data-janela="maximizar"]');
+    const rotulo = chatMaximizado === chat ? "Restaurar" : "Maximizar";
+    max.title = rotulo;
+    max.setAttribute("aria-label", rotulo);
+    root.querySelector(".chat-head").draggable = chats.length > 1;
+    if (!aberto) continue;
+    if (anterior) colunasDosChats.insertBefore(criarDivisor(anterior, chat), root);
+    anterior = chat;
+  }
+  colunasDosChats.dataset.varios = chats.length > 1 ? "1" : "0";
+  vazio.classList.toggle("hidden", abertos.length > 0);
+  // tudo minimizado no plano: a faixa encolhe pra barra de chips e o canvas ganha a altura
+  $("pane-chat").dataset.tudoMin = planoAberto && abertos.length === 0 ? "1" : "0";
+  lembrarLayout();
+  pintarEstadosDosChats();
+}
+
+/* layout lembrado: chats da área (um só retrato) e, por plano, faixa/minimizados/pesos */
+const CHAVE_LAYOUT_AREA = "nexo.areaDeChats";
+const chaveLayoutDoPlano = (slug) => `nexo.plano:${slug}`;
+/** Só grava depois de restaurar: o boot desenha um chat só antes e apagaria o retrato salvo. */
+let layoutPronto = false;
+
+function lembrarLayout() {
+  if (!layoutPronto) return;
+  if (planoAberto) {
+    const faixa = parseFloat($("work").style.getPropertyValue("--faixa-plano")) || null;
+    const { manager, impl, lateral, slug } = planoAberto;
+    lsSet(chaveLayoutDoPlano(slug), JSON.stringify(retratoDoPlano({ faixa, manager, impl, lateral })));
+    return;
+  }
+  const normais = chatsDaVez();
+  lsSet(CHAVE_LAYOUT_AREA, JSON.stringify(retratoDaArea(normais, areaDeChats.foco)));
+}
+
+/**
+ * Boot: a conversa em foco já abriu (`nexo.thread`); os outros chats que estavam na tela voltam
+ * no mesmo lugar, com minimizado e largura. Foco trocado por fora (outra conversa) = não restaura.
+ */
+async function restaurarAreaDeChats() {
+  try {
+    const salvo = lerRetratoDaArea(lsGet(CHAVE_LAYOUT_AREA, ""));
+    const principal = areaDeChats.foco;
+    const iFoco = salvo ? salvo.chats.findIndex((c) => c.threadId === principal.threadId) : -1;
+    if (!salvo || iFoco < 0 || salvo.chats.length < 2) return;
+    principal.peso = salvo.chats[iFoco].peso;
+    for (const [i, c] of salvo.chats.entries()) {
+      if (i === iFoco) continue;
+      const chat = criarChatNaTela(i);
+      chat.peso = c.peso;
+      chat.minimizado = c.minimizado;
+      try {
+        await openThread(c.threadId, { chat });
+      } catch {
+        // conversa apagada noutro lugar: o chat dela não volta
+        fecharChatDaTela(chat);
+        continue;
+      }
+      if (c.projeto) chat.projeto = c.projeto;
+    }
+  } finally {
+    layoutPronto = true;
+    desenharArea();
+  }
+}
+
+/** Divisor arrastável entre dois chats abertos (arrastarDivisor), também pelas setas. */
+function criarDivisor(a, b) {
+  const d = document.createElement("div");
+  d.className = "chat-div";
+  d.tabIndex = 0;
+  d.setAttribute("role", "separator");
+  d.setAttribute("aria-orientation", "vertical");
+  d.setAttribute("aria-label", "Largura dos chats");
+  const mover = (dx) => {
+    const r = arrastarDivisor({
+      pesoA: a.peso || 1,
+      pesoB: b.peso || 1,
+      larguraA: a.el.root.getBoundingClientRect().width,
+      larguraB: b.el.root.getBoundingClientRect().width,
+      dx,
+    });
+    a.peso = r.pesoA;
+    b.peso = r.pesoB;
+    a.el.root.style.setProperty("--peso", String(a.peso));
+    b.el.root.style.setProperty("--peso", String(b.peso));
+  };
+  d.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    d.setPointerCapture(e.pointerId);
+    let x = e.clientX;
+    const mexe = (ev) => {
+      mover(ev.clientX - x);
+      x = ev.clientX;
+    };
+    const solta = () => {
+      d.removeEventListener("pointermove", mexe);
+      d.removeEventListener("pointerup", solta);
+      d.removeEventListener("pointercancel", solta);
+      lembrarLayout();
+    };
+    d.addEventListener("pointermove", mexe);
+    d.addEventListener("pointerup", solta);
+    d.addEventListener("pointercancel", solta);
+  });
+  d.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    mover(e.key === "ArrowLeft" ? -16 : 16);
+    lembrarLayout();
+  });
+  return d;
+}
+
+/** Chat vai sair do DOM: maguinho e medidor (que podem morar nele) esperam no painel até o próximo foco. */
+function estacionarPetEMedidor(root) {
+  for (const id of ["pet-stage", "meter"]) {
+    const el = document.getElementById(id);
+    if (el && root.contains(el)) $("pane-chat").append(el);
+  }
+}
+
+/** Maguinho e medidor são um só: moram no chat em foco. */
+function moverPetEMedidor() {
+  const root = areaDeChats.foco.el.root;
+  const stage = document.getElementById("pet-stage");
+  const wrap = root.querySelector(".composer-wrap");
+  if (stage && wrap && stage.parentElement !== wrap) wrap.insertBefore(stage, root.querySelector("#think-bar")?.nextSibling ?? wrap.firstChild);
+  const meter = document.getElementById("meter");
+  const head = root.querySelector(".chat-head");
+  if (meter && head && meter.parentElement !== head) head.append(meter);
+}
+
+/**
+ * Dá foco a um chat: ele decide maguinho, medidor, pra onde vão os atalhos, a conversa marcada na
+ * sidebar e a sessão de trabalho (painéis), trocando de projeto se a conversa é de outro.
+ */
+async function focarChat(chat) {
+  if (!areaDeChats.chats.includes(chat)) return;
+  if (areaDeChats.foco === chat) {
+    if (chat.terminouNaoVisto) {
+      chat.terminouNaoVisto = false;
+      pintarEstadosDosChats();
+    }
+    return;
+  }
+  persistirWork();
+  inspectorHost.desligar();
+  areaDeChats.focar(chat);
+  chat.terminouNaoVisto = false;
+  if (chat.threadId) {
+    localStorage.setItem("nexo.thread", chat.threadId);
+    void window.nexo.threadVista?.(chat.threadId);
+  }
+  moverPetEMedidor();
+  marcarLinhaAtiva($("repo-tree"), chat.threadId);
+  // maguinho e barra de cima passam a contar o turno DESTE chat
+  petParou();
+  setMotor(state.ok, state.ok && chat.talking);
+  paintMeter();
+  setVia();
+  desenharArea();
+  // no plano, foco decide só maguinho e composer: canvas e projeto são do plano
+  if (planoAberto) return;
+  if (chat.projeto && !samePath(state.projectPath, chat.projeto)) await bindProject(chat.projeto);
+  if (areaDeChats.foco !== chat) return;
+  hidratarOuMigrar();
+  aplicarSessaoWork();
+}
+
+/** Clique ou foco de teclado em qualquer lugar do chat dá foco a ele — antes do handler do clique rodar. */
+function ligarJanelaDoChat(chat) {
+  const root = chat.el.root;
+  const focar = () => {
+    if (areaDeChats.foco !== chat || chat.terminouNaoVisto) void focarChat(chat);
+  };
+  root.addEventListener("pointerdown", focar, true);
+  root.addEventListener("focusin", focar, true);
+  root.querySelector(".chat-janela").addEventListener("click", (e) => {
+    const acao = e.target.closest("[data-janela]")?.dataset.janela;
+    if (acao === "minimizar") minimizarChat(chat);
+    else if (acao === "maximizar") {
+      chatMaximizado = chatMaximizado === chat ? null : chat;
+      desenharArea();
+    } else if (acao === "fechar") fecharChatDaTela(chat);
+  });
+  root.querySelector(".chat-head").addEventListener("dragstart", (e) => {
+    if (e.target.closest?.("button")) return;
+    e.dataTransfer.setData(TIPO_ARRASTE_CHAT, String(areaDeChats.chats.indexOf(chat)));
+    e.dataTransfer.effectAllowed = "move";
+  });
+}
+
+function criarChatNaTela(indice) {
+  const root = MOLDE_DO_CHAT.cloneNode(true);
+  const chat = criarEstadoDoChat({ el: { root } });
+  chat.profileId = state.profileId;
+  areaDeChats.adicionar(chat, indice);
+  colunasDosChats.insertBefore(root, colunasDosChats.querySelector(".chat-cols-vazio"));
+  ligarJanelaDoChat(chat);
+  for (const fn of ligacoesDoChat) areaDeChats.comChat(chat, () => fn(chat));
+  return chat;
+}
+
+/** Tira o chat da tela. A conversa segue no daemon (turno em voo continua); o último chat não sai. */
+function fecharChatDaTela(chat) {
+  if (areaDeChats.chats.length < 2) return;
+  const eraFoco = areaDeChats.ehFoco(chat);
+  chat.abortSse?.abort();
+  if (chat.think.timer) clearInterval(chat.think.timer);
+  if (chat.stream.raf) cancelAnimationFrame(chat.stream.raf);
+  for (const u of chat.logShotUrls) URL.revokeObjectURL(u);
+  for (const img of chat.pendingImages) URL.revokeObjectURL(img.url);
+  if (eraFoco) {
+    // vizinho ganha o foco (e a sessão de trabalho) antes deste sair
+    const i = areaDeChats.chats.indexOf(chat);
+    const vizinho = areaDeChats.chats[i + 1] ?? areaDeChats.chats[i - 1];
+    void focarChat(vizinho);
+  }
+  areaDeChats.remover(chat);
+  estacionarPetEMedidor(chat.el.root);
+  moverPetEMedidor();
+  chat.el.root.remove();
+  desenharArea();
+}
+
+function minimizarChat(chat) {
+  chat.minimizado = true;
+  if (chatMaximizado === chat) chatMaximizado = null;
+  if (areaDeChats.ehFoco(chat)) {
+    const outro = distribuirChats().abertos[0];
+    if (outro) void focarChat(outro);
+  }
+  desenharArea();
+}
+
+async function restaurarChat(chat) {
+  chat.minimizado = false;
+  if (chatMaximizado && chatMaximizado !== chat) chatMaximizado = null;
+  await focarChat(chat);
+  desenharArea();
+}
+
+/**
+ * Abre a conversa num chat ao lado (Ctrl+clique, "Abrir ao lado", soltar na borda). `alvo`+`lado`
+ * = ao lado daquele chat; `alvo` sem lado = substitui ele. Com a área cheia e sem alvo, sai o chat
+ * há mais tempo sem foco. Conversa que já está na tela só ganha foco.
+ */
+async function abrirChatAoLado(threadId, path, { alvo = null, lado = null } = {}) {
+  if (planoAberto) await sairDoPlano();
+  const ja = areaDeChats.doThread(threadId);
+  if (ja) {
+    await restaurarChat(ja);
+    return;
+  }
+  const chats = areaDeChats.chats;
+  let chat;
+  if (alvo && !lado) chat = alvo;
+  else if (!areaDeChats.foco.threadId) chat = areaDeChats.foco;
+  else if (chats.length >= MAX_CHATS) chat = alvo ?? quemSaiPraAbrir(chats, areaDeChats.foco);
+  else chat = criarChatNaTela(alvo ? chats.indexOf(alvo) + (lado === "direita" ? 1 : 0) : chats.length);
+  chat.minimizado = false;
+  await focarChat(chat);
+  desenharArea();
+  if (areaDeChats.foco !== chat) return;
+  if (path && !samePath(state.projectPath, path)) await bindProject(path);
+  if (areaDeChats.foco === chat) await openThread(threadId);
+}
+
+/* arrastar: conversa da sidebar (abre/substitui) ou cabeçalho de chat (reordena) */
+const TIPO_ARRASTE_CONVERSA = "application/x-nexo-conversa";
+const TIPO_ARRASTE_CHAT = "application/x-nexo-chat";
+
+/** Chat aberto embaixo do cursor e o que soltar faria ali. */
+function alvoDoArraste(e) {
+  const tipos = [...(e.dataTransfer?.types ?? [])];
+  const conversa = tipos.includes(TIPO_ARRASTE_CONVERSA);
+  const reordena = tipos.includes(TIPO_ARRASTE_CHAT);
+  // faixa do plano é fixa: sem soltar conversa nem reordenar
+  if ((!conversa && !reordena) || planoAberto) return null;
+  const { abertos } = distribuirChats();
+  if (!abertos.length) return conversa ? { chat: null, acao: "novo" } : null;
+  const chat =
+    abertos.find((c) => {
+      const r = c.el.root.getBoundingClientRect();
+      return e.clientX >= r.left && e.clientX <= r.right;
+    }) ?? abertos.at(-1);
+  const r = chat.el.root.getBoundingClientRect();
+  const x = e.clientX - r.left;
+  if (reordena) return { chat, acao: x < r.width / 2 ? "esquerda" : "direita", reordena: true };
+  return { chat, acao: alvoDoSoltar({ total: areaDeChats.chats.length, x, largura: r.width }) };
+}
+
+function mostrarAlvo(alvo) {
+  const el = colunasDosChats.querySelector(".chat-alvo");
+  if (!alvo) {
+    el.classList.add("hidden");
+    return;
+  }
+  const base = colunasDosChats.getBoundingClientRect();
+  const r = alvo.chat ? alvo.chat.el.root.getBoundingClientRect() : base;
+  const cab = alvo.chat ? alvo.chat.el.root.querySelector(".chat-head").offsetHeight : 0;
+  const metade = alvo.acao === "esquerda" || alvo.acao === "direita";
+  Object.assign(el.style, {
+    left: `${r.left - base.left + (alvo.acao === "direita" ? r.width / 2 : 0)}px`,
+    top: `${r.top - base.top + cab}px`,
+    width: `${metade ? r.width / 2 : r.width}px`,
+    height: `${r.height - cab}px`,
+  });
+  el.dataset.tipo = metade ? alvo.acao : "substituir";
+  el.textContent = alvo.reordena ? "" : alvo.acao === "substituir" ? `Substituir '${clip(tituloDoChat(alvo.chat), 40)}'` : "Abrir ao lado";
+  el.classList.remove("hidden");
+}
+
+colunasDosChats.addEventListener("dragover", (e) => {
+  const alvo = alvoDoArraste(e);
+  if (!alvo) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+  mostrarAlvo(alvo);
+});
+colunasDosChats.addEventListener("dragleave", (e) => {
+  if (!colunasDosChats.contains(e.relatedTarget)) mostrarAlvo(null);
+});
+// Esc ou soltar fora cancela: o navegador manda dragend
+document.addEventListener("dragend", () => mostrarAlvo(null));
+colunasDosChats.addEventListener("drop", (e) => {
+  const alvo = alvoDoArraste(e);
+  mostrarAlvo(null);
+  if (!alvo) return;
+  e.preventDefault();
+  if (alvo.reordena) {
+    const origem = areaDeChats.chats[Number(e.dataTransfer.getData(TIPO_ARRASTE_CHAT))];
+    if (origem && alvo.chat && areaDeChats.ordenar(reordenar(areaDeChats.chats, origem, alvo.chat, alvo.acao))) desenharArea();
+    return;
+  }
+  let dado = null;
+  try {
+    dado = JSON.parse(e.dataTransfer.getData(TIPO_ARRASTE_CONVERSA));
+  } catch {
+    return;
+  }
+  if (!dado?.threadId) return;
+  const lado = alvo.acao === "esquerda" || alvo.acao === "direita" ? alvo.acao : null;
+  void abrirChatAoLado(dado.threadId, dado.path ?? null, { alvo: alvo.chat, lado });
+});
+
+/** Linha de conversa da sidebar: arrastável pra área e Ctrl+clique abre ao lado. */
+function linhaAbreAoLado(li, threadId, path) {
+  li.draggable = true;
+  li.addEventListener("dragstart", (e) => {
+    e.dataTransfer.setData(TIPO_ARRASTE_CONVERSA, JSON.stringify({ threadId, path: path ?? null }));
+    e.dataTransfer.effectAllowed = "move";
+  });
+}
+
+ligarJanelaDoChat(areaDeChats.foco);
+new ResizeObserver(() => desenharArea()).observe(colunasDosChats);
+setInterval(pintarEstadosDosChats, 2000);
+
+async function openThread(id, { chat: alvo = null } = {}) {
+  // chat certo (Manager/Implementação do plano): a parte síncrona roda com ele como atual
+  if (alvo && areaDeChats.atual() !== alvo) return areaDeChats.comChat(alvo, () => openThread(id, { chat: alvo }));
+  // qualquer outra abertura (sidebar, busca, passo de time) no plano: sai dele antes
+  if (!alvo && planoAberto) await sairDoPlano();
+  // conversa que já está noutro chat da tela só ganha foco: dois chats na mesma conversa = dois SSE
+  const outro = alvo ? null : areaDeChats.doThread(id);
+  if (outro && outro !== areaDeChats.atual()) {
+    await restaurarChat(outro);
+    return;
+  }
+  const chat = areaDeChats.atual();
+  const foco = () => areaDeChats.ehFoco(chat);
   // o "terminou" desta conversa no painel de borda já foi visto
   void window.nexo.threadVista?.(id);
   // Imagem no composer é da conversa onde foi colada: não segue pra outra.
@@ -4646,101 +5295,89 @@ async function openThread(id) {
   // Aborta o SSE da conversa velha JÁ — senão ele continua despejando eventos
   // no log até o listenSse() lá embaixo, e o texto cai na conversa errada.
   state.abortSse?.abort();
-  persistirWork();
-  inspectorHost.desligar();
+  if (foco()) {
+    persistirWork();
+    inspectorHost.desligar();
+  }
   // Avaliação é da conversa que estava aberta: não pode vazar pra próxima.
   state.ultimaAvaliacaoRoteamento = null;
   state.threadId = id;
-  localStorage.setItem("nexo.thread", id);
+  chat.erroDoTurno = "";
+  chat.terminouNaoVisto = false;
+  const stub = threadStub(id);
+  chat.projeto = stub ? stub.path : state.projectPath || null;
+  if (foco()) localStorage.setItem("nexo.thread", id);
   const events = await req(`/v1/threads/${id}`);
-  state.limiteDoChat = LIMITE_DO_CHAT;
-  const meta = events.find((e) => e.type === "thread_meta");
-  state.metaAtual = meta || null;
-  $("btn-voltar-origem").classList.toggle("hidden", !meta?.origemThreadId);
-  void barraTimes.carregar(id);
-  const switched = [...events].reverse().find((e) => e.type === "switched");
-  state.profileId = switched?.toProfileId || meta?.profileId || "";
-  setVia();
-  renderEvents(events);
-  // Depois de `renderEvents` (que popula `state.events`): o agente pode ter sido
-  // atribuído por roteamento no meio da conversa, e o `thread_meta` não sabe disso.
-  sincronizarAgenteDaConversa();
-  setComposer(true);
-  // "Falando" é por conversa: com duas contas trabalhando em paralelo, sair de uma
-  // em voo não pode deixar a próxima com o indicador aceso e o Parar mirando errado.
-  petParou();
-  if (state.ok) setMotor(true, state.agents.list.some((a) => a.threadId === id && a.busy));
-  setChatHead();
-  state.queuePaused = false;
-  paintQueue();
-  // voltou pra uma conversa parada com fila: o "done" que andaria com ela já passou
-  // (só se ele acabou bem: turno em erro/quota/login segura a fila, igual `pausarFila`)
-  const fimDoTurno = state.agents.list.find((a) => a.threadId === id)?.lastTerminal;
-  const acabouBem = !fimDoTurno || fimDoTurno === "done";
-  if (!state.talking && acabouBem && filaDa().length && !state.filaFundo.enviando.has(id)) void enviarProximoDaFila();
-  if (!state.sideChat) state.sideChat = true;
-  marcarLinhaAtiva($("repo-tree"), id);
-  listenSse();
-  hidratarOuMigrar();
-  // conversa do Agent Manager: a Tela de Planejamento é a tela dela
-  if (meta?.planejamento) {
-    abrirAba(sessaoWork(), "planejamento");
-    persistirWork();
-  }
-  aplicarSessaoWork();
+  // outra conversa foi aberta neste chat durante a espera: a resposta velha não vale mais
+  if (chat.threadId !== id || !areaDeChats.chats.includes(chat)) return;
+  // o resto desenha NESTE chat, mesmo que o foco tenha ido pra outro durante a espera
+  areaDeChats.comChat(chat, () => {
+    state.limiteDoChat = LIMITE_DO_CHAT;
+    const meta = events.find((e) => e.type === "thread_meta");
+    state.metaAtual = meta || null;
+    $("btn-voltar-origem").classList.toggle("hidden", !meta?.origemThreadId);
+    void barraDoChat(chat).carregar(id);
+    const switched = [...events].reverse().find((e) => e.type === "switched");
+    state.profileId = switched?.toProfileId || meta?.profileId || "";
+    setVia();
+    renderEvents(events);
+    // Depois de `renderEvents` (que popula `state.events`): o agente pode ter sido
+    // atribuído por roteamento no meio da conversa, e o `thread_meta` não sabe disso.
+    sincronizarAgenteDaConversa();
+    setComposer(true);
+    // "Falando" é por conversa: com duas contas trabalhando em paralelo, sair de uma
+    // em voo não pode deixar a próxima com o indicador aceso e o Parar mirando errado.
+    petParou();
+    if (state.ok) setMotor(true, state.agents.list.some((a) => a.threadId === id && a.busy));
+    setChatHead();
+    state.queuePaused = false;
+    paintQueue();
+    // voltou pra uma conversa parada com fila: o "done" que andaria com ela já passou
+    // (só se ele acabou bem: turno em erro/quota/login segura a fila, igual `pausarFila`)
+    const fimDoTurno = state.agents.list.find((a) => a.threadId === id)?.lastTerminal;
+    const acabouBem = !fimDoTurno || fimDoTurno === "done";
+    if (!state.talking && acabouBem && filaDa().length && !state.filaFundo.enviando.has(id)) void enviarProximoDaFila();
+    if (!state.sideChat) state.sideChat = true;
+    listenSse(chat);
+    void refreshMeter();
+    // no plano a área de trabalho é o canvas: a sessão da conversa fica pra quando sair
+    if (foco() && !planoAberto) {
+      marcarLinhaAtiva($("repo-tree"), id);
+      hidratarOuMigrar();
+      aplicarSessaoWork();
+    }
+  });
+  desenharArea();
   // lista/perfis/quota: não bloqueiam o clique. Forçar fp vazio reconstruía a
   // árvore inteira a cada troca e travava com dezenas de conversas.
   void loadThreads();
   void loadProfiles();
-  void refreshMeter();
 }
 
-function listenSse() {
-  state.abortSse?.abort();
-  if (!state.threadId) return;
-  const ac = new AbortController();
-  state.abortSse = ac;
-  state.sseOn = true;
-
-  /**
-   * Religa e recupera o que passou. Vale pra queda com erro E pra fim limpo do
-   * stream (o que acontece quando o daemon reinicia) — antes só o erro religava,
-   * e um fim limpo deixava o chat mudo até o Ctrl+R.
-   */
-  const religar = () => {
-    state.sseOn = false;
-    if (state.abortSse !== ac) return;
-    setTimeout(async () => {
-      if (state.abortSse !== ac || !state.threadId) return;
+/**
+ * SSE da conversa do chat atual. Cada evento é processado com esse chat como atual
+ * (`ouvirConversa`), então nunca cai no log de outro. Religa sozinho em queda com erro e
+ * em fim limpo do stream (daemon reiniciou), relendo a conversa antes.
+ */
+function listenSse(chat = areaDeChats.atual()) {
+  ouvirConversa(chat, areaDeChats, {
+    conectar: async (threadId, signal, aoEvento) => {
+      const res = await fetch(api(`/v1/threads/${threadId}/events`), { headers: headers(), signal });
+      await lerEventos(res, aoEvento);
+    },
+    aoEvento: onLive,
+    podeReligar: async () => {
       await renovarCredenciais();
-      if (!state.ok) return;
-      // o SSE não repõe o que perdeu: relê a conversa do disco antes de voltar a ouvir
-      try {
-        renderEvents(await req(`/v1/threads/${state.threadId}`));
-        setMotor(true, false);
-      } catch {
-        /* se falhar, o listen abaixo ainda tenta de novo */
-      }
-      listenSse();
-    }, 1500);
-  };
-
-  fetch(api(`/v1/threads/${state.threadId}/events`), {
-    headers: headers(),
-    signal: ac.signal,
-  })
-    .then(async (res) => {
-      await lerEventos(res, onLive);
-      religar();
-    })
-    .catch((e) => {
-      if (e.name === "AbortError") {
-        state.sseOn = false;
-        return;
-      }
-      console.error(e);
-      religar();
-    });
+      return state.ok;
+    },
+    // o SSE não repõe o que perdeu: relê a conversa do disco antes de voltar a ouvir
+    aoReligar: async (c) => {
+      const events = await req(`/v1/threads/${c.threadId}`);
+      areaDeChats.comChat(c, () => renderEvents(events));
+      if (areaDeChats.ehFoco(c)) setMotor(true, false);
+    },
+    aoErro: (e) => console.error(e),
+  });
 }
 
 /** Turno acabou mal: segura a fila e diz por quê, em vez de despejar tudo na parede. */
@@ -4819,12 +5456,18 @@ function onLive(ev) {
   }
   if (ev.type === "done") {
     // antes do setMotor, que já devolve o pet pro idle; erro/quota chegam antes e desligam isso
-    const trabalhava = petAtual() === "work" || petAtual() === "think";
+    const noFoco = areaDeChats.ehFoco();
+    const trabalhava = noFoco && (petAtual() === "work" || petAtual() === "think");
+    const chat = areaDeChats.atual();
+    chat.erroDoTurno = "";
     flushStreamRender();
     setMotor(true, false);
     if (trabalhava) setPet("done");
     // terminou aberta na frente da pessoa: já foi vista, o painel de borda não deve acusar
-    if (document.hasFocus()) void window.nexo.threadVista?.(state.threadId);
+    if (noFoco && document.hasFocus()) void window.nexo.threadVista?.(state.threadId);
+    // chat sem foco: o cabeçalho diz "Terminou" até ele ganhar foco
+    if (!noFoco) chat.terminouNaoVisto = true;
+    pintarEstadosDosChats();
     void enviarProximoDaFila();
     return;
   }
@@ -4901,36 +5544,42 @@ function onLive(ev) {
     }
     // Recarrega os eventos pra pegar o `roteamento` gravado (com a distribuição
     // inteira, que não vem no SSE) e só então pinta painel, cabeçalho e conversa.
+    const chat = areaDeChats.atual();
     void (async () => {
+      let events;
       try {
-        state.events = await req(`/v1/threads/${state.threadId}`);
+        events = await req(`/v1/threads/${chat.threadId}`);
       } catch {
         return;
       }
-      sincronizarAgenteDaConversa();
-      setChatHead();
-      if (ev.aplicado) {
-        appendEvent({ type: "agent_assigned", agentId: ev.alvo, confianca: ev.confianca });
-        paintRoteamento();
-      } else {
-        // Pendente = o turno está PARADO esperando resposta: mostra na conversa E
-        // abre o painel, senão a pessoa fica olhando um chat mudo sem saber que
-        // precisa decidir algo.
-        appendEvent({
-          type: "roteamento",
-          tipo: ev.tipo,
-          alvo: ev.alvo,
-          confianca: ev.confianca,
-          aplicado: false,
-          threadId: ev.threadId,
-        });
-        toggleRoteamentoDock(true);
-      }
+      // desenha no chat da conversa, mesmo que o foco tenha mudado durante a espera
+      areaDeChats.comChat(chat, () => {
+        state.events = events;
+        sincronizarAgenteDaConversa();
+        setChatHead();
+        if (ev.aplicado) {
+          appendEvent({ type: "agent_assigned", agentId: ev.alvo, confianca: ev.confianca });
+          paintRoteamento();
+        } else {
+          // Pendente = o turno está PARADO esperando resposta: mostra na conversa E
+          // abre o painel, senão a pessoa fica olhando um chat mudo sem saber que
+          // precisa decidir algo.
+          appendEvent({
+            type: "roteamento",
+            tipo: ev.tipo,
+            alvo: ev.alvo,
+            confianca: ev.confianca,
+            aplicado: false,
+            threadId: ev.threadId,
+          });
+          toggleRoteamentoDock(true);
+        }
+      });
     })();
     return;
   }
   if (ev.type === "run_evento") {
-    void barraTimes.aplicar(ev);
+    void barraDoChat().aplicar(ev);
     return;
   }
   if (ev.type === "run_resultado") {
@@ -4946,6 +5595,7 @@ function onLive(ev) {
     return;
   }
   if (ev.type === "quota") {
+    areaDeChats.atual().erroDoTurno = "Sem cota";
     petParou();
     setMotor(true, false);
     pausarFila("quota");
@@ -4964,6 +5614,7 @@ function onLive(ev) {
     return;
   }
   if (ev.type === "auth") {
+    areaDeChats.atual().erroDoTurno = "Precisa de login";
     petParou();
     setMotor(true, false);
     pausarFila("login");
@@ -4974,6 +5625,7 @@ function onLive(ev) {
     return;
   }
   if (ev.type === "error") {
+    areaDeChats.atual().erroDoTurno = "Erro no turno";
     petParou();
     setMotor(true, false);
     pausarFila("erro");
@@ -5699,13 +6351,197 @@ const tarefasBoard = createTarefasBoard({
   avisar: (msg) => dialogo.avisar(msg),
 });
 
+/* ---------- Planejamento em tela cheia: o plano é dono dos chats dele, não o contrário ---------- */
+
+/**
+ * Entra no plano: canvas em cima, Manager e Implementação fixos embaixo. Os chats que estavam na
+ * tela saem de cena mas seguem vivos (SSE, fila); "← Voltar" devolve eles como estavam.
+ */
+async function entrarNoPlano(path, slug, managerThreadId) {
+  if (!path || !slug) return;
+  if (planoAberto && planoAberto.slug === slug && samePath(planoAberto.path, path)) {
+    if (managerThreadId && planoAberto.manager.threadId !== managerThreadId) void openThread(managerThreadId, { chat: planoAberto.manager });
+    return;
+  }
+  // trocar de plano dentro do plano: os chats do plano velho saem, o "voltar" continua o mesmo
+  const antes = planoAberto?.antes ?? { foco: areaDeChats.foco, projeto: state.projectPath };
+  if (planoAberto) tirarChatsDoPlano();
+  else persistirWork();
+  inspectorHost.desligar();
+  browserPool.esconder();
+  const manager = criarChatNaTela(areaDeChats.chats.length);
+  manager.fixo = "manager";
+  const impl = criarChatNaTela(areaDeChats.chats.length);
+  impl.fixo = "implementacao";
+  areaDeChats.comChat(impl, () => {
+    setComposer(false);
+    pintarVazioDoChat();
+  });
+  // layout que este plano tinha da última vez (faixa, minimizados, larguras, sidebar)
+  const salvo = lerRetratoDoPlano(lsGet(chaveLayoutDoPlano(slug), ""));
+  if (salvo) {
+    [manager.minimizado, impl.minimizado] = salvo.minimizados;
+    [manager.peso, impl.peso] = salvo.pesos;
+  }
+  if (salvo?.faixa) $("work").style.setProperty("--faixa-plano", `${salvo.faixa}px`);
+  else $("work").style.removeProperty("--faixa-plano");
+  // janela baixa: a faixa começa minimizada pro canvas caber
+  if (window.innerHeight < 600) manager.minimizado = impl.minimizado = true;
+  planoAberto = { slug, path, manager, impl, antes, lateral: Boolean(salvo?.lateral) };
+  document.body.dataset.plano = "1";
+  pintarLateralDoPlano();
+  areaDeChats.focar(manager);
+  moverPetEMedidor();
+  desenharArea();
+  if (!samePath(state.projectPath, path)) await bindProject(path);
+  mostrarPlanoNaTela();
+  if (managerThreadId) await openThread(managerThreadId, { chat: manager });
+}
+
+/** Chats do plano saem da área (a conversa segue no daemon). */
+function tirarChatsDoPlano() {
+  if (!planoAberto) return;
+  for (const chat of [planoAberto.manager, planoAberto.impl]) {
+    chat.abortSse?.abort();
+    if (chat.think.timer) clearInterval(chat.think.timer);
+    if (chat.stream.raf) cancelAnimationFrame(chat.stream.raf);
+    for (const u of chat.logShotUrls) URL.revokeObjectURL(u);
+    areaDeChats.remover(chat);
+    estacionarPetEMedidor(chat.el.root);
+    chat.el.root.remove();
+  }
+}
+
+/** "← Voltar": sai do plano e devolve a tela como estava (conversa em foco, projeto, painéis). */
+async function sairDoPlano() {
+  if (!planoAberto) return;
+  const { antes } = planoAberto;
+  ultimoPlano = { path: planoAberto.path, slug: planoAberto.slug };
+  planejamentoBoard.fechar();
+  tirarChatsDoPlano();
+  planoAberto = null;
+  document.body.dataset.plano = "0";
+  applySideWidth(larguraDaLateral(), false);
+  const volta = areaDeChats.chats.includes(antes.foco) ? antes.foco : areaDeChats.chats[0];
+  areaDeChats.focar(volta);
+  moverPetEMedidor();
+  marcarLinhaAtiva($("repo-tree"), volta.threadId);
+  if (volta.threadId) localStorage.setItem("nexo.thread", volta.threadId);
+  petParou();
+  setMotor(state.ok, state.ok && volta.talking);
+  paintMeter();
+  setVia();
+  desenharArea();
+  const projeto = volta.projeto ?? antes.projeto;
+  if (projeto && !samePath(state.projectPath, projeto)) await bindProject(projeto);
+  hidratarOuMigrar();
+  aplicarSessaoWork();
+}
+
+/** No plano a área de trabalho é o canvas; as abas da sessão ficam guardadas pra quando sair. */
+function mostrarPlanoNaTela() {
+  state.view = "planejamento";
+  applyWorkLayout();
+  void planejamentoBoard.abrir();
+}
+
+/** Largura da sidebar que a pessoa escolheu (o plano recolhe sem gravar). */
+const larguraDaLateral = () => {
+  const w = Number(lsGet("nexo.sideW", "252")) || 252;
+  return w < SIDE_MINI_AT ? 252 : w;
+};
+
+/** Sidebar recolhida (mini) ao entrar; o botão da barra do plano mostra de volta. */
+function pintarLateralDoPlano() {
+  if (!planoAberto) return;
+  const aberta = planoAberto.lateral;
+  applySideWidth(aberta ? larguraDaLateral() : SIDE_MIN, false);
+  const b = $("btn-pl-side");
+  b.setAttribute("aria-pressed", aberta ? "true" : "false");
+  const rotulo = aberta ? "Recolher a barra lateral" : "Mostrar a barra lateral";
+  b.title = rotulo;
+  b.setAttribute("aria-label", rotulo);
+}
+
+/** Plano carregou: liga o chat do Manager e o da Implementação às conversas do roteiro. */
+function aoCarregarPlano(plano) {
+  if (!planoAberto || plano.slug !== planoAberto.slug) return;
+  const r = plano.roteiro;
+  const { manager, impl } = planoAberto;
+  if (r.threadId && manager.threadId !== r.threadId) void openThread(r.threadId, { chat: manager });
+  if (r.implementacaoThreadId && impl.threadId !== r.implementacaoThreadId) void openThread(r.implementacaoThreadId, { chat: impl });
+  // já tem implementação: o envio sai da barra (fica no estado vazio só enquanto não houver)
+  $("btn-pl-enviar").classList.toggle("hidden", Boolean(r.implementacaoThreadId));
+  planoAberto.mockAguardando = plano.cards.some((c) => estadoDoDesign(c, plano.integracao) === "aguardando");
+  updateChatEmptyState();
+  pintarEstadosDosChats();
+}
+
+$("btn-pl-voltar").addEventListener("click", () => void sairDoPlano());
+porChat(() => {
+  $("chat-empty-acoes").querySelector(".chat-empty-enviar").addEventListener("click", () => $("btn-pl-enviar").click());
+});
+$("btn-pl-side").addEventListener("click", () => {
+  if (!planoAberto) return;
+  alternarLateralDoPlano();
+});
+
+function alternarLateralDoPlano() {
+  planoAberto.lateral = !planoAberto.lateral;
+  pintarLateralDoPlano();
+  lembrarLayout();
+}
+
+/** Divisor entre o canvas e a faixa de chats: arrastar muda a altura, duplo clique alterna 40%/minimizado. */
+{
+  const div = $("split-plano");
+  const FAIXA_MIN = 180;
+  const CANVAS_MIN = 240;
+  const aplicar = (px) => {
+    const total = $("work").getBoundingClientRect().height;
+    const h = Math.max(FAIXA_MIN, Math.min(total - CANVAS_MIN, px));
+    $("work").style.setProperty("--faixa-plano", `${Math.round(h)}px`);
+    div.setAttribute("aria-valuenow", String(Math.round((h / total) * 100)));
+  };
+  const alturaAtual = () => $("pane-chat").getBoundingClientRect().height;
+  div.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    div.setPointerCapture(e.pointerId);
+    const y0 = e.clientY;
+    const h0 = alturaAtual();
+    const mexe = (ev) => aplicar(h0 + (y0 - ev.clientY));
+    const solta = () => {
+      div.removeEventListener("pointermove", mexe);
+      div.removeEventListener("pointerup", solta);
+      lembrarLayout();
+    };
+    div.addEventListener("pointermove", mexe);
+    div.addEventListener("pointerup", solta);
+  });
+  div.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    aplicar(alturaAtual() + (e.key === "ArrowUp" ? 24 : -24));
+    lembrarLayout();
+  });
+  div.addEventListener("dblclick", () => {
+    if (!planoAberto) return;
+    const { manager, impl } = planoAberto;
+    const minimizar = !(manager.minimizado && impl.minimizado);
+    manager.minimizado = minimizar;
+    impl.minimizado = minimizar;
+    if (!minimizar) $("work").style.removeProperty("--faixa-plano");
+    desenharArea();
+  });
+}
+
 const planejamentoBoard = createPlanejamentoBoard({
   req,
   api,
   headers,
   el: $,
-  getProjectPath: () => state.projectPath,
-  getSlug: () => state.metaAtual?.planejamento?.slug || "",
+  getProjectPath: () => planoAberto?.path || state.projectPath,
+  getSlug: () => planoAberto?.slug || state.metaAtual?.planejamento?.slug || "",
   isOk: () => state.ok,
   lerEventos,
   confirmar: (msg) => dialogo.confirmar(msg),
@@ -5716,15 +6552,33 @@ const planejamentoBoard = createPlanejamentoBoard({
     if (/^https?:/i.test(fonte)) void window.nexo.openExternal?.(fonte);
   },
   getProfileId: () => state.profileId || state.profiles.find((p) => p.status === "ready")?.id || "",
-  // a conversa ativa é a do Manager (a tela é dela): o pedido vai direto no chat, visível pra pessoa
+  // o pedido vai direto no chat do Manager, visível pra pessoa
   aoPedirAoManager: (texto) => {
+    if (planoAberto) {
+      const { manager } = planoAberto;
+      manager.minimizado = false;
+      desenharArea();
+      void areaDeChats.comChat(manager, () => sendChatMessage(texto));
+      return;
+    }
     if (!state.sideChat) {
       state.sideChat = true;
       applyWorkLayout();
     }
     void sendChatMessage(texto);
   },
-  aoAbrirConversa: (threadId) => void openThread(threadId),
+  // no plano, a conversa nova do envio é a Implementação: entra no chat dela, embaixo
+  aoAbrirConversa: (threadId) => {
+    if (planoAberto) {
+      planoAberto.impl.minimizado = false;
+      void openThread(threadId, { chat: planoAberto.impl });
+      $("btn-pl-enviar").classList.add("hidden");
+      updateChatEmptyState();
+      return;
+    }
+    void openThread(threadId);
+  },
+  aoCarregarPlano,
   aoAbrirDs: (sistema, card) => void abrirTelaDoDs(sistema, card),
   aoAbrirTarefa: (id) => void abrirTarefaNoQuadro(id),
 });
@@ -5750,15 +6604,20 @@ async function abrirTarefaNoQuadro(id) {
  * Agent Manager, que já começa a separar etapas. Abre a Tela de Planejamento na conversa dele.
  */
 async function planejarDaConversa(threadId) {
-  if (!state.ok) return;
+  if (!state.ok) return { ok: false, erro: "motor desligado" };
   const profileId = contaParaPlanejar();
-  if (!profileId) return;
+  if (!profileId) return { ok: false, erro: "nenhuma conta pronta" };
   try {
     const r = await req("/v1/planejamento", { method: "POST", body: JSON.stringify({ deThreadId: threadId, profileId }) });
-    if (r.projectPath && !samePath(state.projectPath, r.projectPath)) await bindProject(r.projectPath);
-    await openThread(r.threadId);
+    if (r.slug) await entrarNoPlano(r.projectPath || state.projectPath, r.slug, r.threadId);
+    else {
+      if (r.projectPath && !samePath(state.projectPath, r.projectPath)) await bindProject(r.projectPath);
+      await openThread(r.threadId);
+    }
+    return { ok: true };
   } catch (e) {
     dialogo.avisar(`Não criou o planejamento: ${e.message}`);
+    return { ok: false, erro: e.message };
   }
 }
 
@@ -5784,7 +6643,7 @@ async function novoPlanejamento(path) {
       method: "POST",
       body: JSON.stringify({ profileId }),
     });
-    if (plano.roteiro?.threadId) await openThread(plano.roteiro.threadId);
+    await entrarNoPlano(path, plano.slug, plano.roteiro?.threadId);
   } catch (e) {
     dialogo.avisar(`Não criou o planejamento: ${e.message}`);
   }
@@ -5799,8 +6658,10 @@ async function abrirPlanoExistente(path, slug) {
       method: "POST",
       body: JSON.stringify({ profileId }),
     });
-    await openThread(threadId);
+    await entrarNoPlano(path, slug, threadId);
   } catch (e) {
+    // plano apagado: não insiste nele na próxima vez
+    if (ultimoPlano?.slug === slug) ultimoPlano = null;
     dialogo.avisar(`Não abriu o planejamento: ${e.message}`);
   }
 }
@@ -5808,8 +6669,15 @@ async function abrirPlanoExistente(path, slug) {
 /** "Planejamento" da paleta/menu: a conversa atual se já é plano; senão o plano mais recente; senão um novo. */
 async function abrirTelaDePlanejamento(path) {
   if (!path) return;
-  if (samePath(state.projectPath, path) && state.metaAtual?.planejamento) {
-    setView("planejamento");
+  if (planoAberto && samePath(planoAberto.path, path)) return;
+  // conversa aberta já é de um plano: abre ESSE plano (em tela cheia, sem trocar a conversa)
+  const doChat = samePath(state.projectPath, path) ? state.metaAtual?.planejamento?.slug : "";
+  if (doChat) {
+    await abrirPlanoExistente(path, doChat);
+    return;
+  }
+  if (ultimoPlano && samePath(ultimoPlano.path, path)) {
+    await abrirPlanoExistente(path, ultimoPlano.slug);
     return;
   }
   const planos = await req(`/v1/planejamento?projectPath=${encodeURIComponent(path)}`).catch(() => []);
@@ -5867,12 +6735,20 @@ const dsCanvas = createDsCanvas({
 /** Texto da mensagem automática recolhida: pra quem o Nexos está passando o contexto. */
 function rotuloDoContexto() {
   // meta da conversa sendo pintada: `state.agentId` ainda é o da conversa anterior nesse ponto
+  if (state.metaAtual?.handoff) return "Plano enviado pra implementação";
+  if (state.metaAtual?.planejamento) return "Conversa passada ao Agent Manager";
   const def = agentDef(state.metaAtual?.agentId);
   return def?.name ? `Passando contexto ao ${def.name}` : "Passando contexto ao subagente ou time";
 }
 
-const barraTimes = createBarraTimes({
-  el: $,
+/** Barra de times de UM chat (cada chat tem a sua; guarda os runs da conversa dele). */
+function barraDoChat(chat = areaDeChats.atual()) {
+  chat.el.barraTimes ??= criarBarraTimes(chat);
+  return chat.el.barraTimes;
+}
+
+const criarBarraTimes = (chat) => createBarraTimes({
+  el: (id) => elementoDoChat(document, chat, id),
   req,
   nomeDoAgente: (id) => agentDef(id)?.name || id,
   nomeDoTime: (id) => {
@@ -5884,9 +6760,11 @@ const barraTimes = createBarraTimes({
   aoAbrirPasso: (threadId) => void openThread(threadId),
 });
 
-$("btn-voltar-origem").addEventListener("click", () => {
-  const origem = state.metaAtual?.origemThreadId;
-  if (origem) void openThread(origem);
+porChat(() => {
+  $("btn-voltar-origem").addEventListener("click", () => {
+    const origem = state.metaAtual?.origemThreadId;
+    if (origem) void openThread(origem);
+  });
 });
 
 const teamStudio = createTeamStudio({
@@ -5981,8 +6859,22 @@ const VIEW_DO_PAINEL = { navegador: "browser", design: "ds", planejamento: "plan
  */
 async function tratarAbrirPainel(ev) {
   const responder = (r) => req(`/v1/paineis/${encodeURIComponent(ev.id)}/responder`, { method: "POST", body: JSON.stringify(r) }).catch(() => {});
+  if (ev.criarPlano) {
+    const r = await planejarDaConversa(ev.threadId);
+    return void responder(
+      r.ok
+        ? { ok: true, texto: "plano criado e aberto na Tela de Planejamento; o Agent Manager já recebeu esta conversa e segue de lá" }
+        : { ok: false, texto: `não criou o plano: ${r.erro}` },
+    );
+  }
   const view = VIEW_DO_PAINEL[ev.painel];
   if (!view) return void responder({ ok: false, texto: `painel desconhecido: ${ev.painel}` });
+  if (view === "planejamento") {
+    await abrirTelaDePlanejamento(state.projectPath);
+    return void responder(
+      planoAberto ? { ok: true, texto: "Tela de Planejamento aberta em tela cheia" } : { ok: false, texto: "não abriu o planejamento" },
+    );
+  }
   try {
     const s = sessaoWork(ev.threadId);
     const antes = s.activeId;
@@ -5991,10 +6883,12 @@ async function tratarAbrirPainel(ev) {
     const naFrente = ev.frente !== false || !antes;
     if (!naFrente && antes !== s.activeId && s.tabs.some((t) => t.id === antes)) s.activeId = antes;
     persistirWork(ev.threadId);
-    const atual = chaveSessao() === chaveSessao(ev.threadId);
+    // no plano em tela cheia a aba fica pronta sem tirar a pessoa do plano
+    const atual = !planoAberto && chaveSessao() === chaveSessao(ev.threadId);
     if (atual) aplicarSessaoWork();
     const notas = [];
-    if (!atual) notas.push("a pessoa está em outra conversa: a aba fica pronta quando ela voltar pra esta");
+    if (planoAberto) notas.push("a pessoa está no plano em tela cheia: a aba fica pronta quando ela voltar pra conversa");
+    else if (!atual) notas.push("a pessoa está em outra conversa: a aba fica pronta quando ela voltar pra esta");
     else if (!naFrente) notas.push("aba aberta sem trocar a que a pessoa está vendo (configuração dela)");
     if (atual && naFrente) {
       if (view === "ds" && ev.card) {
@@ -6292,15 +7186,19 @@ async function decidirRoteamentoPendente(aceitar) {
 }
 
 // Aceitar/recusar direto da bolha da conversa, além do painel.
-$("log").addEventListener("click", (e) => {
-  const btn = e.target.closest("[data-roteamento]");
-  if (!btn) return;
-  const bolha = btn.closest(".roteamento-sugestao");
-  if (bolha) bolha.dataset.decidindo = "1";
-  void decidirRoteamentoPendente(btn.dataset.roteamento === "aceitar");
+porChat(() => {
+  $("log").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-roteamento]");
+    if (!btn) return;
+    const bolha = btn.closest(".roteamento-sugestao");
+    if (bolha) bolha.dataset.decidindo = "1";
+    void decidirRoteamentoPendente(btn.dataset.roteamento === "aceitar");
+  });
 });
 
-$("btn-roteamento").addEventListener("click", () => toggleRoteamentoDock());
+porChat(() => {
+  $("btn-roteamento").addEventListener("click", () => toggleRoteamentoDock());
+});
 $("btn-roteamento-close").addEventListener("click", () => toggleRoteamentoDock(false));
 $("btn-roteamento-aceitar").addEventListener("click", () => void decidirRoteamentoPendente(true));
 $("btn-roteamento-recusar").addEventListener("click", () => void decidirRoteamentoPendente(false));
@@ -6722,16 +7620,18 @@ $("btn-motor").addEventListener("click", async () => {
   if (wantOn && !state.ok && result?.error) bannerErro(result.error);
 });
 
-$("model-select").addEventListener("change", (e) => {
-  // "Outro…" do codex: abre o texto livre em vez de gravar o valor sentinela.
-  if (selectedProfile()?.engine === "codex" && e.target.value === CODEX_CUSTOM_MODEL) {
-    $("model-custom").classList.remove("hidden");
-    $("model-custom").value = "";
-    $("model-custom").focus();
-    return;
-  }
-  $("model-custom").classList.add("hidden");
-  void patchProfile({ model: e.target.value });
+porChat(() => {
+  $("model-select").addEventListener("change", (e) => {
+    // "Outro…" do codex: abre o texto livre em vez de gravar o valor sentinela.
+    if (selectedProfile()?.engine === "codex" && e.target.value === CODEX_CUSTOM_MODEL) {
+      $("model-custom").classList.remove("hidden");
+      $("model-custom").value = "";
+      $("model-custom").focus();
+      return;
+    }
+    $("model-custom").classList.add("hidden");
+    void patchProfile({ model: e.target.value });
+  });
 });
 
 function commitModelCustom() {
@@ -6739,18 +7639,24 @@ function commitModelCustom() {
   const p = selectedProfile();
   if (valor && valor !== (p?.model || "")) void patchProfile({ model: valor });
 }
-$("model-custom").addEventListener("keydown", (e) => {
-  if (e.key !== "Enter") return;
-  e.preventDefault();
-  commitModelCustom();
-  e.target.blur();
+porChat(() => {
+  $("model-custom").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    commitModelCustom();
+    e.target.blur();
+  });
 });
-$("model-custom").addEventListener("blur", () => commitModelCustom());
+porChat(() => {
+  $("model-custom").addEventListener("blur", () => commitModelCustom());
+});
 
-$("mode-select").addEventListener("change", (e) => {
-  // codex usa sandbox (`-s`), claude usa modo de permissão (`--permission-mode`) — campos diferentes no Profile.
-  if (selectedProfile()?.engine === "codex") void patchProfile({ sandboxMode: e.target.value });
-  else void patchProfile({ permissionMode: e.target.value });
+porChat(() => {
+  $("mode-select").addEventListener("change", (e) => {
+    // codex usa sandbox (`-s`), claude usa modo de permissão (`--permission-mode`) — campos diferentes no Profile.
+    if (selectedProfile()?.engine === "codex") void patchProfile({ sandboxMode: e.target.value });
+    else void patchProfile({ permissionMode: e.target.value });
+  });
 });
 
 /** Passos de esforço do render atual do slider — do modelo escolhido (codex) ou fixos (claude). Ver `syncCodexControls`. */
@@ -6765,27 +7671,35 @@ function effortStepsAtivos() {
   }
 }
 
-$("effort-range").addEventListener("input", (e) => {
-  const steps = effortStepsAtivos();
-  const idx = Number(e.target.value) || 0;
-  $("effort-label").textContent = `Esforço: ${effortLabel(steps[idx])}`;
-  pintarEffortFill(e.target);
+porChat(() => {
+  $("effort-range").addEventListener("input", (e) => {
+    const steps = effortStepsAtivos();
+    const idx = Number(e.target.value) || 0;
+    $("effort-label").textContent = `Esforço: ${effortLabel(steps[idx])}`;
+    pintarEffortFill(e.target);
+  });
 });
 
-$("effort-range").addEventListener("change", (e) => {
-  const steps = effortStepsAtivos();
-  const idx = Number(e.target.value) || 0;
-  void patchProfile({ effort: steps[idx] });
+porChat(() => {
+  $("effort-range").addEventListener("change", (e) => {
+    const steps = effortStepsAtivos();
+    const idx = Number(e.target.value) || 0;
+    void patchProfile({ effort: steps[idx] });
+  });
 });
 
-$("profile-select").addEventListener("change", () => {
-  const id = $("profile-select").value;
-  if (id) void switchTo(id);
+porChat(() => {
+  $("profile-select").addEventListener("change", () => {
+    const id = $("profile-select").value;
+    if (id) void switchTo(id);
+  });
 });
 
-$("btn-login").addEventListener("click", () => {
-  const id = $("profile-select").value || state.profileId;
-  if (id) void startLogin(id);
+porChat(() => {
+  $("btn-login").addEventListener("click", () => {
+    const id = $("profile-select").value || state.profileId;
+    if (id) void startLogin(id);
+  });
 });
 
 initPet();
@@ -7138,9 +8052,11 @@ $("btn-login-terminal").addEventListener("click", () => {
   if (id) void startLoginTerminal(id);
 });
 
-$("btn-import-login").addEventListener("click", () => {
-  const id = $("profile-select").value || state.profileId;
-  if (id) void importClaudeLogin(id);
+porChat(() => {
+  $("btn-import-login").addEventListener("click", () => {
+    const id = $("profile-select").value || state.profileId;
+    if (id) void importClaudeLogin(id);
+  });
 });
 
 $("btn-gdrive-conectar").addEventListener("click", () => void startGoogleLogin("/v1/google/login/start"));
@@ -7169,15 +8085,19 @@ $("btn-folder").addEventListener("click", async () => {
   await bindProject(path);
 });
 
-$("chat-empty-cta").addEventListener("click", async () => {
-  const path = await window.nexo.pickFolder();
-  if (!path) return;
-  await bindProject(path);
+porChat(() => {
+  $("chat-empty-cta").addEventListener("click", async () => {
+    const path = await window.nexo.pickFolder();
+    if (!path) return;
+    await bindProject(path);
+  });
 });
 
-$("crumb-repo").addEventListener("click", () => {
-  const found = state.threadId ? threadStub(state.threadId) : null;
-  revealRepo(found?.path || state.projectPath);
+porChat(() => {
+  $("crumb-repo").addEventListener("click", () => {
+    const found = state.threadId ? threadStub(state.threadId) : null;
+    revealRepo(found?.path || state.projectPath);
+  });
 });
 
 $("btn-new").addEventListener("click", async () => {
@@ -7735,6 +8655,7 @@ function podeEnviarAgora(item) {
  * motor sem suporte — volta pro mesmo lugar da fila, sem perder nada.
  */
 async function enviarAgora(item) {
+  const chat = areaDeChats.atual();
   const threadId = state.threadId;
   const fila = filaDa(threadId);
   const i = fila.indexOf(item);
@@ -7743,8 +8664,11 @@ async function enviarAgora(item) {
   paintQueue();
   const devolver = (message) => {
     fila.splice(Math.min(i, fila.length), 0, item);
-    paintQueue();
-    appendEvent({ type: "sys", message });
+    if (chat.threadId !== threadId) return;
+    areaDeChats.comChat(chat, () => {
+      paintQueue();
+      appendEvent({ type: "sys", message });
+    });
   };
   let images = [];
   try {
@@ -7766,8 +8690,8 @@ async function enviarAgora(item) {
     devolver("O turno já estava fechando — a mensagem ficou na fila e vai logo depois.");
     return;
   }
-  if (state.threadId === threadId) {
-    appendEvent({ type: "user", text: item.text, previews: item.images.map((img) => ({ url: img.url, name: img.name })) });
+  if (chat.threadId === threadId) {
+    areaDeChats.comChat(chat, () => appendEvent({ type: "user", text: item.text, previews: item.images.map((img) => ({ url: img.url, name: img.name })) }));
   }
 }
 
@@ -7794,7 +8718,7 @@ async function drenarFilasDeFundo() {
   if (!state.ok) return;
   const prontas = conversasProntas({
     filas: state.queue,
-    atual: state.threadId,
+    abertas: areaDeChats.threadsAbertas(),
     agentes: state.agents.list,
     ultimoEnvio: filaFundo.ultimoEnvio,
     enviando: filaFundo.enviando,
@@ -7892,46 +8816,58 @@ async function sendChatMessage(text, pendentes = null, { elementos = [] } = {}) 
     appendEvent({ type: "error", message: `${selectedProfile().id} ainda sem login. Clica o botão Login — a janela preta do Windows, não este chat.` });
     return;
   }
+  // o envio é DESTE chat: depois de cada espera, desenha nele (o foco pode ter ido pra outro)
+  const chat = areaDeChats.atual();
+  const threadId = chat.threadId;
+  const nele = (fn) => areaDeChats.comChat(chat, fn);
+  chat.erroDoTurno = "";
   // da fila vêm itens já tirados do composer; do composer, pega os de agora
   const itens = pendentes ?? takePending();
   let images = [];
   try {
     images = await encodeImages(itens);
   } catch (err) {
-    appendEvent({ type: "error", message: err.message || "Não consegui ler a imagem." });
+    nele(() => appendEvent({ type: "error", message: err.message || "Não consegui ler a imagem." }));
     return;
   }
+  if (chat.threadId !== threadId) return;
   const previews = itens.map((item) => ({ url: item.url, name: item.name }));
-  appendEvent({ type: "user", text, previews, ...(elementos.length ? { elementos } : {}) });
-  void dispararMencoes(text);
-  petPensando();
+  nele(() => {
+    appendEvent({ type: "user", text, previews, ...(elementos.length ? { elementos } : {}) });
+    void dispararMencoes(text);
+    petPensando();
+  });
   try {
-    await req(`/v1/threads/${state.threadId}/messages`, {
+    await req(`/v1/threads/${threadId}/messages`, {
       method: "POST",
       body: JSON.stringify({ text, ...(images.length ? { images } : {}), ...(elementos.length ? { elementos } : {}) }),
     });
   } catch (err) {
-    appendEvent({ type: "error", message: err.message || "Falha ao enviar." });
-    petParou();
+    nele(() => {
+      appendEvent({ type: "error", message: err.message || "Falha ao enviar." });
+      petParou();
+    });
   }
 }
 
-$("composer").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  closeSlashMenu();
-  const text = $("input").value.trim();
-  if (!text && state.pendingImages.length === 0) return;
-  if (text.startsWith("/")) {
+porChat(() => {
+  $("composer").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    closeSlashMenu();
+    const text = $("input").value.trim();
+    if (!text && state.pendingImages.length === 0) return;
+    if (text.startsWith("/")) {
+      $("input").value = "";
+      await runSlash(text);
+      return;
+    }
     $("input").value = "";
-    await runSlash(text);
-    return;
-  }
-  $("input").value = "";
-  if (state.talking) {
-    enfileirar(text, takePending());
-    return;
-  }
-  await sendChatMessage(text);
+    if (state.talking) {
+      enfileirar(text, takePending());
+      return;
+    }
+    await sendChatMessage(text);
+  });
 });
 
 /**
@@ -7951,83 +8887,102 @@ document.addEventListener("paste", (e) => {
   addImages(files);
 });
 
-for (const evt of ["dragover", "dragenter"]) {
-  $("composer").addEventListener(evt, (e) => {
-    if (![...(e.dataTransfer?.types ?? [])].includes("Files")) return;
-    e.preventDefault();
-    $("composer").classList.add("dropping");
-  });
-}
-
-for (const evt of ["dragleave", "drop"]) {
-  $("composer").addEventListener(evt, () => $("composer").classList.remove("dropping"));
-}
-
-$("composer").addEventListener("drop", (e) => {
-  const files = [...(e.dataTransfer?.files ?? [])];
-  if (files.length === 0) return;
-  e.preventDefault();
-  addImages(files);
+porChat(() => {
+  for (const evt of ["dragover", "dragenter"]) {
+    $("composer").addEventListener(evt, (e) => {
+      if (![...(e.dataTransfer?.types ?? [])].includes("Files")) return;
+      e.preventDefault();
+      $("composer").classList.add("dropping");
+    });
+  }
 });
 
-$("btn-attach").addEventListener("click", () => $("attach-input").click());
+porChat(() => {
+  for (const evt of ["dragleave", "drop"]) {
+    $("composer").addEventListener(evt, () => $("composer").classList.remove("dropping"));
+  }
+});
 
-$("attach-input").addEventListener("change", (e) => {
-  addImages([...e.target.files]);
-  e.target.value = "";
+porChat(() => {
+  $("composer").addEventListener("drop", (e) => {
+    const files = [...(e.dataTransfer?.files ?? [])];
+    if (files.length === 0) return;
+    e.preventDefault();
+    addImages(files);
+  });
+});
+
+porChat(() => {
+  $("btn-attach").addEventListener("click", () => $("attach-input").click());
+});
+
+porChat(() => {
+  $("attach-input").addEventListener("change", (e) => {
+    addImages([...e.target.files]);
+    e.target.value = "";
+  });
 });
 
 async function abortTalk() {
   if (!state.threadId || !state.talking) return;
+  const chat = areaDeChats.atual();
   try {
-    await req(`/v1/threads/${state.threadId}/abort`, { method: "POST", body: "{}" });
+    await req(`/v1/threads/${chat.threadId}/abort`, { method: "POST", body: "{}" });
   } catch (e) {
-    appendEvent({ type: "error", message: e.message || "Não parou." });
+    areaDeChats.comChat(chat, () => appendEvent({ type: "error", message: e.message || "Não parou." }));
     return;
   }
-  petParou(); // antes do done do abort, que senão comemoraria
-  appendEvent({ type: "sys", message: "Parou." });
+  areaDeChats.comChat(chat, () => {
+    petParou(); // antes do done do abort, que senão comemoraria
+    appendEvent({ type: "sys", message: "Parou." });
+  });
 }
 
-$("btn-abort").addEventListener("click", () => void abortTalk());
+porChat(() => {
+  $("btn-abort").addEventListener("click", () => void abortTalk());
+});
 
-$("input").addEventListener("input", openSlashMenuIfNeeded);
+porChat(() => {
+  $("input").addEventListener("input", openSlashMenuIfNeeded);
+});
 
-$("input").addEventListener("keydown", (e) => {
-  if (state.slash.open) {
-    const n = state.slash.matches.length;
-    if (e.key === "ArrowDown") {
+porChat(() => {
+  $("input").addEventListener("keydown", (e) => {
+    if (state.slash.open) {
+      const n = state.slash.matches.length;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (n) state.slash.index = (state.slash.index + 1) % n;
+        renderSlashMenu();
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (n) state.slash.index = (state.slash.index - 1 + n) % n;
+        renderSlashMenu();
+        return;
+      }
+      if ((e.key === "Enter" || e.key === "Tab") && n) {
+        e.preventDefault();
+        applySlashSelection(state.slash.index);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeSlashMenu();
+        return;
+      }
+    }
+    if (e.key === "Escape" && state.talking) {
       e.preventDefault();
-      if (n) state.slash.index = (state.slash.index + 1) % n;
-      renderSlashMenu();
+      void abortTalk();
       return;
     }
-    if (e.key === "ArrowUp") {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (n) state.slash.index = (state.slash.index - 1 + n) % n;
-      renderSlashMenu();
-      return;
+      $("composer").requestSubmit();
     }
-    if ((e.key === "Enter" || e.key === "Tab") && n) {
-      e.preventDefault();
-      applySlashSelection(state.slash.index);
-      return;
-    }
-    if (e.key === "Escape") {
-      e.preventDefault();
-      closeSlashMenu();
-      return;
-    }
-  }
-  if (e.key === "Escape" && state.talking) {
-    e.preventDefault();
-    void abortTalk();
-    return;
-  }
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    $("composer").requestSubmit();
-  }
+  });
 });
 
 $("toast-yes").addEventListener("click", async () => {
@@ -9297,14 +10252,16 @@ agentStudio.ligar();
 hooksStudio.ligar();
 $("btn-close-tarefas").addEventListener("click", fecharAbaAtual);
 $("btn-close-ds").addEventListener("click", fecharAbaAtual);
-$("btn-close-planejamento").addEventListener("click", fecharAbaAtual);
+$("btn-close-planejamento").addEventListener("click", () => (planoAberto ? void sairDoPlano() : fecharAbaAtual()));
 tarefasBoard.ligar();
 planejamentoBoard.ligar();
 dialogo.ligar();
 automacaoModal.ligar();
 cloneModal.ligar();
 $("btn-clonar").addEventListener("click", () => cloneModal.abrir());
-$("chat-empty-clonar").addEventListener("click", () => cloneModal.abrir());
+porChat(() => {
+  $("chat-empty-clonar").addEventListener("click", () => cloneModal.abrir());
+});
 newThreadModal.ligar();
 $("btn-tk-automacao").addEventListener("click", () => void abrirAutomacao());
 
@@ -9415,6 +10372,22 @@ function handleMod(id) {
   if (id === "palette") {
     if (state.paletteOpen) closePalette();
     else openPalette();
+    return;
+  }
+  // área de chats: Ctrl+1/2/3 foca o chat N, Ctrl+Shift+M minimiza o em foco, Ctrl+B sidebar
+  const n = /^chat-([1-3])$/.exec(id);
+  if (n) {
+    const chat = chatsDaVez()[Number(n[1]) - 1];
+    if (chat) void restaurarChat(chat).then(() => areaDeChats.comChat(chat, () => $("input")?.focus()));
+    return;
+  }
+  if (id === "chat-min") {
+    if (chatsDaVez().length > 1) minimizarChat(areaDeChats.foco);
+    return;
+  }
+  if (id === "sidebar") {
+    if (planoAberto) alternarLateralDoPlano();
+    else applySideWidth(document.body.dataset.sideMini === "1" ? larguraDaLateral() : SIDE_MIN);
     return;
   }
   closePalette();
@@ -9555,6 +10528,20 @@ window.addEventListener("keydown", (e) => {
     handleMod("side-chat");
     return;
   }
+  if (mod && !e.shiftKey && !e.altKey && ["1", "2", "3"].includes(e.key)) {
+    e.preventDefault();
+    handleMod(`chat-${e.key}`);
+    return;
+  }
+  if (mod && e.shiftKey && e.key.toLowerCase() === "m") {
+    e.preventDefault();
+    handleMod("chat-min");
+    return;
+  }
+  if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b") {
+    e.preventDefault();
+    handleMod("sidebar");
+  }
 });
 
 window.addEventListener("resize", () => {
@@ -9570,13 +10557,14 @@ window.addEventListener("resize", () => {
  */
 function initBarOverflow() {
   const composer = $("composer");
-  const bar = document.querySelector(".bar");
+  const bar = composer?.querySelector(".bar");
   const btnMore = $("btn-bar-more");
   const panel = $("bar-more-panel");
   const anchor = $("btn-attach");
-  const itens = [$("model-select"), $("mode-select"), document.querySelector(".effort")].filter(Boolean);
+  const itens = [$("model-select"), $("mode-select"), composer?.querySelector(".effort")].filter(Boolean);
   if (!composer || !bar || !btnMore || !panel || !anchor || !itens.length) return;
-  const LIMIAR = 520;
+  // abaixo disto modelo, modo e esforço não cabem ao lado do clipe (chat dividido chega a ~560px)
+  const LIMIAR = 640;
   let empilhado = false;
 
   function fecharPainel() {
@@ -9615,7 +10603,10 @@ function initBarOverflow() {
 }
 
 initCombobox();
-initBarOverflow();
+porChat(() => initBarOverflow());
+porChat(() => {
+  if (state.profiles.length) pintarSeletorDeConta();
+});
 
 /**
  * Tela de abertura (abertura.js decide a fase). Cobre a janela do boot até a última conversa
@@ -9785,6 +10776,7 @@ void (async () => {
       aplicarSessaoWork();
     }
   }
+  await restaurarAreaDeChats();
   abertura.passos.conversa = true;
   pintarAbertura();
 })();
