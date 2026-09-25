@@ -1189,7 +1189,15 @@ function sendUpdateStatus(payload) {
   if (win && !win.isDestroyed()) win.webContents.send("update:status", payload);
 }
 
+/** Intervalo da procura automática com o app aberto (além da procura na abertura). */
+const UPDATE_INTERVALO_MS = 10 * 60 * 1000;
+/** Versão que a troca de pasta está baixando agora — barra a segunda checagem de baixar de novo. */
+let preparandoTroca = "";
+
 function checarUpdate() {
+  // já baixada (esperando reiniciar) ou baixando: procurar de novo só trocaria o aviso de "pronto"
+  // por "procurando…" e, no meio do download, dispararia um segundo download da mesma versão
+  if (updateReady || preparandoTroca) return Promise.resolve();
   return autoUpdater.checkForUpdates().catch((err) => {
     console.error("[update] check falhou:", err?.message ?? err);
   });
@@ -1205,6 +1213,7 @@ const RELEASES_URL = "https://github.com/Yanngc32/Nexos/releases/download";
 let updateModoTroca = false;
 
 async function prepararTroca(versao) {
+  preparandoTroca = versao;
   try {
     await atualizador.prepararAtualizacao({
       instalacao: INSTALACAO,
@@ -1220,6 +1229,8 @@ async function prepararTroca(versao) {
   } catch (err) {
     console.error("[update] troca de pasta não deu, indo pelo instalador:", err?.message ?? err);
     autoUpdater.downloadUpdate().catch((e) => console.error("[update] download do instalador falhou:", e?.message ?? e));
+  } finally {
+    preparandoTroca = "";
   }
 }
 
@@ -1237,7 +1248,7 @@ function setupAutoUpdater() {
   autoUpdater.on("checking-for-update", () => sendUpdateStatus({ state: "checking" }));
   autoUpdater.on("update-available", (info) => {
     sendUpdateStatus({ state: "available", version: info.version });
-    if (!troca || updateReady) return;
+    if (!troca || updateReady || preparandoTroca) return;
     if (atualizador.recusada(INSTALACAO, info.version)) {
       void autoUpdater.downloadUpdate().catch((e) => console.error("[update] download do instalador falhou:", e?.message ?? e));
       return;
@@ -1262,8 +1273,9 @@ function setupAutoUpdater() {
 
   void checarUpdate();
   // Cobre quem deixa o app aberto o dia todo sem reiniciar — sem isto, só o
-  // check do boot rodaria e updates saídos depois nunca seriam vistos.
-  setInterval(checarUpdate, 4 * 60 * 60 * 1000).unref();
+  // check do boot rodaria e updates saídos depois nunca seriam vistos. 10 min: release nova
+  // chega no mesmo dia (a checagem é um GET pequeno no feed do GitHub, sem token).
+  setInterval(checarUpdate, UPDATE_INTERVALO_MS).unref();
 }
 
 function createTray() {

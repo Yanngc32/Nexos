@@ -22,6 +22,8 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Alterado
 
+- O app procura atualização a cada 10 min enquanto está aberto (antes, a cada 4 h). Ele não procura de novo enquanto baixa, nem depois que a versão nova já está pronta pra instalar.
+
 ### Segurança
 
 ## [0.9.0] - 2026-09-25

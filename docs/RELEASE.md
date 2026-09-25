@@ -58,7 +58,7 @@ gh release create apk-deps-<v> apps/daemon/dist/apk-deps-<v>.zip --latest=false 
 
 `electron-updater` (Ticket G, Onda 2 — implementado em `main.cjs`) consulta o feed do
 GitHub Releases do `Yanngc32/Nexos` (repositório público — sem token necessário pro feed)
-no boot e a cada 4h enquanto o app fica aberto. `autoInstallOnAppQuit` é `false`: a
+no boot e a cada 10 min enquanto o app fica aberto (parando de procurar enquanto baixa e depois que a versão nova está pronta). `autoInstallOnAppQuit` é `false`: a
 instalação nunca dispara sozinha, só pelo gate no `before-quit`.
 
 Update baixado (`update-downloaded`) marca um flag; no próximo fechamento do app (janela
