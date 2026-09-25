@@ -13,7 +13,7 @@ import {
 } from "@nexos/shared";
 import type { Engine, EngineHandler, EngineMcp } from "./types.ts";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { attachmentsDir, enginePidPath, globalChatDir, globalSkillsDir, instrucoesPath } from "../home.ts";
 import { killTree } from "../kill-tree.ts";
 import { spawnCwd } from "../project-cwd.ts";
@@ -436,9 +436,10 @@ export class CliEngine implements Engine {
     mkdirSync(dir, { recursive: true });
     const flags = ["--add-dir", dir];
     // Design system do projeto mora na pasta do projeto NO NEXOS, fora do repo (design-system.ts):
-    // sem liberar, o agente lê o caminho no pack mas não consegue abrir nem editar os cards
+    // sem liberar, o agente lê o caminho no pack mas não consegue abrir nem editar os cards. A raiz
+    // `design-system/` inteira: o pack aponta o DS oficial e o Canvas pode estar no painel de mocks
     const ds = this.projectPath ? pastaDoAtivo(this.projectPath, this.home) : null;
-    if (ds && existsSync(ds)) flags.push("--add-dir", ds);
+    if (ds && existsSync(ds)) flags.push("--add-dir", dirname(ds));
     return flags;
   }
 

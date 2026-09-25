@@ -1,5 +1,5 @@
 import { sessionBus } from "./bus.ts";
-import { ativarDs, criarDs, estadoDs, salvarCardDaFerramenta } from "./design-system.ts";
+import { ativarDs, criarDs, estadoDs, painelDeMocks, salvarCardDaFerramenta, type DsCompleto } from "./design-system.ts";
 import { canalGeracao, geracaoBus } from "./ds-gerar.ts";
 import type { Conjunto, Saida } from "./mcp.ts";
 
@@ -18,6 +18,7 @@ export const MCP_TOOLS_DS_PRINT = [
   "mcp__nexo__nexo_ds_criar",
   "mcp__nexo__nexo_ds_ativar",
   "mcp__nexo__nexo_ds_card_salvar",
+  "mcp__nexo__nexo_mock_salvar",
 ];
 
 export type ResultadoPrint = { ok: boolean; texto: string; imagem?: { dataBase64: string; mimeType: string } };
@@ -59,6 +60,16 @@ export function resetPrintForTest(): void {
 
 const erroDe = (e: unknown): Saida => ({ ok: false, texto: (e as Error).message });
 
+/** Resposta de card gravado: onde foi parar e os avisos do lint (o agente corrige e grava de novo). */
+function textoDoCardSalvo(r: { ds: DsCompleto; id: string; novo: boolean }): string {
+  const card = r.ds.cards.find((c) => c.id === r.id)!;
+  const avisos = card.lint.map((l) => `- ${l.msg}${l.trecho ? `: ${l.trecho}` : ""}`);
+  return (
+    `${r.novo ? "Card criado" : "Card atualizado"}: ${r.id} (seção ${card.secao}, largura ${card.largura ?? "1/2"}) no DS "${r.ds.nome}" (id ${r.ds.id}).` +
+    (avisos.length ? `\n\nAvisos do lint — corrija e grave de novo:\n${avisos.join("\n")}` : " Sem avisos do lint.")
+  );
+}
+
 /** O Canvas aberto troca pro DS novo (o stream dele vigia a pasta do DS que estava ativo). */
 function avisarCanvas(projectPath: string, ativo: string | null): void {
   geracaoBus.emit(canalGeracao(projectPath), { type: "ds_ativo", ativo });
@@ -80,27 +91,29 @@ export function ferramentaDePrintDoDs(threadId: string, projectPath: string, hom
     const gestao = [
       {
         name: "nexo_ds_listar",
-        description: "Lista os design systems deste projeto no Nexos (id, nome, qual está ativo e a pasta de cada um).",
+        description:
+          "Lista os design systems deste projeto no Nexos (id, nome, qual é o OFICIAL, quais são painéis de mocks e qual está ativo no Canvas).",
         inputSchema: { type: "object", properties: {} },
         executar: (): Saida => {
           const est = estadoDs(projectPath, home);
           if (!est.sistemas.length) return { ok: true, texto: "Este projeto ainda não tem design system. Crie com nexo_ds_criar." };
-          const linhas = est.sistemas.map((x) => `- ${x.id} · ${x.nome}${x.id === est.ativo ? " · ATIVO" : ""}`);
+          const linhas = est.sistemas.map(
+            (x) =>
+              `- ${x.id} · ${x.nome}${x.id === est.oficial ? " · OFICIAL" : ""}${x.mocksDe ? ` · painel de mocks de ${x.mocksDe}` : ""}${x.id === est.ativo ? " · ATIVO" : ""}`,
+          );
           return { ok: true, texto: `${linhas.join("\n")}${est.ds ? `\n\nPasta do ativo: ${est.ds.pastaAbs}` : ""}` };
         },
       },
       {
         name: "nexo_ds_criar",
         description:
-          "Cria um design system novo neste projeto e deixa ele ATIVO (o Canvas passa a mostrar ele). Use pra ter um canvas " +
-          "separado — ex.: \"Mocks\" pra desenhar uma tela e mostrar como ficaria, sem mexer no DS oficial. " +
-          "É o lugar de todo pedido de mock/protótipo: mock NÃO vira arquivo no código do projeto. " +
-          "`base`: \"ativo\" (copia tokens, regras e cards do DS ativo — mesmo visual), \"zero\" (vazio) ou \"padrao\" (esqueleto do Nexos). " +
-          "Depois grave as telas com nexo_ds_card_salvar e confira com nexo_ds_print.",
+          "Cria um design system NOVO neste projeto (outra identidade visual) e deixa ele ATIVO no Canvas. " +
+          "NÃO use pra mock de tela: pra isso é nexo_mock_salvar (painel de mocks que usa o DS oficial sem copiar). " +
+          "`base`: \"ativo\" (copia tokens, regras e cards do DS ativo), \"zero\" (vazio) ou \"padrao\" (esqueleto do Nexos).",
         inputSchema: {
           type: "object",
           properties: {
-            nome: { type: "string", description: "nome do design system (ex.: Mocks)" },
+            nome: { type: "string", description: "nome do design system" },
             base: { type: "string", enum: ["ativo", "zero", "padrao"], description: "ponto de partida; padrão: ativo se houver, senão zero" },
           },
           required: ["nome"],
@@ -131,6 +144,50 @@ export function ferramentaDePrintDoDs(threadId: string, projectPath: string, hom
           }
         },
       },
+      {
+        name: "nexo_mock_salvar",
+        description:
+          "Grava uma tela de MOCK (protótipo, rascunho, \"mostra como ficaria\") no painel de mocks do design system OFICIAL do projeto. " +
+          "Na 1ª vez o painel é criado (só as telas — tokens, regras e kit vêm do DS oficial, nada é copiado); depois, " +
+          "cada tela nova entra no MESMO painel. Mesma tela de novo = passe o `id` dela pra atualizar (fica versão guardada). " +
+          "Deixa o painel ativo no Canvas pra pessoa ver. `html`: fragmento com <style> + marcação, só var(--token) do DS oficial, " +
+          "sem <script> (KIT.md na pasta do DS oficial). `largura` padrão 1 (tela inteira). Depois confira com nexo_ds_print.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "id da tela pra atualizar; sem id, sai do título" },
+            titulo: { type: "string" },
+            subtitulo: { type: "string" },
+            secao: { type: "string", description: "seção do painel (padrão: Telas)" },
+            html: { type: "string" },
+            largura: { type: "string", enum: ["1/3", "1/2", "2/3", "1"] },
+          },
+          required: ["titulo", "html"],
+        },
+        executar: (args: Record<string, unknown>): Saida => {
+          try {
+            const painel = painelDeMocks(projectPath, home);
+            const est = ativarDs(projectPath, home, painel.id);
+            avisarCanvas(projectPath, est.ativo);
+            const id = typeof args.id === "string" ? args.id.trim() : "";
+            const existe = !!id && !!est.ds?.cards.some((c) => c.id === id);
+            const r = salvarCardDaFerramenta(projectPath, home, {
+              ...args,
+              secao: typeof args.secao === "string" && args.secao.trim() ? args.secao : existe ? undefined : "telas",
+              largura: args.largura ?? (existe ? undefined : "1"),
+            });
+            const telas = r.ds.cards.length;
+            return {
+              ok: true,
+              texto:
+                `${textoDoCardSalvo(r)}\nPainel de mocks "${r.ds.nome}" (sistema ${r.ds.id}${r.ds.origem ? `, tokens do DS oficial "${r.ds.origem.nome}"` : ""}) — ${telas} tela(s), ativo no Canvas. ` +
+                `Pra anexar num card do plano: { tipo: "ds", sistema: "${r.ds.id}", card: "${r.id}" }.`,
+            };
+          } catch (e) {
+            return erroDe(e);
+          }
+        },
+      },
     ];
     if (!ds) return gestao;
     return [
@@ -138,7 +195,7 @@ export function ferramentaDePrintDoDs(threadId: string, projectPath: string, hom
       {
         name: "nexo_ds_card_salvar",
         description:
-          "Grava um card no design system ATIVO (novo ou atualização) — é assim que se cria uma tela/componente no Canvas. " +
+          "Grava um card no design system ATIVO (novo ou atualização) — componente ou peça do DS. Mock de tela é nexo_mock_salvar. " +
           "`html`: fragmento com <style> + marcação, cor/fonte/espaço/raio só por var(--token) do tokens.json, sem <script>; " +
           "use as classes do kit (KIT.md na pasta do DS). `id` existente atualiza (fica versão guardada); sem id, sai do título. " +
           "`secao`: id ou título (seção nova é criada). `largura`: 1/3, 1/2, 2/3 ou 1 (tela inteira: 1). Devolve os avisos do lint — " +
@@ -158,15 +215,7 @@ export function ferramentaDePrintDoDs(threadId: string, projectPath: string, hom
         },
         executar: (args: Record<string, unknown>): Saida => {
           try {
-            const r = salvarCardDaFerramenta(projectPath, home, args);
-            const card = r.ds.cards.find((c) => c.id === r.id)!;
-            const avisos = card.lint.map((l) => `- ${l.msg}${l.trecho ? `: ${l.trecho}` : ""}`);
-            return {
-              ok: true,
-              texto:
-                `${r.novo ? "Card criado" : "Card atualizado"}: ${r.id} (seção ${card.secao}, largura ${card.largura ?? "1/2"}) no DS "${r.ds.nome}".` +
-                (avisos.length ? `\n\nAvisos do lint — corrija e grave de novo:\n${avisos.join("\n")}` : " Sem avisos do lint."),
-            };
+            return { ok: true, texto: textoDoCardSalvo(salvarCardDaFerramenta(projectPath, home, args)) };
           } catch (e) {
             return erroDe(e);
           }

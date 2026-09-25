@@ -5566,12 +5566,13 @@ const planejamentoBoard = createPlanejamentoBoard({
   aoAbrirTarefa: (id) => void abrirTarefaNoQuadro(id),
 });
 
-/** Anexo do plano → Canvas do DS focado na tela (troca o DS ativo só se a pessoa aceitar). */
+/**
+ * Anexo do plano → Canvas do DS focado na tela. Troca o DS do Canvas sem perguntar: as conversas
+ * seguem o DS oficial, não o que está aberto no Canvas.
+ */
 async function abrirTelaDoDs(sistema, card) {
   setView("ds");
-  const achou = await dsCanvas.focarCard(sistema, card, {
-    confirmarTroca: (nome) => dialogo.confirmar(`Essa tela é do design system "${nome}". Ativar ele no Canvas?`),
-  });
+  const achou = await dsCanvas.focarCard(sistema, card);
   if (achou === false && sistema) void dialogo.avisar("Não achei essa tela no Canvas — ela pode ter sido apagada.");
 }
 
@@ -5834,9 +5835,7 @@ async function tratarAbrirPainel(ev) {
     else if (!naFrente) notas.push("aba aberta sem trocar a que a pessoa está vendo (configuração dela)");
     if (atual && naFrente) {
       if (view === "ds" && ev.card) {
-        const ok = await dsCanvas.focarCard(ev.sistema || "", ev.card, {
-          confirmarTroca: (nome) => dialogo.confirmar(`O agente quer mostrar uma tela do design system "${nome}". Ativar ele no Canvas?`),
-        });
+        const ok = await dsCanvas.focarCard(ev.sistema || "", ev.card);
         if (!ok) notas.push(`não achei a tela "${ev.card}" no Canvas`);
       }
       if (view === "tarefas" && ev.tarefa && !(await tarefasBoard.abrirTarefa(ev.tarefa))) notas.push(`a tarefa ${ev.tarefa} não existe no Quadro`);

@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative, sep } from "node:path";
-import { estadoDs, salvarTokens, type DsCompleto, type DsVar } from "./design-system.ts";
+import { dsDoProjeto, estadoDs, salvarTokens, type DsCompleto, type DsVar } from "./design-system.ts";
 import { coletarDoCodigo } from "./ds-coleta.ts";
 import { garantirKit } from "./ds-kit.ts";
 
@@ -26,12 +26,12 @@ export const REGRA_MOCK_NO_CANVAS = [
   "Pedido de mock, protótipo, rascunho, wireframe ou \"mostra como ficaria\" (tela, página, seção, componente): " +
     "faça como card no Canvas do Nexos. NÃO crie arquivo no repositório pra isso (nada de `*Mock.tsx`, rota, página " +
     "ou componente novo), nem rode dev server pra conferir.",
-  "Passos: (1) `nexo_ds_listar`; se já existe um DS \"Mocks\", `nexo_ds_ativar` nele, senão `nexo_ds_criar` com " +
-    "nome \"Mocks\" e base \"ativo\" (copia o visual do DS oficial; sem DS, base \"zero\"). (2) Se o mock é uma tela " +
-    "que já existe com algo novo, leia o código dela só pra copiar estrutura, rótulos e dados de exemplo, e monte a " +
-    "tela no card com a parte nova em destaque. (3) Grave com `nexo_ds_card_salvar` usando os tokens. " +
-    "(4) Confira com `nexo_ds_print` e ajuste. (5) Deixe o \"Mocks\" ativo pra pessoa ver no Canvas e diga isso; " +
-    "volte pro DS oficial (`nexo_ds_ativar`) antes de mexer nele de verdade.",
+  "Passos: (1) Se o mock é uma tela que já existe com algo novo, leia o código dela só pra copiar estrutura, rótulos " +
+    "e dados de exemplo, e monte a tela com a parte nova em destaque. (2) Grave com `nexo_mock_salvar` usando os tokens " +
+    "do DS oficial: ele põe a tela no painel de mocks do DS oficial (cria o painel na 1ª vez, sem copiar o DS; " +
+    "depois só acrescenta telas) e deixa o painel aberto no Canvas. Ajuste de uma tela que já está lá = mesmo `id`. " +
+    "NÃO crie design system novo pra mock (`nexo_ds_criar` é pra outra identidade visual). " +
+    "(3) Confira com `nexo_ds_print` e ajuste. (4) Diga à pessoa que a tela está no painel de mocks do Canvas.",
   "Só escreva o mock como código se a pessoa pedir com essas palavras (\"implementa\", \"cria no código\", \"no projeto\").",
 ].join("\n");
 
@@ -39,10 +39,18 @@ const DESIGN_MD_NO_PACK = 2500;
 const VARS_NO_PACK = 60;
 const AVISOS_NO_PACK = 12;
 
+/**
+ * Sempre o DS OFICIAL (não o ativo no Canvas): abrir o painel de mocks ou outro DS pra olhar não
+ * pode trocar as regras que as conversas seguem.
+ */
 export function blocoDoDsParaPack(projectPath: string, home: string): string | null {
   let ds: DsCompleto | null = null;
+  let mocks = "";
   try {
-    ds = estadoDs(projectPath, home).ds;
+    ds = dsDoProjeto(projectPath, home);
+    const est = estadoDs(projectPath, home);
+    const painel = est.sistemas.find((s) => ds && s.mocksDe === ds.id);
+    if (painel) mocks = `Painel de mocks deste DS: "${painel.nome}" (sistema ${painel.id}) — telas novas entram lá via \`nexo_mock_salvar\`.`;
   } catch {
     return null;
   }
@@ -66,7 +74,8 @@ export function blocoDoDsParaPack(projectPath: string, home: string): string | n
       "Pra ver como um componente deve ficar, leia o card dele na pasta acima. Pra CRIAR card, apagar " +
       "ou reorganizar o board (\"alinha os cards\"), leia KIT.md na pasta: classes prontas e o layout do meta.json. " +
       "Depois de criar ou editar um card, confira o visual com `nexo_ds_print` (print do card renderizado) antes de dar por pronto. " +
-      "Mock ou tela de teste: siga a regra \"Mock de tela vai pro Canvas\" (DS \"Mocks\", nunca no código).",
+      "Mock ou tela de teste: siga a regra \"Mock de tela vai pro Canvas\" (`nexo_mock_salvar`, nunca no código).",
+    mocks,
     regras ? `## Regras de uso (DESIGN.md)\n${regras.length > DESIGN_MD_NO_PACK ? `${regras.slice(0, DESIGN_MD_NO_PACK)}…` : regras}` : "",
     tokens ? `## Tokens (variável CSS → valor)\n${tokens}${ds.vars.length > VARS_NO_PACK ? `\n… (${ds.vars.length - VARS_NO_PACK} a mais em tokens.json)` : ""}` : "",
     avisos.length

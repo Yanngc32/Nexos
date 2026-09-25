@@ -76,7 +76,7 @@ describe("rascunho", () => {
     const t = montarHandoff(plano);
     expect(t).toContain("1 de 2 tela(s) ainda sem mock.");
     expect(t).toContain("   - Tela: Login (`login`) — mock pendente\n   - Tela: Painel (`painel`) — mock anexado");
-    expect(t).toContain("nexo_ds_card_salvar");
+    expect(t).toContain("nexo_mock_salvar");
     expect(prontidao(plano).avisos.filter((a) => a.tipo === "tela-sem-spec").map((a) => a.ref)).toEqual(["login"]);
   });
 

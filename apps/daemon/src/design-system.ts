@@ -37,7 +37,12 @@ import {
 
 export type LintItem = { regra: string; msg: string; trecho?: string };
 
-export type DsSistema = { id: string; nome: string };
+/**
+ * `mocksDe`: é um PAINEL DE MOCKS do DS com esse id — a pasta só guarda as telas (cards + meta);
+ * tokens, DESIGN.md e kit vêm do DS de origem na leitura, então o painel nunca repete (nem
+ * desatualiza) o design system.
+ */
+export type DsSistema = { id: string; nome: string; mocksDe?: string };
 
 export type DsCard = {
   id: string;
@@ -75,9 +80,12 @@ export type DsCompleto = DsSistema & {
   fundamentos: CardFundamento[];
   /** Classes do kit que o Canvas injeta em todo card (ver ds-kit.ts). */
   kitCss: string;
+  /** Painel de mocks: o DS de onde vêm os tokens e as regras (ver `DsSistema.mocksDe`). */
+  origem?: DsSistema;
 };
 
-export type DsEstado = { sistemas: DsSistema[]; ativo: string | null; ds: DsCompleto | null };
+/** `oficial`: o DS do projeto — o que as conversas seguem e de onde saem os painéis de mocks. */
+export type DsEstado = { sistemas: DsSistema[]; ativo: string | null; oficial: string | null; ds: DsCompleto | null };
 
 function erro(msg: string, status = 400): Error {
   return Object.assign(new Error(msg), { status });
@@ -93,7 +101,9 @@ function hashDe(texto: string): string {
  * Onde mora: <projectDir>/design-system.json (ponteiro) e <projectDir>/design-system/<id>/
  * ------------------------------------------------------------------------- */
 
-type Ponteiro = { sistemas: DsSistema[]; ativo: string | null };
+type Ponteiro = { sistemas: DsSistema[]; ativo: string | null; oficial?: string | null };
+
+const NOME_MOCKS = "Mocks";
 
 function raizDoProjetoNexos(projectPath: string, home: string, criar: boolean): string {
   return criar ? projectDir(projectPath, home) : projectDirSemCriar(projectPath, home);
@@ -113,13 +123,37 @@ function lerPonteiro(projectPath: string, home: string): Ponteiro {
       ? bruto.sistemas
           .filter((s): s is DsSistema => !!s && typeof s.id === "string" && ID_RE.test(s.id) && typeof s.nome === "string")
           .filter((s) => existsSync(join(raiz, s.id)))
-          .map((s) => ({ id: s.id, nome: s.nome }))
+          .map((s) => ({
+            id: s.id,
+            nome: s.nome,
+            ...(typeof s.mocksDe === "string" && ID_RE.test(s.mocksDe) && s.mocksDe !== s.id ? { mocksDe: s.mocksDe } : {}),
+          }))
       : [];
     const ativo = sistemas.some((s) => s.id === bruto.ativo) ? (bruto.ativo as string) : (sistemas[0]?.id ?? null);
-    return { sistemas, ativo };
+    const oficial = sistemas.some((s) => s.id === bruto.oficial && !s.mocksDe) ? (bruto.oficial as string) : null;
+    return { sistemas, ativo, oficial };
   } catch {
-    return { sistemas: [], ativo: null };
+    return { sistemas: [], ativo: null, oficial: null };
   }
+}
+
+/**
+ * DS oficial do projeto: o escolhido; sem escolha, o ativo (se não for painel de mocks) ou o
+ * primeiro DS de verdade — projeto de antes da escolha existir segue igual.
+ */
+function oficialDe(p: Ponteiro): DsSistema | null {
+  const reais = p.sistemas.filter((s) => !s.mocksDe);
+  const escolhido = reais.find((s) => s.id === p.oficial);
+  if (escolhido) return escolhido;
+  // DS "Mocks" de antes do painel existir (cópia inteira) nunca vira o oficial por padrão
+  const semMocks = reais.filter((s) => s.nome.trim().toLowerCase() !== NOME_MOCKS.toLowerCase());
+  const candidatos = semMocks.length ? semMocks : reais;
+  return candidatos.find((s) => s.id === p.ativo) ?? candidatos[0] ?? null;
+}
+
+/** Sem oficial escolhido, fixa o de agora antes de trocar/criar — senão o oficial seguiria o ativo. */
+function comOficialFixo(p: Ponteiro): Ponteiro {
+  return p.oficial ? p : { ...p, oficial: oficialDe(p)?.id ?? null };
 }
 
 function salvarPonteiro(projectPath: string, home: string, p: Ponteiro): void {
@@ -489,7 +523,10 @@ function lerMeta(pasta: string): Meta {
 
 export function lerSistema(projectPath: string, home: string, sistema: DsSistema): DsCompleto {
   const pastaAbs = pastaAbsoluta(projectPath, home, sistema);
-  const tokensTexto = lerTexto(join(pastaAbs, "tokens.json")) ?? "";
+  // painel de mocks lê tokens e regras do DS de origem; origem removida = usa o que tiver na pasta
+  const origem = sistema.mocksDe ? lerPonteiro(projectPath, home).sistemas.find((s) => s.id === sistema.mocksDe && !s.mocksDe) : undefined;
+  const pastaTokens = origem ? pastaAbsoluta(projectPath, home, origem) : pastaAbs;
+  const tokensTexto = lerTexto(join(pastaTokens, "tokens.json")) ?? "";
   let tokens: unknown = {};
   const tokensLint: LintItem[] = [];
   if (!tokensTexto) {
@@ -549,18 +586,90 @@ export function lerSistema(projectPath: string, home: string, sistema: DsSistema
     tokensLint,
     css,
     vars,
-    designMd: lerTexto(join(pastaAbs, "DESIGN.md")) ?? "",
+    designMd: lerTexto(join(pastaTokens, "DESIGN.md")) ?? "",
     secoes,
     cards,
-    fundamentos: cardsDeFundamentos(vars, fundamentosDoMeta(meta)),
+    // Fundamentos são do DS; no painel de mocks ficariam repetidos
+    fundamentos: sistema.mocksDe ? [] : cardsDeFundamentos(vars, fundamentosDoMeta(meta)),
     kitCss: KIT_CSS,
+    ...(origem ? { origem } : {}),
   };
 }
 
 export function estadoDs(projectPath: string, home: string): DsEstado {
   const p = lerPonteiro(projectPath, home);
   const sistema = p.sistemas.find((s) => s.id === p.ativo);
-  return { sistemas: p.sistemas, ativo: p.ativo, ds: sistema ? lerSistema(projectPath, home, sistema) : null };
+  return {
+    sistemas: p.sistemas,
+    ativo: p.ativo,
+    oficial: oficialDe(p)?.id ?? null,
+    ds: sistema ? lerSistema(projectPath, home, sistema) : null,
+  };
+}
+
+/** O DS oficial lido por inteiro (regras das conversas, conformidade, exportar), ou `null`. */
+export function dsDoProjeto(projectPath: string, home: string): DsCompleto | null {
+  const oficial = oficialDe(lerPonteiro(projectPath, home));
+  return oficial ? lerSistema(projectPath, home, oficial) : null;
+}
+
+/** Escolhe o DS oficial do projeto. Painel de mocks não pode (ele não tem tokens próprios). */
+export function definirOficial(projectPath: string, home: string, id: string): DsEstado {
+  const p = lerPonteiro(projectPath, home);
+  const s = p.sistemas.find((x) => x.id === id);
+  if (!s) throw erro("design system não encontrado", 404);
+  if (s.mocksDe) throw erro("painel de mocks não pode ser o oficial — ele usa os tokens de outro DS");
+  salvarPonteiro(projectPath, home, { ...p, oficial: id });
+  return estadoDs(projectPath, home);
+}
+
+/**
+ * Painel de mocks do DS oficial: acha o que já existe (as telas novas entram nele) ou cria um
+ * — pasta só com `meta.json` e `cards/`, sem copiar tokens nem cards do DS. DS "Mocks" antigo
+ * (cópia inteira, de antes do painel existir) é adotado: passa a herdar do oficial e os cards
+ * dele ficam onde estão. Sem DS nenhum no projeto, cria um DS "Mocks" comum com o padrão do Nexos.
+ */
+export function painelDeMocks(projectPath: string, home: string): DsSistema {
+  const p = lerPonteiro(projectPath, home);
+  const oficial = oficialDe(p);
+  if (!oficial) {
+    // tokens e regras do padrão do Nexos, sem os cards de exemplo dele: o painel é só de telas
+    const est = criarDs(projectPath, home, { nome: NOME_MOCKS, base: "padrao" });
+    const pasta = est.ds!.pastaAbs;
+    rmSync(join(pasta, "cards"), { recursive: true, force: true });
+    mkdirSync(join(pasta, "cards"), { recursive: true });
+    escreverAtomico(join(pasta, "meta.json"), `${JSON.stringify({ secoes: [{ id: "telas", titulo: "Telas" }], cards: [] }, null, 2)}
+`);
+    return est.sistemas.find((s) => s.id === est.ativo)!;
+  }
+  // projeto que só tem o "Mocks" comum (nasceu aqui sem DS): as telas entram nele mesmo
+  if (oficial.nome.trim().toLowerCase() === NOME_MOCKS.toLowerCase()) return oficial;
+  const doOficial = p.sistemas.find((s) => s.mocksDe === oficial.id);
+  if (doOficial) return doOficial;
+  const antigo = p.sistemas.find((s) => !s.mocksDe && s.id !== oficial.id && s.nome.trim().toLowerCase() === NOME_MOCKS.toLowerCase());
+  if (antigo) {
+    const adotado = { ...antigo, mocksDe: oficial.id };
+    salvarPonteiro(projectPath, home, { ...p, sistemas: p.sistemas.map((s) => (s.id === antigo.id ? adotado : s)) });
+    return adotado;
+  }
+  let id = "mocks";
+  for (let n = 2; p.sistemas.some((s) => s.id === id); n++) id = `mocks-${n}`;
+  const nome = p.sistemas.some((s) => s.nome === NOME_MOCKS) ? `${NOME_MOCKS} · ${oficial.nome}` : NOME_MOCKS;
+  raizDoProjetoNexos(projectPath, home, true);
+  const novo: DsSistema = { id, nome, mocksDe: oficial.id };
+  const abs = pastaAbsoluta(projectPath, home, novo);
+  mkdirSync(join(abs, "cards"), { recursive: true });
+  if (!existsSync(join(abs, "meta.json"))) {
+    escreverAtomico(join(abs, "meta.json"), `${JSON.stringify({ secoes: [{ id: "telas", titulo: "Telas" }], cards: [] }, null, 2)}\n`);
+  }
+  garantirKit(abs);
+  salvarPonteiro(projectPath, home, { ...p, sistemas: [...p.sistemas, novo] });
+  return novo;
+}
+
+/** Tokens e regras do painel de mocks são do DS de origem: editar ali, não aqui. */
+function semPainelDeMocks(s: DsSistema): void {
+  if (s.mocksDe) throw erro(`"${s.nome}" é um painel de mocks: tokens e regras vêm do DS "${s.mocksDe}" — ative ele pra editar`);
 }
 
 /** Pasta absoluta do DS ativo, ou `null` — pro observador. */
@@ -596,6 +705,7 @@ function conferirBase(caminho: string, base: string | undefined): void {
 export function salvarTokens(projectPath: string, home: string, tokens: unknown, base?: string): DsCompleto {
   if (!tokens || typeof tokens !== "object" || Array.isArray(tokens)) throw erro("tokens precisa ser um objeto DTCG");
   const s = ativoOuErro(projectPath, home);
+  semPainelDeMocks(s);
   const caminho = join(pastaAbsoluta(projectPath, home, s), "tokens.json");
   conferirBase(caminho, base);
   escreverAtomico(caminho, `${JSON.stringify(tokens, null, 2)}\n`);
@@ -627,6 +737,7 @@ function guardarVersao(pasta: string, id: string): void {
 
 export function salvarDesignMd(projectPath: string, home: string, texto: string): void {
   const s = ativoOuErro(projectPath, home);
+  semPainelDeMocks(s);
   escreverAtomico(join(pastaAbsoluta(projectPath, home, s), "DESIGN.md"), texto.endsWith("\n") ? texto : `${texto}\n`);
 }
 
@@ -643,6 +754,7 @@ export function prepararMeta(
   plano: { id: string; titulo: string; subtitulo?: string; secao: string }[],
 ): void {
   const s = ativoOuErro(projectPath, home);
+  semPainelDeMocks(s);
   const pasta = pastaAbsoluta(projectPath, home, s);
   const meta = lerMeta(pasta);
   const atuais = (meta.secoes ?? []).filter((x) => x && typeof x.id === "string");
@@ -698,7 +810,7 @@ export function salvarCard(
 export function ativarDs(projectPath: string, home: string, id: string): DsEstado {
   const p = lerPonteiro(projectPath, home);
   if (!p.sistemas.some((s) => s.id === id)) throw erro("design system não encontrado", 404);
-  salvarPonteiro(projectPath, home, { ...p, ativo: id });
+  salvarPonteiro(projectPath, home, { ...comOficialFixo(p), ativo: id });
   return estadoDs(projectPath, home);
 }
 
@@ -809,7 +921,7 @@ export function criarDs(projectPath: string, home: string, input: { nome?: unkno
       if (!existsSync(caminho)) escreverAtomico(caminho, conteudo);
     }
   }
-  salvarPonteiro(projectPath, home, { sistemas: [...p.sistemas, { id, nome }], ativo: id });
+  salvarPonteiro(projectPath, home, { ...comOficialFixo(p), sistemas: [...p.sistemas, { id, nome }], ativo: id });
   garantirKit(abs);
   return estadoDs(projectPath, home);
 }
@@ -1126,7 +1238,11 @@ export function removerDs(projectPath: string, home: string, id: string): DsEsta
   const p = lerPonteiro(projectPath, home);
   const sistemas = p.sistemas.filter((s) => s.id !== id);
   if (sistemas.length === p.sistemas.length) throw erro("design system não encontrado", 404);
-  salvarPonteiro(projectPath, home, { sistemas, ativo: p.ativo === id ? (sistemas[0]?.id ?? null) : p.ativo });
+  salvarPonteiro(projectPath, home, {
+    sistemas,
+    ativo: p.ativo === id ? (sistemas[0]?.id ?? null) : p.ativo,
+    oficial: p.oficial === id ? null : (p.oficial ?? null),
+  });
   return estadoDs(projectPath, home);
 }
 

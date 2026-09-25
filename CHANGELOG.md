@@ -6,6 +6,8 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- Design system oficial do projeto: no Canvas, "Definir como oficial" escolhe o DS que as conversas seguem (selo "Oficial"). Abrir outro DS no Canvas não muda mais as regras das conversas, e por isso trocar o DS do Canvas não pede mais confirmação.
+- Painel de mocks: pedido de mock vai pra um painel ligado ao DS oficial, que guarda só as telas. Tokens, regras e kit vêm do oficial, então nada é copiado e o painel acompanha as mudanças do DS. A primeira tela cria o painel e as seguintes entram nele; ajustar uma tela atualiza ela mesma. O agente usa a ferramenta nova `nexo_mock_salvar`. Um DS "Mocks" antigo (cópia inteira) é adotado como painel em vez de criar outro.
 - Tela de abertura: enquanto o motor liga, o app mostra o mago e os passos (motor, contas e projetos, última conversa) em vez da janela vazia. Passados 25 s, ela explica a demora e oferece tentar de novo, ver o log ou entrar assim mesmo. Com o motor travado, mostra a contagem pro reinício automático e o botão de reiniciar agora. Motor lento na subida também não deixa mais a última conversa fechada.
 - Tela vazia nova (sem projeto nenhum): mago, "Nenhum projeto ainda" e os botões "Adicionar projeto" e "Clonar do GitHub".
 - Acessibilidade no app de celular, pra teclado (bluetooth, varredura) e leitor de tela (TalkBack, VoiceOver):

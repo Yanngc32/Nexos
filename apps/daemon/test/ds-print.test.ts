@@ -13,8 +13,8 @@ describe("nexo_ds_print", () => {
   it("some sem DS; sem card lista; card inexistente recusa; com card pede ao app e devolve a imagem", async () => {
     const home = tempHome();
     const proj = mkdtempSync(join(tmpdir(), "nexo-print-"));
-    // sem DS: só dá pra listar, criar e ativar
-    expect(ferramentaDePrintDoDs("t1", proj, home)().map((x) => x.name)).toEqual(["nexo_ds_listar", "nexo_ds_criar", "nexo_ds_ativar"]);
+    // sem DS: só dá pra listar, criar, ativar e gravar mock
+    expect(ferramentaDePrintDoDs("t1", proj, home)().map((x) => x.name)).toEqual(["nexo_ds_listar", "nexo_ds_criar", "nexo_ds_ativar", "nexo_mock_salvar"]);
     criarDs(proj, home, { nome: "Teste" });
     const f = ferramentaDePrintDoDs("t1", proj, home)().find((x) => x.name === "nexo_ds_print");
 

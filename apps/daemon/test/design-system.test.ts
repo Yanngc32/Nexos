@@ -126,7 +126,7 @@ describe("criar / ler / salvar", () => {
     const home = tempHome();
     const p = projeto();
     writeFileSync(join(projectDir(p, home), "design-system.json"), JSON.stringify({ sistemas: [{ id: "../fora", nome: "x" }], ativo: "../fora" }));
-    expect(estadoDs(p, home)).toEqual({ sistemas: [], ativo: null, ds: null });
+    expect(estadoDs(p, home)).toEqual({ sistemas: [], ativo: null, oficial: null, ds: null });
   });
 
   it("card em disco que o meta.json não conhece aparece em 'outros'", () => {
@@ -176,7 +176,7 @@ describe("criar / ler / salvar", () => {
   it("sem DS: estado vazio, salvar dá 404", () => {
     const home = tempHome();
     const p = projeto();
-    expect(estadoDs(p, home)).toEqual({ sistemas: [], ativo: null, ds: null });
+    expect(estadoDs(p, home)).toEqual({ sistemas: [], ativo: null, oficial: null, ds: null });
     expect(() => salvarTokens(p, home, {})).toThrow(expect.objectContaining({ status: 404 }));
   });
 });

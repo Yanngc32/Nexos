@@ -700,6 +700,9 @@
           <h1>Design System</h1>
           <select id="ds-sistema" class="hidden" aria-label="Design system ativo"></select>
           <span id="ds-nome" class="ds-nome"></span>
+          <!-- DS oficial = o que as conversas seguem; painel de mocks usa os tokens dele (design-system.ts) -->
+          <span id="ds-selo" class="ds-selo hidden"></span>
+          <button type="button" id="ds-tornar-oficial" class="ghost ds-tornar-oficial hidden" title="As conversas do projeto passam a seguir este design system, e as telas de mock vão pro painel dele">Definir como oficial</button>
           <span id="ds-pasta" class="tk-projeto" title=""></span>
           <button type="button" id="ds-avisos" class="ds-avisos hidden" title="Ver avisos do lint"></button>
           <div id="ds-toolbar" class="ds-toolbar">

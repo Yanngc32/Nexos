@@ -137,6 +137,7 @@ import {
   apagarCard,
   ativarDs,
   criarDs,
+  definirOficial,
   estadoDs,
   listarVersoes,
   promoverVariante,
@@ -1269,6 +1270,18 @@ export function createApp(home: string, token: string): Hono {
     try {
       const body = (await c.req.json().catch(() => ({}))) as { id?: string };
       return c.json(ativarDs(projectPath, home, String(body.id ?? "")));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
+  /** DS oficial do projeto: o que as conversas seguem e de onde sai o painel de mocks. */
+  app.put("/v1/ds/oficial", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { id?: string };
+      return c.json(definirOficial(projectPath, home, String(body.id ?? "")));
     } catch (e) {
       return dsErro(c, e);
     }

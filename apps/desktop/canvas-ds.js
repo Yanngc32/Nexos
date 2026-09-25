@@ -556,7 +556,7 @@ export function createDsCanvas({
     for (const s of estado.sistemas) {
       const o = doc.createElement("option");
       o.value = s.id;
-      o.textContent = s.nome;
+      o.textContent = rotuloDoSistema(s);
       o.selected = s.id === estado.ativo;
       sel.append(o);
     }
@@ -566,6 +566,15 @@ export function createDsCanvas({
     el("ds-toolbar").classList.toggle("hidden", !ds);
     el("ds-pasta").classList.toggle("hidden", !ds);
     el("ds-nome").textContent = ds ? ds.nome : "";
+    const selo = el("ds-selo");
+    const ehOficial = !!ds && ds.id === estado.oficial;
+    const origem = ds?.origem;
+    selo.textContent = ehOficial ? "Oficial" : origem ? `Mocks · usa os tokens de ${origem.nome}` : "";
+    selo.dataset.tipo = ehOficial ? "oficial" : "mocks";
+    selo.classList.toggle("hidden", !ehOficial && !origem);
+    // painel de mocks não tem tokens próprios: nem vira oficial, nem gera DS com IA
+    el("ds-tornar-oficial").classList.toggle("hidden", !ds || ehOficial || !!ds.mocksDe);
+    el("ds-btn-gerar")?.classList.toggle("hidden", !!ds?.mocksDe);
     // caminho completo no hover; na pílula só o fim, que é o que distingue um DS do outro
     el("ds-pasta").textContent = ds ? ds.pastaAbs.replace(/\\/g, "/").split("/").slice(-2).join("/") : "";
     el("ds-pasta").title = ds ? ds.pastaAbs : "";
@@ -590,6 +599,22 @@ export function createDsCanvas({
   }
 
   /** Todos os cards na ordem do board: Fundamentos (gerados), DESIGN.md e os de arquivo. */
+  function rotuloDoSistema(s) {
+    if (s.mocksDe) return `${s.nome} (mocks de ${estado.sistemas.find((x) => x.id === s.mocksDe)?.nome ?? s.mocksDe})`;
+    return s.id === estado.oficial ? `${s.nome} · oficial` : s.nome;
+  }
+
+  async function tornarOficial() {
+    const ds = estado.ds;
+    if (!ds) return;
+    try {
+      estado = await req(`/v1/ds/oficial?${qs()}`, { method: "PUT", body: JSON.stringify({ id: ds.id }) });
+      pintarCabecalho();
+    } catch (e) {
+      erroTopo(e.message);
+    }
+  }
+
   function cardsDoBoard(ds) {
     const fund = (ds.fundamentos || []).filter((c) => !c.oculto).map((c) => ({ ...c, gerado: true, lint: [] }));
     // esqueleto dos cards previstos entra na posição do plano, dentro da seção dele
@@ -1356,7 +1381,7 @@ export function createDsCanvas({
 
   /**
    * Leva o Canvas até uma tela (vinda de um anexo do Planejamento): troca pro DS dela se não for o
-   * ativo (perguntando — trocar o ativo muda o DS que as conversas usam) e destaca o card.
+   * ativo e destaca o card (a troca é só do Canvas: as conversas seguem o DS oficial).
    */
   async function focarCard(sistema, id, { confirmarTroca = async () => true } = {}) {
     if (sistema && sistema !== estado.ativo) {
@@ -1485,6 +1510,7 @@ export function createDsCanvas({
       if (estado.ds) for (const f of frames.values()) aplicarVarsNoFrame(f, estado.ds);
     });
     el("ds-sistema").addEventListener("change", (e) => void trocarSistema(e.target.value));
+    el("ds-tornar-oficial").addEventListener("click", () => void tornarOficial());
     el("ds-btn-novo").addEventListener("click", mostrarNovo);
     el("ds-avisos").addEventListener("click", () => {
       const comAviso = estado.ds?.cards.find((c) => c.lint.length);

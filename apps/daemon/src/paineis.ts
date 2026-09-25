@@ -129,7 +129,7 @@ export function ferramentaDePainel(threadId: string, modoNavegador: NavegadorMod
           properties: {
             painel: { type: "string", enum: [...cfg.paineis] },
             url: { type: "string", description: "navegador: URL a abrir" },
-            sistema: { type: "string", description: "design: id do design system (troca o ativo, com confirmação da pessoa)" },
+            sistema: { type: "string", description: "design: id do design system (troca o que o Canvas mostra; as conversas seguem o DS oficial)" },
             card: { type: "string", description: "design: id da tela/card a focar" },
             tarefa: { type: "string", description: "tarefas: id da tarefa a abrir" },
             caminho: { type: "string", description: "arquivo: caminho relativo à raiz do projeto" },
