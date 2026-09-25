@@ -16,6 +16,7 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 ### Corrigido
 
 - Clicar no anel de uso de uma conta no painel de borda não atualizava o consumo quando a conta tinha alguma conversa aberta (o caso da conta do dia a dia): o clique era ignorado até o próximo turno. Agora só não atualiza se houver um turno rodando naquele momento, e aí o número chega por esse turno.
+- O painel de borda não tirava do "terminou" as conversas que você já tinha visto no app. Uma conversa que terminava aberta na sua frente nunca era marcada como vista, porque isso só acontecia ao abrir uma conversa. Agora ela é marcada ao terminar com a janela em foco e quando você volta pra janela. O painel também lembra por 60 s as conversas já vistas, pra não recolocá-las como "terminou" quando percebe o fim depois do aviso.
 - A mensagem na fila do chat vazava pela borda do compositor quando o chat lateral estava estreito. Agora ela encolhe e corta o texto com "…".
 
 ### Alterado

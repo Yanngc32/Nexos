@@ -1,6 +1,6 @@
 import { createApiClient } from "./api.js";
 import { fmtDuracao } from "./agent-trace.js";
-import { celulasDeConta, linhasDeAtividade, mudancasDeLimite, transicoes } from "./painel-view.js";
+import { celulasDeConta, linhasDeAtividade, mudancasDeLimite, naoVistas, transicoes, VISTA_VALE_MS } from "./painel-view.js";
 
 /**
  * Painel de borda: a pílula que mora numa borda da tela (desenho do codenotch).
@@ -39,6 +39,8 @@ let agentesAntes = null;
 let limitesAntes = null;
 /** threadId → { projectPath, projeto, nome }: terminou e ninguém abriu ainda. */
 const terminadas = new Map();
+/** threadId → quando a janela principal disse que a pessoa viu (ver `naoVistas`). */
+const vistas = new Map();
 const atualizando = new Set();
 let timer = 0;
 let recolher = 0;
@@ -398,7 +400,8 @@ function reportarAreas() {
 /* ---------------- dados ---------------- */
 
 function notar(transicao) {
-  const { terminou, esperando } = transicao;
+  const { esperando } = transicao;
+  const terminou = naoVistas(transicao.terminou, vistas);
   for (const a of terminou) {
     terminadas.set(a.threadId, {
       projectPath: a.projectPath ?? "",
@@ -512,6 +515,9 @@ window.nexo.onPainel("painel:prefs", (p) => {
   pintar();
 });
 window.nexo.onPainel("painel:vista", (threadId) => {
+  const agora = Date.now();
+  vistas.set(threadId, agora);
+  for (const [id, em] of vistas) if (agora - em > VISTA_VALE_MS) vistas.delete(id);
   if (terminadas.delete(threadId)) pintar();
 });
 

@@ -1,13 +1,6 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import {
-  celulasDeConta,
-  janelasDaConta,
-  linhasDeAtividade,
-  mudancasDeLimite,
-  nivelDoUso,
-  transicoes,
-} from "../painel-view.js";
+import { celulasDeConta, janelasDaConta, linhasDeAtividade, mudancasDeLimite, nivelDoUso, transicoes, naoVistas, VISTA_VALE_MS } from "../painel-view.js";
 
 const { bordaMaisProxima, retanguloNaBorda } = createRequire(import.meta.url)("../painel-borda.cjs");
 
@@ -149,5 +142,18 @@ describe("posição na borda", () => {
     expect(retanguloNaBorda("direita", 0, area, 300, 400).y).toBe(0);
     expect(retanguloNaBorda("topo", 0.5, area, 300, 400)).toEqual({ x: 760, y: 0, width: 400, height: 300 });
     expect(retanguloNaBorda("baixo", 1, area, 300, 400)).toEqual({ x: 1520, y: 740, width: 400, height: 300 });
+  });
+});
+
+describe("naoVistas", () => {
+  it("tira do terminou quem a janela principal disse que viu há pouco (o aviso chega antes do poll)", () => {
+    const agora = 1_000_000;
+    const vistas = new Map([
+      ["t-vista", agora - 3_000],
+      ["t-velha", agora - VISTA_VALE_MS - 1],
+    ]);
+    const terminou = [{ threadId: "t-vista" }, { threadId: "t-velha" }, { threadId: "t-nova" }];
+    expect(naoVistas(terminou, vistas, agora).map((a) => a.threadId)).toEqual(["t-velha", "t-nova"]);
+    expect(naoVistas(undefined, vistas, agora)).toEqual([]);
   });
 });

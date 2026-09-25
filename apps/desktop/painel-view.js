@@ -116,6 +116,21 @@ export function linhasDeAtividade(agentes, terminadas = new Map(), agora = Date.
   return linhas.sort((a, b) => ordem[a.estado] - ordem[b.estado]);
 }
 
+/** Quanto tempo um "vista" da janela principal vale pra barrar um "terminou" que chega depois. */
+export const VISTA_VALE_MS = 60_000;
+
+/**
+ * Tira do "terminou" quem a pessoa já viu na janela principal. O aviso de vista pode chegar ANTES
+ * do painel perceber o fim (ele só nota no poll seguinte, até 2 s depois): sem lembrar os vistos
+ * recentes, a conversa que terminou aberta na tela entrava no painel como "terminou" e ficava.
+ */
+export function naoVistas(terminou, vistas, agora = Date.now(), valeMs = VISTA_VALE_MS) {
+  return (Array.isArray(terminou) ? terminou : []).filter((a) => {
+    const em = vistas?.get(a.threadId);
+    return !(typeof em === "number" && agora - em <= valeMs);
+  });
+}
+
 /**
  * O que mudou entre dois retratos das conversas: quem terminou (estava em voo e não está mais) e
  * quem passou a esperar resposta. É isso que abre o painel sozinho e toca o som.

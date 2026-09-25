@@ -4648,6 +4648,8 @@ function onLive(ev) {
   if (ev.type === "done") {
     flushStreamRender();
     setMotor(true, false);
+    // terminou aberta na frente da pessoa: já foi vista, o painel de borda não deve acusar
+    if (document.hasFocus()) void window.nexo.threadVista?.(state.threadId);
     void enviarProximoDaFila();
     return;
   }
@@ -9232,3 +9234,11 @@ void (async () => {
   }
 })();
 setInterval(refreshDaemon, 4000);
+
+/**
+ * Voltar pra janela é ver a conversa aberta: se ela terminou enquanto a janela estava sem foco, o
+ * "terminou" dela sai do painel de borda agora.
+ */
+window.addEventListener("focus", () => {
+  if (state.threadId) void window.nexo.threadVista?.(state.threadId);
+});
