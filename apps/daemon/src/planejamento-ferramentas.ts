@@ -1,8 +1,9 @@
 import type { Conjunto, Ferramenta, Saida } from "./mcp.ts";
-import { alvosDeAnexo } from "./planejamento-integracao.ts";
+import { alvosDeAnexo, marcarImplementacaoDaEtapa } from "./planejamento-integracao.ts";
 import {
   abrirPlano,
   apagarCard,
+  ESTADOS_IMPLEMENTACAO,
   escreverHandoff,
   marcarEtapa,
   salvarCard,
@@ -35,9 +36,21 @@ export const MCP_TOOLS_PLANEJAMENTO = [
   "mcp__nexo__nexo_plano_ambiguidade_resolver",
   "mcp__nexo__nexo_plano_handoff",
   "mcp__nexo__nexo_plano_alvos",
+  "mcp__nexo__nexo_plano_implementacao",
   // só leitura do DS: o Manager planeja olhando a tela de verdade (http.ts recorta o conjunto)
   "mcp__nexo__nexo_ds_print",
 ];
+
+/**
+ * Conversa de implementação (nascida do envio): lê e escreve o plano igual ao Manager — marca o
+ * andamento, registra desvio como decisão, ajusta cards — menos gravar handoff (ela É o handoff).
+ * O print do DS ela já tem pelo conjunto normal de conversa de projeto.
+ */
+export const MCP_TOOLS_PLANO_NA_IMPLEMENTACAO = MCP_TOOLS_PLANEJAMENTO.filter(
+  (t) => t !== "mcp__nexo__nexo_plano_handoff" && t !== "mcp__nexo__nexo_ds_print",
+);
+
+export type PapelNoPlano = "manager" | "implementacao";
 
 const ROTULO: Record<Card["tipo"], string> = {
   etapa: "Etapa",
@@ -53,7 +66,7 @@ export function planoEmTexto(p: Plano): string {
   const r = p.roteiro;
   const linhaCard = (c: Card) =>
     `- [[${c.titulo}]] — id \`${c.id}\`, rev ${c.rev}, ${ROTULO[c.tipo]}` +
-    `${c.status ? ` (${c.status})` : ""}${c.fonte ? `, fonte ${c.fonte}` : ""}` +
+    `${c.status ? ` (${c.status})` : ""}${c.feito ? ", IMPLEMENTADO" : ""}${c.fonte ? `, fonte ${c.fonte}` : ""}` +
     `${c.links.length ? `, ligado a ${c.links.map((l) => `\`${l}\``).join(", ")}` : ""}` +
     `${c.anexos.length ? `, anexos ${c.anexos.map((a) => (a.tipo === "ds" ? `tela ${a.sistema}/${a.card}` : `tarefa ${a.id}`)).join(", ")}` : ""}` +
     `${c.corpo ? `\n  ${c.corpo.replace(/\n/g, "\n  ")}` : ""}`;
@@ -61,7 +74,9 @@ export function planoEmTexto(p: Plano): string {
   if (!r.etapas.length) linhas.push("- nenhuma ainda — comece separando o pedido em etapas (nexo_plano_roteiro)");
   const semEtapa = p.cards.filter((c) => !c.etapa || !r.etapas.some((e) => e.id === c.etapa));
   r.etapas.forEach((e, i) => {
-    linhas.push(`${i + 1}. \`${e.id}\` — ${e.titulo} [${e.status}]`);
+    const impl = e.implementacao ? `, implementação: ${e.implementacao}` : "";
+    const tarefa = e.tarefaId ? `, tarefa \`${e.tarefaId}\`` : "";
+    linhas.push(`${i + 1}. \`${e.id}\` — ${e.titulo} [${e.status}${impl}]${tarefa}`);
     for (const c of p.cards.filter((c) => c.etapa === e.id)) linhas.push(`   ${linhaCard(c).replace(/\n/g, "\n   ")}`);
   });
   if (semEtapa.length) {
@@ -109,7 +124,7 @@ const ANEXOS = {
   },
 };
 
-export function ferramentasDePlanejamento(projectPath: string, slug: string, home: string): Conjunto {
+export function ferramentasDePlanejamento(projectPath: string, slug: string, home: string, papel: PapelNoPlano = "manager"): Conjunto {
   return () => {
     const ler = () => abrirPlano(projectPath, home, slug);
     const etapasIds = (() => {
@@ -218,6 +233,7 @@ export function ferramentasDePlanejamento(projectPath: string, slug: string, hom
             fonte: { type: "string" },
             links: { type: "array", items: { type: "string" } },
             anexos: ANEXOS,
+            feito: { type: "boolean", description: "já implementado (tique do requisito); false desmarca" },
           },
           required: ["id", "expected_rev"],
           additionalProperties: false,
@@ -308,6 +324,23 @@ export function ferramentasDePlanejamento(projectPath: string, slug: string, hom
           }),
       },
       {
+        name: "nexo_plano_implementacao",
+        description:
+          "Marca o andamento da IMPLEMENTAÇÃO de uma etapa (separado do status de especificação): em_andamento ao " +
+          "começar, feita ao terminar, pendente pra desmarcar. Se a etapa tem tarefa no Quadro, ela é movida junto.",
+        inputSchema: {
+          type: "object",
+          properties: { etapa: etapaSchema, estado: { type: "string", enum: [...ESTADOS_IMPLEMENTACAO] }, expected_rev: REV },
+          required: ["etapa", "estado", "expected_rev"],
+          additionalProperties: false,
+        },
+        executar: (a) =>
+          tentar(() => {
+            const r = marcarImplementacaoDaEtapa(projectPath, home, slug, { etapa: a.etapa, estado: a.estado, expectedRev: a.expected_rev }, "agente");
+            return `etapa ${String(a.etapa)}: implementação ${String(a.estado)} (roteiro rev ${r.roteiro.rev})${r.quadro ? ` — ${r.quadro}` : ""}`;
+          }),
+      },
+      {
         name: "nexo_plano_alvos",
         description:
           "Lista o que dá pra anexar a um card: telas de cada Design System do projeto (sistema, id, título, seção) " +
@@ -345,7 +378,7 @@ export function ferramentasDePlanejamento(projectPath: string, slug: string, hom
           }),
       },
     ];
-    return ferramentas;
+    return papel === "implementacao" ? ferramentas.filter((f) => f.name !== "nexo_plano_handoff") : ferramentas;
   };
 }
 
@@ -396,7 +429,15 @@ Você é o Agent Manager do plano "${slug}" (arquivos em ${dir}). Seu trabalho �
 export function blocoDoHandoff(slug: string, dir: string): string {
   return `# Implementação do plano "${slug}"
 Esta conversa nasceu do plano "${slug}", feito com a pessoa na Tela de Planejamento. O plano detalhado está em ${dir} (leia com Read/Glob/Grep pelo caminho absoluto): \`roteiro.md\` (etapas, na ordem) e \`cards/*.md\` (requisitos, decisões com o porquê, sugestões com fonte, ambiguidades resolvidas, notas).
-- Antes de começar, declare as etapas do roteiro como o seu plano (TodoWrite), na mesma ordem, e siga-as.
+- Antes de começar, leia o plano com \`nexo_plano_ler\` e declare as etapas do roteiro como o seu plano (TodoWrite), na mesma ordem, e siga-as.
 - Não replaneje: plano, decisões e ambiguidades já foram resolvidos com a pessoa. Se o código real contradisser o plano, diga o que encontrou e pergunte antes de desviar.
+
+## Mantenha o plano em dia enquanto implementa
+O plano é o painel que a pessoa acompanha na Tela de Planejamento. Você tem as mesmas ferramentas do planejador (\`nexo_plano_*\`, sempre com o rev que leu; conflito = a pessoa mexeu: releia e refaça):
+- Ao começar uma etapa: \`nexo_plano_implementacao\` com \`em_andamento\`; ao terminar e verificar: \`feita\`. Se a etapa tem tarefa no Quadro, ela anda junto.
+- Cada requisito que ficou pronto: \`nexo_plano_card_atualizar\` com \`feito: true\`.
+- Desvio que a pessoa aprovou, ou escolha técnica que o plano não previa: card de decisão (\`nexo_plano_card_criar\`) na etapa, com o porquê.
+- Dúvida que trava: \`nexo_plano_ambiguidade_abrir\` + \`nexo_perguntar\`; resolvida, \`nexo_plano_ambiguidade_resolver\`.
+- Trabalho novo que apareceu: acrescente a etapa com \`nexo_plano_roteiro\` (mantendo os ids das que existem) só depois de combinar com a pessoa.
 - ${CONTEUDO_E_DADO}`;
 }

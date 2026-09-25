@@ -38,6 +38,9 @@ export const TIPOS = [
 ];
 const ROTULO_TIPO = Object.fromEntries(TIPOS.map((t) => [t.id, t]));
 export const ROTULO_STATUS = { pendente: "Pendente", em_andamento: "Em andamento", concluida: "Concluída" };
+/** Andamento da implementação (marcado pela conversa de implementação ou aqui). */
+export const ROTULO_IMPL = { pendente: "Não começou", em_andamento: "Implementando", feita: "Implementada" };
+export const proximaImplementacao = (estado) => (estado === "em_andamento" ? "feita" : estado === "feita" ? "pendente" : "em_andamento");
 const LS_ROTEIRO_W = "nexo.pl.roteiroW";
 const LS_ANIM = "nexo.pl.animacao";
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -346,6 +349,17 @@ export function createPlanejamentoBoard({
       nome.title = "Centralizar a coluna no canvas";
       nome.addEventListener("click", () => centralizarColuna(e.id));
       li.append(num, marca, nome);
+      // implementação: aparece depois do envio (etapa com tarefa) ou quando alguém já marcou
+      if (e.implementacao || e.tarefaId) {
+        const estado = e.implementacao || "pendente";
+        const impl = mk("button", "pl-etapa-impl", estado === "feita" ? "✓" : estado === "em_andamento" ? "◐" : "○");
+        impl.type = "button";
+        impl.dataset.estado = estado;
+        impl.title = `Implementação: ${ROTULO_IMPL[estado]} — clique pra ${ROTULO_IMPL[proximaImplementacao(estado)].toLowerCase()}`;
+        impl.setAttribute("aria-label", `${e.titulo}: ${ROTULO_IMPL[estado]}. Mudar`);
+        impl.addEventListener("click", () => void mudarImplementacao(e.id));
+        li.append(impl);
+      }
       const q = plano.integracao?.etapas?.[e.id];
       if (q) {
         const selo = mk("button", "pl-etapa-quadro", q.existe ? q.coluna || "Quadro" : "apagada");
@@ -408,6 +422,12 @@ export function createPlanejamentoBoard({
     txt.append(mk("strong", "pl-coluna-titulo", col.titulo));
     const sub = mk("span", "pl-coluna-sub");
     if (col.status) sub.append(mk("span", "pl-coluna-status", ROTULO_STATUS[col.status]));
+    const etapa = plano.roteiro.etapas.find((e) => e.id === col.id);
+    if (etapa?.implementacao) {
+      const impl = mk("span", "pl-coluna-impl", ROTULO_IMPL[etapa.implementacao]);
+      impl.dataset.estado = etapa.implementacao;
+      sub.append(impl);
+    }
     sub.append(mk("span", "pl-coluna-qtd", `${col.cardIds.length} ${col.cardIds.length === 1 ? "card" : "cards"}`));
     const q = plano.integracao?.etapas?.[col.id];
     if (q?.existe) {
@@ -428,12 +448,18 @@ export function createPlanejamentoBoard({
     const n = mk("div", "pl-card");
     n.dataset.id = card.id;
     n.dataset.tipo = card.tipo;
+    if (card.feito) n.dataset.feito = "1";
     n.tabIndex = 0;
     n.style.transform = `translate(${p.x}px, ${p.y}px)`;
     if (selecionado?.tipo === "card" && selecionado.id === card.id) n.classList.add("selecionado");
     const topo = mk("div", "pl-card-topo");
     const t = ROTULO_TIPO[card.tipo] ?? ROTULO_TIPO.nota;
     topo.append(mk("span", "pl-card-ico", t.ico), mk("span", "pl-card-tipo", t.rotulo));
+    if (card.feito) {
+      const f = mk("span", "pl-card-feito", "✓ feito");
+      f.title = "Implementado";
+      topo.append(f);
+    }
     if (card.tipo === "ambiguidade") {
       const selo = mk("span", "pl-card-selo", card.status === "resolvida" ? "resolvida" : "aberta");
       selo.dataset.status = card.status || "aberta";
@@ -753,6 +779,28 @@ export function createPlanejamentoBoard({
     }
   }
 
+  async function mudarImplementacao(etapaId, tentativa = 0) {
+    const etapa = plano?.roteiro.etapas.find((e) => e.id === etapaId);
+    if (!etapa) return;
+    try {
+      const r = await req(rota(`/etapas/${encodeURIComponent(etapaId)}/implementacao`), {
+        method: "PUT",
+        body: JSON.stringify({ estado: proximaImplementacao(etapa.implementacao || "pendente"), expectedRev: plano.roteiro.rev }),
+      });
+      proprios.add(`roteiro:${r.roteiro.rev}`);
+      if (r.quadro && /não foi/.test(r.quadro)) avisar(`Marcado no plano, mas a ${r.quadro}`);
+      // a tarefa do Quadro pode ter andado: o GET traz a coluna nova
+      await recarregar();
+    } catch (e) {
+      if (e.status === 409 && e.data?.atual && tentativa === 0) {
+        plano.roteiro = e.data.atual;
+        return mudarImplementacao(etapaId, 1);
+      }
+      avisar(`Não marcou a etapa: ${e.message}`);
+      void recarregar();
+    }
+  }
+
   async function renomear() {
     const titulo = el("pl-titulo").value.trim();
     if (!plano || !titulo || titulo === plano.roteiro.titulo) return;
@@ -913,6 +961,7 @@ export function createPlanejamentoBoard({
     mostrarAbaDoCorpo("escrever");
     fecharPicker();
     pintarAnexosDoEditor();
+    el("pl-ed-feito").checked = !!card.feito;
   }
 
   /* ---------- anexos: telas do DS e tarefas do Quadro ---------- */
@@ -1242,6 +1291,13 @@ export function createPlanejamentoBoard({
     el("btn-pl-novo-vazio")?.addEventListener("click", () => aoNovoPlano(projeto));
     el("btn-pl-card").addEventListener("click", () => void criarCard());
     el("btn-pl-quadro")?.addEventListener("click", () => void enviarEtapasAoQuadro());
+    el("pl-ed-feito")?.addEventListener("change", (e) => {
+      if (!editando) return;
+      const id = editando.id;
+      void salvarCampos(id, { feito: e.target.checked }).then((salvo) => {
+        if (salvo && editando?.id === id) editando.original = { ...editando.original, rev: salvo.rev, feito: salvo.feito };
+      });
+    });
     el("btn-pl-ed-anexar-ds")?.addEventListener("click", () => void abrirPicker("ds"));
     el("btn-pl-ed-anexar-tarefa")?.addEventListener("click", () => void abrirPicker("tarefa"));
     el("pl-ed-picker-filtro")?.addEventListener("input", pintarPicker);

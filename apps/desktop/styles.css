@@ -8425,6 +8425,30 @@ button.ds-etapa:hover { border-color: var(--line-3); color: var(--text); }
 .pl-etapa-quadro[data-existe="0"] { text-decoration: line-through; color: var(--faint); cursor: default; }
 .pl-coluna-quadro { color: var(--pl-etapa); }
 .pl-coluna-quadro[data-feita="1"] { color: var(--ok); }
+/* implementação: etapa (roteiro/coluna) e card marcados pela conversa de implementação */
+.pl-etapa-impl {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--faint);
+  font-size: var(--fs-sm);
+  line-height: 1;
+  cursor: pointer;
+}
+.pl-etapa-impl:hover { color: var(--text); }
+.pl-etapa-impl:focus-visible { outline: none; box-shadow: var(--ring); }
+.pl-etapa-impl[data-estado="em_andamento"] { color: var(--warn); }
+.pl-etapa-impl[data-estado="feita"] { color: var(--ok); }
+.pl-coluna-impl[data-estado="em_andamento"] { color: var(--warn); }
+.pl-coluna-impl[data-estado="feita"] { color: var(--ok); }
+.pl-card-feito { flex: none; color: var(--ok); text-transform: none; letter-spacing: 0; }
+.pl-card[data-feito="1"] .pl-card-titulo { color: var(--muted); }
+.pl-ed-feito { display: flex; align-items: center; gap: var(--s-3); font-size: var(--fs-sm); color: var(--muted); }
+
 /* Canvas do DS: tela aberta a partir de um anexo do plano */
 .ds-card.ds-card-foco { box-shadow: 0 0 0 2px var(--accent), var(--sh-2); transition: box-shadow 200ms var(--ease); }
 @media (prefers-reduced-motion: reduce) {

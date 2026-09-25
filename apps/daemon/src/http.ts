@@ -219,6 +219,7 @@ import {
   blocoDeTarefas,
   conversaDeOrigem,
   enviarAoQuadro,
+  marcarImplementacaoDaEtapa,
   pedidoDeConversa,
   resolverIntegracao,
 } from "./planejamento-integracao.ts";
@@ -1940,6 +1941,24 @@ export function createApp(home: string, token: string): Hono {
     }
   });
 
+  /** Andamento da implementação de uma etapa (tela); move a tarefa dela no Quadro, se houver. */
+  app.put("/v1/planejamento/:slug/etapas/:etapa/implementacao", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { estado?: unknown; expectedRev?: unknown };
+      return c.json(
+        marcarImplementacaoDaEtapa(projectPath, home, c.req.param("slug"), {
+          etapa: c.req.param("etapa"),
+          estado: body.estado,
+          expectedRev: body.expectedRev,
+        }),
+      );
+    } catch (e) {
+      return erroDoPlano(c, e);
+    }
+  });
+
   /** Cria (sem id na rota: POST) ou atualiza (PUT com id) um card; `expectedRev` no corpo. */
   app.post("/v1/planejamento/:slug/cards", async (c) => {
     const projectPath = c.req.query("projectPath") || "";
@@ -2266,7 +2285,11 @@ export function createApp(home: string, token: string): Hono {
     // `nexo_navegador_*` também só em conversa normal — não existe <webview> num run headless
     // (spec explícita: "ferramenta não aparece no conjunto MCP de um passo de Run").
     const modoNavegador = threadId && !runId ? modoDeNavegadorDaThread(threadId, home) : "negado";
+    // conversa de implementação de um plano: lê e ajusta o plano dela (slug vem da thread)
+    // (projeto também vem da thread, não da URL: o plano mora no projeto dela)
+    const impl = threadId && !runId ? threadHead(threadId, home) : undefined;
     const conjunto: Conjunto = () => [
+      ...(impl?.handoff && impl.projectPath ? ferramentasDePlanejamento(impl.projectPath, impl.handoff.slug, home, "implementacao")() : []),
       ...ferramentasDeAutoria(home)(),
       ...(projectPath ? ferramentasDeRepoMap(projectPath, home)() : []),
       ...(projectPath ? ferramentaDeResumo(projectPath, home)() : []),

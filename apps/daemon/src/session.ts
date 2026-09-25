@@ -291,7 +291,7 @@ export { sessionBus } from "./bus.ts";
 import { sessionBus } from "./bus.ts";
 import { blocoDoDsParaPack, REGRA_MOCK_NO_CANVAS } from "./ds-sync.ts";
 import { pastaDoPlano } from "./planejamento.ts";
-import { blocoDoHandoff, blocoDoManager, MCP_TOOLS_PLANEJAMENTO } from "./planejamento-ferramentas.ts";
+import { blocoDoHandoff, blocoDoManager, MCP_TOOLS_PLANEJAMENTO, MCP_TOOLS_PLANO_NA_IMPLEMENTACAO } from "./planejamento-ferramentas.ts";
 
 /** O que muda nas instruções fixas conforme o tipo da conversa (ver `opcoesDoPack`). */
 type OpcoesDoPack = { incluirDs?: boolean; oculta?: boolean; planejamento?: string; handoff?: string };
@@ -662,7 +662,15 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
  */
 function mcpDaConversa(
   threadId: string,
-  meta: { mcpConfig?: string; mcpTools?: string[]; projectPath?: string; runId?: string; mcpRunId?: string; planejamento?: { slug: string } },
+  meta: {
+    mcpConfig?: string;
+    mcpTools?: string[];
+    projectPath?: string;
+    runId?: string;
+    mcpRunId?: string;
+    planejamento?: { slug: string };
+    handoff?: { slug: string };
+  },
   perfil: Profile,
   home: string,
 ): { mcpConfig?: string; mcpTools?: string[]; mcpHttp?: { url: string; token: string } } {
@@ -699,6 +707,8 @@ function mcpDaConversa(
     };
   }
   const tools = [
+    // implementação de um plano: marca andamento e ajusta o plano (http.ts monta o mesmo recorte)
+    ...(meta.handoff && !meta.runId ? MCP_TOOLS_PLANO_NA_IMPLEMENTACAO : []),
     ...MCP_TOOLS_AUTORIA,
     ...(meta.projectPath && indiceDisponivel(meta.projectPath, home) ? MCP_TOOLS_REPO_MAP : []),
     // `runId` só existe quando esta conversa é o passo de um run de PIPELINE (ver `executarPasso`

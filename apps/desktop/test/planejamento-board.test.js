@@ -352,3 +352,38 @@ describe("anexos e Quadro (F7)", () => {
     await vi.waitFor(() => expect(avisar).toHaveBeenCalledWith(expect.stringMatching(/já têm tarefa/)));
   });
 });
+
+describe("implementação marcada no plano", () => {
+  it("etapa com marca mostra o estado e o clique avança; card feito mostra ✓ e o editor desmarca", async () => {
+    const { board, chamadas, setPlano } = montar({
+      respostas: {
+        "PUT /v1/planejamento/plano-1/etapas/a/implementacao": ({ plano, body }) => ({
+          roteiro: { ...plano.roteiro, rev: 4, etapas: plano.roteiro.etapas.map((e) => (e.id === "a" ? { ...e, implementacao: body.estado } : e)) },
+        }),
+        "PUT /v1/planejamento/plano-1/cards/r1": ({ plano, body }) => ({ ...plano.cards[0], ...body, rev: 2 }),
+      },
+    });
+    const p = planoBase();
+    p.roteiro.etapas[0].implementacao = "em_andamento";
+    p.cards[0].feito = true;
+    setPlano(p);
+    await board.abrir();
+    const impl = document.querySelector(".pl-etapa .pl-etapa-impl");
+    expect(impl.dataset.estado).toBe("em_andamento");
+    // etapa sem marca e sem tarefa no Quadro não mostra o botão
+    expect(document.querySelectorAll(".pl-etapa-impl")).toHaveLength(1);
+    expect(document.querySelector('.pl-coluna[data-id="a"] .pl-coluna-impl').textContent).toBe("Implementando");
+    impl.click();
+    await vi.waitFor(() => expect(chamadas.some((c) => c.path.includes("/implementacao"))).toBe(true));
+    expect(chamadas.find((c) => c.path.includes("/implementacao")).body).toEqual({ estado: "feita", expectedRev: 3 });
+
+    expect(document.querySelector('.pl-card[data-id="r1"]').dataset.feito).toBe("1");
+    document.querySelector('.pl-card[data-id="r1"]').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    const caixa = document.getElementById("pl-ed-feito");
+    expect(caixa.checked).toBe(true);
+    caixa.checked = false;
+    caixa.dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect(chamadas.some((c) => c.metodo === "PUT" && c.path.includes("/cards/r1"))).toBe(true));
+    expect(chamadas.find((c) => c.metodo === "PUT" && c.path.includes("/cards/r1")).body).toEqual({ feito: false, expectedRev: 1 });
+  });
+});

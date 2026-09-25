@@ -10,6 +10,7 @@ import {
   blocoDeAnexos,
   conversaDeOrigem,
   enviarAoQuadro,
+  marcarImplementacaoDaEtapa,
   pedidoDeConversa,
   resolverIntegracao,
 } from "../src/planejamento-integracao.ts";
@@ -197,5 +198,77 @@ describe("plano a partir de conversa", () => {
     const head = threadHead(j.threadId, home)!;
     expect(head.planejamento?.slug).toBe(j.slug);
     expect(head.origemThreadId).toBe(t.id);
+  });
+});
+
+describe("implementação marca o plano", () => {
+  it("etapa: em_andamento/feita move a tarefa do Quadro; dependência aberta segura a tarefa mas não a marca", () => {
+    const home = tempHome();
+    const p = projeto();
+    const slug = planoComEtapas(p, home);
+    const envio = enviarAoQuadro(p, home, slug);
+    const [tTela, tApi] = envio.tarefas.map((t) => t.tarefaId);
+    const col = (id: string) => getQuadro(p, home).colunas.find((c) => c.id === getTarefa(p, home, id)!.colunaId)!.nome;
+
+    let rev = abrirPlano(p, home, slug).roteiro.rev;
+    let r = marcarImplementacaoDaEtapa(p, home, slug, { etapa: "tela", estado: "em_andamento", expectedRev: rev });
+    expect(r.roteiro.etapas[0]!.implementacao).toBe("em_andamento");
+    expect(col(tTela!)).toBe("Fazendo");
+
+    // api depende de tela, que ainda não está feita: a tarefa fica, a marca vale
+    r = marcarImplementacaoDaEtapa(p, home, slug, { etapa: "api", estado: "feita", expectedRev: r.roteiro.rev });
+    expect(r.roteiro.etapas[1]!.implementacao).toBe("feita");
+    expect(r.quadro).toMatch(/não foi/);
+    expect(col(tApi!)).toBe("A fazer");
+
+    r = marcarImplementacaoDaEtapa(p, home, slug, { etapa: "tela", estado: "feita", expectedRev: r.roteiro.rev });
+    expect(col(tTela!)).toBe("Feito");
+
+    // roteiro reescrito (tela/Manager mandam só id/título/status) não perde a marca
+    rev = r.roteiro.rev;
+    const etapas = r.roteiro.etapas.map(({ id, titulo, status }) => ({ id, titulo, status }));
+    salvarRoteiro(p, home, slug, { expectedRev: rev, etapas });
+    expect(abrirPlano(p, home, slug).roteiro.etapas.map((e) => e.implementacao)).toEqual(["feita", "feita"]);
+
+    r = marcarImplementacaoDaEtapa(p, home, slug, { etapa: "tela", estado: "pendente", expectedRev: rev + 1 });
+    expect(r.roteiro.etapas[0]!.implementacao).toBeUndefined();
+    expect(() => marcarImplementacaoDaEtapa(p, home, slug, { etapa: "tela", estado: "feita", expectedRev: 1 })).toThrow(/mudou/);
+  });
+
+  it("card: feito marca e desmarca", () => {
+    const home = tempHome();
+    const p = projeto();
+    const slug = planoComEtapas(p, home);
+    const c = salvarCard(p, home, slug, { tipo: "requisito", titulo: "R", expectedRev: 0 });
+    const feito = salvarCard(p, home, slug, { id: c.id, feito: true, expectedRev: c.rev });
+    expect(abrirPlano(p, home, slug).cards[0]!.feito).toBe(true);
+    salvarCard(p, home, slug, { id: c.id, feito: false, expectedRev: feito.rev });
+    expect(abrirPlano(p, home, slug).cards[0]!.feito).toBeUndefined();
+  });
+
+  it("conversa de implementação ganha as ferramentas do plano, menos gravar handoff", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const p = projeto();
+    const slug = planoComEtapas(p, home);
+    const t = createThread({ projectPath: p, profileId: "p1", handoff: { slug } }, home);
+    const app = createApp(home, "tk");
+    const res = await app.request(`/v1/mcp?projectPath=${encodeURIComponent(p)}&threadId=${t.id}`, {
+      method: "POST",
+      headers: { authorization: "Bearer tk", "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    const nomes = ((await res.json()) as { result: { tools: { name: string }[] } }).result.tools.map((x) => x.name);
+    expect(nomes).toEqual(expect.arrayContaining(["nexo_plano_ler", "nexo_plano_implementacao", "nexo_plano_card_atualizar", "nexo_plano_roteiro"]));
+    expect(nomes).not.toContain("nexo_plano_handoff");
+    // conversa comum não vê o plano
+    const comum = createThread({ projectPath: p, profileId: "p1" }, home);
+    const res2 = await app.request(`/v1/mcp?projectPath=${encodeURIComponent(p)}&threadId=${comum.id}`, {
+      method: "POST",
+      headers: { authorization: "Bearer tk", "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    const nomes2 = ((await res2.json()) as { result: { tools: { name: string }[] } }).result.tools.map((x) => x.name);
+    expect(nomes2.some((n) => n.startsWith("nexo_plano_"))).toBe(false);
   });
 });

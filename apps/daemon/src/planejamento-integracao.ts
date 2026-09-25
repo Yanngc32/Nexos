@@ -1,6 +1,16 @@
 import { join } from "node:path";
 import { estadoDs, lerSistema, pastaAbsoluta, type DsCompleto } from "./design-system.ts";
-import { abrirPlano, chaveDoAnexo, vincularTarefas, type Card, type Plano } from "./planejamento.ts";
+import {
+  abrirPlano,
+  chaveDoAnexo,
+  marcarImplementacao,
+  vincularTarefas,
+  type Card,
+  type EstadoImplementacao,
+  type Origem,
+  type Plano,
+  type Roteiro,
+} from "./planejamento.ts";
 import { adicionarChecklistItem, getQuadro, getTarefa, listarTarefas, salvarMarco, salvarTarefa, type Quadro, type Tarefa } from "./tarefas.ts";
 import { readThread, threadHead } from "./threads.ts";
 
@@ -242,12 +252,52 @@ export function enviarAoQuadro(projectPath: string, home: string, slug: string, 
   return out;
 }
 
+/**
+ * Coluna do Quadro pra cada andamento: pendente = primeira, feita = última, em andamento = a
+ * segunda (quadro de 3+ colunas; com menos, fica na primeira).
+ */
+function colunaDoEstado(q: Quadro, estado: EstadoImplementacao): string | undefined {
+  const cols = [...q.colunas].sort((a, b) => a.ordem - b.ordem);
+  if (!cols.length) return undefined;
+  if (estado === "feita") return cols.at(-1)!.id;
+  if (estado === "em_andamento" && cols.length >= 3) return cols[1]!.id;
+  return cols[0]!.id;
+}
+
+/**
+ * Marca o andamento da implementação de uma etapa e leva junto a tarefa dela no Quadro (se o
+ * plano foi enviado pro Quadro). A tarefa que não pode ir pra coluna final (dependência aberta)
+ * fica onde está — a marca no plano vale mesmo assim, e o motivo volta no `quadro`.
+ */
+export function marcarImplementacaoDaEtapa(
+  projectPath: string,
+  home: string,
+  slug: string,
+  input: { etapa: unknown; estado: unknown; expectedRev: unknown },
+  origem: Origem = "tela",
+): { roteiro: Roteiro; quadro?: string } {
+  const roteiro = marcarImplementacao(projectPath, home, slug, input, origem);
+  const etapa = roteiro.etapas.find((e) => e.id === input.etapa);
+  const tarefa = etapa?.tarefaId ? getTarefa(projectPath, home, etapa.tarefaId) : undefined;
+  if (!tarefa) return { roteiro };
+  const quadro = getQuadro(projectPath, home);
+  const destino = colunaDoEstado(quadro, input.estado as EstadoImplementacao);
+  if (!destino || destino === tarefa.colunaId) return { roteiro };
+  const nome = quadro.colunas.find((c) => c.id === destino)?.nome ?? destino;
+  try {
+    salvarTarefa({ id: tarefa.id, projectPath, colunaId: destino }, home);
+    return { roteiro, quadro: `tarefa \`${tarefa.id}\` movida pra "${nome}"` };
+  } catch (e) {
+    return { roteiro, quadro: `tarefa \`${tarefa.id}\` não foi pra "${nome}": ${(e as Error).message}` };
+  }
+}
+
 /** Bloco pro fim do handoff: a conversa de implementação move estas tarefas no Quadro. */
 export function blocoDeTarefas(p: Plano, envio: EnvioAoQuadro): string {
   const titulo = (id: string) => p.roteiro.etapas.find((e) => e.id === id)?.titulo ?? id;
   return [
     "## Tarefas no Quadro",
-    "Cada etapa virou uma tarefa no Quadro deste projeto. Mova a tarefa da etapa pra coluna de andamento ao começar e pra coluna final ao terminar (nexo_tarefa_salvar).",
+    "Cada etapa virou uma tarefa no Quadro deste projeto. Marcar a etapa com nexo_plano_implementacao já move a tarefa dela (em_andamento → coluna de andamento, feita → coluna final).",
     ...envio.tarefas.map((t, i) => `${i + 1}. ${titulo(t.etapa)} — tarefa \`${t.tarefaId}\``),
   ].join("\n");
 }

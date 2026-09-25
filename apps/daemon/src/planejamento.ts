@@ -29,8 +29,21 @@ export type StatusEtapa = (typeof STATUS_ETAPA)[number];
 export const STATUS_AMBIGUIDADE = ["aberta", "resolvida"] as const;
 export type StatusAmbiguidade = (typeof STATUS_AMBIGUIDADE)[number];
 
+/**
+ * Andamento da IMPLEMENTAÇÃO da etapa, separado do `status` (que é de especificação: planejando →
+ * especificada). Quem marca é a conversa de implementação; ausente = ainda não começou.
+ */
+export const ESTADOS_IMPLEMENTACAO = ["pendente", "em_andamento", "feita"] as const;
+export type EstadoImplementacao = (typeof ESTADOS_IMPLEMENTACAO)[number];
+
 /** `tarefaId`: tarefa do Quadro criada pra esta etapa no envio (ver planejamento-integracao.ts). */
-export type Etapa = { id: string; titulo: string; status: StatusEtapa; tarefaId?: string };
+export type Etapa = {
+  id: string;
+  titulo: string;
+  status: StatusEtapa;
+  tarefaId?: string;
+  implementacao?: Exclude<EstadoImplementacao, "pendente">;
+};
 /**
  * O que um card aponta fora do plano: uma tela do Design System (sistema + id do card do DS) ou
  * uma tarefa do Quadro. Só o endereço mora aqui; título/estado são resolvidos na leitura, então
@@ -53,6 +66,8 @@ export type Card = {
   status?: StatusAmbiguidade;
   links: string[];
   anexos: Anexo[];
+  /** Já implementado (a conversa de implementação marca requisito por requisito). */
+  feito?: boolean;
   fonte?: string;
   rev: number;
   corpo: string;
@@ -232,6 +247,7 @@ export function validarEtapas(v: unknown): Etapa[] {
     if (!STATUS_ETAPA.includes(status)) throw erro(`status inválido na etapa ${id}: ${String(o.status)}`);
     const etapa: Etapa = { id, titulo: texto(o.titulo, `título da etapa ${id}`, TITULO_MAX), status };
     if (typeof o.tarefaId === "string" && ID_EXTERNO_RE.test(o.tarefaId)) etapa.tarefaId = o.tarefaId;
+    if (o.implementacao === "em_andamento" || o.implementacao === "feita") etapa.implementacao = o.implementacao;
     return etapa;
   });
 }
@@ -272,6 +288,7 @@ export type CardInput = {
   status?: unknown;
   links?: unknown;
   anexos?: unknown;
+  feito?: unknown;
   fonte?: unknown;
   corpo?: unknown;
   criadoEm?: unknown;
@@ -295,6 +312,7 @@ export function validarCard(
 
   const card: Card = { id, tipo, titulo, links: [], anexos: [], rev, corpo };
   if (input.anexos !== undefined && input.anexos !== null) card.anexos = validarAnexos(input.anexos);
+  if (input.feito === true) card.feito = true;
   if (typeof input.criadoEm === "string" && !Number.isNaN(Date.parse(input.criadoEm))) card.criadoEm = input.criadoEm;
 
   if (input.etapa !== undefined && input.etapa !== null && input.etapa !== "") {
@@ -377,8 +395,9 @@ const handoffDir = (dir: string) => join(dir, "handoff");
 
 function corpoDoRoteiro(r: Roteiro): string {
   const marca: Record<StatusEtapa, string> = { pendente: " ", em_andamento: "~", concluida: "x" };
+  const impl = (e: Etapa) => (e.implementacao === "feita" ? " — implementada" : e.implementacao === "em_andamento" ? " — implementando" : "");
   const linhas = [`# ${r.titulo}`, "", "## Roteiro"];
-  linhas.push(...(r.etapas.length ? r.etapas.map((e, i) => `${i + 1}. [${marca[e.status]}] ${e.titulo}`) : ["- nenhuma etapa ainda"]));
+  linhas.push(...(r.etapas.length ? r.etapas.map((e, i) => `${i + 1}. [${marca[e.status]}] ${e.titulo}${impl(e)}`) : ["- nenhuma etapa ainda"]));
   return `${linhas.join("\n")}\n`;
 }
 
@@ -386,6 +405,7 @@ function corpoDoCard(c: Card, etapas: Etapa[]): string {
   const linhas = [`# ${c.titulo}`, "", `- Tipo: ${c.tipo}`];
   if (c.etapa) linhas.push(`- Etapa: ${etapas.find((e) => e.id === c.etapa)?.titulo ?? c.etapa}`);
   if (c.status) linhas.push(`- Situação: ${c.status}`);
+  if (c.feito) linhas.push("- Implementado: sim");
   if (c.fonte) linhas.push(`- Fonte: ${c.fonte}`);
   if (c.links.length) linhas.push(`- Ligado a: ${c.links.join(", ")}`);
   for (const a of c.anexos) linhas.push(a.tipo === "ds" ? `- Tela do Design System: ${a.sistema}/${a.card}` : `- Tarefa do Quadro: ${a.id}`);
@@ -532,15 +552,48 @@ export function abrirPlano(projectPath: string, home: string, slug: string): Pla
 }
 
 /**
- * O vínculo etapa → tarefa do Quadro não é editado pela tela nem pelo Manager (eles mandam só
- * id/título/status): etapa que continua no roteiro mantém a tarefa que já tinha.
+ * O vínculo etapa → tarefa do Quadro e o andamento da implementação não são editados pelo
+ * roteiro (a tela e as ferramentas mandam só id/título/status): etapa que continua no roteiro
+ * mantém os dois.
  */
 function manterTarefas(novas: Etapa[], atuais: Etapa[]): Etapa[] {
   return novas.map((e) => {
-    if (e.tarefaId) return e;
-    const antes = atuais.find((a) => a.id === e.id)?.tarefaId;
-    return antes ? { ...e, tarefaId: antes } : e;
+    const antes = atuais.find((a) => a.id === e.id);
+    if (!antes) return e;
+    return {
+      ...e,
+      ...(!e.tarefaId && antes.tarefaId ? { tarefaId: antes.tarefaId } : {}),
+      ...(!e.implementacao && antes.implementacao ? { implementacao: antes.implementacao } : {}),
+    };
   });
+}
+
+/** Marca o andamento da implementação de UMA etapa (`pendente` apaga a marca). */
+export function marcarImplementacao(
+  projectPath: string,
+  home: string,
+  slug: string,
+  input: { etapa: unknown; estado: unknown; expectedRev: unknown },
+  origem: Origem = "tela",
+): Roteiro {
+  const dir = pastaDoPlano(projectPath, home, slug);
+  const atual = roteiroOuErro(dir, slug);
+  if (input.expectedRev !== atual.rev) throw erro("o roteiro mudou desde a leitura", 409, atual);
+  const estado = input.estado as EstadoImplementacao;
+  if (!ESTADOS_IMPLEMENTACAO.includes(estado)) throw erro(`estado inválido: ${String(input.estado)} (use ${ESTADOS_IMPLEMENTACAO.join(", ")})`);
+  if (!atual.etapas.some((e) => e.id === input.etapa)) throw erro(`etapa ${String(input.etapa)} não está no roteiro`);
+  const novo: Roteiro = {
+    ...atual,
+    etapas: atual.etapas.map((e) => {
+      if (e.id !== input.etapa) return e;
+      const { implementacao: _, ...resto } = e;
+      return estado === "pendente" ? resto : { ...resto, implementacao: estado };
+    }),
+    rev: atual.rev + 1,
+  };
+  escreverRoteiro(dir, novo);
+  emitir(projectPath, { type: "mudou", slug, origem, alvo: "roteiro" });
+  return novo;
 }
 
 /** Grava o vínculo etapa → tarefa do Quadro (só o envio pro Quadro chama). */

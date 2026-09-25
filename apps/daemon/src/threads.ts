@@ -315,6 +315,8 @@ export type ThreadHead = {
   oculta?: boolean;
   /** Conversa do Agent Manager do plano `<slug>`: a barra lateral abre a Tela de Planejamento. */
   planejamento?: { slug: string };
+  /** Conversa de implementação do plano `<slug>`: ganha as ferramentas do plano pra marcar o andamento. */
+  handoff?: { slug: string };
 };
 
 /**
@@ -376,6 +378,7 @@ function lerCabecalho(id: string, home: string): ThreadHead | undefined {
     // `oculta` existir não têm a marca nova
     ...(meta.oculta || meta.semRoteamento ? { oculta: true } : {}),
     ...(meta.planejamento ? { planejamento: meta.planejamento } : {}),
+    ...(meta.handoff ? { handoff: meta.handoff } : {}),
   };
 }
 
