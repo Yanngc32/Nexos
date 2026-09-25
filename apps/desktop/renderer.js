@@ -978,17 +978,24 @@ function stopThink() {
 
 /* ---------- pet ----------
  * Maguinho no canto do composer. Troca da pedra.
- * Mesmo PNG: idle / work / off. Pisca, logo do notebook, Zzz.
+ * Estados: off / wake / idle / think / work / done. Pisca, logo do notebook, Zzz.
  * Pé (ou aba, no off) cola no topo da box. Tamanho 50%. Gema = --accent.
- * Idle: entra no chapéu e sai. Work: braçinho tecla. Notebook igual.
+ * Idle: respira, olha pros lados, entra no chapéu. Think: pontinhos até a 1ª resposta.
+ * Work: braçinho tecla. Done: pulinho no fim do turno, depois idle.
+ * Quadros idle/think/done: pets/nexo/mago-fonte/gerar.py. work/off: mago-preview/bake.py.
  */
 const PET_BASE = "./pets/nexo/mago/";
 const PET_REST = "idle";
+const PET_BLINK = ["idle-blink-half", "idle-blink", "idle-blink-half"];
 const PET_IDLE_SPICE = [
-  [PET_REST, PET_REST, "idle-blink", PET_REST],
+  [PET_REST, "idle-breath", PET_REST, ...PET_BLINK, PET_REST],
+  [
+    PET_REST, "idle-look-l", "idle-look-l", PET_REST, "idle-look-r", "idle-look-r",
+    PET_REST, ...PET_BLINK, PET_REST,
+  ],
   [
     PET_REST, "idle-in1", "idle-in2", "idle-hide", "idle-hide",
-    "idle-in2", "idle-in1", PET_REST, "idle-blink", PET_REST,
+    "idle-in2", "idle-in1", PET_REST, ...PET_BLINK, PET_REST,
   ],
 ];
 const PET_WORK_SPICE = [
@@ -1004,12 +1011,17 @@ const PET_WORK_SPICE = [
 ];
 const PET_FRAMES = {
   off: ["off", "off-z1", "off-z2", "off-z1"],
-  wake: ["idle-hide", "idle-in2", "idle-in1", "idle-blink", PET_REST],
+  wake: ["idle-hide", "idle-in2", "idle-in1", ...PET_BLINK, PET_REST],
   idle: PET_IDLE_SPICE[0],
+  think: ["think-0", "think-1", "think-2", "think-3", "think-3"],
   work: PET_WORK_SPICE[0],
+  done: ["done-rest", "done-squat", "done-jump", "done-high", "done-high", "done-land", "done-rest"],
+  // Configurações abertas: entra no chapéu aqui (o chapéu fica) e sai dele lá (ver ligarPetDasConfigs).
+  sai: [PET_REST, "idle-in1", "idle-in2", "idle-hide"],
+  fora: ["idle-hide"],
 };
-const PET_NEXT = { wake: "idle" };
-const PET_FRAME_MS = { off: 700, wake: 220, idle: 400, work: 120 };
+const PET_NEXT = { wake: "idle", done: "idle", sai: "fora" };
+const PET_FRAME_MS = { off: 700, wake: 220, idle: 400, think: 380, work: 120, done: 120, sai: 140 };
 
 const petState = {
   name: "",
@@ -1020,17 +1032,37 @@ const petState = {
   workQueue: null,
   idleQueue: null,
   spiceIn: 0,
+  // Nas Configurações: `name` é o que aparece (sai/fora/wake), `depois` é o estado de verdade.
+  fora: false,
+  depois: "",
+  aposWake: "",
 };
+
+/** Estado de verdade do pet, mesmo com ele escondido nas Configurações. */
+function petAtual() {
+  return petState.fora ? petState.depois : petState.name;
+}
+
+function proximoPet(name) {
+  if (name === "wake" && petState.aposWake) {
+    const next = petState.aposWake;
+    petState.aposWake = "";
+    return next;
+  }
+  return PET_NEXT[name];
+}
 const PET_SCALE = 0.5;
 const petImgs = new Map();
 
 function petSrc(frame) {
-  return `${PET_BASE}${frame}.png?v=mago2`;
+  return `${PET_BASE}${frame}.png?v=mago5`;
 }
 
 function petTitle(name) {
+  if (name === "sai" || name === "fora") return petTitle(petState.depois || "idle");
   if (name === "work") return "Motor trabalhando";
-  if (name === "idle" || name === "wake") return "Motor ligado";
+  if (name === "think") return "Pensando";
+  if (name === "idle" || name === "wake" || name === "done") return "Motor ligado";
   return "Motor desligado";
 }
 
@@ -1042,7 +1074,8 @@ function petCurrentFrames() {
 
 function pickIdleClip() {
   if (petState.reduceMotion) return [PET_REST];
-  return PET_IDLE_SPICE[Math.random() < 0.62 ? 0 : 1];
+  const r = Math.random();
+  return PET_IDLE_SPICE[r < 0.5 ? 0 : r < 0.8 ? 1 : 2];
 }
 
 function refillIdleQueue() {
@@ -1068,11 +1101,23 @@ function frameWait(name, shown) {
   if (name === "wake") {
     if (f === "idle-hide") return 320;
     if (f === "idle-in1" || f === "idle-in2") return 160;
-    if (f === "idle-blink") return 120;
+    if (f === "idle-blink-half") return 70;
+    if (f === "idle-blink") return 110;
     return 180;
   }
+  if (name === "sai") return f === PET_REST ? 120 : 140;
+  if (name === "done") {
+    if (f === "done-squat") return 120;
+    if (f === "done-jump") return 90;
+    if (f === "done-high") return 140;
+    if (f === "done-land") return 110;
+    return 200;
+  }
   if (f === PET_REST) return 2000 + Math.floor(Math.random() * 2800);
-  if (f === "idle-blink") return 120;
+  if (f === "idle-blink-half") return 70;
+  if (f === "idle-blink") return 110;
+  if (f === "idle-breath") return 700;
+  if (f === "idle-look-l" || f === "idle-look-r") return 600;
   if (f === "idle-in1" || f === "idle-in2") return 160;
   if (f === "idle-hide") return 700;
   if (f === "work-blink") return 120;
@@ -1177,7 +1222,7 @@ function petTick() {
 
   petState.frame += 1;
   if (petState.frame >= frames.length) {
-    const next = PET_NEXT[name];
+    const next = proximoPet(name);
     if (next) {
       setPet(next);
       return;
@@ -1196,7 +1241,19 @@ function setPet(name, forcar = false) {
   const stage = $("pet-stage");
   const sprite = $("pet-sprite");
   if (!stage || !sprite || !petState.ok) return;
+  // Escondido nas Configurações: só guarda o estado, pra voltar nele ao fechar.
+  if (petState.fora && name !== "sai" && name !== "fora") {
+    petState.depois = name;
+    return;
+  }
   if (!forcar && petState.name === name) return;
+  // Sem animação, estado de passagem (acordar, comemorar) vai direto pro seguinte:
+  // senão ficava parado no 1º quadro (o maguinho sumido dentro do chapéu, no wake).
+  const pula = petState.reduceMotion && proximoPet(name);
+  if (pula) {
+    setPet(pula, forcar);
+    return;
+  }
 
   clearTimeout(petState.timer);
   petState.timer = 0;
@@ -1219,19 +1276,37 @@ function setPet(name, forcar = false) {
   }
 }
 
-/** Motor off = maguinho dorme. Ligado = idle. Stream = notebook. */
+/** Motor off = maguinho dorme. Ligado = idle. Stream = notebook (ou pensando, até a 1ª resposta). */
 function syncPet(on, live) {
+  const atual = petAtual();
   if (!on) {
-    if (petState.name !== "off") setPet("off");
+    if (atual !== "off") setPet("off");
     return;
   }
   if (live) {
-    if (petState.name !== "work") setPet("work");
+    if (atual !== "work" && atual !== "think") setPet("work");
     return;
   }
-  if (petState.name === "wake") return;
-  if (petState.name === "off" || petState.name === "") setPet("wake");
-  else if (petState.name === "work") setPet("idle");
+  // think não sai daqui: o poll (a cada 4 s) chama isto com live=false até o 1º texto chegar.
+  // Sai por evento: texto/ferramenta (work), done, erro, parar ou trocar de conversa (petParou).
+  if (atual === "wake" || atual === "done" || atual === "think") return;
+  if (atual === "off" || atual === "") setPet("wake");
+  else if (atual === "work") setPet("idle");
+}
+
+/** Mensagem enviada: pensa até chegar texto ou ferramenta. Motor desligado segue dormindo. */
+function petPensando() {
+  if (petAtual() === "off" || petAtual() === "") return;
+  setPet("think");
+}
+
+function petComecouAResponder() {
+  if (petAtual() === "think") setPet("work");
+}
+
+/** Turno acabou sem comemorar (erro, parado, outra conversa). */
+function petParou() {
+  if (petAtual() === "think" || petAtual() === "work") setPet("idle");
 }
 
 function initPet() {
@@ -1262,6 +1337,85 @@ function initPet() {
     img.src = petSrc(frame);
   }
   setPet("off", true);
+  ligarPetDasConfigs();
+}
+
+/**
+ * Configurações abertas: o maguinho do chat entra no chapéu (que fica no compositor) e sai na borda
+ * de cima do cartão das Configurações. Ao fechar, volta pro chat no estado de verdade.
+ * Motor desligado: fica dormindo no chat, sem viagem.
+ */
+const setPetState = { timer: 0, fila: [], nome: "", aberto: false };
+
+function pintarSetPet(frame) {
+  const c = $("set-pet");
+  const img = petImg(frame);
+  if (!img.complete || img.naturalWidth === 0) {
+    img.onload = () => pintarSetPet(frame);
+    return;
+  }
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  c.style.width = `${Math.round(img.naturalWidth * PET_SCALE)}px`;
+  c.style.height = `${Math.round(img.naturalHeight * PET_SCALE)}px`;
+  const ctx = c.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.drawImage(img, 0, 0);
+  tintPetGem(ctx, c.width, c.height);
+}
+
+function tickSetPet() {
+  clearTimeout(setPetState.timer);
+  if (!setPetState.aberto) return;
+  if (!setPetState.fila.length) {
+    setPetState.nome = "idle";
+    setPetState.fila = [...pickIdleClip()];
+  }
+  const frame = setPetState.fila.shift();
+  pintarSetPet(frame);
+  const ms = frameWait(setPetState.nome, frame);
+  if (ms > 0) setPetState.timer = setTimeout(tickSetPet, ms);
+}
+
+function abrirPetNasConfigs() {
+  if (!petState.ok || petState.fora || petAtual() === "off" || petAtual() === "") return;
+  petState.depois = petState.name === "wake" ? "idle" : petState.name;
+  setPet("sai", true);
+  petState.fora = true;
+  setPetState.aberto = true;
+  $("set-pet").classList.remove("hidden");
+  // Sai do chapéu lá depois de sumir aqui (os 4 quadros do "sai", ~540 ms).
+  setPetState.nome = "wake";
+  setPetState.fila = petState.reduceMotion ? [PET_REST] : [...PET_FRAMES.wake];
+  pintarSetPet("idle-hide");
+  clearTimeout(setPetState.timer);
+  setPetState.timer = setTimeout(tickSetPet, petState.reduceMotion ? 0 : 540);
+}
+
+function fecharPetDasConfigs() {
+  if (!petState.fora) return;
+  clearTimeout(setPetState.timer);
+  setPetState.aberto = false;
+  $("set-pet").classList.add("hidden");
+  petState.fora = false;
+  const volta = petState.depois || "idle";
+  petState.depois = "";
+  if (volta === "off") {
+    setPet("off", true);
+    return;
+  }
+  petState.aposWake = volta === "wake" ? "" : volta;
+  setPet("wake", true);
+}
+
+function ligarPetDasConfigs() {
+  const tela = $("settings");
+  if (!tela || !$("set-pet")) return;
+  new MutationObserver(() => {
+    if (tela.classList.contains("hidden")) fecharPetDasConfigs();
+    else abrirPetNasConfigs();
+  }).observe(tela, { attributes: true, attributeFilter: ["class"] });
 }
 
 const BANNER_PADRAO = $("banner").textContent;
@@ -4514,6 +4668,7 @@ async function openThread(id) {
   setComposer(true);
   // "Falando" é por conversa: com duas contas trabalhando em paralelo, sair de uma
   // em voo não pode deixar a próxima com o indicador aceso e o Parar mirando errado.
+  petParou();
   if (state.ok) setMotor(true, state.agents.list.some((a) => a.threadId === id && a.busy));
   setChatHead();
   state.queuePaused = false;
@@ -4602,6 +4757,7 @@ function pausarFila(motivo) {
 
 function onLive(ev) {
   if (ev.type === "text") {
+    petComecouAResponder();
     setMotor(true, true);
     const log = $("log");
     const desce = pertoDoFimDoChat(log);
@@ -4662,14 +4818,18 @@ function onLive(ev) {
     return;
   }
   if (ev.type === "done") {
+    // antes do setMotor, que já devolve o pet pro idle; erro/quota chegam antes e desligam isso
+    const trabalhava = petAtual() === "work" || petAtual() === "think";
     flushStreamRender();
     setMotor(true, false);
+    if (trabalhava) setPet("done");
     // terminou aberta na frente da pessoa: já foi vista, o painel de borda não deve acusar
     if (document.hasFocus()) void window.nexo.threadVista?.(state.threadId);
     void enviarProximoDaFila();
     return;
   }
   if (ev.type === "tool") {
+    petComecouAResponder();
     appendEvent({ type: "tool", name: ev.name, summary: ev.summary, id: ev.id, input: ev.input });
     registrarAtividadeGrafo(ev.name, ev.summary);
     if (ev.id) state.toolNamePorId.set(ev.id, ev.name);
@@ -4786,6 +4946,7 @@ function onLive(ev) {
     return;
   }
   if (ev.type === "quota") {
+    petParou();
     setMotor(true, false);
     pausarFila("quota");
     showQuota(ev);
@@ -4803,6 +4964,7 @@ function onLive(ev) {
     return;
   }
   if (ev.type === "auth") {
+    petParou();
     setMotor(true, false);
     pausarFila("login");
     appendEvent({ type: "error", message: ev.detail || "Essa conta precisa de login novo." });
@@ -4812,6 +4974,7 @@ function onLive(ev) {
     return;
   }
   if (ev.type === "error") {
+    petParou();
     setMotor(true, false);
     pausarFila("erro");
     appendEvent({ type: "error", message: ev.message || "motor morreu" });
@@ -7741,6 +7904,7 @@ async function sendChatMessage(text, pendentes = null, { elementos = [] } = {}) 
   const previews = itens.map((item) => ({ url: item.url, name: item.name }));
   appendEvent({ type: "user", text, previews, ...(elementos.length ? { elementos } : {}) });
   void dispararMencoes(text);
+  petPensando();
   try {
     await req(`/v1/threads/${state.threadId}/messages`, {
       method: "POST",
@@ -7748,6 +7912,7 @@ async function sendChatMessage(text, pendentes = null, { elementos = [] } = {}) 
     });
   } catch (err) {
     appendEvent({ type: "error", message: err.message || "Falha ao enviar." });
+    petParou();
   }
 }
 
@@ -7820,6 +7985,7 @@ async function abortTalk() {
     appendEvent({ type: "error", message: e.message || "Não parou." });
     return;
   }
+  petParou(); // antes do done do abort, que senão comemoraria
   appendEvent({ type: "sys", message: "Parou." });
 }
 

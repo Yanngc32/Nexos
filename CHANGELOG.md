@@ -16,6 +16,8 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
   - As abas da barra de baixo são anunciadas como abas, dizem qual está aberta, e as setas andam entre elas.
   - As folhas (Nova conversa, Trocar conta, Modelo e esforço) viraram diálogo: o foco entra nelas ao abrir, Esc fecha, o Tab não escapa pra página de trás e o foco volta pra onde estava.
   - A área segura agora vale também nas laterais: com o celular deitado, num aparelho com recorte, o conteúdo não entra mais embaixo dele.
+- Maguinho com mais animações, no desktop e no celular. Parado, ele respira e olha pros lados. Depois de enviar a mensagem, olha pra cima com três pontinhos até a primeira resposta chegar. No fim do turno, dá um pulinho com brilho em volta da gema. Não comemora quando o turno é parado ou dá erro.
+- Abrir as Configurações leva o maguinho junto: ele entra no chapéu no chat (o chapéu fica lá) e sai do chapéu na borda de cima do cartão das Configurações, à esquerda. Ao fechar, volta pro chat no estado em que o motor estiver (pensando, trabalhando, comemorando ou dormindo). Com o motor desligado ele continua dormindo no chat.
 
 ### Corrigido
 
@@ -23,10 +25,14 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 - O painel de borda não tirava do "terminou" as conversas que você já tinha visto no app. Uma conversa que terminava aberta na sua frente nunca era marcada como vista, porque isso só acontecia ao abrir uma conversa. Agora ela é marcada ao terminar com a janela em foco e quando você volta pra janela. O painel também lembra por 60 s as conversas já vistas, pra não recolocá-las como "terminou" quando percebe o fim depois do aviso.
 - A fila de mensagens parava quando você trocava de chat. Ela só andava pelo aviso de fim de turno do chat aberto e sempre mandava pro chat aberto; ao voltar pra uma conversa já parada, também não saía nada até você mandar algo. Agora a fila das outras conversas anda sozinha quando o turno delas termina bem, um item por vez, e ao voltar pra uma conversa parada o próximo item sai na hora. Turno que acabou em erro, quota ou login continua segurando a fila.
 - A mensagem na fila do chat vazava pela borda do compositor quando o chat lateral estava estreito. Agora ela encolhe e corta o texto com "…".
+- O maguinho pisca de verdade (antes o quadro de piscar saía igual ao parado) e os dois olhos ficaram iguais. O olho direito estava torto, em "L", também no ícone da bandeja e do app.
+- Com "reduzir movimento" ligado no sistema, o maguinho não fica mais escondido dentro do chapéu ao ligar o motor.
 
 ### Alterado
 
 - O app procura atualização a cada 10 min enquanto está aberto (antes, a cada 4 h). Ele não procura de novo enquanto baixa, nem depois que a versão nova já está pronta pra instalar.
+- O ícone do app no celular (instalado pelo navegador e no APK) agora é o maguinho, no lugar do "N".
+- Os quadros parados do maguinho saem de uma fonte editável em 4 cores (`apps/desktop/pets/nexo/mago-fonte/`: `mago.txt` + `gerar.py`, que também gera um `mago.svg`). Os de trabalhar e dormir continuam no `bake.py`.
 
 ### Segurança
 
