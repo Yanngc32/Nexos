@@ -9,6 +9,7 @@ import { createTeamStudio } from "./team-studio.js";
 import { createHooksStudio } from "./hooks-studio.js";
 import { createAutomacaoModal } from "./automacao-modal.js";
 import { createCloneModal } from "./clone-modal.js";
+import { conversasProntas } from "./fila-fundo.js";
 import { createNewThreadModal } from "./new-thread-modal.js";
 import { diffDeFerramenta, nomeArquivo, renderDiff } from "./diff-view.js";
 import { createTarefasBoard } from "./tarefas-board.js";
@@ -226,6 +227,8 @@ const state = {
   queue: {},
   /** Fila pausada porque o turno acabou mal (quota/login/erro). */
   queuePaused: false,
+  /** Fila das conversas não abertas (drenarFilasDeFundo): último envio e envio em curso, por conversa. */
+  filaFundo: { ultimoEnvio: new Map(), enviando: new Set() },
   /** Serviços locais declarados no nexos.json do projeto. */
   /**
    * Painel de agentes: um retrato por conversa com motor de pé, alimentado pelo
@@ -4507,6 +4510,11 @@ async function openThread(id) {
   setChatHead();
   state.queuePaused = false;
   paintQueue();
+  // voltou pra uma conversa parada com fila: o "done" que andaria com ela já passou
+  // (só se ele acabou bem: turno em erro/quota/login segura a fila, igual `pausarFila`)
+  const fimDoTurno = state.agents.list.find((a) => a.threadId === id)?.lastTerminal;
+  const acabouBem = !fimDoTurno || fimDoTurno === "done";
+  if (!state.talking && acabouBem && filaDa().length && !state.filaFundo.enviando.has(id)) void enviarProximoDaFila();
   if (!state.sideChat) state.sideChat = true;
   marcarLinhaAtiva($("repo-tree"), id);
   listenSse();
@@ -7606,6 +7614,50 @@ async function enviarProximoDaFila() {
   if (!item) return;
   await sendChatMessage(item.text, item.images, { elementos: item.elementos ?? [] });
 }
+
+/**
+ * Fila das conversas que não estão abertas (fila-fundo.js decide quem pode). O item vai direto pro
+ * daemon, sem passar pela tela: ele aparece no histórico quando a pessoa voltar pra conversa.
+ */
+async function drenarFilasDeFundo() {
+  const { filaFundo } = state;
+  if (!state.ok) return;
+  const prontas = conversasProntas({
+    filas: state.queue,
+    atual: state.threadId,
+    agentes: state.agents.list,
+    ultimoEnvio: filaFundo.ultimoEnvio,
+    enviando: filaFundo.enviando,
+  });
+  for (const threadId of prontas) {
+    const fila = filaDa(threadId);
+    const item = fila.shift();
+    if (!item) continue;
+    filaFundo.enviando.add(threadId);
+    try {
+      const images = await encodeImages(item.images ?? []);
+      await req(`/v1/threads/${encodeURIComponent(threadId)}/messages`, {
+        method: "POST",
+        body: JSON.stringify({
+          text: item.text,
+          ...(images.length ? { images } : {}),
+          ...(item.elementos?.length ? { elementos: item.elementos } : {}),
+        }),
+      });
+      filaFundo.ultimoEnvio.set(threadId, Date.now());
+      for (const img of item.images ?? []) URL.revokeObjectURL(img.url);
+    } catch {
+      // daemon fora ou recusou: o item volta pro começo e tenta no próximo ciclo
+      fila.unshift(item);
+    } finally {
+      filaFundo.enviando.delete(threadId);
+    }
+    // a pessoa pode ter voltado pra esta conversa enquanto mandava
+    if (threadId === state.threadId) paintQueue();
+  }
+}
+
+setInterval(() => void drenarFilasDeFundo(), 2000);
 
 /**
  * `@menção` na mensagem dispara um Run de verdade em paralelo ao turno de chat — não muda o
