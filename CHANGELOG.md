@@ -6,6 +6,14 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+### Corrigido
+
+### Alterado
+
+## [0.10.0] - 2026-09-25
+
+### Adicionado
+
 - Design system oficial do projeto: no Canvas, "Definir como oficial" escolhe o DS que as conversas seguem (selo "Oficial"). Abrir outro DS no Canvas não muda mais as regras das conversas, e por isso trocar o DS do Canvas não pede mais confirmação.
 - Painel de mocks: pedido de mock vai pra um painel ligado ao DS oficial, que guarda só as telas. Tokens, regras e kit vêm do oficial, então nada é copiado e o painel acompanha as mudanças do DS. A primeira tela cria o painel e as seguintes entram nele; ajustar uma tela atualiza ela mesma. O agente usa a ferramenta nova `nexo_mock_salvar`. Um DS "Mocks" antigo (cópia inteira) é adotado como painel em vez de criar outro.
 - Tela de abertura: enquanto o motor liga, o app mostra o mago e os passos (motor, contas e projetos, última conversa) em vez da janela vazia. Passados 25 s, ela explica a demora e oferece tentar de novo, ver o log ou entrar assim mesmo. Com o motor travado, mostra a contagem pro reinício automático e o botão de reiniciar agora. Motor lento na subida também não deixa mais a última conversa fechada.
@@ -19,9 +27,23 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 - Maguinho com mais animações, no desktop e no celular. Parado, ele respira e olha pros lados. Depois de enviar a mensagem, olha pra cima com três pontinhos até a primeira resposta chegar. No fim do turno, dá um pulinho com brilho em volta da gema. Não comemora quando o turno é parado ou dá erro.
 - Abrir as Configurações leva o maguinho junto: ele entra no chapéu no chat (o chapéu fica lá) e sai do chapéu na borda de cima do cartão das Configurações, à esquerda. Ao fechar, volta pro chat no estado em que o motor estiver (pensando, trabalhando, comemorando ou dormindo). Com o motor desligado ele continua dormindo no chat.
 - Instalar skill de terceiro em Configurações → Skills: colando o markdown, escolhendo um arquivo `.md`, ou pelo endereço do GitHub (`dono/repo`, link da pasta da skill, link do próprio `SKILL.md`, ou raw). Repositório que só junta skills instala todas as que tiver em `skills/`. O escopo é escolhido na hora: **todas as contas** grava em `~/.nexo/skills`, e **só neste projeto** grava no `.claude/skills` do repositório aberto. A lista mostra o que está instalado com o escopo de cada uma, abre o SKILL.md pra leitura antes de confiar, e remove.
+- Pedir pra planejar numa conversa normal ("monta o planejamento", "usa a tela de planejamento") agora abre um plano de verdade: o agente usa a ferramenta nova `nexo_plano_iniciar`, que faz o mesmo que "Planejar a partir desta conversa" e leva a conversa pro Agent Manager. Antes o agente não tinha como abrir um plano e criava tarefas no Quadro no lugar.
+- Tela do Design System anexada num card do plano abre numa prévia dentro do próprio planejamento, com os tokens do DS dela, sem trocar pro Canvas. "Abrir no Canvas" continua lá pra editar.
+- Até 3 conversas lado a lado no desktop. Abre uma ao lado com Ctrl+clique na sidebar, com "Abrir ao lado" no botão direito, ou arrastando a conversa pra área do chat: soltar na borda de um chat divide ali, soltar no meio troca a conversa dele. Com 3 abertos, soltar troca a que está embaixo do cursor, e "Abrir ao lado" troca a que está há mais tempo sem uso.
+  - Cada chat tem o seu composer, fila, anexos e perguntas, e os eventos de uma conversa nunca caem no chat de outra.
+  - Cada chat pode ser minimizado (vira um botão na barra de baixo), maximizado ou fechado da tela. A largura muda arrastando o divisor entre eles. Arrastar o cabeçalho troca a ordem.
+  - O cabeçalho e o botão do chat minimizado mostram o estado: rodando (há quanto tempo), pergunta esperando (pisca e conta), terminou, erro ou sem cota. O leitor de tela anuncia pergunta nova num chat que não está em foco.
+  - O chat em foco decide o maguinho, o medidor, a conversa marcada na sidebar e os painéis (navegador, terminal, arquivos). Chat de outro projeto em foco troca o projeto aberto.
+  - Os chats na tela, as larguras e os minimizados voltam como estavam ao abrir o app de novo.
+  - Com uma conversa só, a tela fica como antes.
+- Planejamento em tela cheia: o plano abre como tela própria, com o Manager e a Implementação em dois chats fixos embaixo, e não troca mais a conversa que estava aberta. "← Voltar" devolve a conversa, o projeto e os painéis como estavam. A sidebar entra recolhida (o botão ao lado do Voltar mostra de novo). O divisor muda a altura dos chats, e duplo clique nele minimiza os dois. Sem implementação ainda, o chat dela mostra "Nada em implementação ainda" com o botão de enviar, e mostra o selo "Mock aguardando aprovação" quando uma tela do plano espera você aprovar. Cada plano lembra a altura dos chats, o que estava minimizado e a sidebar.
+- Atalhos da área de chats: Ctrl+1, Ctrl+2 e Ctrl+3 focam o chat 1, 2 ou 3; Ctrl+Shift+M minimiza o chat em foco; Ctrl+B mostra ou recolhe a sidebar.
 
 ### Corrigido
 
+- A conversa de implementação abria com o handoff inteiro como um textão na bolha "Você". Agora ele vem recolhido no bloco do Nexos ("Plano enviado pra implementação"), em markdown, e abre no clique. O mesmo vale pro pedido que leva uma conversa pro Agent Manager.
+- Card de tela no planejamento pedia aprovação do design sem mock nenhum: a tela do Design System que o Agent Manager anexava só como modelo de layout era tratada como o mock. Agora tela anexada no planejamento entra como referência (chip tracejado com "ref.") e não pede aprovação; o mock que conta é o que a implementação gera e anexa.
+- Card do plano com selo, botões de aprovar e anexos não cabia: o título sumia e os anexos saíam pela borda de baixo. O card cresce com o conteúdo, e os botões de aprovar/reprovar ficaram menores e neutros.
 - Clicar no anel de uso de uma conta no painel de borda não atualizava o consumo quando a conta tinha alguma conversa aberta (o caso da conta do dia a dia): o clique era ignorado até o próximo turno. Agora só não atualiza se houver um turno rodando naquele momento, e aí o número chega por esse turno.
 - O painel de borda não tirava do "terminou" as conversas que você já tinha visto no app. Uma conversa que terminava aberta na sua frente nunca era marcada como vista, porque isso só acontecia ao abrir uma conversa. Agora ela é marcada ao terminar com a janela em foco e quando você volta pra janela. O painel também lembra por 60 s as conversas já vistas, pra não recolocá-las como "terminou" quando percebe o fim depois do aviso.
 - A fila de mensagens parava quando você trocava de chat. Ela só andava pelo aviso de fim de turno do chat aberto e sempre mandava pro chat aberto; ao voltar pra uma conversa já parada, também não saía nada até você mandar algo. Agora a fila das outras conversas anda sozinha quando o turno delas termina bem, um item por vez, e ao voltar pra uma conversa parada o próximo item sai na hora. Turno que acabou em erro, quota ou login continua segurando a fila.
@@ -33,6 +55,8 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 - O app procura atualização a cada 10 min enquanto está aberto (antes, a cada 4 h). Ele não procura de novo enquanto baixa, nem depois que a versão nova já está pronta pra instalar.
 - O ícone do app no celular (instalado pelo navegador e no APK) agora é o maguinho, no lugar do "N".
+- Abrir a conversa do Agent Manager pela sidebar abre só a conversa. O plano abre pela paleta ou pelo menu "Planejamento", que acha o plano da conversa aberta. Antes a conversa abria com o plano numa aba.
+- Com o chat dividido, modelo, modo e esforço vão pro botão "⋯" do composer abaixo de 640 px de largura (antes, 520 px), pra não encostarem no botão de anexar.
 - Os quadros parados do maguinho saem de uma fonte editável em 4 cores (`apps/desktop/pets/nexo/mago-fonte/`: `mago.txt` + `gerar.py`, que também gera um `mago.svg`). Os de trabalhar e dormir continuam no `bake.py`.
 
 ### Segurança
