@@ -6,9 +6,18 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- Maguinho com mais animações, no desktop e no celular. Parado, ele respira e olha pros lados. Depois de enviar a mensagem, olha pra cima com três pontinhos até a primeira resposta chegar. No fim do turno, dá um pulinho com brilho em volta da gema. Não comemora quando o turno é parado ou dá erro.
+- Abrir as Configurações leva o maguinho junto: ele entra no chapéu no chat (o chapéu fica lá) e sai do chapéu na borda de cima do cartão das Configurações, à esquerda. Ao fechar, volta pro chat no estado em que o motor estiver (pensando, trabalhando, comemorando ou dormindo). Com o motor desligado ele continua dormindo no chat.
+
 ### Corrigido
 
+- O maguinho pisca de verdade (antes o quadro de piscar saía igual ao parado) e os dois olhos ficaram iguais. O olho direito estava torto, em "L", também no ícone da bandeja e do app.
+- Com "reduzir movimento" ligado no sistema, o maguinho não fica mais escondido dentro do chapéu ao ligar o motor.
+
 ### Alterado
+
+- O ícone do app no celular (instalado pelo navegador e no APK) agora é o maguinho, no lugar do "N".
+- Os quadros parados do maguinho saem de uma fonte editável em 4 cores (`apps/desktop/pets/nexo/mago-fonte/`: `mago.txt` + `gerar.py`, que também gera um `mago.svg`). Os de trabalhar e dormir continuam no `bake.py`.
 
 ### Segurança
 

@@ -533,7 +533,7 @@ $("chip-conta").addEventListener("click", () => void abrirFolhaTrocar());
 $("chip-modelo").addEventListener("click", () => void abrirFolhaAjustes());
 
 /* ---------- pet: maguinho no canto do compositor, igual ao desktop ----------
- * Mesma ideia do `apps/desktop/renderer.js`, resumida: só idle/off/work (o
+ * Mesma ideia do `apps/desktop/renderer.js`, resumida: off/idle/think/work/done (o
  * celular não tem "wake" — a conversa já abre com o motor respondendo ou não).
  * A gema na ponta do chapéu é pintada com `--accent` em runtime, então segue a
  * cor da marca sem precisar de um PNG por tema.
@@ -542,17 +542,27 @@ const PET_BASE = "./pets/nexo/mago/";
 const PET_REST = "idle";
 const PET_FRAMES = {
   off: ["off", "off-z1", "off-z2", "off-z1"],
-  idle: [PET_REST, PET_REST, "idle-blink", PET_REST],
+  idle: [
+    PET_REST, PET_REST, "idle-breath", PET_REST, "idle-blink-half", "idle-blink", "idle-blink-half",
+    PET_REST, PET_REST, "idle-look-l", "idle-look-l", PET_REST, "idle-look-r", "idle-look-r",
+    PET_REST, "idle-breath",
+  ],
+  think: ["think-0", "think-1", "think-2", "think-3", "think-3"],
   work: ["work", "work-tap-a", "work-on", "work-tap-b", "work-dim", "work-blink", "work"],
+  done: ["done-rest", "done-squat", "done-jump", "done-high", "done-high", "done-land", "done-rest"],
 };
-const PET_FRAME_MS = { off: 700, idle: 400, work: 120 };
+const PET_FRAME_MS = { off: 700, idle: 400, think: 380, work: 120, done: 120 };
+/** Estado de passagem: toca uma vez e vai pro seguinte. */
+const PET_NEXT = { done: "idle" };
+/** Piscar e comemorar pedem quadro curto; o resto usa o ritmo do estado. */
+const PET_QUADRO_MS = { "idle-blink-half": 70, "idle-blink": 110, "done-jump": 90, "done-high": 140 };
 const HEX_ACCENT = /^#[0-9a-f]{6}$/i;
 
 const petState = { name: "", timer: 0, frame: 0, reduceMotion: false };
 const petImgs = new Map();
 
 function petSrc(frame) {
-  return `${PET_BASE}${frame}.png`;
+  return `${PET_BASE}${frame}.png?v=mago5`;
 }
 
 function petImg(frame) {
@@ -654,26 +664,47 @@ function petTick() {
   clearTimeout(petState.timer);
   petState.timer = 0;
   const frames = PET_FRAMES[petState.name] || PET_FRAMES.off;
+  if (petState.frame + 1 >= frames.length && PET_NEXT[petState.name]) {
+    setPet(PET_NEXT[petState.name]);
+    return;
+  }
   petState.frame = (petState.frame + 1) % frames.length;
   paintPetFrame();
-  const ms = petState.reduceMotion ? 0 : PET_FRAME_MS[petState.name] || 400;
-  if (ms > 0) petState.timer = setTimeout(petTick, ms);
+  agendarPet();
+}
+
+function agendarPet() {
+  if (petState.reduceMotion) return;
+  const frames = PET_FRAMES[petState.name] || PET_FRAMES.off;
+  const quadro = frames[petState.frame % frames.length];
+  petState.timer = setTimeout(petTick, PET_QUADRO_MS[quadro] || PET_FRAME_MS[petState.name] || 400);
 }
 
 function setPet(name) {
   if (!$("pet-stage") || petState.name === name) return;
+  if (petState.reduceMotion && PET_NEXT[name]) name = PET_NEXT[name];
   clearTimeout(petState.timer);
   petState.timer = 0;
   petState.name = name;
   petState.frame = 0;
   paintPetFrame();
-  const ms = petState.reduceMotion ? 0 : PET_FRAME_MS[name] || 400;
-  if (ms > 0) petState.timer = setTimeout(petTick, ms);
+  agendarPet();
 }
 
-/** Motor desligado = maguinho dorme; ligado sem resposta em voo = idle; respondendo = work. */
+/**
+ * Motor desligado = maguinho dorme; ligado sem resposta em voo = idle; respondendo = work.
+ * Pensando e comemorando não saem por aqui (o poll chama isto o tempo todo): saem por
+ * evento do stream — texto/ferramenta, done, erro.
+ */
 function syncPet(ligado, trabalhando) {
-  setPet(!ligado ? "off" : trabalhando ? "work" : "idle");
+  if (!ligado) return setPet("off");
+  if (petState.name === "think" || petState.name === "done") return;
+  setPet(trabalhando ? "work" : "idle");
+}
+
+/** Outra conversa, erro: sai do pensando/comemorando sem esperar evento. */
+function petParou() {
+  if (petState.name === "think" || petState.name === "done") setPet("idle");
 }
 
 /** Some da tela junto com a aba de chat: sem isso a animação roda escondida à toa. */
@@ -733,6 +764,7 @@ async function abrirChat(id, titulo, profileId = "") {
   }
   $("btn-ajustes").hidden = !threadProfileId;
   rolarPraBaixo();
+  petParou();
   syncPet(true, false);
   void refrescarChips();
   ouvirChat();
@@ -756,6 +788,9 @@ function ouvirChat() {
     .then((res) =>
       lerEventos(res, (ev) => {
         if (abortStream !== ac) return;
+        if (ev.type === "text" || ev.type === "tool") {
+          if (petState.name === "think") setPet("work");
+        }
         if (ev.type === "text") {
           buf += ev.text;
           if (!atual) atual = bolha("assistant", "");
@@ -767,10 +802,13 @@ function ouvirChat() {
         if (ev.type === "done") {
           atual = null;
           buf = "";
-          syncPet(true, false);
+          const trabalhava = petState.name === "work" || petState.name === "think";
+          if (trabalhava) setPet("done");
+          else syncPet(true, false);
           return;
         }
         if (ev.type === "error" || ev.type === "auth") {
+          petParou();
           bolha("erro", ev.message || ev.detail || "o motor falhou");
           atual = null;
           buf = "";
@@ -807,12 +845,14 @@ $("form-msg").addEventListener("submit", async (e) => {
   bolha("user", texto);
   rolarPraBaixo();
   void dispararMencoes(texto);
-  syncPet(true, true);
+  if (petState.name !== "off") setPet("think");
+  else syncPet(true, true);
   try {
     await req(`/v1/threads/${threadId}/messages`, { method: "POST", body: JSON.stringify({ text: texto }) });
   } catch (err) {
     bolha("erro", err.message);
     rolarPraBaixo();
+    petParou();
     syncPet(true, false);
   }
 });

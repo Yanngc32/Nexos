@@ -3815,11 +3815,33 @@ button:disabled {
 }
 
 /* ---- Configurações: nav à esquerda, linhas título/descrição/controle à direita ---- */
+/* Moldura: segura o tamanho do cartão e o maguinho sentado na borda de cima
+ * (o cartão tem overflow: hidden e cortaria ele). */
+.set-moldura {
+  position: relative;
+  width: min(880px, calc(100% - 32px));
+  height: min(86vh, 660px);
+}
+
+.set-pet {
+  position: absolute;
+  left: 28px;
+  bottom: 100%;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  pointer-events: none;
+  user-select: none;
+}
+
+.set-pet.hidden {
+  display: none;
+}
+
 .set-card {
   display: grid;
   grid-template-columns: 208px minmax(0, 1fr);
-  width: min(880px, calc(100% - 32px));
-  height: min(86vh, 660px);
+  width: 100%;
+  height: 100%;
   background: var(--surface);
   border: 1px solid var(--line-2);
   border-radius: var(--r-lg);

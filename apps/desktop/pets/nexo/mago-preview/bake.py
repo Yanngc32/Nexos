@@ -1,4 +1,6 @@
-"""Bake maguinho frames for the desktop pet. Same pipeline as index.html."""
+"""Bake maguinho frames for the desktop pet. Same pipeline as index.html.
+
+Só work* e off*: os parados vêm de ../mago-fonte/gerar.py."""
 from pathlib import Path
 
 from PIL import Image
@@ -277,37 +279,6 @@ def feet_start(im, brim):
     return h
 
 
-def crop_bottom(im):
-    pix = im.load()
-    w, h = im.size
-    last = 0
-    for y in range(h - 1, -1, -1):
-        if any(pix[x, y][3] > 8 for x in range(w)):
-            last = y
-            break
-    return im.crop((0, 0, w, last + 1))
-
-
-def retract(im, keep):
-    """keep: 'face' | 'half' | 'none'. Chapéu igual. Pé some pra dentro."""
-    brim = find_brim(im)
-    foot = feet_start(im, brim)
-    face = max(0, foot - brim - 1)
-    if keep == "face":
-        cut = brim + 1 + face
-    elif keep == "half":
-        cut = brim + 1 + max(1, face // 2)
-    else:
-        cut = brim + 1
-    out = im.copy()
-    pix = out.load()
-    w, h = out.size
-    for y in range(cut, h):
-        for x in range(w):
-            pix[x, y] = (0, 0, 0, 0)
-    return crop_bottom(out)
-
-
 def put_arm(pix, w, h, x, y, col, on_keys=False, hat_l=10**9):
     if not (0 <= x < w and 0 <= y < h):
         return
@@ -421,9 +392,78 @@ def drift_z(im, step):
     return out
 
 
+def eye_holes(pix, w, h, seed, limit=120):
+    stack, seen = [seed], set()
+    while stack:
+        x, y = stack.pop()
+        if (x, y) in seen or not (0 <= x < w and 0 <= y < h) or pix[x, y][3] >= 128:
+            continue
+        seen.add((x, y))
+        stack += [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
+        if len(seen) > limit:
+            return None
+    return seen
+
+
+def match_eyes(im):
+    """A redução da arte de 1024px deixa o olho direito em L. Refaz o direito
+    como cópia do esquerdo (com 1px de borda) e tapa o resto com o rosto."""
+    out = im.copy()
+    src, pix = im.load(), out.load()
+    w, h = im.size
+    ey = find_brim(im) + 1
+    if ey >= h:
+        return out
+    row = [src[x, ey][3] < 128 for x in range(w)]
+    segs, x = [], 0
+    while x < w:
+        if row[x]:
+            a = x
+            while x < w and row[x]:
+                x += 1
+            if a > 0 and x < w and x - 1 - a <= 9:
+                segs.append(a)
+        else:
+            x += 1
+    if len(segs) < 2:
+        return out
+    left = eye_holes(src, w, h, (segs[-2], ey))
+    right = eye_holes(src, w, h, (segs[-1], ey))
+    if not left or not right:
+        return out
+    rxs = [x for x, _ in right]
+    rys = [y for _, y in right]
+    bad = set(right) | {
+        (x, y)
+        for x in range(min(rxs) - 1, max(rxs) + 2)
+        for y in range(min(rys), min(max(rys) + 2, h))
+        if (x, y) not in right and src[x, y][3] >= 128 and sum(src[x, y][:3]) < 450
+    }
+    for x, y in bad:
+        yb = y + 1
+        while yb < h and ((x, yb) in bad or src[x, yb][3] < 128):
+            yb += 1
+        if yb < h:
+            pix[x, y] = src[x, yb]
+        else:
+            xb = x + 1
+            while (xb, y) in bad:
+                xb += 1
+            pix[x, y] = src[xb, y]
+    lxs = [x for x, _ in left]
+    lys = [y for _, y in left]
+    dx = min(rxs) - min(lxs)
+    for y in range(min(lys) - 1, min(max(lys) + 2, h)):
+        for x in range(min(lxs) - 1, max(lxs) + 2):
+            pix[x + dx, y] = src[x, y]
+    return out
+
+
 def save(im, name):
     OUT.mkdir(parents=True, exist_ok=True)
     path = OUT / f"{name}.png"
+    if not name.startswith("off"):
+        im = match_eyes(im)
     im.save(path)
     print(path.name, im.size)
 
@@ -433,14 +473,9 @@ def main():
     work_raw = extract(Image.open(HERE / "work.png"))
     off_raw = extract(Image.open(HERE / "off.png"))
     scale = 96 / idle_raw.height
-    idle = to_display(idle_raw, max(1, round(idle_raw.height * scale)))
     work = to_display(work_raw, max(1, round(work_raw.height * scale)))
     off = to_display(off_raw, max(1, round(off_raw.height * scale)))
-    save(idle, "idle")
-    save(blink_sheet(idle), "idle-blink")
-    save(retract(idle, "face"), "idle-in1")
-    save(retract(idle, "half"), "idle-in2")
-    save(retract(idle, "none"), "idle-hide")
+    # idle*, think* e done* saem de ../mago-fonte/gerar.py (desenho limpo em 4 cores).
     work0 = add_arms(work, 0)
     work_a = add_arms(work, -1)
     work_b = add_arms(work, 1)

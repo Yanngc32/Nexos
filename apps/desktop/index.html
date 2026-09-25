@@ -1543,870 +1543,873 @@
       </div>
     </div>
     <div id="settings" class="settings hidden" role="dialog" aria-labelledby="settings-title">
-      <div class="set-card">
-        <nav class="set-nav" aria-label="Seções">
-          <div class="set-search">
-            <svg class="set-search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-            <input id="set-q" type="search" placeholder="Procurar" autocomplete="off" aria-label="Procurar configuração" />
-          </div>
-          <p class="set-nav-group">App</p>
-          <button type="button" class="set-nav-item" data-panel="aparencia" data-on="1">
-            <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" /><path d="M12 3v18" fill="currentColor" /><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none" /></svg>Aparência
-          </button>
-          <button type="button" class="set-nav-item" data-panel="painel">
-            <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M17 9v6" stroke-width="3" /></svg>Painel de borda
-          </button>
-          <button type="button" class="set-nav-item" data-panel="modulos">
-            <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6" /><rect x="13.5" y="3.5" width="7" height="7" rx="1.6" /><rect x="3.5" y="13.5" width="7" height="7" rx="1.6" /><rect x="13.5" y="13.5" width="7" height="7" rx="1.6" /></svg>Módulos
-          </button>
-          <button type="button" class="set-nav-item" data-panel="skills">
-            <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6Z" /></svg>Skills
-          </button>
-          <p class="set-nav-group">Motor</p>
-          <button type="button" class="set-nav-item" data-panel="contas">
-            <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M16 19v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 17.5V19" /><circle cx="10" cy="8" r="3.2" /><path d="M20 19v-1.5a3.5 3.5 0 0 0-2.6-3.4" /><path d="M15.5 5.2a3.2 3.2 0 0 1 0 5.6" /></svg>Contas
-          </button>
-          <button type="button" class="set-nav-item" data-panel="fallback">
-            <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7 4v16" /><path d="m4 17 3 3 3-3" /><path d="M17 20V4" /><path d="m14 7 3-3 3 3" /></svg>Fallback
-          </button>
-          <button type="button" class="set-nav-item" data-panel="roteamento">
-            <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="6" cy="12" r="2.4" /><circle cx="18" cy="6" r="2.4" /><circle cx="18" cy="18" r="2.4" /><path d="M8.4 11.2 15.6 6.8M8.4 12.8l7.2 4.4" /></svg>Roteamento IA
-          </button>
-          <p class="set-nav-group">Integrações</p>
-          <button type="button" class="set-nav-item" data-panel="github">
-            <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.93.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.95 0-1.09.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.03a9.4 9.4 0 0 1 5 0c1.91-1.3 2.75-1.03 2.75-1.03.55 1.38.2 2.4.1 2.65.64.7 1.03 1.6 1.03 2.69 0 3.85-2.34 4.7-4.57 4.95.36.31.68.92.68 1.85v2.75c0 .26.18.58.69.48A10 10 0 0 0 12 2Z" /></svg>GitHub
-          </button>
-          <button type="button" class="set-nav-item" data-panel="gdrive">
-            <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7.5 18.5h9a4 4 0 0 0 .7-7.94A5.5 5.5 0 0 0 6.6 9.4 4.6 4.6 0 0 0 7.5 18.5Z" /></svg>Google Drive
-          </button>
-          <p class="set-nav-group">Fora desta máquina</p>
-          <button type="button" class="set-nav-item" data-panel="memoria">
-            <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z" /><path d="m12 12 8-4.5M12 12v9M12 12 4 7.5" /></svg>Pastas
-          </button>
-          <button type="button" class="set-nav-item" data-panel="celular">
-            <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="M11 18.5h2" /></svg>Celular
-          </button>
-          <p class="set-nav-group">Sistema</p>
-          <button type="button" class="set-nav-item" data-panel="sobre">
-            <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><circle cx="12" cy="8" r=".2" fill="currentColor" stroke-width="1.4" /></svg>Sobre
-          </button>
-        </nav>
-        <div class="set-body">
-          <div class="set-head">
-            <h2 id="settings-title">Configurações</h2>
-            <button type="button" id="btn-settings-close" class="ghost" title="Fechar (Esc)">✕</button>
-          </div>
-          <div class="set-scroll" id="set-scroll">
-            <section class="set-sec" data-panel="aparencia">
-              <h3>Aparência</h3>
-              <p class="set-grupo-tit">Tema</p>
-              <div class="set-grupo">
-                <div class="set-row col">
-                  <div class="set-txt">
-                    <h4>Perfil de cor</h4>
-                    <p>
-                      Muda só a rampa de fundo, traço e texto. Tipografia, espaçamento e a cor de
-                      destaque abaixo continuam as mesmas nos dois — e o painel flutuante acompanha.
-                    </p>
-                    <p id="tema-err" class="set-err"></p>
-                  </div>
-                  <div class="set-ctl col temas" id="temas" role="radiogroup" aria-label="Tema">
-                    <button type="button" class="tema-op" data-tema="grafite" role="radio" aria-checked="true">
-                      <span class="tema-mini" data-mini="grafite" aria-hidden="true">
-                        <i class="tema-mini-side"></i><i class="tema-mini-card"></i><i class="tema-mini-dot"></i>
-                      </span>
-                      <span class="tema-nome">Grafite roxo</span>
-                      <span class="tema-desc">Neutro levemente frio, alinhado ao roxo da marca.</span>
-                    </button>
-                    <button type="button" class="tema-op" data-tema="preto" role="radio" aria-checked="false">
-                      <span class="tema-mini" data-mini="preto" aria-hidden="true">
-                        <i class="tema-mini-side"></i><i class="tema-mini-card"></i><i class="tema-mini-dot"></i>
-                      </span>
-                      <span class="tema-nome">Preto</span>
-                      <span class="tema-desc">Fundo preto e cinzas. Contraste alto, e economiza tela OLED.</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <p class="set-grupo-tit">Destaque</p>
-              <div class="set-grupo">
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Cor de destaque</h4>
-                    <p>Cor de botões, foco e cursor do terminal. Vale no app inteiro.</p>
-                  </div>
-                  <div class="set-ctl">
-                    <input type="color" id="accent-picker" value="#7c5cbf" aria-label="Cor de destaque" />
-                    <input type="text" id="accent-hex" value="#7c5cbf" spellcheck="false" maxlength="7" aria-label="Cor em hexadecimal" />
-                  </div>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Paleta rápida</h4>
-                    <p>Atalhos para as cores mais usadas.</p>
-                  </div>
-                  <div class="set-ctl swatches" id="accent-swatches">
-                    <button type="button" data-accent="#4d9cd6" style="--swatch: #4d9cd6" title="Azul"></button>
-                    <button type="button" data-accent="#d7a441" style="--swatch: #d7a441" title="Âmbar"></button>
-                    <button type="button" data-accent="#7c5cbf" style="--swatch: #7c5cbf" title="Violeta"></button>
-                    <button type="button" data-accent="#5fae74" style="--swatch: #5fae74" title="Verde"></button>
-                    <button type="button" data-accent="#e06c75" style="--swatch: #e06c75" title="Rosa"></button>
-                    <button type="button" data-accent="#56b6c2" style="--swatch: #56b6c2" title="Ciano"></button>
-                  </div>
-                </div>
-              </div>
-              <p class="set-grupo-tit">Barra lateral</p>
-              <div class="set-grupo">
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Logo do projeto</h4>
-                    <p>
-                      Mostra o ícone de cada projeto (favicon ou logo achado no código) no lugar da
-                      pasta. Com a barra minimizada, os projetos viram só os ícones.
-                    </p>
-                    <p id="logo-projetos-err" class="set-err"></p>
-                  </div>
-                  <div class="set-ctl">
-                    <input id="logo-projetos" type="checkbox" aria-label="Mostrar logo do projeto na barra lateral" />
-                  </div>
-                </div>
-              </div>
-            </section>
-            <section class="set-sec hidden" data-panel="painel">
-              <h3>Painel de borda</h3>
-              <p class="set-grupo-tit">Na tela</p>
-              <div class="set-grupo">
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Mostrar</h4>
-                    <p>
-                      A pílula fica grudada numa borda da tela, por cima de tudo: conversas rodando e
-                      o uso de cada conta. Arraste pra outra borda (ou outro monitor) quando quiser.
-                    </p>
-                  </div>
-                  <div class="set-ctl">
-                    <select id="painel-mostrar" aria-label="Quando mostrar o painel">
-                      <option value="dinamico">Dinâmico — um traço que abre ao aproximar o mouse</option>
-                      <option value="fixo">Fixo — sempre aberto</option>
-                      <option value="desligado">Desligado</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Borda</h4>
-                    <p>De que lado da tela a pílula mora.</p>
-                  </div>
-                  <div class="set-ctl">
-                    <select id="painel-borda" aria-label="Borda da tela">
-                      <option value="direita">Direita</option>
-                      <option value="esquerda">Esquerda</option>
-                      <option value="topo">Topo</option>
-                      <option value="baixo">Embaixo</option>
-                    </select>
-                    <button type="button" id="painel-centralizar" class="ghost" title="Volta a pílula pro meio da borda">Centralizar</button>
-                  </div>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Monitor</h4>
-                    <p>Em qual tela ele fica.</p>
-                  </div>
-                  <div class="set-ctl">
-                    <select id="painel-monitor" aria-label="Monitor do painel"></select>
-                  </div>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Anéis de uso</h4>
-                    <p>Dois anéis: o de dentro é a sessão de 5 h, o de fora a semana. Ou um só, com a janela mais apertada.</p>
-                  </div>
-                  <div class="set-ctl">
-                    <select id="painel-aneis" aria-label="Anéis de uso">
-                      <option value="dois">Dois (5 h e semana)</option>
-                      <option value="um">Um (o mais apertado)</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Transparência do fundo</h4>
-                    <p>A cor segue o perfil de cor de Aparência (grafite roxo ou preto).</p>
-                  </div>
-                  <div class="set-ctl">
-                    <input id="painel-opacidade" type="range" min="0.3" max="1" step="0.05" aria-label="Opacidade do fundo do painel" />
-                    <span id="painel-opacidade-v" class="painel-tam-v"></span>
-                  </div>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Tamanho</h4>
-                    <p>Escala geral da pílula e do card.</p>
-                  </div>
-                  <div class="set-ctl">
-                    <input id="painel-tamanho" type="range" min="0.6" max="1.6" step="0.05" aria-label="Tamanho do painel" />
-                    <span id="painel-tamanho-v" class="painel-tam-v"></span>
-                  </div>
-                </div>
-              </div>
-              <p class="set-grupo-tit">Quando uma conversa termina</p>
-              <div class="set-grupo">
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Abrir sozinho</h4>
-                    <p>O painel abre por alguns segundos quando uma conversa termina ou pede sua resposta.</p>
-                  </div>
-                  <div class="set-ctl">
-                    <select id="painel-espiar" aria-label="Por quanto tempo abrir">
-                      <option value="0">Não abrir</option>
-                      <option value="3">3 segundos</option>
-                      <option value="5">5 segundos</option>
-                      <option value="10">10 segundos</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Som ao terminar</h4>
-                  </div>
-                  <div class="set-ctl"><input id="painel-somAoTerminar" type="checkbox" aria-label="Som ao terminar" /></div>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Som quando pede resposta</h4>
-                    <p>Quando o agente para pra perguntar algo.</p>
-                  </div>
-                  <div class="set-ctl"><input id="painel-somAoPedir" type="checkbox" aria-label="Som quando pede resposta" /></div>
-                </div>
-              </div>
-              <p class="set-grupo-tit">Limites de uso</p>
-              <div class="set-grupo">
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Cores do anel</h4>
-                    <p>Verde abaixo da atenção, amarelo até o crítico, laranja a partir do crítico.</p>
-                    <p id="painel-limites-err" class="set-err"></p>
-                  </div>
-                  <div class="set-ctl">
-                    <label class="painel-lim">Atenção <input id="painel-atencao" type="number" min="1" max="98" step="1" />%</label>
-                    <label class="painel-lim">Crítico <input id="painel-critico" type="number" min="2" max="99" step="1" />%</label>
-                  </div>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Avisar ao chegar no crítico e nos 100%</h4>
-                    <p>Uma notificação do Windows por vez que cruza — não repete enquanto não baixar.</p>
-                  </div>
-                  <div class="set-ctl"><input id="painel-avisarLimite" type="checkbox" aria-label="Avisar ao chegar no limite" /></div>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Avisar quando o limite renova</h4>
-                  </div>
-                  <div class="set-ctl"><input id="painel-avisarRenovou" type="checkbox" aria-label="Avisar quando o limite renova" /></div>
-                </div>
-              </div>
-            </section>
-            <section class="set-sec hidden" data-panel="contas">
-              <h3>Contas</h3>
-              <p class="set-grupo-tit">Contas conectadas</p>
-              <div class="set-grupo">
-                <div class="set-row col">
-                  <div class="set-txt">
-                    <h4>Gerenciar contas</h4>
-                    <p>Apelido é só de exibição — o id continua identificando a conta por baixo.</p>
-                    <p id="accounts-manage-err" class="set-err"></p>
-                  </div>
-                  <div class="set-ctl col">
-                    <div id="accounts-manage-list" class="accounts-manage-list"></div>
-                  </div>
-                </div>
-              </div>
-              <p class="set-grupo-tit">Atualizar CLI</p>
-              <div class="set-grupo">
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Claude Code CLI</h4>
-                    <p>
-                      Baixa a versão mais nova do <code>@anthropic-ai/claude-code</code> (npm) — o Nexos roda
-                      essa CLI por baixo pra toda conta <code>claude</code>. Não mexe em login nem credencial.
-                    </p>
-                    <p id="cli-update-claude-status" class="set-aviso"></p>
-                  </div>
-                  <div class="set-ctl">
-                    <button type="button" class="ghost btn-cli-update" data-engine="claude">Atualizar agora</button>
-                  </div>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Codex CLI</h4>
-                    <p>Baixa a versão mais nova do <code>@openai/codex</code> (npm).</p>
-                    <p id="cli-update-codex-status" class="set-aviso"></p>
-                  </div>
-                  <div class="set-ctl">
-                    <button type="button" class="ghost btn-cli-update" data-engine="codex">Atualizar agora</button>
-                  </div>
-                </div>
-              </div>
-              <p class="set-grupo-tit">Adicionar conta</p>
-              <div class="set-grupo">
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Nova conta</h4>
-                    <p>Um id curto (a-z, 0-9 e hífen) e o motor que ela usa.</p>
-                  </div>
-                  <div class="set-ctl">
-                    <input id="profile-id" type="text" spellcheck="false" placeholder="claude-trabalho" maxlength="40" aria-label="Id da conta" />
-                    <select id="profile-engine" aria-label="Motor">
-                      <option value="claude">Claude</option>
-                      <option value="codex">Codex</option>
-                      <option value="api">API (chat)</option>
-                      <option value="stub">Stub</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="set-row col hidden" id="api-fields">
-                  <div class="set-txt">
-                    <h4>Credenciais da API</h4>
-                    <p>Só para o motor API: provider, modelo e chave. A chave fica no daemon, nunca na tela.</p>
-                  </div>
-                  <div class="set-ctl col">
-                    <input id="profile-provider" type="text" spellcheck="false" placeholder="anthropic" aria-label="Provider" />
-                    <input id="profile-model" type="text" spellcheck="false" placeholder="modelo" aria-label="Modelo" />
-                    <input id="profile-key" type="password" spellcheck="false" placeholder="api key" aria-label="Chave da API" />
-                  </div>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Criar</h4>
-                    <p>Claude e Codex abrem o login logo depois de criar.</p>
-                    <p id="profile-add-err" class="set-err"></p>
-                  </div>
-                  <div class="set-ctl">
-                    <button type="button" id="btn-profile-install" class="ghost hidden">Instalar agora</button>
-                    <button type="button" id="btn-profile-add" class="primary profile-add">Criar e logar</button>
-                  </div>
-                </div>
-              </div>
-              <p class="set-grupo-tit">Permissões por intenção</p>
-              <div class="set-grupo">
-                <div class="set-row col">
-                  <div class="set-txt">
-                    <h4>Ferramentas liberadas</h4>
-                    <p>
-                      O motor roda sem canal de permissão: o que precisaria de aprovação (git push, gh,
-                      comando novo) é negado em silêncio. Libere só o necessário, separado por vírgula —
-                      ex.: <code>Bash(git *), Bash(gh *)</code>. Vale a partir da próxima mensagem,
-                      mesmo numa conversa já aberta.
-                    </p>
-                    <p id="allow-err" class="set-err"></p>
-                  </div>
-                  <details id="allow-drawer" class="set-drawer" open>
-                    <summary>Editar ferramentas liberadas</summary>
-                    <div class="set-ctl col">
-                      <select id="allow-profile" aria-label="Conta"></select>
-                      <div id="allow-presets" class="allow-presets"></div>
-                      <details id="allow-adv" class="allow-adv">
-                        <summary>Avançado — padrão do CLI</summary>
-                        <input
-                          id="allow-tools"
-                          type="text"
-                          spellcheck="false"
-                          placeholder="Bash(docker *), WebFetch"
-                          aria-label="Padrões extras separados por vírgula"
-                        />
-                      </details>
-                      <button type="button" id="btn-allow-save" class="primary">Salvar</button>
+      <div class="set-moldura">
+        <canvas id="set-pet" class="set-pet hidden" aria-hidden="true"></canvas>
+        <div class="set-card">
+          <nav class="set-nav" aria-label="Seções">
+            <div class="set-search">
+              <svg class="set-search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+              <input id="set-q" type="search" placeholder="Procurar" autocomplete="off" aria-label="Procurar configuração" />
+            </div>
+            <p class="set-nav-group">App</p>
+            <button type="button" class="set-nav-item" data-panel="aparencia" data-on="1">
+              <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" /><path d="M12 3v18" fill="currentColor" /><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none" /></svg>Aparência
+            </button>
+            <button type="button" class="set-nav-item" data-panel="painel">
+              <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M17 9v6" stroke-width="3" /></svg>Painel de borda
+            </button>
+            <button type="button" class="set-nav-item" data-panel="modulos">
+              <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6" /><rect x="13.5" y="3.5" width="7" height="7" rx="1.6" /><rect x="3.5" y="13.5" width="7" height="7" rx="1.6" /><rect x="13.5" y="13.5" width="7" height="7" rx="1.6" /></svg>Módulos
+            </button>
+            <button type="button" class="set-nav-item" data-panel="skills">
+              <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6Z" /></svg>Skills
+            </button>
+            <p class="set-nav-group">Motor</p>
+            <button type="button" class="set-nav-item" data-panel="contas">
+              <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M16 19v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 17.5V19" /><circle cx="10" cy="8" r="3.2" /><path d="M20 19v-1.5a3.5 3.5 0 0 0-2.6-3.4" /><path d="M15.5 5.2a3.2 3.2 0 0 1 0 5.6" /></svg>Contas
+            </button>
+            <button type="button" class="set-nav-item" data-panel="fallback">
+              <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7 4v16" /><path d="m4 17 3 3 3-3" /><path d="M17 20V4" /><path d="m14 7 3-3 3 3" /></svg>Fallback
+            </button>
+            <button type="button" class="set-nav-item" data-panel="roteamento">
+              <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="6" cy="12" r="2.4" /><circle cx="18" cy="6" r="2.4" /><circle cx="18" cy="18" r="2.4" /><path d="M8.4 11.2 15.6 6.8M8.4 12.8l7.2 4.4" /></svg>Roteamento IA
+            </button>
+            <p class="set-nav-group">Integrações</p>
+            <button type="button" class="set-nav-item" data-panel="github">
+              <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.93.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.95 0-1.09.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.03a9.4 9.4 0 0 1 5 0c1.91-1.3 2.75-1.03 2.75-1.03.55 1.38.2 2.4.1 2.65.64.7 1.03 1.6 1.03 2.69 0 3.85-2.34 4.7-4.57 4.95.36.31.68.92.68 1.85v2.75c0 .26.18.58.69.48A10 10 0 0 0 12 2Z" /></svg>GitHub
+            </button>
+            <button type="button" class="set-nav-item" data-panel="gdrive">
+              <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7.5 18.5h9a4 4 0 0 0 .7-7.94A5.5 5.5 0 0 0 6.6 9.4 4.6 4.6 0 0 0 7.5 18.5Z" /></svg>Google Drive
+            </button>
+            <p class="set-nav-group">Fora desta máquina</p>
+            <button type="button" class="set-nav-item" data-panel="memoria">
+              <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z" /><path d="m12 12 8-4.5M12 12v9M12 12 4 7.5" /></svg>Pastas
+            </button>
+            <button type="button" class="set-nav-item" data-panel="celular">
+              <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="M11 18.5h2" /></svg>Celular
+            </button>
+            <p class="set-nav-group">Sistema</p>
+            <button type="button" class="set-nav-item" data-panel="sobre">
+              <svg class="set-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><circle cx="12" cy="8" r=".2" fill="currentColor" stroke-width="1.4" /></svg>Sobre
+            </button>
+          </nav>
+          <div class="set-body">
+            <div class="set-head">
+              <h2 id="settings-title">Configurações</h2>
+              <button type="button" id="btn-settings-close" class="ghost" title="Fechar (Esc)">✕</button>
+            </div>
+            <div class="set-scroll" id="set-scroll">
+              <section class="set-sec" data-panel="aparencia">
+                <h3>Aparência</h3>
+                <p class="set-grupo-tit">Tema</p>
+                <div class="set-grupo">
+                  <div class="set-row col">
+                    <div class="set-txt">
+                      <h4>Perfil de cor</h4>
+                      <p>
+                        Muda só a rampa de fundo, traço e texto. Tipografia, espaçamento e a cor de
+                        destaque abaixo continuam as mesmas nos dois — e o painel flutuante acompanha.
+                      </p>
+                      <p id="tema-err" class="set-err"></p>
                     </div>
-                  </details>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Delegar pra agente/time</h4>
-                    <p>
-                      Em conversa normal, o modelo pode chamar um agente ou time já existente e esperar
-                      o resultado (<code>nexo_delegar</code>). <b>Negado</b> desliga (padrão).
-                      <b>Questionar</b> pergunta antes de cada chamada. <b>Liberado</b> roda direto.
-                    </p>
-                    <p id="deleg-err" class="set-err"></p>
-                  </div>
-                  <div class="set-ctl">
-                    <select id="deleg-profile" aria-label="Conta"></select>
-                    <select id="deleg-modo" aria-label="Modo de delegação">
-                      <option value="negado">Negado</option>
-                      <option value="questionar">Questionar</option>
-                      <option value="liberado">Liberado</option>
-                    </select>
-                    <button type="button" id="btn-deleg-save" class="primary">Salvar</button>
+                    <div class="set-ctl col temas" id="temas" role="radiogroup" aria-label="Tema">
+                      <button type="button" class="tema-op" data-tema="grafite" role="radio" aria-checked="true">
+                        <span class="tema-mini" data-mini="grafite" aria-hidden="true">
+                          <i class="tema-mini-side"></i><i class="tema-mini-card"></i><i class="tema-mini-dot"></i>
+                        </span>
+                        <span class="tema-nome">Grafite roxo</span>
+                        <span class="tema-desc">Neutro levemente frio, alinhado ao roxo da marca.</span>
+                      </button>
+                      <button type="button" class="tema-op" data-tema="preto" role="radio" aria-checked="false">
+                        <span class="tema-mini" data-mini="preto" aria-hidden="true">
+                          <i class="tema-mini-side"></i><i class="tema-mini-card"></i><i class="tema-mini-dot"></i>
+                        </span>
+                        <span class="tema-nome">Preto</span>
+                        <span class="tema-desc">Fundo preto e cinzas. Contraste alto, e economiza tela OLED.</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Controlar o painel Browser</h4>
-                    <p>
-                      Em conversa normal, o modelo pode abrir URL, ler a página, tirar print, clicar e
-                      digitar no painel Browser (<code>nexo_navegador_*</code>). <b>Negado</b> desliga
-                      (padrão). <b>Questionar</b> pergunta antes de abrir/clicar/digitar (ler e print
-                      rodam direto). <b>Liberado</b> roda tudo direto.
-                    </p>
-                    <p id="nav-err" class="set-err"></p>
-                  </div>
-                  <div class="set-ctl">
-                    <select id="nav-profile" aria-label="Conta"></select>
-                    <select id="nav-modo" aria-label="Modo do navegador">
-                      <option value="negado">Negado</option>
-                      <option value="questionar">Questionar</option>
-                      <option value="liberado">Liberado</option>
-                    </select>
-                    <button type="button" id="btn-nav-save" class="primary">Salvar</button>
-                  </div>
-                </div>
-              </div>
-            </section>
-            <section class="set-sec hidden" data-panel="celular">
-              <h3>Celular</h3>
-              <p class="set-grupo-tit">Pareamento</p>
-              <div class="set-grupo">
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Conectar um celular</h4>
-                    <p>
-                      Aponte a câmera do celular para o código: ele abre a página e conecta sozinho.
-                      Dali, <b>Adicionar à tela de início</b> deixa o Nexos como um app. Sem câmera,
-                      abra <b id="cel-url">http://…/app/</b> e digite o código.
-                      Ele vale 2 minutos e serve uma vez; depois disso o celular fica conectado.
-                    </p>
-                  </div>
-                  <div class="set-ctl">
-                    <button type="button" class="primary" id="btn-cel-codigo">Gerar código</button>
-                  </div>
-                </div>
-                <div class="cel-qr hidden" id="cel-qr">
-                  <div class="cel-qr-img" id="cel-qr-img"></div>
-                  <div class="cel-qr-lado">
-                    <span class="cel-codigo" id="cel-codigo"></span>
-                    <span class="cel-qr-sub">para digitar à mão</span>
-                  </div>
-                </div>
-                <p class="set-aviso" id="cel-aviso"></p>
-              </div>
-              <p class="set-grupo-tit">APK Android</p>
-              <div class="set-grupo">
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Build do APK Android</h4>
-                    <p>
-                      Compila localmente, uma vez — precisa de HTTPS de pé (veja acima) e do SDK do
-                      Android instalado nesta máquina (<code>JAVA_HOME</code> e
-                      <code>ANDROID_HOME</code>). A chave de assinatura é gerada uma vez em
-                      <code>~/.nexos/apk/</code> e reusada sempre: trocar quebraria atualização de
-                      quem já instalou.
-                    </p>
-                    <p class="set-err" id="apk-build-status"></p>
-                  </div>
-                  <div class="set-ctl">
-                    <button type="button" class="primary" id="btn-apk-build">Gerar APK</button>
-                  </div>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Baixar o APK Android</h4>
-                    <p>
-                      QR <b>separado</b> do de pareamento — este só entrega o instalável, nunca o
-                      código de conectar. Vale poucos minutos e serve uma vez. Sem build pronto, o
-                      código já funciona, mas a página do celular avisa que falta o APK.
-                    </p>
-                  </div>
-                  <div class="set-ctl">
-                    <button type="button" class="primary" id="btn-apk-codigo">Gerar QR de download</button>
-                  </div>
-                </div>
-                <div class="cel-qr hidden" id="apk-qr">
-                  <div class="cel-qr-img" id="apk-qr-img"></div>
-                  <div class="cel-qr-lado">
-                    <span class="cel-codigo" id="apk-codigo"></span>
-                    <span class="cel-qr-sub">para digitar à mão</span>
-                  </div>
-                </div>
-              </div>
-              <p class="set-grupo-tit">Rede</p>
-              <div class="set-grupo">
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Onde o celular alcança o Nexos</h4>
-                    <p id="cel-alcance">…</p>
-                  </div>
-                  <div class="set-ctl">
-                    <button type="button" class="ghost" id="btn-cel-revogar">Desconectar celulares</button>
-                  </div>
-                </div>
-                <details class="set-det" id="cel-avancado">
-                  <summary>Endereço de escuta (avançado)</summary>
-                  <p>
-                    O Nexos já escuta sozinho no loopback e em qualquer túnel que a máquina tenha
-                    (Tailscale, WireGuard) — inclusive em túnel que subir depois, sem reiniciar nada.
-                    Só preencha aqui se precisar de um endereço específico. <code>0.0.0.0</code>
-                    publica na rede inteira, e aí o token é a única barreira.
-                  </p>
-                  <input type="text" id="cel-host" spellcheck="false" maxlength="45" placeholder="automático" aria-label="Endereço de escuta" />
-                </details>
-              </div>
-            </section>
-            <section class="set-sec hidden" data-panel="sobre">
-              <h3>Sobre</h3>
-              <div class="set-grupo">
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Versão</h4>
-                    <p>Versão instalada do Nexos desktop.</p>
-                  </div>
-                  <div class="set-ctl">
-                    <span id="sobre-versao" class="sobre-versao">…</span>
-                  </div>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Atualizações</h4>
-                    <p id="sobre-update-status">Verificando…</p>
-                  </div>
-                  <div class="set-ctl">
-                    <button type="button" id="btn-sobre-check" class="ghost">Verificar agora</button>
-                    <button type="button" id="btn-sobre-restart" class="primary hidden">Reiniciar e instalar</button>
-                  </div>
-                </div>
-              </div>
-              <div class="set-grupo">
-                <div class="set-row sobre-novidades-row">
-                  <div class="set-txt">
-                    <h4>Novidades desta versão</h4>
-                    <div id="sobre-novidades" class="md sobre-novidades"></div>
-                  </div>
-                </div>
-              </div>
-            </section>
-            <section class="set-sec hidden" data-panel="fallback">
-              <h3>Fallback</h3>
-              <div class="set-grupo">
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Troca de conta na quota</h4>
-                    <p>O que o Nexos faz quando a quota da conta ativa acaba.</p>
-                    <p id="switch-mode-err" class="set-err"></p>
-                  </div>
-                  <div class="set-ctl">
-                    <select id="switch-mode" aria-label="Modo de troca de conta">
-                      <option value="auto" title="Troca sozinho pela próxima conta da lista">
-                        Automático · troca sem perguntar
-                      </option>
-                      <option value="manual" title="Mostra o aviso e espera você decidir">
-                        Manual · pergunta antes de trocar
-                      </option>
-                      <option value="denied" title="Fica na conta estourada">
-                        Negado · não troca nem pergunta
-                      </option>
-                    </select>
-                  </div>
-                </div>
-                <div class="set-row col">
-                  <div class="set-txt">
-                    <h4>Ordem de fallback na quota</h4>
-                    <p>
-                      Quando houver troca, a próxima conta pronta desta lista é a escolhida — sozinho ou
-                      perguntando, conforme o modo acima.
-                    </p>
-                  </div>
-                  <ul id="fallback-list" class="order-list"></ul>
-                </div>
-              </div>
-            </section>
-            <section class="set-sec hidden" data-panel="memoria">
-              <h3>Pastas compartilhadas</h3>
-              <div class="shared-card">
-                <div class="shared-card-head">
-                  <h4>Dados de cada projeto</h4>
-                  <p>
-                    Memória, tarefas, repo map e design system de cada projeto. Agentes, times, hooks e skills
-                    são gerais e ficam sempre na pasta do Nexos.
-                  </p>
-                </div>
-                <div class="shared-card-ctl arm-opcoes" role="radiogroup" aria-label="Onde salvar os dados de cada projeto">
-                  <label class="arm-opcao"><input type="radio" name="armazenamento" value="pasta" />
-                    <span><strong>Na pasta do Nexos</strong><small>Uma pasta por projeto, junto do resto (a do Google Drive, se estiver conectado).</small></span></label>
-                  <label class="arm-opcao"><input type="radio" name="armazenamento" value="projeto" />
-                    <span><strong>No próprio projeto</strong><small>Em <code>.nexos/</code> na raiz do projeto, já no <code>.gitignore</code>.</small></span></label>
-                </div>
-                <p id="armazenamento-msg" class="shared-msg"></p>
-              </div>
-              <p id="projetos-dir-drive" class="set-hint hidden"></p>
-              <div id="projetos-dir-card" class="shared-card">
-                <div class="shared-card-head">
-                  <h4>Projetos <span id="projetos-dir-badge" class="shared-badge" data-on="0">só nesta máquina</span></h4>
-                  <p>
-                    Onde fica a pasta de CADA projeto (memória, tarefas e repo map, tudo dentro
-                    dela). Vazio = dentro do próprio Nexos, só nesta máquina. Aponte pra uma pasta
-                    já sincronizada (Drive, OneDrive, etc.) pra abrir o mesmo projeto de outro PC
-                    e continuar de onde parou.
-                  </p>
-                </div>
-                <div class="shared-card-ctl">
-                  <input
-                    id="projetos-dir"
-                    type="text"
-                    spellcheck="false"
-                    placeholder="G:\Meu Drive\nexo-projetos"
-                    aria-label="Pasta compartilhada de projetos"
-                  />
-                  <button type="button" id="btn-projetos-dir-pick" class="ghost">Escolher…</button>
-                </div>
-                <p id="projetos-dir-msg" class="shared-msg"></p>
-              </div>
-            </section>
-            <section class="set-sec hidden" data-panel="modulos">
-              <h3>Módulos</h3>
-              <p class="set-grupo-tit">Opcionais</p>
-              <div class="set-grupo">
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>RTK</h4>
-                    <p>
-                      Proxy de CLI que filtra saída de comando antes dela entrar no contexto — reduz
-                      token gasto com <code>git status</code>, <code>npm run</code>, etc. Liga o hook
-                      a partir do próximo motor (troca de conta, /clear ou reiniciar).
-                    </p>
-                    <p id="mod-rtk-err" class="set-err"></p>
-                  </div>
-                  <div class="set-ctl">
-                    <input id="mod-rtk" type="checkbox" aria-label="Ligar módulo RTK" />
-                  </div>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Caveman</h4>
-                    <p>Skill de comunicação ultra-comprimida — respostas mais curtas, mesma precisão técnica.</p>
-                    <p id="mod-caveman-err" class="set-err"></p>
-                  </div>
-                  <div class="set-ctl">
-                    <input id="mod-caveman" type="checkbox" aria-label="Ligar módulo Caveman" />
-                    <select id="mod-caveman-nivel" aria-label="Nível do Caveman">
-                      <option value="lite">Lite</option>
-                      <option value="full">Full</option>
-                      <option value="ultra">Ultra</option>
-                      <option value="wenyan-lite">Wenyan · lite</option>
-                      <option value="wenyan-full">Wenyan · full</option>
-                      <option value="wenyan-ultra">Wenyan · ultra</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Quadro de tarefas</h4>
-                    <p>
-                      Pedido único: o agente não mexe no quadro. Mensagem com vários pedidos: cria
-                      um card por pedido e vai atualizando (coluna, checklist) até fechar cada um.
-                      Ligado por padrão.
-                    </p>
-                    <p id="mod-quadro-tarefas-err" class="set-err"></p>
-                  </div>
-                  <div class="set-ctl">
-                    <input id="mod-quadro-tarefas" type="checkbox" aria-label="Ligar módulo Quadro de tarefas" />
-                  </div>
-                </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Coleta de design pelo Browser</h4>
-                    <p>
-                      Botão na barra do Browser que lê o estilo da página aberta (cores, fontes,
-                      espaçamentos, variáveis CSS) e tira um print, e abre o "Gerar com IA" do Design
-                      System com isso como referência. Nada sai da máquina até você gerar.
-                      Ligado por padrão.
-                    </p>
-                    <p id="mod-coleta-design-err" class="set-err"></p>
-                  </div>
-                  <div class="set-ctl">
-                    <input id="mod-coleta-design" type="checkbox" aria-label="Ligar módulo Coleta de design pelo Browser" />
-                  </div>
-                </div>
-              </div>
-              <p class="set-grupo-tit">Painéis do agente</p>
-              <div class="set-grupo">
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Agente abre painéis</h4>
-                    <p>
-                      O agente abre sozinho o painel que o trabalho pede: o navegador pra testar uma tela, o Design
-                      System pra criar um design, o Quadro, o plano, um arquivo ou o terminal.
-                    </p>
-                    <p id="cfg-paineis-err" class="set-err"></p>
-                  </div>
-                  <div class="set-ctl">
-                    <select id="cfg-paineis-modo" aria-label="Agente abre painéis">
-                      <option value="sempre">Sempre</option>
-                      <option value="perguntar">Perguntar antes</option>
-                      <option value="nunca">Nunca</option>
-                    </select>
-                  </div>
-                </div>
-                <div id="cfg-paineis-detalhe">
+                <p class="set-grupo-tit">Destaque</p>
+                <div class="set-grupo">
                   <div class="set-row">
                     <div class="set-txt">
-                      <h4>Quais painéis</h4>
-                      <p>Os que ficarem desmarcados o agente não abre.</p>
-                    </div>
-                    <div class="set-ctl cfg-paineis-lista" id="cfg-paineis-lista" role="group" aria-label="Painéis que o agente pode abrir">
-                      <label><input type="checkbox" value="navegador" /> Navegador</label>
-                      <label><input type="checkbox" value="design" /> Design</label>
-                      <label><input type="checkbox" value="planejamento" /> Planejamento</label>
-                      <label><input type="checkbox" value="tarefas" /> Tarefas</label>
-                      <label><input type="checkbox" value="arquivo" /> Arquivos</label>
-                      <label><input type="checkbox" value="terminal" /> Terminal</label>
-                    </div>
-                  </div>
-                  <div class="set-row">
-                    <div class="set-txt">
-                      <h4>Trazer pra frente</h4>
-                      <p>Ligado: o painel aberto vira a aba que você está vendo. Desligado: a aba abre atrás, sem tirar você do que está olhando.</p>
+                      <h4>Cor de destaque</h4>
+                      <p>Cor de botões, foco e cursor do terminal. Vale no app inteiro.</p>
                     </div>
                     <div class="set-ctl">
-                      <input id="cfg-paineis-frente" type="checkbox" aria-label="Trazer o painel aberto pelo agente pra frente" />
+                      <input type="color" id="accent-picker" value="#7c5cbf" aria-label="Cor de destaque" />
+                      <input type="text" id="accent-hex" value="#7c5cbf" spellcheck="false" maxlength="7" aria-label="Cor em hexadecimal" />
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Paleta rápida</h4>
+                      <p>Atalhos para as cores mais usadas.</p>
+                    </div>
+                    <div class="set-ctl swatches" id="accent-swatches">
+                      <button type="button" data-accent="#4d9cd6" style="--swatch: #4d9cd6" title="Azul"></button>
+                      <button type="button" data-accent="#d7a441" style="--swatch: #d7a441" title="Âmbar"></button>
+                      <button type="button" data-accent="#7c5cbf" style="--swatch: #7c5cbf" title="Violeta"></button>
+                      <button type="button" data-accent="#5fae74" style="--swatch: #5fae74" title="Verde"></button>
+                      <button type="button" data-accent="#e06c75" style="--swatch: #e06c75" title="Rosa"></button>
+                      <button type="button" data-accent="#56b6c2" style="--swatch: #56b6c2" title="Ciano"></button>
                     </div>
                   </div>
                 </div>
-              </div>
-              <p class="set-grupo-tit">Permissões do sistema</p>
-              <div class="set-grupo">
-                <div class="set-row set-row-perigo">
-                  <div class="set-txt">
-                    <h4>Permitir controle do Windows</h4>
-                    <p>
-                      Dá ao agente ferramentas pra ver janelas e controlar mouse e teclado em
-                      <strong>outros aplicativos</strong> — não só o Nexos. Permissão independente e mais
-                      perigosa que as demais; enquanto ligada, um aviso fica sempre visível no app.
-                    </p>
-                    <p id="mod-windows-control-err" class="set-err"></p>
-                  </div>
-                  <div class="set-ctl">
-                    <input id="mod-windows-control" type="checkbox" aria-label="Permitir controle do Windows" />
-                  </div>
-                </div>
-              </div>
-            </section>
-            <section class="set-sec hidden" data-panel="skills">
-              <h3>Skills</h3>
-              <p class="set-grupo-tit">Instaladas globalmente</p>
-              <div id="skills-cfg" class="set-grupo"></div>
-              <p id="skills-cfg-err" class="set-err"></p>
-            </section>
-            <section class="set-sec hidden" data-panel="roteamento">
-              <h3>Roteamento IA</h3>
-              <p class="set-grupo-tit">Comportamento</p>
-              <div class="set-grupo">
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Modo</h4>
-                    <p>
-                      Em conversa que começou sem agente escolhido, avalia <strong>a cada mensagem</strong> — via
-                      <a href="https://typesafe.ai" target="_blank" rel="noopener">typesafe.ai</a>, olhando a mensagem
-                      junto com o que já foi conversado — se algum agente ou time já criado deve assumir dali em
-                      diante. Só troca com convicção: em dúvida, continua quem está. Conversa que você abriu
-                      escolhendo um agente nunca é roteada.
-                    </p>
-                    <p>
-                      <strong>Automático</strong> aplica a troca de agente sozinho; <strong>time nunca aplica
-                      sozinho</strong> em nenhum modo — sempre pede confirmação, porque disparar um run tem efeito
-                      real (escreve código, pode abrir PR). Cada avaliação é uma chamada paga à API.
-                    </p>
-                    <p id="roteamento-modo-err" class="set-err"></p>
-                  </div>
-                  <div class="set-ctl">
-                    <select id="roteamento-modo" aria-label="Modo de roteamento">
-                      <option value="desligado">Desligado</option>
-                      <option value="automatico">Automático</option>
-                      <option value="perguntar">Perguntar</option>
-                    </select>
+                <p class="set-grupo-tit">Barra lateral</p>
+                <div class="set-grupo">
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Logo do projeto</h4>
+                      <p>
+                        Mostra o ícone de cada projeto (favicon ou logo achado no código) no lugar da
+                        pasta. Com a barra minimizada, os projetos viram só os ícones.
+                      </p>
+                      <p id="logo-projetos-err" class="set-err"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <input id="logo-projetos" type="checkbox" aria-label="Mostrar logo do projeto na barra lateral" />
+                    </div>
                   </div>
                 </div>
-              </div>
-              <p class="set-grupo-tit">Conta typesafe.ai</p>
-              <div class="set-grupo">
-                <div class="set-row col">
-                  <div class="set-txt">
-                    <h4>API key</h4>
-                    <p>
-                      Fica guardada no daemon, fora do arquivo de configurações — esta tela nunca mostra a
-                      chave de volta depois de salva.
-                    </p>
-                    <p id="roteamento-key-status" class="set-hint">Não configurada.</p>
-                    <p id="roteamento-key-err" class="set-err"></p>
+              </section>
+              <section class="set-sec hidden" data-panel="painel">
+                <h3>Painel de borda</h3>
+                <p class="set-grupo-tit">Na tela</p>
+                <div class="set-grupo">
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Mostrar</h4>
+                      <p>
+                        A pílula fica grudada numa borda da tela, por cima de tudo: conversas rodando e
+                        o uso de cada conta. Arraste pra outra borda (ou outro monitor) quando quiser.
+                      </p>
+                    </div>
+                    <div class="set-ctl">
+                      <select id="painel-mostrar" aria-label="Quando mostrar o painel">
+                        <option value="dinamico">Dinâmico — um traço que abre ao aproximar o mouse</option>
+                        <option value="fixo">Fixo — sempre aberto</option>
+                        <option value="desligado">Desligado</option>
+                      </select>
+                    </div>
                   </div>
-                  <div class="set-ctl">
-                    <input id="roteamento-key" type="password" spellcheck="false" placeholder="apikey_..." aria-label="API key do typesafe.ai" />
-                    <button type="button" id="btn-roteamento-key-salvar" class="ghost">Salvar</button>
-                    <button type="button" id="btn-roteamento-key-remover" class="ghost">Remover</button>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Borda</h4>
+                      <p>De que lado da tela a pílula mora.</p>
+                    </div>
+                    <div class="set-ctl">
+                      <select id="painel-borda" aria-label="Borda da tela">
+                        <option value="direita">Direita</option>
+                        <option value="esquerda">Esquerda</option>
+                        <option value="topo">Topo</option>
+                        <option value="baixo">Embaixo</option>
+                      </select>
+                      <button type="button" id="painel-centralizar" class="ghost" title="Volta a pílula pro meio da borda">Centralizar</button>
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Monitor</h4>
+                      <p>Em qual tela ele fica.</p>
+                    </div>
+                    <div class="set-ctl">
+                      <select id="painel-monitor" aria-label="Monitor do painel"></select>
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Anéis de uso</h4>
+                      <p>Dois anéis: o de dentro é a sessão de 5 h, o de fora a semana. Ou um só, com a janela mais apertada.</p>
+                    </div>
+                    <div class="set-ctl">
+                      <select id="painel-aneis" aria-label="Anéis de uso">
+                        <option value="dois">Dois (5 h e semana)</option>
+                        <option value="um">Um (o mais apertado)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Transparência do fundo</h4>
+                      <p>A cor segue o perfil de cor de Aparência (grafite roxo ou preto).</p>
+                    </div>
+                    <div class="set-ctl">
+                      <input id="painel-opacidade" type="range" min="0.3" max="1" step="0.05" aria-label="Opacidade do fundo do painel" />
+                      <span id="painel-opacidade-v" class="painel-tam-v"></span>
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Tamanho</h4>
+                      <p>Escala geral da pílula e do card.</p>
+                    </div>
+                    <div class="set-ctl">
+                      <input id="painel-tamanho" type="range" min="0.6" max="1.6" step="0.05" aria-label="Tamanho do painel" />
+                      <span id="painel-tamanho-v" class="painel-tam-v"></span>
+                    </div>
                   </div>
                 </div>
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Uso</h4>
-                    <p>
-                      Tokens somados de todas as decisões de roteamento já feitas. O typesafe.ai não tem
-                      endpoint de saldo/crédito na API — só dá pra ver o que já foi gasto, não o que resta.
-                    </p>
+                <p class="set-grupo-tit">Quando uma conversa termina</p>
+                <div class="set-grupo">
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Abrir sozinho</h4>
+                      <p>O painel abre por alguns segundos quando uma conversa termina ou pede sua resposta.</p>
+                    </div>
+                    <div class="set-ctl">
+                      <select id="painel-espiar" aria-label="Por quanto tempo abrir">
+                        <option value="0">Não abrir</option>
+                        <option value="3">3 segundos</option>
+                        <option value="5">5 segundos</option>
+                        <option value="10">10 segundos</option>
+                      </select>
+                    </div>
                   </div>
-                  <div class="set-ctl">
-                    <span id="roteamento-uso" class="set-hint">—</span>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Som ao terminar</h4>
+                    </div>
+                    <div class="set-ctl"><input id="painel-somAoTerminar" type="checkbox" aria-label="Som ao terminar" /></div>
                   </div>
-                </div>
-              </div>
-            </section>
-            <section class="set-sec hidden" data-panel="github">
-              <h3>GitHub</h3>
-              <p class="set-grupo-tit">Conta conectada</p>
-              <div class="set-grupo">
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Acesso a repositórios</h4>
-                    <p>
-                      Conta única, global — loga uma vez aqui e todo perfil/agente já enxerga, sem repetir o
-                      login por conta. Separado do login de motor (Claude/Codex), que fica em
-                      <strong>Motor → Contas</strong> e é por perfil.
-                    </p>
-                    <p id="github-status" class="set-hint">Não conectado.</p>
-                    <p id="github-err" class="set-err"></p>
-                  </div>
-                  <div class="set-ctl">
-                    <button type="button" id="btn-github-conectar" class="primary">Conectar GitHub</button>
-                    <button type="button" id="btn-github-desconectar" class="ghost hidden">Desconectar</button>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Som quando pede resposta</h4>
+                      <p>Quando o agente para pra perguntar algo.</p>
+                    </div>
+                    <div class="set-ctl"><input id="painel-somAoPedir" type="checkbox" aria-label="Som quando pede resposta" /></div>
                   </div>
                 </div>
-              </div>
-            </section>
-            <section class="set-sec hidden" data-panel="gdrive">
-              <h3>Google Drive</h3>
-              <div class="set-grupo">
-                <div class="set-row">
-                  <div class="set-txt">
-                    <h4>Seus projetos em todos os computadores</h4>
-                    <p>
-                      Memória, tarefas e conversas — e seus agentes, times, Nexos Hooks e skills — ficam numa
-                      pasta do seu Google Drive e aparecem iguais em qualquer PC onde você entrar. O Nexos só
-                      mexe na pasta que você escolher. Contas e logins não vão junto.
-                    </p>
-                    <p id="gdrive-status" class="set-hint">Não conectado.</p>
-                    <p id="gdrive-sync-status" class="set-hint"></p>
-                    <p id="gdrive-err" class="set-err"></p>
+                <p class="set-grupo-tit">Limites de uso</p>
+                <div class="set-grupo">
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Cores do anel</h4>
+                      <p>Verde abaixo da atenção, amarelo até o crítico, laranja a partir do crítico.</p>
+                      <p id="painel-limites-err" class="set-err"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <label class="painel-lim">Atenção <input id="painel-atencao" type="number" min="1" max="98" step="1" />%</label>
+                      <label class="painel-lim">Crítico <input id="painel-critico" type="number" min="2" max="99" step="1" />%</label>
+                    </div>
                   </div>
-                  <div class="set-ctl">
-                    <button type="button" id="btn-gdrive-conectar" class="primary">Entrar com Google</button>
-                    <button type="button" id="btn-gdrive-cancelar" class="ghost hidden">Cancelar</button>
-                    <button type="button" id="btn-gdrive-sync" class="ghost hidden">Sincronizar agora</button>
-                    <button type="button" id="btn-gdrive-pasta" class="ghost hidden">Trocar pasta</button>
-                    <button type="button" id="btn-gdrive-desconectar" class="ghost hidden">Desconectar</button>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Avisar ao chegar no crítico e nos 100%</h4>
+                      <p>Uma notificação do Windows por vez que cruza — não repete enquanto não baixar.</p>
+                    </div>
+                    <div class="set-ctl"><input id="painel-avisarLimite" type="checkbox" aria-label="Avisar ao chegar no limite" /></div>
+                  </div>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Avisar quando o limite renova</h4>
+                    </div>
+                    <div class="set-ctl"><input id="painel-avisarRenovou" type="checkbox" aria-label="Avisar quando o limite renova" /></div>
                   </div>
                 </div>
-              </div>
-            </section>
+              </section>
+              <section class="set-sec hidden" data-panel="contas">
+                <h3>Contas</h3>
+                <p class="set-grupo-tit">Contas conectadas</p>
+                <div class="set-grupo">
+                  <div class="set-row col">
+                    <div class="set-txt">
+                      <h4>Gerenciar contas</h4>
+                      <p>Apelido é só de exibição — o id continua identificando a conta por baixo.</p>
+                      <p id="accounts-manage-err" class="set-err"></p>
+                    </div>
+                    <div class="set-ctl col">
+                      <div id="accounts-manage-list" class="accounts-manage-list"></div>
+                    </div>
+                  </div>
+                </div>
+                <p class="set-grupo-tit">Atualizar CLI</p>
+                <div class="set-grupo">
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Claude Code CLI</h4>
+                      <p>
+                        Baixa a versão mais nova do <code>@anthropic-ai/claude-code</code> (npm) — o Nexos roda
+                        essa CLI por baixo pra toda conta <code>claude</code>. Não mexe em login nem credencial.
+                      </p>
+                      <p id="cli-update-claude-status" class="set-aviso"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <button type="button" class="ghost btn-cli-update" data-engine="claude">Atualizar agora</button>
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Codex CLI</h4>
+                      <p>Baixa a versão mais nova do <code>@openai/codex</code> (npm).</p>
+                      <p id="cli-update-codex-status" class="set-aviso"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <button type="button" class="ghost btn-cli-update" data-engine="codex">Atualizar agora</button>
+                    </div>
+                  </div>
+                </div>
+                <p class="set-grupo-tit">Adicionar conta</p>
+                <div class="set-grupo">
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Nova conta</h4>
+                      <p>Um id curto (a-z, 0-9 e hífen) e o motor que ela usa.</p>
+                    </div>
+                    <div class="set-ctl">
+                      <input id="profile-id" type="text" spellcheck="false" placeholder="claude-trabalho" maxlength="40" aria-label="Id da conta" />
+                      <select id="profile-engine" aria-label="Motor">
+                        <option value="claude">Claude</option>
+                        <option value="codex">Codex</option>
+                        <option value="api">API (chat)</option>
+                        <option value="stub">Stub</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="set-row col hidden" id="api-fields">
+                    <div class="set-txt">
+                      <h4>Credenciais da API</h4>
+                      <p>Só para o motor API: provider, modelo e chave. A chave fica no daemon, nunca na tela.</p>
+                    </div>
+                    <div class="set-ctl col">
+                      <input id="profile-provider" type="text" spellcheck="false" placeholder="anthropic" aria-label="Provider" />
+                      <input id="profile-model" type="text" spellcheck="false" placeholder="modelo" aria-label="Modelo" />
+                      <input id="profile-key" type="password" spellcheck="false" placeholder="api key" aria-label="Chave da API" />
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Criar</h4>
+                      <p>Claude e Codex abrem o login logo depois de criar.</p>
+                      <p id="profile-add-err" class="set-err"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <button type="button" id="btn-profile-install" class="ghost hidden">Instalar agora</button>
+                      <button type="button" id="btn-profile-add" class="primary profile-add">Criar e logar</button>
+                    </div>
+                  </div>
+                </div>
+                <p class="set-grupo-tit">Permissões por intenção</p>
+                <div class="set-grupo">
+                  <div class="set-row col">
+                    <div class="set-txt">
+                      <h4>Ferramentas liberadas</h4>
+                      <p>
+                        O motor roda sem canal de permissão: o que precisaria de aprovação (git push, gh,
+                        comando novo) é negado em silêncio. Libere só o necessário, separado por vírgula —
+                        ex.: <code>Bash(git *), Bash(gh *)</code>. Vale a partir da próxima mensagem,
+                        mesmo numa conversa já aberta.
+                      </p>
+                      <p id="allow-err" class="set-err"></p>
+                    </div>
+                    <details id="allow-drawer" class="set-drawer" open>
+                      <summary>Editar ferramentas liberadas</summary>
+                      <div class="set-ctl col">
+                        <select id="allow-profile" aria-label="Conta"></select>
+                        <div id="allow-presets" class="allow-presets"></div>
+                        <details id="allow-adv" class="allow-adv">
+                          <summary>Avançado — padrão do CLI</summary>
+                          <input
+                            id="allow-tools"
+                            type="text"
+                            spellcheck="false"
+                            placeholder="Bash(docker *), WebFetch"
+                            aria-label="Padrões extras separados por vírgula"
+                          />
+                        </details>
+                        <button type="button" id="btn-allow-save" class="primary">Salvar</button>
+                      </div>
+                    </details>
+                  </div>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Delegar pra agente/time</h4>
+                      <p>
+                        Em conversa normal, o modelo pode chamar um agente ou time já existente e esperar
+                        o resultado (<code>nexo_delegar</code>). <b>Negado</b> desliga (padrão).
+                        <b>Questionar</b> pergunta antes de cada chamada. <b>Liberado</b> roda direto.
+                      </p>
+                      <p id="deleg-err" class="set-err"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <select id="deleg-profile" aria-label="Conta"></select>
+                      <select id="deleg-modo" aria-label="Modo de delegação">
+                        <option value="negado">Negado</option>
+                        <option value="questionar">Questionar</option>
+                        <option value="liberado">Liberado</option>
+                      </select>
+                      <button type="button" id="btn-deleg-save" class="primary">Salvar</button>
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Controlar o painel Browser</h4>
+                      <p>
+                        Em conversa normal, o modelo pode abrir URL, ler a página, tirar print, clicar e
+                        digitar no painel Browser (<code>nexo_navegador_*</code>). <b>Negado</b> desliga
+                        (padrão). <b>Questionar</b> pergunta antes de abrir/clicar/digitar (ler e print
+                        rodam direto). <b>Liberado</b> roda tudo direto.
+                      </p>
+                      <p id="nav-err" class="set-err"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <select id="nav-profile" aria-label="Conta"></select>
+                      <select id="nav-modo" aria-label="Modo do navegador">
+                        <option value="negado">Negado</option>
+                        <option value="questionar">Questionar</option>
+                        <option value="liberado">Liberado</option>
+                      </select>
+                      <button type="button" id="btn-nav-save" class="primary">Salvar</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+              <section class="set-sec hidden" data-panel="celular">
+                <h3>Celular</h3>
+                <p class="set-grupo-tit">Pareamento</p>
+                <div class="set-grupo">
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Conectar um celular</h4>
+                      <p>
+                        Aponte a câmera do celular para o código: ele abre a página e conecta sozinho.
+                        Dali, <b>Adicionar à tela de início</b> deixa o Nexos como um app. Sem câmera,
+                        abra <b id="cel-url">http://…/app/</b> e digite o código.
+                        Ele vale 2 minutos e serve uma vez; depois disso o celular fica conectado.
+                      </p>
+                    </div>
+                    <div class="set-ctl">
+                      <button type="button" class="primary" id="btn-cel-codigo">Gerar código</button>
+                    </div>
+                  </div>
+                  <div class="cel-qr hidden" id="cel-qr">
+                    <div class="cel-qr-img" id="cel-qr-img"></div>
+                    <div class="cel-qr-lado">
+                      <span class="cel-codigo" id="cel-codigo"></span>
+                      <span class="cel-qr-sub">para digitar à mão</span>
+                    </div>
+                  </div>
+                  <p class="set-aviso" id="cel-aviso"></p>
+                </div>
+                <p class="set-grupo-tit">APK Android</p>
+                <div class="set-grupo">
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Build do APK Android</h4>
+                      <p>
+                        Compila localmente, uma vez — precisa de HTTPS de pé (veja acima) e do SDK do
+                        Android instalado nesta máquina (<code>JAVA_HOME</code> e
+                        <code>ANDROID_HOME</code>). A chave de assinatura é gerada uma vez em
+                        <code>~/.nexos/apk/</code> e reusada sempre: trocar quebraria atualização de
+                        quem já instalou.
+                      </p>
+                      <p class="set-err" id="apk-build-status"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <button type="button" class="primary" id="btn-apk-build">Gerar APK</button>
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Baixar o APK Android</h4>
+                      <p>
+                        QR <b>separado</b> do de pareamento — este só entrega o instalável, nunca o
+                        código de conectar. Vale poucos minutos e serve uma vez. Sem build pronto, o
+                        código já funciona, mas a página do celular avisa que falta o APK.
+                      </p>
+                    </div>
+                    <div class="set-ctl">
+                      <button type="button" class="primary" id="btn-apk-codigo">Gerar QR de download</button>
+                    </div>
+                  </div>
+                  <div class="cel-qr hidden" id="apk-qr">
+                    <div class="cel-qr-img" id="apk-qr-img"></div>
+                    <div class="cel-qr-lado">
+                      <span class="cel-codigo" id="apk-codigo"></span>
+                      <span class="cel-qr-sub">para digitar à mão</span>
+                    </div>
+                  </div>
+                </div>
+                <p class="set-grupo-tit">Rede</p>
+                <div class="set-grupo">
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Onde o celular alcança o Nexos</h4>
+                      <p id="cel-alcance">…</p>
+                    </div>
+                    <div class="set-ctl">
+                      <button type="button" class="ghost" id="btn-cel-revogar">Desconectar celulares</button>
+                    </div>
+                  </div>
+                  <details class="set-det" id="cel-avancado">
+                    <summary>Endereço de escuta (avançado)</summary>
+                    <p>
+                      O Nexos já escuta sozinho no loopback e em qualquer túnel que a máquina tenha
+                      (Tailscale, WireGuard) — inclusive em túnel que subir depois, sem reiniciar nada.
+                      Só preencha aqui se precisar de um endereço específico. <code>0.0.0.0</code>
+                      publica na rede inteira, e aí o token é a única barreira.
+                    </p>
+                    <input type="text" id="cel-host" spellcheck="false" maxlength="45" placeholder="automático" aria-label="Endereço de escuta" />
+                  </details>
+                </div>
+              </section>
+              <section class="set-sec hidden" data-panel="sobre">
+                <h3>Sobre</h3>
+                <div class="set-grupo">
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Versão</h4>
+                      <p>Versão instalada do Nexos desktop.</p>
+                    </div>
+                    <div class="set-ctl">
+                      <span id="sobre-versao" class="sobre-versao">…</span>
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Atualizações</h4>
+                      <p id="sobre-update-status">Verificando…</p>
+                    </div>
+                    <div class="set-ctl">
+                      <button type="button" id="btn-sobre-check" class="ghost">Verificar agora</button>
+                      <button type="button" id="btn-sobre-restart" class="primary hidden">Reiniciar e instalar</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="set-grupo">
+                  <div class="set-row sobre-novidades-row">
+                    <div class="set-txt">
+                      <h4>Novidades desta versão</h4>
+                      <div id="sobre-novidades" class="md sobre-novidades"></div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+              <section class="set-sec hidden" data-panel="fallback">
+                <h3>Fallback</h3>
+                <div class="set-grupo">
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Troca de conta na quota</h4>
+                      <p>O que o Nexos faz quando a quota da conta ativa acaba.</p>
+                      <p id="switch-mode-err" class="set-err"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <select id="switch-mode" aria-label="Modo de troca de conta">
+                        <option value="auto" title="Troca sozinho pela próxima conta da lista">
+                          Automático · troca sem perguntar
+                        </option>
+                        <option value="manual" title="Mostra o aviso e espera você decidir">
+                          Manual · pergunta antes de trocar
+                        </option>
+                        <option value="denied" title="Fica na conta estourada">
+                          Negado · não troca nem pergunta
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="set-row col">
+                    <div class="set-txt">
+                      <h4>Ordem de fallback na quota</h4>
+                      <p>
+                        Quando houver troca, a próxima conta pronta desta lista é a escolhida — sozinho ou
+                        perguntando, conforme o modo acima.
+                      </p>
+                    </div>
+                    <ul id="fallback-list" class="order-list"></ul>
+                  </div>
+                </div>
+              </section>
+              <section class="set-sec hidden" data-panel="memoria">
+                <h3>Pastas compartilhadas</h3>
+                <div class="shared-card">
+                  <div class="shared-card-head">
+                    <h4>Dados de cada projeto</h4>
+                    <p>
+                      Memória, tarefas, repo map e design system de cada projeto. Agentes, times, hooks e skills
+                      são gerais e ficam sempre na pasta do Nexos.
+                    </p>
+                  </div>
+                  <div class="shared-card-ctl arm-opcoes" role="radiogroup" aria-label="Onde salvar os dados de cada projeto">
+                    <label class="arm-opcao"><input type="radio" name="armazenamento" value="pasta" />
+                      <span><strong>Na pasta do Nexos</strong><small>Uma pasta por projeto, junto do resto (a do Google Drive, se estiver conectado).</small></span></label>
+                    <label class="arm-opcao"><input type="radio" name="armazenamento" value="projeto" />
+                      <span><strong>No próprio projeto</strong><small>Em <code>.nexos/</code> na raiz do projeto, já no <code>.gitignore</code>.</small></span></label>
+                  </div>
+                  <p id="armazenamento-msg" class="shared-msg"></p>
+                </div>
+                <p id="projetos-dir-drive" class="set-hint hidden"></p>
+                <div id="projetos-dir-card" class="shared-card">
+                  <div class="shared-card-head">
+                    <h4>Projetos <span id="projetos-dir-badge" class="shared-badge" data-on="0">só nesta máquina</span></h4>
+                    <p>
+                      Onde fica a pasta de CADA projeto (memória, tarefas e repo map, tudo dentro
+                      dela). Vazio = dentro do próprio Nexos, só nesta máquina. Aponte pra uma pasta
+                      já sincronizada (Drive, OneDrive, etc.) pra abrir o mesmo projeto de outro PC
+                      e continuar de onde parou.
+                    </p>
+                  </div>
+                  <div class="shared-card-ctl">
+                    <input
+                      id="projetos-dir"
+                      type="text"
+                      spellcheck="false"
+                      placeholder="G:\Meu Drive\nexo-projetos"
+                      aria-label="Pasta compartilhada de projetos"
+                    />
+                    <button type="button" id="btn-projetos-dir-pick" class="ghost">Escolher…</button>
+                  </div>
+                  <p id="projetos-dir-msg" class="shared-msg"></p>
+                </div>
+              </section>
+              <section class="set-sec hidden" data-panel="modulos">
+                <h3>Módulos</h3>
+                <p class="set-grupo-tit">Opcionais</p>
+                <div class="set-grupo">
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>RTK</h4>
+                      <p>
+                        Proxy de CLI que filtra saída de comando antes dela entrar no contexto — reduz
+                        token gasto com <code>git status</code>, <code>npm run</code>, etc. Liga o hook
+                        a partir do próximo motor (troca de conta, /clear ou reiniciar).
+                      </p>
+                      <p id="mod-rtk-err" class="set-err"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <input id="mod-rtk" type="checkbox" aria-label="Ligar módulo RTK" />
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Caveman</h4>
+                      <p>Skill de comunicação ultra-comprimida — respostas mais curtas, mesma precisão técnica.</p>
+                      <p id="mod-caveman-err" class="set-err"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <input id="mod-caveman" type="checkbox" aria-label="Ligar módulo Caveman" />
+                      <select id="mod-caveman-nivel" aria-label="Nível do Caveman">
+                        <option value="lite">Lite</option>
+                        <option value="full">Full</option>
+                        <option value="ultra">Ultra</option>
+                        <option value="wenyan-lite">Wenyan · lite</option>
+                        <option value="wenyan-full">Wenyan · full</option>
+                        <option value="wenyan-ultra">Wenyan · ultra</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Quadro de tarefas</h4>
+                      <p>
+                        Pedido único: o agente não mexe no quadro. Mensagem com vários pedidos: cria
+                        um card por pedido e vai atualizando (coluna, checklist) até fechar cada um.
+                        Ligado por padrão.
+                      </p>
+                      <p id="mod-quadro-tarefas-err" class="set-err"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <input id="mod-quadro-tarefas" type="checkbox" aria-label="Ligar módulo Quadro de tarefas" />
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Coleta de design pelo Browser</h4>
+                      <p>
+                        Botão na barra do Browser que lê o estilo da página aberta (cores, fontes,
+                        espaçamentos, variáveis CSS) e tira um print, e abre o "Gerar com IA" do Design
+                        System com isso como referência. Nada sai da máquina até você gerar.
+                        Ligado por padrão.
+                      </p>
+                      <p id="mod-coleta-design-err" class="set-err"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <input id="mod-coleta-design" type="checkbox" aria-label="Ligar módulo Coleta de design pelo Browser" />
+                    </div>
+                  </div>
+                </div>
+                <p class="set-grupo-tit">Painéis do agente</p>
+                <div class="set-grupo">
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Agente abre painéis</h4>
+                      <p>
+                        O agente abre sozinho o painel que o trabalho pede: o navegador pra testar uma tela, o Design
+                        System pra criar um design, o Quadro, o plano, um arquivo ou o terminal.
+                      </p>
+                      <p id="cfg-paineis-err" class="set-err"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <select id="cfg-paineis-modo" aria-label="Agente abre painéis">
+                        <option value="sempre">Sempre</option>
+                        <option value="perguntar">Perguntar antes</option>
+                        <option value="nunca">Nunca</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div id="cfg-paineis-detalhe">
+                    <div class="set-row">
+                      <div class="set-txt">
+                        <h4>Quais painéis</h4>
+                        <p>Os que ficarem desmarcados o agente não abre.</p>
+                      </div>
+                      <div class="set-ctl cfg-paineis-lista" id="cfg-paineis-lista" role="group" aria-label="Painéis que o agente pode abrir">
+                        <label><input type="checkbox" value="navegador" /> Navegador</label>
+                        <label><input type="checkbox" value="design" /> Design</label>
+                        <label><input type="checkbox" value="planejamento" /> Planejamento</label>
+                        <label><input type="checkbox" value="tarefas" /> Tarefas</label>
+                        <label><input type="checkbox" value="arquivo" /> Arquivos</label>
+                        <label><input type="checkbox" value="terminal" /> Terminal</label>
+                      </div>
+                    </div>
+                    <div class="set-row">
+                      <div class="set-txt">
+                        <h4>Trazer pra frente</h4>
+                        <p>Ligado: o painel aberto vira a aba que você está vendo. Desligado: a aba abre atrás, sem tirar você do que está olhando.</p>
+                      </div>
+                      <div class="set-ctl">
+                        <input id="cfg-paineis-frente" type="checkbox" aria-label="Trazer o painel aberto pelo agente pra frente" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <p class="set-grupo-tit">Permissões do sistema</p>
+                <div class="set-grupo">
+                  <div class="set-row set-row-perigo">
+                    <div class="set-txt">
+                      <h4>Permitir controle do Windows</h4>
+                      <p>
+                        Dá ao agente ferramentas pra ver janelas e controlar mouse e teclado em
+                        <strong>outros aplicativos</strong> — não só o Nexos. Permissão independente e mais
+                        perigosa que as demais; enquanto ligada, um aviso fica sempre visível no app.
+                      </p>
+                      <p id="mod-windows-control-err" class="set-err"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <input id="mod-windows-control" type="checkbox" aria-label="Permitir controle do Windows" />
+                    </div>
+                  </div>
+                </div>
+              </section>
+              <section class="set-sec hidden" data-panel="skills">
+                <h3>Skills</h3>
+                <p class="set-grupo-tit">Instaladas globalmente</p>
+                <div id="skills-cfg" class="set-grupo"></div>
+                <p id="skills-cfg-err" class="set-err"></p>
+              </section>
+              <section class="set-sec hidden" data-panel="roteamento">
+                <h3>Roteamento IA</h3>
+                <p class="set-grupo-tit">Comportamento</p>
+                <div class="set-grupo">
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Modo</h4>
+                      <p>
+                        Em conversa que começou sem agente escolhido, avalia <strong>a cada mensagem</strong> — via
+                        <a href="https://typesafe.ai" target="_blank" rel="noopener">typesafe.ai</a>, olhando a mensagem
+                        junto com o que já foi conversado — se algum agente ou time já criado deve assumir dali em
+                        diante. Só troca com convicção: em dúvida, continua quem está. Conversa que você abriu
+                        escolhendo um agente nunca é roteada.
+                      </p>
+                      <p>
+                        <strong>Automático</strong> aplica a troca de agente sozinho; <strong>time nunca aplica
+                        sozinho</strong> em nenhum modo — sempre pede confirmação, porque disparar um run tem efeito
+                        real (escreve código, pode abrir PR). Cada avaliação é uma chamada paga à API.
+                      </p>
+                      <p id="roteamento-modo-err" class="set-err"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <select id="roteamento-modo" aria-label="Modo de roteamento">
+                        <option value="desligado">Desligado</option>
+                        <option value="automatico">Automático</option>
+                        <option value="perguntar">Perguntar</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <p class="set-grupo-tit">Conta typesafe.ai</p>
+                <div class="set-grupo">
+                  <div class="set-row col">
+                    <div class="set-txt">
+                      <h4>API key</h4>
+                      <p>
+                        Fica guardada no daemon, fora do arquivo de configurações — esta tela nunca mostra a
+                        chave de volta depois de salva.
+                      </p>
+                      <p id="roteamento-key-status" class="set-hint">Não configurada.</p>
+                      <p id="roteamento-key-err" class="set-err"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <input id="roteamento-key" type="password" spellcheck="false" placeholder="apikey_..." aria-label="API key do typesafe.ai" />
+                      <button type="button" id="btn-roteamento-key-salvar" class="ghost">Salvar</button>
+                      <button type="button" id="btn-roteamento-key-remover" class="ghost">Remover</button>
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Uso</h4>
+                      <p>
+                        Tokens somados de todas as decisões de roteamento já feitas. O typesafe.ai não tem
+                        endpoint de saldo/crédito na API — só dá pra ver o que já foi gasto, não o que resta.
+                      </p>
+                    </div>
+                    <div class="set-ctl">
+                      <span id="roteamento-uso" class="set-hint">—</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+              <section class="set-sec hidden" data-panel="github">
+                <h3>GitHub</h3>
+                <p class="set-grupo-tit">Conta conectada</p>
+                <div class="set-grupo">
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Acesso a repositórios</h4>
+                      <p>
+                        Conta única, global — loga uma vez aqui e todo perfil/agente já enxerga, sem repetir o
+                        login por conta. Separado do login de motor (Claude/Codex), que fica em
+                        <strong>Motor → Contas</strong> e é por perfil.
+                      </p>
+                      <p id="github-status" class="set-hint">Não conectado.</p>
+                      <p id="github-err" class="set-err"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <button type="button" id="btn-github-conectar" class="primary">Conectar GitHub</button>
+                      <button type="button" id="btn-github-desconectar" class="ghost hidden">Desconectar</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+              <section class="set-sec hidden" data-panel="gdrive">
+                <h3>Google Drive</h3>
+                <div class="set-grupo">
+                  <div class="set-row">
+                    <div class="set-txt">
+                      <h4>Seus projetos em todos os computadores</h4>
+                      <p>
+                        Memória, tarefas e conversas — e seus agentes, times, Nexos Hooks e skills — ficam numa
+                        pasta do seu Google Drive e aparecem iguais em qualquer PC onde você entrar. O Nexos só
+                        mexe na pasta que você escolher. Contas e logins não vão junto.
+                      </p>
+                      <p id="gdrive-status" class="set-hint">Não conectado.</p>
+                      <p id="gdrive-sync-status" class="set-hint"></p>
+                      <p id="gdrive-err" class="set-err"></p>
+                    </div>
+                    <div class="set-ctl">
+                      <button type="button" id="btn-gdrive-conectar" class="primary">Entrar com Google</button>
+                      <button type="button" id="btn-gdrive-cancelar" class="ghost hidden">Cancelar</button>
+                      <button type="button" id="btn-gdrive-sync" class="ghost hidden">Sincronizar agora</button>
+                      <button type="button" id="btn-gdrive-pasta" class="ghost hidden">Trocar pasta</button>
+                      <button type="button" id="btn-gdrive-desconectar" class="ghost hidden">Desconectar</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+            <p id="set-empty" class="set-empty hidden">Nada encontrado.</p>
           </div>
-          <p id="set-empty" class="set-empty hidden">Nada encontrado.</p>
         </div>
       </div>
     </div>
