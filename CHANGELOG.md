@@ -6,6 +6,13 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- Acessibilidade no app de celular, pra teclado (bluetooth, varredura) e leitor de tela (TalkBack, VoiceOver):
+  - As linhas de conversa, de run e das folhas passam a entrar no Tab, abrem com Enter ou Espaço e são anunciadas como botão. Antes só respondiam ao toque.
+  - O grupo de passos de um run diz se está aberto ou fechado.
+  - As abas da barra de baixo são anunciadas como abas, dizem qual está aberta, e as setas andam entre elas.
+  - As folhas (Nova conversa, Trocar conta, Modelo e esforço) viraram diálogo: o foco entra nelas ao abrir, Esc fecha, o Tab não escapa pra página de trás e o foco volta pra onde estava.
+  - A área segura agora vale também nas laterais: com o celular deitado, num aparelho com recorte, o conteúdo não entra mais embaixo dele.
+
 ### Corrigido
 
 ### Alterado

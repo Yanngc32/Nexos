@@ -7,6 +7,7 @@ import {
   limparUrl,
   parear,
 } from "./pareamento.js";
+import { acionavel, criarFolha, ligarSetasDasAbas, marcarAbas, marcarExpandido } from "./acessivel.js";
 import { renderMd } from "./comum/markdown.js";
 import { ago } from "./comum/format.js";
 import { fmtDuracao } from "./comum/agent-trace.js";
@@ -302,8 +303,7 @@ function linhaDeConversa(t, dentroDeRun = false) {
   quando.className = "quando";
   quando.textContent = t.busy ? "trabalhando…" : ago(t.updatedAt);
   li.append(nome, quando);
-  li.addEventListener("click", () => void abrirChat(t.id, t.preview, t.profileId));
-  return li;
+  return acionavel(li, () => void abrirChat(t.id, t.preview, t.profileId));
 }
 
 /**
@@ -325,26 +325,26 @@ function linhasDeRun(grupo) {
 
   const filhas = grupo.threads.map((t) => linhaDeConversa(t, true));
   for (const f of filhas) f.classList.add("hidden");
-  cab.addEventListener("click", () => {
+  marcarExpandido(cab, false);
+  acionavel(cab, () => {
     const fechado = filhas[0]?.classList.contains("hidden");
     for (const f of filhas) f.classList.toggle("hidden", !fechado);
-    cab.dataset.aberto = fechado ? "1" : "0";
+    marcarExpandido(cab, fechado);
   });
   return [cab, ...filhas];
 }
 
 /* ---------- nova conversa ---------- */
 
+/** Folhas como diálogo: foco entra e volta, Esc fecha, Tab não escapa (acessivel.js). */
+const folhas = new Map(["folha-nova", "folha-ajustes", "folha-trocar"].map((id) => [$(id), criarFolha($(id))]));
+
 function fecharFolha(el) {
-  el.classList.add("hidden");
+  folhas.get(el)?.fechar();
 }
 
 function abrirFolha(el) {
-  el.classList.remove("hidden");
-}
-
-for (const folha of [$("folha-nova"), $("folha-ajustes"), $("folha-trocar")]) {
-  folha.querySelector("[data-fechar]").addEventListener("click", () => fecharFolha(folha));
+  folhas.get(el)?.abrir();
 }
 
 /** Contas prontas pra receber conversa, e agentes personalizados (cada um já embute a conta dele). */
@@ -363,8 +363,7 @@ function linhaDeOpcao(rotulo, desc, aoTocar) {
   d.className = "desc";
   d.textContent = desc;
   li.append(nome, d);
-  li.addEventListener("click", aoTocar);
-  return li;
+  return acionavel(li, aoTocar);
 }
 
 async function abrirFolhaNova() {
@@ -1050,9 +1049,7 @@ function mostrar(aba) {
   // que se está um nível abaixo. Sem isso nenhuma aba acende e a barra parece
   // desligada.
   const acesa = aba === "chat" ? "conversas" : aba;
-  for (const b of $("tabs").querySelectorAll("button")) {
-    b.classList.toggle("on", b.dataset.aba === acesa);
-  }
+  marcarAbas($("tabs"), acesa);
   $("btn-voltar").hidden = aba !== "chat";
   if (aba !== "chat") $("btn-ajustes").hidden = true;
 }
@@ -1063,6 +1060,8 @@ async function abrirAgora() {
   await puxarAgora();
   comecarRelogio();
 }
+
+ligarSetasDasAbas($("tabs"));
 
 $("tabs").addEventListener("click", (e) => {
   // `closest`, e não `e.target`: o botão tem ícone e rótulo dentro, então o alvo

@@ -87,7 +87,7 @@
             <h2>Conversas</h2>
             <button type="button" class="primary chip" id="btn-nova">+ Nova</button>
           </div>
-          <ul class="lista" id="lista-threads"></ul>
+          <ul class="lista" id="lista-threads" aria-label="Conversas do projeto"></ul>
           <p class="vazio hidden" id="threads-vazio">Nenhuma conversa neste projeto.</p>
         </section>
 
@@ -98,7 +98,7 @@
           <div class="compositor-wrap">
             <div class="compositor-topo">
               <div id="pet-stage" class="pet-stage" data-state="off">
-                <canvas id="pet-sprite" class="pet-sprite" width="70" height="96"></canvas>
+                <canvas id="pet-sprite" class="pet-sprite" width="70" height="96" aria-hidden="true"></canvas>
               </div>
             </div>
             <form class="compositor" id="form-msg">
@@ -118,12 +118,16 @@
         </section>
       </main>
 
-      <nav class="tabs" id="tabs">
-        <button type="button" data-aba="agora" class="on">
+      <!--
+        role="tab" + aria-selected: sem isso o leitor de tela anuncia dois botões quaisquer e não
+        diz qual está aberta. `mostrar()` mantém aria-selected junto com a classe .on (acessivel.js).
+      -->
+      <nav class="tabs" id="tabs" role="tablist" aria-label="Seções">
+        <button type="button" role="tab" data-aba="agora" class="on" aria-selected="true" aria-controls="aba-agora">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3 7 4-14 3 7h4" /></svg>
           <span>Agora</span>
         </button>
-        <button type="button" data-aba="conversas">
+        <button type="button" role="tab" data-aba="conversas" aria-selected="false" aria-controls="aba-conversas" tabindex="-1">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2Z" /></svg>
           <span>Conversas</span>
         </button>
@@ -133,28 +137,28 @@
     <!-- Folha: escolher conta ou agente pra abrir conversa nova -->
     <div class="folha hidden" id="folha-nova">
       <div class="folha-fundo" data-fechar></div>
-      <div class="folha-painel">
-        <h3>Nova conversa</h3>
+      <div class="folha-painel" role="dialog" aria-modal="true" aria-labelledby="folha-nova-tit">
+        <h3 id="folha-nova-tit">Nova conversa</h3>
         <p class="sub" id="folha-nova-vazio">Nenhuma conta pronta. Faça login no computador.</p>
-        <ul class="lista lista-folha" id="folha-nova-lista"></ul>
+        <ul class="lista lista-folha" id="folha-nova-lista" aria-labelledby="folha-nova-tit"></ul>
       </div>
     </div>
 
     <!-- Folha: trocar a conta desta conversa (mesma troca do desktop, POST /v1/threads/:id/switch) -->
     <div class="folha hidden" id="folha-trocar">
       <div class="folha-fundo" data-fechar></div>
-      <div class="folha-painel">
-        <h3>Trocar conta</h3>
+      <div class="folha-painel" role="dialog" aria-modal="true" aria-labelledby="folha-trocar-tit">
+        <h3 id="folha-trocar-tit">Trocar conta</h3>
         <p class="sub" id="folha-trocar-vazio">Nenhuma outra conta pronta.</p>
-        <ul class="lista lista-folha" id="folha-trocar-lista"></ul>
+        <ul class="lista lista-folha" id="folha-trocar-lista" aria-labelledby="folha-trocar-tit"></ul>
       </div>
     </div>
 
     <!-- Folha: modelo e esforço da conta desta conversa -->
     <div class="folha hidden" id="folha-ajustes">
       <div class="folha-fundo" data-fechar></div>
-      <div class="folha-painel">
-        <h3>Modelo e esforço</h3>
+      <div class="folha-painel" role="dialog" aria-modal="true" aria-labelledby="folha-ajustes-tit">
+        <h3 id="folha-ajustes-tit">Modelo e esforço</h3>
         <p class="sub" id="ajustes-conta"></p>
         <label class="campo">
           <span>Modelo</span>
