@@ -6,6 +6,8 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- `pnpm medir [--dias 7]`: mostra onde a quota foi gasta, por origem (chat, passo de time, supervisor, hook, DS, planejamento, ping de uso, resumo da compactação) e por modelo, lendo só o disco, sem chamar modelo. Os pings e os resumos não têm thread; o script os acha nas transcrições do próprio CLI `claude` de cada conta. Também conta as compactações de conta `codex` e quanto o teto da memória corta. Rodar antes e depois de atualizar mostra o ganho real.
+
 ### Corrigido
 
 - Conta `codex` não gasta mais um turno extra de resumo a cada mensagem em conversa longa. A compactação só pulava o `claude` com sessão retomada, mas o `codex` também retoma (`exec resume`) e nesse caso o resumo nunca chegava ao modelo. Sem janela reportada, o teto caía em 8k tokens e o resumo disparava quase todo turno depois da 20ª mensagem.

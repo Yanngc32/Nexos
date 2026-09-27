@@ -12,6 +12,7 @@
     "dev": "pnpm --filter @nexos/daemon dev",
     "nexos": "pnpm --filter @nexos/daemon exec node ./scripts/nexo.mjs",
     "up": "pnpm --filter @nexos/daemon exec node ./scripts/nexo.mjs up",
-    "desktop": "pnpm --filter @nexos/desktop dev"
+    "desktop": "pnpm --filter @nexos/desktop dev",
+    "medir": "pnpm --filter @nexos/daemon exec tsx ./scripts/medir-consumo.ts"
   }
 }
