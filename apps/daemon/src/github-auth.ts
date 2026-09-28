@@ -18,6 +18,12 @@ import { spawnBin } from "./spawn-bin.ts";
  */
 const CODE_RE = /one-time code:\s*([A-Z0-9-]+)/i;
 const URL_RE = /(https:\/\/\S+)/;
+/**
+ * No Windows, `spawnBin` sem shim `.cmd` roda com `shell: true` (`spawn-bin.ts`) — sem `gh`
+ * instalado, quem fala é o cmd.exe ("não é reconhecido"/"is not recognized"), não um erro de
+ * spawn (`ENOENT` só dispara sem shell). Cobre PT/EN, que é o que o Windows costuma devolver.
+ */
+const GH_NAO_ENCONTRADO_RE = /não é reconhecido|is not recognized|command not found|no such file or directory/i;
 
 const CODE_TIMEOUT = 30_000;
 const SESSION_TTL = 20 * 60 * 1000;
@@ -49,9 +55,10 @@ type GithubAuthStore = { token: string; username?: string; connectedAt: string }
 
 const sessions = new Map<string, Session>();
 
-function badRequest(message: string): Error & { status: number } {
-  const err = new Error(message) as Error & { status: number };
+function badRequest(message: string, extra?: { ghNaoInstalado?: boolean }): Error & { status: number; ghNaoInstalado?: boolean } {
+  const err = new Error(message) as Error & { status: number; ghNaoInstalado?: boolean };
   err.status = 400;
+  if (extra?.ghNaoInstalado) err.ghNaoInstalado = true;
   return err;
 }
 
@@ -224,11 +231,17 @@ export async function startGithubLogin(home: string): Promise<{ loginId: string;
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (GH_NAO_ENCONTRADO_RE.test(buf)) {
+        const err = new Error("GitHub CLI (gh) não está instalada, ou não está no PATH.") as Error & { ghNaoInstalado?: boolean };
+        err.ghNaoInstalado = true;
+        reject(err);
+        return;
+      }
       reject(new Error(`login terminou antes do código (código ${code ?? "desconhecido"})`));
     });
   }).catch((err) => {
     stopSession(id, true);
-    throw badRequest((err as Error).message);
+    throw badRequest((err as Error).message, { ghNaoInstalado: (err as Error & { ghNaoInstalado?: boolean }).ghNaoInstalado });
   });
 
   session.code = captured.code;

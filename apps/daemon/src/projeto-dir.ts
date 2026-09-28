@@ -409,8 +409,12 @@ function remoteOrigin(projectPath: string): string | undefined {
       stdio: ["ignore", "pipe", "ignore"],
     });
     out = bruto.trim() || undefined;
-  } catch {
+  } catch (e) {
     out = undefined;
+    log.aviso("drive", "não consegui ler o remote git do projeto; slug vai cair pro nome da pasta", {
+      projectPath,
+      erro: (e as Error).message,
+    });
   }
   remoteOrigemCache.set(chave, out);
   return out;

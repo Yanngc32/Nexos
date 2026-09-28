@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld("nexo", {
   },
   openExternal: (url) => ipcRenderer.invoke("shell:external", url),
   revealPath: (path) => ipcRenderer.invoke("shell:reveal", path),
+  selectPath: (path) => ipcRenderer.invoke("shell:select", path),
+  instalarGithubCli: () => ipcRenderer.invoke("github:instalar-cli"),
   clearBrowserCache: (url) => ipcRenderer.invoke("browser:clear-cache", url),
   pickFolder: () => ipcRenderer.invoke("folder:pick"),
   setProject: (path) => ipcRenderer.invoke("project:set", path),

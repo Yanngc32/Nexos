@@ -3327,6 +3327,8 @@ function menuDoRepo(e, path) {
       submenu: [
         { rotulo: "Copiar caminho", icoSvg: ctxIco("copiar"), onSelect: () => void copiarTexto(path, "Caminho") },
         { rotulo: "Abrir a pasta no sistema", icoSvg: ctxIco("fora"), onSelect: () => void abrirPastaNoSistema(path) },
+        { rotulo: "Ver pasta de dados do Nexos", icoSvg: ctxIco("fora"), onSelect: () => void verPastaDeDadosDoNexos(path) },
+        { rotulo: "Vincular pasta manualmente…", icoSvg: icoSvg("graph", "ctx-svg"), onSelect: () => void vincularPastaManualmente(path) },
       ],
     },
     {
@@ -3419,6 +3421,28 @@ async function abrirPastaNoSistema(path) {
   } catch (err) {
     appendEvent({ type: "error", message: `Não abriu a pasta: ${err.message}` });
   }
+}
+
+/** Pasta onde o Nexos guarda memória/tarefas/repo-map deste projeto — destacada no explorer. */
+async function verPastaDeDadosDoNexos(path) {
+  try {
+    const { dir } = await req(`/v1/projects/dados-dir?projectPath=${encodeURIComponent(path)}`);
+    await window.nexo.selectPath(dir);
+  } catch (err) {
+    appendEvent({ type: "error", message: `Não abriu a pasta de dados: ${err.message}` });
+  }
+}
+
+/**
+ * Campo "nome fixo da pasta" (`/v1/projeto/slug`) já existe em Memória do Projeto, mas só
+ * aparece sozinho quando o daemon acha o nome "instável" (sem git). Esse atalho do menu força
+ * ele a aparecer sempre — pro caso do automático ter escolhido a pasta errada calado (ex.: git
+ * não achado no PATH) e a pessoa precisar apontar na mão mesmo com `origem` batendo "git".
+ */
+async function vincularPastaManualmente(path) {
+  forcarSlugManualNaProximaAbertura = true;
+  await abrirModuloEmRepo(path, "graph");
+  $("slug-manual").focus();
 }
 
 /** Botão direito numa conversa da árvore. */
@@ -4903,10 +4927,17 @@ function desenharArea() {
   const { abertos } = distribuirChats();
   for (const d of colunasDosChats.querySelectorAll(":scope > .chat-div")) d.remove();
   const vazio = colunasDosChats.querySelector(".chat-cols-vazio");
+  // `insertBefore` de um nó que já está no lugar certo ainda reseta o scroll dos filhos dele
+  // (mesmo problema que motivou o `moveBefore()` do Chrome) — sem checar isso, toda troca de
+  // foco em tela dividida reinseria o(s) chat(s) que não são o último, jogando o log pro topo.
+  const ordemAtual = [...colunasDosChats.children].filter((el) => el !== vazio && chats.some((c) => c.el.root === el));
+  const jaEmOrdem = ordemAtual.length === chats.length && ordemAtual.every((el, i) => el === chats[i].el.root);
   let anterior = null;
   for (const chat of chats) {
     const root = chat.el.root;
-    if (root.nextElementSibling !== vazio || root.parentElement !== colunasDosChats) colunasDosChats.insertBefore(root, vazio);
+    if (!jaEmOrdem && (root.nextElementSibling !== vazio || root.parentElement !== colunasDosChats)) {
+      colunasDosChats.insertBefore(root, vazio);
+    }
     const aberto = abertos.includes(chat);
     root.classList.toggle("hidden", !aberto);
     root.dataset.foco = areaDeChats.ehFoco(chat) ? "1" : "0";
@@ -6112,6 +6143,11 @@ function fmtQuando(iso) {
   }
 }
 
+/** Ligada por `vincularPastaManualmente`: força a seção do slug manual a aparecer uma vez,
+ * mesmo com `origem === "git"` — pro caso do automático ter acertado a origem mas errado o
+ * destino (ver comentário em `vincularPastaManualmente`). */
+let forcarSlugManualNaProximaAbertura = false;
+
 async function loadGraphStatus() {
   if (!state.ok || !state.projectPath) return;
   $("repomap-err").classList.add("hidden");
@@ -6125,7 +6161,12 @@ async function loadGraphStatus() {
     return;
   }
 
-  $("slug-instavel-sec").classList.toggle("hidden", status.origem !== "pasta");
+  const instavel = status.origem === "pasta";
+  $("slug-instavel-sec").classList.toggle("hidden", !instavel && !forcarSlugManualNaProximaAbertura);
+  $("slug-instavel-hint").textContent = instavel
+    ? "Sem remote git pra identificar o projeto, o nome da pasta vem do nome da pasta local — pode mudar ou colidir se você abrir este projeto de outra máquina."
+    : "O Nexos achou a pasta automaticamente. Se ela estiver errada (dados de outra máquina, remote git trocado), aponte a certa aqui.";
+  forcarSlugManualNaProximaAbertura = false;
   $("slug-atual").textContent = status.slug || "";
 
   const mem = status.memoria;
@@ -8075,6 +8116,7 @@ $("btn-github-login-copiar").addEventListener("click", () => {
   const code = $("github-login-code").value.trim();
   if (code) void copiarTexto(code, "Código");
 });
+$("btn-github-login-instalar").addEventListener("click", () => void instalarGithubCli());
 $("github-login-modal").addEventListener("click", (e) => {
   if (e.target === $("github-login-modal")) closeGithubLoginModal();
 });
@@ -9631,11 +9673,12 @@ async function renderGithub() {
   }
 }
 
-function githubLoginMsg(text, ok = false) {
+function githubLoginMsg(text, ok = false, ghNaoInstalado = false) {
   const el = $("github-login-msg");
   el.textContent = text || "";
   el.classList.toggle("hidden", !text);
   el.classList.toggle("ok", ok);
+  $("github-login-instalar-row").classList.toggle("hidden", !ghNaoInstalado);
 }
 
 function stopGithubLoginPoll() {
@@ -9694,7 +9737,23 @@ async function startGithubLogin() {
     $("github-login-code").value = r.code;
     watchGithubLogin();
   } catch (e) {
-    githubLoginMsg(e.message || "Não deu pra começar o login.");
+    githubLoginMsg(e.message || "Não deu pra começar o login.", false, Boolean(e.data?.ghNaoInstalado));
+  }
+}
+
+async function instalarGithubCli() {
+  const btn = $("btn-github-login-instalar");
+  btn.disabled = true;
+  try {
+    const r = await window.nexo.instalarGithubCli();
+    githubLoginMsg(
+      r.metodo === "winget" ? "GitHub CLI instalada. Tenta conectar de novo." : "Abri a página de instalação — depois de instalar, tenta de novo.",
+      true,
+    );
+  } catch (e) {
+    githubLoginMsg(e.message || "Não deu pra instalar. Baixa direto de cli.github.com.", false, true);
+  } finally {
+    btn.disabled = false;
   }
 }
 

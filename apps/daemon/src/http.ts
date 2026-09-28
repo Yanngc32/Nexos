@@ -19,7 +19,15 @@ import { disconnectGoogle, googleAccount } from "./google-auth.ts";
 import { cancelGoogleLogin, googleLoginStatus, startEscolherPasta, startGoogleLogin } from "./google-conectar.ts";
 import { driveStatus, sincronizarDrive } from "./drive-sync.ts";
 import { projectKey, tokenPath } from "./home.ts";
-import { migrarArmazenamento, migrarProjeto, migrarRaizLegadaRemovida, pastaDeCodigo, projectSlug, projetosDirIgnorado } from "./projeto-dir.ts";
+import {
+  migrarArmazenamento,
+  migrarProjeto,
+  migrarRaizLegadaRemovida,
+  pastaDeCodigo,
+  projectDir,
+  projectSlug,
+  projetosDirIgnorado,
+} from "./projeto-dir.ts";
 import {
   accountInfo,
   addProfile,
@@ -1079,6 +1087,13 @@ export function createApp(home: string, token: string): Hono {
     } catch {
       return c.json({ error: "sem logo" }, 404);
     }
+  });
+
+  /** Pasta de dados do Nexos do projeto (memória/tarefas/repo-map) — cria se ainda não existir. */
+  app.get("/v1/projects/dados-dir", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    return c.json({ dir: projectDir(projectPath, home) });
   });
 
   /* ---------- serviços locais do projeto ---------- */
@@ -2592,8 +2607,8 @@ export function createApp(home: string, token: string): Hono {
     try {
       return c.json(await startGithubLogin(home));
     } catch (e) {
-      const err = e as Error & { status?: number };
-      return c.json({ error: err.message }, (err.status ?? 400) as 400);
+      const err = e as Error & { status?: number; ghNaoInstalado?: boolean };
+      return c.json({ error: err.message, ...(err.ghNaoInstalado ? { ghNaoInstalado: true } : {}) }, (err.status ?? 400) as 400);
     }
   });
 

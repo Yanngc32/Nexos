@@ -301,9 +301,11 @@
           <section class="ag-sec hidden" id="slug-instavel-sec">
             <h2>Pasta deste projeto <span class="mod-meta" data-on="0">nome instável</span></h2>
             <p class="ag-hint">
-              Sem remote git pra identificar o projeto, o nome da pasta (<code id="slug-atual"></code>)
-              vem do nome da pasta local — pode mudar ou colidir se você abrir este projeto de outra
-              máquina. Defina um nome fixo pra evitar isso:
+              <span id="slug-instavel-hint">
+                Sem remote git pra identificar o projeto, o nome da pasta vem do nome da pasta
+                local — pode mudar ou colidir se você abrir este projeto de outra máquina.
+              </span>
+              Nome atual: <code id="slug-atual"></code>. Defina um nome fixo pra evitar isso:
             </p>
             <div class="ag-row">
               <input id="slug-manual" type="text" spellcheck="false" placeholder="meu-projeto" aria-label="Nome fixo da pasta do projeto" />
@@ -1392,6 +1394,9 @@
           <button type="button" id="btn-github-login-open" class="ghost">Abrir github.com/login/device</button>
         </div>
         <p id="github-login-msg" class="login-msg hidden"></p>
+        <div class="accent-row hidden" id="github-login-instalar-row">
+          <button type="button" id="btn-github-login-instalar" class="ghost">Instalar GitHub CLI</button>
+        </div>
         <div class="accent-row">
           <button type="button" id="btn-github-login-cancelar" class="ghost">Cancelar</button>
         </div>

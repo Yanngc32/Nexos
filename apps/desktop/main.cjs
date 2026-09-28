@@ -1500,6 +1500,43 @@ app.whenReady().then(async () => {
     if (erro) throw new Error(erro);
     return { ok: true };
   });
+  /**
+   * Mostra a PASTA já selecionada/destacada dentro do gerenciador de arquivos do SO (abre o
+   * pai, não entra nela) — diferente de `shell:reveal`, que abre e entra. Mesma checagem: só
+   * diretório que existe, caminho vem do daemon (não do usuário digitando).
+   */
+  handle("shell:select", async (_e, raw) => {
+    const alvo = String(raw ?? "");
+    if (!alvo) throw new Error("Caminho vazio");
+    const info = await stat(alvo).catch(() => null);
+    if (!info?.isDirectory()) throw new Error("Pasta inexistente");
+    shell.showItemInFolder(resolve(alvo));
+    return { ok: true };
+  });
+  /**
+   * Botão "Instalar" do modal de login do GitHub, quando o `gh` não está no PATH. Tenta o
+   * `winget` (já vem com o Windows 10 1809+/11) direto; sem `winget` no PATH (ENOENT), cai pra
+   * abrir a página oficial — o usuário instala na mão e tenta o login de novo depois.
+   */
+  handle("github:instalar-cli", async () => {
+    try {
+      await new Promise((res, rej) => {
+        execFile(
+          "winget",
+          ["install", "--id", "GitHub.cli", "-e", "--source", "winget", "--accept-package-agreements", "--accept-source-agreements"],
+          { windowsHide: true },
+          (err) => (err ? rej(err) : res()),
+        );
+      });
+      return { metodo: "winget" };
+    } catch (e) {
+      if (e && e.code === "ENOENT") {
+        await shell.openExternal("https://cli.github.com/");
+        return { metodo: "pagina" };
+      }
+      throw new Error(e?.message || "winget falhou");
+    }
+  });
   handle("folder:pick", async () => {
     const r = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
     if (r.canceled) return null;
