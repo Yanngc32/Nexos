@@ -9,8 +9,9 @@
     "dev": "electron .",
     "test": "vitest run",
     "deploy:daemon": "node scripts/deploy-daemon.mjs",
-    "build": "pnpm run deploy:daemon && electron-builder --win",
-    "build:publish": "pnpm run deploy:daemon && electron-builder --win --publish always"
+    "build:chrome": "pnpm --filter @nexos/chrome-extension build",
+    "build": "pnpm run deploy:daemon && pnpm run build:chrome && electron-builder --win",
+    "build:publish": "pnpm run deploy:daemon && pnpm run build:chrome && electron-builder --win --publish always"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",

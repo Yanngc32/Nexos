@@ -9967,9 +9967,121 @@ async function syncDriveUi() {
   await renderGoogleDrive();
 }
 
+/**
+ * Configurações › Extensão do Chrome: status (`GET /v1/chrome/status`, relido a cada 3 s só com o
+ * painel aberto) e o código de pareamento — o MESMO `POST /v1/pair` do celular, sem QR.
+ */
+let chxTimer = null;
+let chxPar = null;
+
+function chxQuando(ms) {
+  return new Date(ms).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+async function chxPintar() {
+  if (state.setPanel !== "chrome" || $("settings").classList.contains("hidden")) {
+    clearInterval(chxTimer);
+    chxTimer = null;
+    return;
+  }
+  const s = await req("/v1/chrome/status").catch(() => null);
+  if (!s) return;
+  $("chx-status").textContent = s.conectada ? "● Conectada" : "○ Desconectada";
+  $("chx-status").dataset.estado = s.conectada ? "ok" : "";
+  const partes = [];
+  if (s.versao) partes.push(`extensão v${s.versao}`);
+  if (s.conectada && s.desde) partes.push(`conectada desde ${chxQuando(s.desde)}`);
+  if (!s.conectada && s.ultimaQueda) partes.push(`caiu às ${chxQuando(s.ultimaQueda)}`);
+  if (!s.conectada && !s.ultimaQueda) partes.push("nenhum Chrome ligado ainda");
+  $("chx-aviso").textContent = partes.join(" · ");
+  if (s.conectada && chxPar) {
+    chxPar = null;
+    $("chx-codigo-box").classList.add("hidden");
+    $("btn-chx-codigo").textContent = "Gerar código";
+  }
+  if (chxPar) {
+    const resta = Math.max(0, Math.round((chxPar.expiraEm - Date.now()) / 1000));
+    if (!resta) {
+      chxPar = null;
+      $("chx-codigo-box").classList.add("hidden");
+      $("btn-chx-codigo").textContent = "Gerar código";
+    } else {
+      $("chx-codigo").textContent = chxPar.codigo;
+      $("btn-chx-codigo").textContent = `expira em ${resta}s`;
+    }
+  }
+}
+
+function chxLigar() {
+  if (!chxTimer) chxTimer = setInterval(() => void chxPintar(), 1000);
+  void chxPintar();
+  void chxPintarInstalacao();
+}
+
+/** Grupo "Instalar": pasta fixa e versões (a que está na pasta × a que veio com o app). */
+async function chxPintarInstalacao() {
+  const info = await window.nexo.chromeExtInfo?.().catch(() => null);
+  if (!info) return;
+  $("chx-pasta").textContent = info.pasta;
+  $("btn-chx-instalar").textContent = info.instalada ? "Reinstalar" : "Instalar";
+  $("chx-versao").textContent = !info.disponivel
+    ? "Extensão não veio com este app (em dev: rode pnpm chrome)."
+    : info.instalada
+      ? info.instalada === info.disponivel
+        ? `Versão ${info.instalada}, a mais nova.`
+        : `Pasta com a ${info.instalada}; este app traz a ${info.disponivel} — clique em Reinstalar e reinicie o Chrome.`
+      : `Versão ${info.disponivel}, ainda não instalada.`;
+  if (!info.chrome) $("chx-inst-aviso").textContent = "Não achei o Chrome instalado nos lugares de sempre — abra chrome://extensions à mão.";
+}
+
+async function chxCopiarPasta(pasta) {
+  await navigator.clipboard.writeText(pasta);
+}
+
+$("btn-chx-instalar").addEventListener("click", async () => {
+  const aviso = $("chx-inst-aviso");
+  try {
+    const r = await window.nexo.chromeExtPreparar();
+    await chxCopiarPasta(r.pasta);
+    const aberto = await window.nexo.chromeExtAbrirChrome();
+    $("chx-passos").classList.remove("hidden");
+    aviso.textContent = aberto?.ok
+      ? "Caminho copiado e Chrome aberto em chrome://extensions. Siga os passos acima."
+      : "Caminho copiado. Não achei o Chrome: abra chrome://extensions à mão e siga os passos acima.";
+  } catch (e) {
+    aviso.textContent = e.message || "Não deu pra preparar a extensão.";
+  }
+  void chxPintarInstalacao();
+});
+
+$("btn-chx-copiar").addEventListener("click", async () => {
+  const info = await window.nexo.chromeExtInfo();
+  await chxCopiarPasta(info.pasta);
+  $("chx-inst-aviso").textContent = "Caminho copiado.";
+});
+
+$("btn-chx-pasta").addEventListener("click", async () => {
+  try {
+    await window.nexo.revealPath((await window.nexo.chromeExtInfo()).pasta);
+  } catch {
+    $("chx-inst-aviso").textContent = "A pasta ainda não existe — clique em Instalar primeiro.";
+  }
+});
+
+$("btn-chx-codigo").addEventListener("click", async () => {
+  try {
+    chxPar = await req("/v1/pair", { method: "POST" });
+    $("chx-codigo-box").classList.remove("hidden");
+    void chxPintar();
+  } catch (e) {
+    $("chx-aviso").textContent = e.message || "Não deu pra gerar o código.";
+  }
+});
+
 /** Nav e busca das Configurações: painel por vez, busca varre todos. */
 function showSetPanel(id) {
   state.setPanel = id;
+  if (id === "chrome") chxLigar();
   for (const b of document.querySelectorAll(".set-nav-item")) b.dataset.on = b.dataset.panel === id ? "1" : "0";
   for (const sec of document.querySelectorAll(".set-sec")) sec.classList.toggle("hidden", sec.dataset.panel !== id);
   $("set-scroll").scrollTop = 0;

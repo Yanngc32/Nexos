@@ -15,6 +15,7 @@ import { MCP_TOOLS_VEREDITO } from "./veredito.ts";
 import { MCP_TOOLS_PERGUNTAR, temPerguntaPendente } from "./perguntas.ts";
 import { MCP_TOOLS_DELEGAR, resetContadorDeDelegacao } from "./delegar.ts";
 import { MCP_TOOLS_NAVEGADOR } from "./navegador.ts";
+import { extensaoRecente, MCP_TOOLS_CHROME } from "./chrome.ts";
 import { MCP_TOOLS_DS_PRINT } from "./ds-print.ts";
 import { MCP_TOOLS_PAINEL, MCP_TOOLS_PLANEJAR } from "./paineis.ts";
 import { MCP_TOOLS_WINDOWS_CONTROL } from "./windows-control.ts";
@@ -761,6 +762,9 @@ function mcpDaConversa(
     ...(!meta.runId && perfil.delegacaoModo && perfil.delegacaoModo !== "negado" ? MCP_TOOLS_DELEGAR : []),
     // Só em conversa NORMAL — não existe <webview> num run headless (ver navegador.ts).
     ...(!meta.runId && perfil.navegadorModo && perfil.navegadorModo !== "negado" ? MCP_TOOLS_NAVEGADOR : []),
+    // Chrome da pessoa (chrome.ts): mesmo modo do painel Browser, e só com a extensão viva — sem ela
+    // as 9 ferramentas seriam só schema gasto em todo turno
+    ...(!meta.runId && perfil.navegadorModo && perfil.navegadorModo !== "negado" && extensaoRecente() ? MCP_TOOLS_CHROME : []),
     // print do card do design system renderizado (ds-print.ts): conversa normal de projeto
     ...(!meta.runId && meta.projectPath ? MCP_TOOLS_DS_PRINT : []),
     // abrir o painel certo na área de trabalho (navegador, design, quadro…): conversa normal

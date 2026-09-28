@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <title>Nexos</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="pp">
+      <header class="pp-top">
+        <img class="pp-logo" src="mago.png" alt="" />
+        <span class="pp-nome">Nexos</span>
+        <span class="pp-est" id="est" role="status"></span>
+      </header>
+
+      <!-- não pareado / token recusado -->
+      <section class="pp-body hidden" id="v-parear">
+        <p class="pp-h">Ligar ao Nexos</p>
+        <p class="pp-p">
+          No app, abra <b>Configurações › Extensão do Chrome</b>, clique em <b>Gerar código</b> e digite aqui.
+        </p>
+        <p class="pp-erro hidden" id="parear-aviso"></p>
+        <form id="f-parear" class="pp-form">
+          <label class="pp-lbl" for="codigo">Código</label>
+          <input id="codigo" class="pp-cod" autocomplete="off" spellcheck="false" maxlength="8" placeholder="AB3K9Z" required />
+          <label class="pp-lbl" for="base">Endereço do motor</label>
+          <input id="base" class="pp-in" spellcheck="false" placeholder="http://127.0.0.1:7432" />
+          <button class="pp-btn" type="submit" id="btn-parear">Parear</button>
+        </form>
+        <p class="pp-dica">ⓘ O agente só mexe nas abas do grupo <b>Nexos</b> que ele mesmo abrir. Suas abas ficam intocadas.</p>
+      </section>
+
+      <!-- motor fora do ar -->
+      <section class="pp-body hidden" id="v-sem-motor">
+        <div class="pp-aviso">
+          <span class="i perigo" aria-hidden="true">✕</span>
+          <div><b>Não achei o motor do Nexos</b><span>Abra o app do Nexos. A extensão tenta de novo sozinha a cada 5 s.</span></div>
+        </div>
+        <button class="pp-sec" type="button" id="btn-tentar">↻ Tentar agora</button>
+        <p class="pp-meta" id="sem-motor-meta"></p>
+      </section>
+
+      <!-- pausado -->
+      <section class="pp-body hidden" id="v-pausado">
+        <div class="pp-aviso">
+          <span class="i atencao" aria-hidden="true">⚠</span>
+          <div><b>Agente pausado</b><span>Todo comando que chegar é recusado e o agente fica sabendo. Suas abas continuam do jeito que estão.</span></div>
+        </div>
+        <button class="pp-btn" type="button" id="btn-retomar">▶ Retomar</button>
+      </section>
+
+      <!-- conectado -->
+      <section class="pp-body hidden" id="v-conectado">
+        <div class="pp-agente">
+          <div class="t">
+            <div class="a" id="agente-tit"></div>
+            <div class="m" id="agente-sub"></div>
+          </div>
+          <button class="pp-sec pequeno" type="button" id="btn-pausar">❚❚ Pausar</button>
+        </div>
+        <div class="pp-lbl linha"><span>Abas do grupo Nexos</span><span id="abas-n">0</span></div>
+        <div id="abas"></div>
+        <div class="pp-lbl linha"><span>Últimas ações</span></div>
+        <div class="pp-log" id="log"></div>
+      </section>
+
+      <footer class="pp-rod hidden" id="rodape">
+        <span id="rod-base"></span>
+        <button type="button" class="pp-link" id="btn-desparear">Desparear</button>
+      </footer>
+    </div>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

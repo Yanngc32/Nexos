@@ -8,6 +8,15 @@ importers:
 
   .: {}
 
+  apps/chrome-extension:
+    devDependencies:
+      happy-dom:
+        specifier: ^15.11.7
+        version: 15.11.7
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(happy-dom@15.11.7)
+
   apps/daemon:
     dependencies:
       tree-sitter-wasms:

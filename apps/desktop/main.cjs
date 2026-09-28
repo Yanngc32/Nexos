@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Tray, Menu, Notification, dialog, ipcMain, nativeImage, screen, shell } = require("electron");
 const { BORDAS, bordaMaisProxima, retanguloNaBorda } = require("./painel-borda.cjs");
 const atualizador = require("./atualizador.cjs");
+const extensaoChrome = require("./extensao-chrome.cjs");
 const { criarLog } = require("./log.cjs");
 const { HEALTH_TIMEOUT_MS, agentesVivos, criarVigia, destravar, lerPidDoMotor, saudeDoMotor } = require("./destravar.cjs");
 const { autoUpdater } = require("electron-updater");
@@ -1499,6 +1500,29 @@ app.whenReady().then(async () => {
    * repositório). Só diretório que existe: arquivo solto abriria no programa
    * associado, que é executar conteúdo do disco por caminho vindo do renderer.
    */
+  /** Configurações › Extensão do Chrome — ver extensao-chrome.cjs. */
+  const origemExtensao = () => extensaoChrome.origemDaExtensao({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, here });
+  const pastaExtensao = () => join(nexoHome(), "chrome-extension");
+  handle("chrome-ext:info", () => ({
+    pasta: pastaExtensao(),
+    instalada: extensaoChrome.versaoDe(pastaExtensao()),
+    disponivel: extensaoChrome.versaoDe(origemExtensao()),
+    chrome: Boolean(extensaoChrome.acharChrome()),
+  }));
+  handle("chrome-ext:preparar", () => extensaoChrome.prepararExtensao(origemExtensao(), pastaExtensao()));
+  /** `chrome://` não tem handler no SO: só abre passando pro próprio chrome.exe. */
+  handle("chrome-ext:abrir-chrome", () => {
+    const exe = extensaoChrome.acharChrome();
+    if (!exe) return { ok: false };
+    spawn(exe, ["chrome://extensions"], { detached: true, stdio: "ignore" }).unref();
+    return { ok: true };
+  });
+  // quem já instalou recebe a versão nova da extensão junto com a do app (vale no próximo início do Chrome)
+  try {
+    extensaoChrome.prepararExtensao(origemExtensao(), pastaExtensao(), { soSeJaInstalada: true });
+  } catch {
+    /* sem extensão no pacote (dev sem "pnpm chrome"): nada a atualizar */
+  }
   handle("shell:reveal", async (_e, raw) => {
     const alvo = String(raw ?? "");
     if (!alvo) throw new Error("Caminho vazio");

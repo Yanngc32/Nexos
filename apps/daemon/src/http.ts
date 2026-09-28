@@ -107,6 +107,7 @@ import { ferramentaDeVeredito } from "./veredito.ts";
 import { ferramentaDePerguntar, responderPergunta } from "./perguntas.ts";
 import { ferramentaDeDelegar, modoDeDelegacaoDaThread } from "./delegar.ts";
 import { ferramentasDeNavegador, modoDeNavegadorDaThread, responderNavegador } from "./navegador.ts";
+import { chromeBus, extensaoConectou, extensaoRecente, ferramentasDoChrome, responderChrome, statusDaExtensao } from "./chrome.ts";
 import { ferramentaDePrintDoDs, responderPrint } from "./ds-print.ts";
 import { ferramentasDeControleDoWindows } from "./windows-control.ts";
 import {
@@ -2438,6 +2439,7 @@ export function createApp(home: string, token: string): Hono {
       ...(threadId ? ferramentaDePerguntar(threadId, home)() : []),
       ...(modoDelegacao !== "negado" ? ferramentaDeDelegar(threadId, projectPath, modoDelegacao, home)() : []),
       ...(modoNavegador !== "negado" ? ferramentasDeNavegador(threadId, home, modoNavegador)() : []),
+      ...(modoNavegador !== "negado" && extensaoRecente() ? ferramentasDoChrome(threadId, home, modoNavegador)() : []),
       ...(threadId && projectPath && !runId ? ferramentaDePrintDoDs(threadId, projectPath, home)() : []),
       ...(threadId && !runId ? ferramentaDePainel(threadId, modoNavegador, home)() : []),
       // conversa de implementação já nasceu de um plano: não abre outro
@@ -2477,6 +2479,50 @@ export function createApp(home: string, token: string): Hono {
     const resultado = { ok: body.ok, texto: typeof body.texto === "string" ? body.texto : "", imagem: body.imagem };
     const resolvido = responderNavegador(threadId, resultado);
     if (!resolvido) return c.json({ error: "nenhum comando de navegador pendente nesta conversa" }, 404);
+    return c.json({ ok: true });
+  });
+
+  /**
+   * Stream da extensão do Chrome (chrome.ts): só os comandos `nexo_chrome_*`, nada da conversa.
+   * O `ping` a cada 20 s é o que mantém o service worker da extensão (MV3) acordado.
+   */
+  app.get("/v1/chrome/events", (c) => {
+    const fechar = extensaoConectou(c.req.query("versao") ?? "");
+    return streamSSE(c, async (stream) => {
+      const onCmd = (ev: unknown) => {
+        void stream.writeSSE({ event: "comando", data: JSON.stringify(ev) });
+      };
+      chromeBus.on("comando", onCmd);
+      const ping = setInterval(() => void stream.writeSSE({ event: "ping", data: "" }), 20_000);
+      await stream.writeSSE({ event: "ola", data: JSON.stringify(statusDaExtensao()) });
+      await new Promise<void>((resolve) => {
+        stream.onAbort(() => {
+          clearInterval(ping);
+          chromeBus.off("comando", onCmd);
+          fechar();
+          resolve();
+        });
+      });
+    });
+  });
+
+  app.get("/v1/chrome/status", (c) => c.json(statusDaExtensao()));
+
+  /** A extensão devolve o resultado de um `chrome_comando` — mesmo formato de `/v1/navegador/.../responder`. */
+  app.post("/v1/chrome/:threadId/responder", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      id?: string;
+      ok?: boolean;
+      texto?: string;
+      imagem?: { dataBase64: string; mimeType: string };
+    };
+    if (typeof body.ok !== "boolean") return c.json({ error: 'faltou "ok"' }, 400);
+    const img = body.imagem;
+    const imagem =
+      img && typeof img.dataBase64 === "string" && typeof img.mimeType === "string" ? { dataBase64: img.dataBase64, mimeType: img.mimeType } : undefined;
+    const resultado = { ok: body.ok, texto: typeof body.texto === "string" ? body.texto : "", ...(imagem ? { imagem } : {}) };
+    const ok = responderChrome(c.req.param("threadId"), resultado, typeof body.id === "string" ? body.id : undefined);
+    if (!ok) return c.json({ error: "nenhum comando do Chrome pendente com esse id nesta conversa" }, 404);
     return c.json({ ok: true });
   });
 
