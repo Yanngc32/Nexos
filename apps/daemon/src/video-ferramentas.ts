@@ -90,7 +90,10 @@ export function ferramentasDeVideo(projectPath: string, home: string): Conjunto 
             }
             const vids = listarVideos(projectPath, home);
             const musicas = musicasDoNexos().map((m) => `- ${m.fonte} · ${m.nome} · ${m.bpm} BPM · ${Math.round(m.duracao)} s`);
-            const telas = telasImportaveis(projectPath, home).map((t) => `- ${t.sistema}/${t.card} · ${t.titulo} (${t.secao})`);
+            const todas = telasImportaveis(projectPath, home);
+            const linhaTela = (t: (typeof todas)[number]) => `- ${t.sistema}/${t.card} · ${t.titulo} (${t.secao})`;
+            const reais = todas.filter((t) => !t.mock).map(linhaTela);
+            const mocks = todas.filter((t) => t.mock).map(linhaTela);
             const efeitos = a.efeitos
               ? catalogoDeEfeitos().map((e) => `- ${e.arquivo} · ${e.categoria} · ${e.duracao.toFixed(2)} s${e.cansa ? " · CANSA (evite repetir)" : ""}`)
               : ["(peça com efeitos: true)"];
@@ -100,8 +103,11 @@ export function ferramentasDeVideo(projectPath: string, home: string): Conjunto 
                 vids.length ? vids.map((v) => `- ${v.id} · "${v.nome}" · ${v.formato} · ${v.cenas} cena(s) · ${fmtS(v.total)}`).join("\n") : "Nenhum vídeo ainda (crie com nexo_video_criar).",
                 "\nMúsicas do Nexos (ende.app, CC BY 4.0):",
                 ...musicas,
-                "\nTelas do DS que dá pra importar como cena (cópia):",
-                ...(telas.length ? telas : ["(nenhuma)"]),
+                "\nTelas do DS oficial (as telas do app — prefira estas; use várias pra mostrar o produto):",
+                ...(reais.length ? reais : ["(nenhuma)"]),
+                ...(mocks.length
+                  ? ["\nPainel de mocks (telas propostas em planos, podem ser rascunho ou teste — NÃO são o app; só use se o vídeo for sobre essa mudança):", ...mocks]
+                  : []),
                 "\nEfeitos (Kenney, CC0):",
                 ...efeitos,
               ].join("\n"),

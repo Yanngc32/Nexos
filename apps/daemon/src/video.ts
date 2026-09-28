@@ -576,15 +576,21 @@ tl.fromTo(".tela", { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power2.ou
 `;
 }
 
-/** Telas que dá pra importar: DS oficial + painel de mocks dele, por seção. */
-export function telasImportaveis(projectPath: string, home: string): { sistema: string; nome: string; secao: string; card: string; titulo: string }[] {
+/**
+ * Telas que dá pra importar: DS oficial primeiro, depois o painel de mocks dele, por seção.
+ * `mock`: veio do painel de mocks (tela proposta num plano, pode ser rascunho ou teste — não é o app).
+ */
+export function telasImportaveis(projectPath: string, home: string): { sistema: string; nome: string; secao: string; card: string; titulo: string; mock: boolean }[] {
   const est = estadoDs(projectPath, home);
   const oficial = est.oficial;
-  const alvo = est.sistemas.filter((s) => s.id === oficial || (oficial && s.mocksDe === oficial));
-  const out: { sistema: string; nome: string; secao: string; card: string; titulo: string }[] = [];
+  if (!oficial) return [];
+  const alvo = [...est.sistemas.filter((s) => s.id === oficial), ...est.sistemas.filter((s) => s.mocksDe === oficial)];
+  const out: { sistema: string; nome: string; secao: string; card: string; titulo: string; mock: boolean }[] = [];
   for (const s of alvo) {
     const ds = lerSistema(projectPath, home, s);
-    for (const c of ds.cards) out.push({ sistema: s.id, nome: s.nome, secao: ds.secoes.find((x) => x.id === c.secao)?.titulo ?? c.secao, card: c.id, titulo: c.titulo });
+    for (const c of ds.cards) {
+      out.push({ sistema: s.id, nome: s.nome, secao: ds.secoes.find((x) => x.id === c.secao)?.titulo ?? c.secao, card: c.id, titulo: c.titulo, mock: !!s.mocksDe });
+    }
   }
   return out;
 }

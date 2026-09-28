@@ -25,7 +25,7 @@ depois do render.
 |---|---|
 | `nexo_video_listar` | vídeos do projeto; com `video`, cenas (id, duração, início/fim), transições, áudio e o HTML de cada cena; músicas do Nexos, telas do DS importáveis e (com `efeitos: true`) o catálogo de efeitos |
 | `nexo_video_criar` | cria o vídeo (nome + formato 16:9 / 9:16 / 1:1) e abre o painel no Canvas |
-| `nexo_video_importar_tela` | tela do DS oficial ou do painel de mocks vira cena (CÓPIA) |
+| `nexo_video_importar_tela` | tela do DS oficial (ou, se o vídeo for sobre ela, do painel de mocks) vira cena (CÓPIA) |
 | `nexo_video_cena_salvar` | cria/edita uma cena (fragmento HTML + duração) |
 | `nexo_video_ordem` | reordena as cenas |
 | `nexo_video_transicao` | transição entre duas cenas vizinhas (pronta ou código próprio) |
@@ -41,8 +41,10 @@ Leia o projeto antes de propor qualquer cena:
 
 1. **DS oficial** (tokens + DESIGN.md): o vídeo usa só `var(--token)` dele — cores, fontes,
    raios, espaços. É isso que dá "a cara do projeto".
-2. **Telas prontas** (`nexo_video_listar` mostra as telas do DS e do painel de mocks): são a
-   coisa real. Prefira importar a redesenhar.
+2. **Telas prontas** (`nexo_video_listar`): as do **DS oficial** são as telas do app — a coisa
+   real. Prefira importar a redesenhar, e use várias pra mostrar o produto, não uma só. As do
+   **painel de mocks** são propostas de planos (podem ser rascunho ou teste): só entram se o vídeo
+   for sobre aquela mudança ou se a pessoa pedir.
 3. **O que mudou**: pra vídeo de release, o `CHANGELOG.md` (a entrada da versão) é o roteiro.
    Pra lançamento, README, `package.json` e as telas do app.
 4. **O fluxo de uso**: entrada → ação principal → resultado. O produto *fazendo* a coisa vale
