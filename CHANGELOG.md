@@ -10,6 +10,19 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Alterado
 
+## [0.10.1] - 2026-09-27
+
+### Adicionado
+
+- Menu do projeto (botão direito na sidebar) ganhou "Ver pasta de dados do Nexos" (abre o explorer já com a pasta selecionada) e "Vincular pasta manualmente…", pra apontar a pasta certa quando a detecção automática (nome do repositório) errar.
+- Modal de "Conectar GitHub" ganhou o botão "Instalar GitHub CLI" quando a CLI (`gh`) não está instalada — tenta instalar sozinho via `winget` e, sem ele, abre a página oficial de download.
+
+### Corrigido
+
+- Login do GitHub mostrava só "código 1" quando a CLI (`gh`) não estava instalada, sem dizer o motivo — agora avisa claramente que falta instalar.
+- Trocar o foco entre conversas abertas lado a lado (tela dividida) voltava o histórico da conversa pro topo, perdendo a posição de rolagem — corrigido.
+- Detecção automática da pasta de dados do projeto (memória/tarefas) falhava calada quando não achava o `git`, sem deixar rastro — agora fica registrado no log do motor pra dar pra diagnosticar.
+
 ## [0.10.0] - 2026-09-25
 
 ### Adicionado
