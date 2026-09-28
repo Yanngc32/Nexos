@@ -471,7 +471,7 @@ async function rodar(home: string): Promise<ResultadoSync> {
       gravarAgora();
     }
     try {
-      importarConversas(home);
+      await importarConversas(home);
     } catch (e) {
       res.erros.push(`importar conversas: ${(e as Error).message}`);
     }

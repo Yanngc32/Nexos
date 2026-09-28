@@ -719,6 +719,16 @@
           <button type="button" id="ds-tornar-oficial" class="ghost ds-tornar-oficial hidden" title="As conversas do projeto passam a seguir este design system, e as telas de mock vão pro painel dele">Definir como oficial</button>
           <span id="ds-pasta" class="tk-projeto" title=""></span>
           <button type="button" id="ds-avisos" class="ds-avisos hidden" title="Ver avisos do lint"></button>
+          <!-- painel de vídeo (canvas-video.js): vídeos entram no seletor acima, como o painel de mocks -->
+          <div class="ds-novo-wrap ds-video-wrap">
+            <button type="button" id="ds-btn-video" class="ghost" title="Montar um vídeo com a cara do DS oficial">+ Vídeo</button>
+            <div id="ds-video-novo" class="ds-novo hidden">
+              <label>Nome<input type="text" id="ds-video-nome" placeholder="Nexos v0.11.0" /></label>
+              <label>Formato<select id="ds-video-formato"><option value="16:9">16:9 · 1920×1080</option><option value="9:16">9:16 · 1080×1920</option><option value="1:1">1:1 · 1080×1080</option></select></label>
+              <p id="ds-video-err" class="ag-err"></p>
+              <button type="button" id="ds-video-criar" class="primary">Criar vídeo</button>
+            </div>
+          </div>
           <div id="ds-toolbar" class="ds-toolbar">
             <select id="ds-tema" class="hidden" aria-label="Tema"></select>
             <button type="button" id="ds-anim" class="ghost" aria-pressed="true" title="Animar mudanças">Animação</button>
@@ -835,6 +845,7 @@
               </div>
             </div>
           </div>
+          <div id="video-painel" class="vp hidden" aria-label="Painel de vídeo"></div>
           <div id="ds-mira-faixa" class="inspector-faixa hidden" data-fase="ligado" role="status">Modo seleção — clique nos elementos de qualquer card. Esc sai.</div>
           <aside id="ds-mira" class="inspector-box ds-mira hidden" aria-label="Elementos selecionados no design system">
             <header>
@@ -1056,7 +1067,7 @@
       </div>
       <section class="pane hidden" id="pane-chat">
         <!-- só no plano em tela cheia: altura da faixa de chats (Manager e Implementação) -->
-        <div id="split-plano" class="split-plano" role="separator" aria-orientation="horizontal" aria-label="Altura dos chats" tabindex="0"></div>
+        <div id="split-plano" class="split-plano" role="separator" aria-label="Tamanho dos chats do plano (arraste; duplo clique minimiza)" title="Arraste pra redimensionar · duplo clique minimiza" tabindex="0"></div>
         <div id="split-chat" class="splitter" role="separator" aria-orientation="vertical" title="Arraste pra redimensionar"></div>
         <button type="button" id="btn-focus-exit" class="focus-exit hidden" title="Sair do foco (Esc)">⤡</button>
         <div id="banner" class="banner hidden">Motor desligado. Liga pra conversar.</div>
@@ -1159,6 +1170,13 @@
                   data-state="off"
                 ></canvas>
               </div>
+            <!-- chat que abriu um plano: ir pro plano e ponte com o Agent Manager (ponte-plano.js) -->
+            <div id="ponte-bar" class="ponte-bar hidden" data-ligada="0">
+              <span class="ponte-dot" aria-hidden="true"></span>
+              <span class="ponte-txt"></span>
+              <button type="button" class="ghost ponte-alternar"></button>
+              <button type="button" class="primary ponte-abrir">Abrir planejamento</button>
+            </div>
             <!-- times/subagentes que este chat chamou, trabalhando (chat-times.js) -->
             <div id="times-bar" class="times-bar hidden" aria-live="polite"></div>
             <form id="composer">

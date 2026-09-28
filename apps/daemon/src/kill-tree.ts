@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { log } from "./log.ts";
@@ -13,8 +13,8 @@ import { log } from "./log.ts";
  * cada nível (BFS) é mais devagar, mas não depende de o `taskkill` ter acertado a foto certa
  * da árvore no instante em que rodou.
  */
-function descendentesWin(pid: number): number[] {
-  const script = [
+function descendentesScript(pid: number): string {
+  return [
     `$alvo = @(${pid})`,
     "$achados = @()",
     "while ($alvo.Count -gt 0) {",
@@ -24,6 +24,10 @@ function descendentesWin(pid: number): number[] {
     "}",
     "$achados",
   ].join("; ");
+}
+
+function descendentesWin(pid: number): number[] {
+  const script = descendentesScript(pid);
   const r = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", script], {
     windowsHide: true,
     encoding: "utf8",
@@ -69,6 +73,50 @@ export function killTree(pid: number): void {
   } catch {
     /* já morreu */
   }
+}
+
+/** Roda um comando sem segurar o event loop; nunca rejeita (o erro vem no resultado). */
+function rodar(cmd: string, args: string[]): Promise<{ erro?: Error; codigo: number | null; stdout: string; stderr: string }> {
+  return new Promise((res) => {
+    execFile(cmd, args, { windowsHide: true, encoding: "utf8" }, (e, stdout, stderr) => {
+      const codigo = e ? (typeof (e as { code?: unknown }).code === "number" ? ((e as { code: number }).code) : null) : 0;
+      res({ ...(e && codigo === null ? { erro: e } : {}), codigo, stdout: stdout ?? "", stderr: stderr ?? "" });
+    });
+  });
+}
+
+/**
+ * Igual a `killTree`, mas sem `spawnSync`: o PowerShell do WMI + um `taskkill` por PID levam
+ * 1–3 s no Windows, e parar uma conversa com o motor congelado esse tempo já foi visto no perfil
+ * de CPU (2026-09-28). Pra caminho quente (parar turno); `killTree` fica pra quem precisa do fim
+ * antes de seguir (serviço liberando porta).
+ */
+export async function killTreeAsync(pid: number): Promise<void> {
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return;
+  if (process.platform !== "win32") return killTree(pid);
+  const script = descendentesScript(pid);
+  const r = await rodar("powershell", ["-NoProfile", "-NonInteractive", "-Command", script]);
+  let filhos: number[] = [];
+  if (r.erro || r.codigo !== 0) {
+    log.aviso("processo", `não consegui listar os filhos do PID ${pid} — só ele vai ser encerrado`, {
+      erro: r.erro?.message ?? "",
+      status: r.codigo,
+      stderr: r.stderr.trim().slice(0, 300),
+    });
+  } else {
+    filhos = r.stdout
+      .split(/\r?\n/)
+      .map((l) => Number(l.trim()))
+      .filter((n) => Number.isInteger(n) && n > 0);
+  }
+  await Promise.all(
+    [pid, ...filhos].map(async (p) => {
+      const k = await rodar("taskkill", ["/pid", String(p), "/f"]);
+      if (!k.erro && (k.codigo === 0 || k.codigo === 128)) return;
+      const motivo = k.erro?.message ?? (k.stderr.trim() || `taskkill saiu com status ${k.codigo}`);
+      log.aviso("processo", `não consegui encerrar o PID ${p}`, { pid: p, status: k.codigo, motivo: motivo.slice(0, 300) });
+    }),
+  );
 }
 
 /**

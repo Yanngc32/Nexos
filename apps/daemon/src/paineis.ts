@@ -3,6 +3,7 @@ import { sessionBus } from "./bus.ts";
 import { loadConfig } from "./config.ts";
 import type { Conjunto, Saida } from "./mcp.ts";
 import { perguntar } from "./perguntas.ts";
+import { planejarConversa, type PlanoDaConversa } from "./plano-da-conversa.ts";
 
 /**
  * `nexo_abrir_painel`: o agente abre, na área de trabalho da conversa dele, o painel que o
@@ -29,8 +30,8 @@ export type PedidoDePainel = {
   caminho?: string;
   /** Config `trazerPraFrente`: troca a aba visível (senão a aba só fica aberta). */
   frente?: boolean;
-  /** `nexo_plano_iniciar`: o app cria o plano a partir desta conversa e abre o Manager. */
-  criarPlano?: boolean;
+  /** `nexo_plano_iniciar`: plano já criado pelo motor — o app só abre a Tela de Planejamento nele. */
+  abrirPlano?: { slug: string; projectPath: string; managerThreadId: string };
 };
 
 type Pendente = { resolve: (r: Saida) => void; timeoutId: ReturnType<typeof setTimeout> };
@@ -160,7 +161,7 @@ export function ferramentaDePainel(threadId: string, modoNavegador: NavegadorMod
  * (a única ferramenta de organizar que o chat tinha). Faz o mesmo que "Planejar a partir desta
  * conversa" no app; não depende da config de painéis porque é a pessoa que pediu o plano.
  */
-export function ferramentaDePlanejar(threadId: string): Conjunto {
+export function ferramentaDePlanejar(threadId: string, home: string): Conjunto {
   return () => [
     {
       name: "nexo_plano_iniciar",
@@ -168,9 +169,32 @@ export function ferramentaDePlanejar(threadId: string): Conjunto {
         "Abre um PLANEJAMENTO na Tela de Planejamento a partir desta conversa: cria o plano no projeto, " +
         "abre a conversa do Agent Manager e manda pra ele a transcrição desta conversa. Use quando a pessoa " +
         "pedir pra planejar, montar um plano/planejamento ou usar a tela de planejamento — NÃO crie tarefas " +
-        "no Quadro no lugar disso. Depois de chamar, não continue planejando aqui: o Manager segue de lá.",
+        "no Quadro no lugar disso. Chame UMA vez: se esta conversa já abriu um plano, devolve o mesmo. " +
+        "Depois de chamar, não continue planejando aqui: o Manager segue de lá.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      executar: () => pedirPainel(threadId, { painel: "planejamento", criarPlano: true, frente: true }),
+      executar: async () => {
+        // o motor cria sozinho: esperar o app montar a tela estourava o prazo e o agente chamava de novo (plano duplicado)
+        let r: PlanoDaConversa;
+        try {
+          r = planejarConversa(threadId, home, { reusar: true });
+        } catch (e) {
+          return { ok: false, texto: `não criou o plano: ${(e as Error).message}` };
+        }
+        const aberto = await pedirPainel(threadId, {
+          painel: "planejamento",
+          abrirPlano: { slug: r.slug, projectPath: r.projectPath, managerThreadId: r.threadId },
+          frente: true,
+        });
+        const base = r.reaproveitado
+          ? `esta conversa já tinha aberto o plano "${r.titulo}" — é o mesmo, nada novo foi criado.`
+          : `plano "${r.titulo}" criado; o Agent Manager já recebeu esta conversa e segue de lá.`;
+        return {
+          ok: true,
+          texto:
+            `${base} Este chat ficou ligado a ele: o que a pessoa escrever aqui vai pro Manager e a fala dele aparece aqui.` +
+            (aberto.ok ? "" : " (A tela do plano não abriu sozinha; a pessoa abre pelo botão \"Abrir planejamento\" do chat.)"),
+        };
+      },
     },
   ];
 }

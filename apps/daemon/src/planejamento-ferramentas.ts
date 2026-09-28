@@ -4,6 +4,7 @@ import {
   estadoDoDesign,
   marcarImplementacaoDaEtapa,
   resolverIntegracao,
+  salvarRoteiroComNome,
   type EstadoDoDesign,
   type Integracao,
 } from "./planejamento-integracao.ts";
@@ -16,8 +17,8 @@ import {
   escreverHandoff,
   marcarEtapa,
   salvarCard,
-  salvarRoteiro,
   STATUS_ETAPA,
+  TITULO_SEM_NOME,
   TIPOS_CARD,
   type Card,
   type Plano,
@@ -206,7 +207,8 @@ export function ferramentasDePlanejamento(projectPath: string, slug: string, hom
         name: "nexo_plano_roteiro",
         description:
           "Define as etapas do roteiro, NA ORDEM — substitui a lista inteira. Mantenha o id das etapas que já " +
-          "existem (os cards apontam pra ele). Não muda o título do plano (é da pessoa).",
+          "existem (os cards apontam pra ele). `titulo` só vale enquanto o plano está \"Sem nome\": dê um nome " +
+          "curto (3 a 6 palavras) assim que entender o pedido; depois disso o título é da pessoa e é ignorado.",
         inputSchema: {
           type: "object",
           properties: {
@@ -223,6 +225,7 @@ export function ferramentasDePlanejamento(projectPath: string, slug: string, hom
                 additionalProperties: false,
               },
             },
+            titulo: { type: "string", description: "nome do plano — só se ele ainda estiver \"Sem nome\"" },
             expected_rev: REV,
           },
           required: ["etapas", "expected_rev"],
@@ -230,8 +233,11 @@ export function ferramentasDePlanejamento(projectPath: string, slug: string, hom
         },
         executar: (a) =>
           tentar(() => {
-            const r = salvarRoteiro(projectPath, home, slug, { etapas: a.etapas, expectedRev: a.expected_rev }, "agente");
-            return `roteiro salvo (rev ${r.rev}): ${r.etapas.map((e) => e.titulo).join(" → ") || "vazio"}`;
+            const semNome = ler().roteiro.titulo === TITULO_SEM_NOME;
+            const titulo = semNome && typeof a.titulo === "string" && a.titulo.trim() ? a.titulo : undefined;
+            const r = salvarRoteiroComNome(projectPath, home, slug, { etapas: a.etapas, titulo, expectedRev: a.expected_rev }, "agente");
+            const nome = titulo ? ` — plano agora se chama "${r.titulo}"` : "";
+            return `roteiro salvo (rev ${r.rev}): ${r.etapas.map((e) => e.titulo).join(" → ") || "vazio"}${nome}`;
           }),
       },
       {
@@ -468,6 +474,11 @@ Você é o Agent Manager do plano "${slug}" (arquivos em ${dir}). Seu trabalho �
 - Marque o andamento com \`nexo_plano_etapa\`: em_andamento quando a conversa entra na etapa, concluida quando ela está especificada.
 - A pessoa se refere aos cards pelo NOME ([[Nome do card]]): resolva pelo título, ignorando maiúsculas e acentos. Se nenhum ou mais de um bater, pergunte.
 - O título do plano é da pessoa: não mexa.
+
+## O chat é curto; o plano vive no quadro
+- A pessoa lê o plano no canvas, e o seu chat é uma janela pequena por cima dele. NÃO repita no chat o que já está no roteiro ou nos cards: nada de listar etapas, requisitos ou decisões de novo.
+- Depois de mexer no plano, responda em 1 a 3 linhas: o que mudou ("roteiro com 8 etapas, 11 cards; 2 ambiguidades abertas") e o próximo passo ou a pergunta.
+- Pergunta de verdade vai por \`nexo_perguntar\` (vira botão), uma de cada vez — não em lista no texto.
 
 ## Melhor caminho, sugestões e decisões
 - Quando surgir decisão técnica (biblioteca, API, padrão, limite de plataforma), pesquise com WebSearch/WebFetch e leia o código do projeto (Read, Glob, Grep) antes de opinar.

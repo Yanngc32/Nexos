@@ -43,6 +43,9 @@ extraResources:
   # Notas da versão na tela Sobre (handler `app:changelog` em main.cjs).
   - from: ../../CHANGELOG.md
     to: CHANGELOG.md
+  # Créditos e licenças de terceiros (músicas, efeitos, brag, Hyperframes, GSAP, fontes do vídeo).
+  - from: ../../THIRD_PARTY_NOTICES.md
+    to: THIRD_PARTY_NOTICES.md
 afterPack: scripts/after-pack.cjs
 # `zip` = o Nexos inteiro, portátil: é o que o app baixa pra atualizar trocando de pasta
 # (atualizador.cjs). O NSIS continua sendo a primeira instalação e a reserva da atualização.

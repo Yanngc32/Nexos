@@ -1,4 +1,5 @@
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { log } from "./log.ts";
 import { dirname, join, resolve, sep } from "node:path";
 import type { ThreadEvent } from "@nexos/shared";
@@ -121,6 +122,28 @@ export function appendEvent(event: ThreadEvent, home: string): void {
   const linha = `${JSON.stringify(event)}\n`;
   appendFileSync(path, linha, "utf8");
   espelharNoProjeto(event, path, linha, home);
+  for (const ouvir of ouvintesDeEvento) {
+    try {
+      ouvir(event, home);
+    } catch (e) {
+      log.aviso("turno", "ouvinte de evento gravado falhou", { threadId: event.threadId, tipo: event.type, erro: (e as Error).message });
+    }
+  }
+}
+
+type OuvinteDeEvento = (event: ThreadEvent, home: string) => void;
+const ouvintesDeEvento: OuvinteDeEvento[] = [];
+
+/**
+ * Reage a todo evento gravado em qualquer conversa (ex.: a ponte do plano espelha a fala do
+ * Manager no chat de origem). Registro em vez de import pra não criar ciclo com quem importa daqui.
+ */
+export function aoGravarEvento(fn: OuvinteDeEvento): () => void {
+  ouvintesDeEvento.push(fn);
+  return () => {
+    const i = ouvintesDeEvento.indexOf(fn);
+    if (i >= 0) ouvintesDeEvento.splice(i, 1);
+  };
 }
 
 /** threadId -> projectPath, pra não reler o arquivo da conversa a cada evento. */
@@ -190,28 +213,54 @@ function metaParaEstaMaquina(linha: string, projectPath: string, home: string): 
 
 /**
  * Traz pra `~/.nexos/threads` as conversas que chegaram pela pasta do projeto (sync do Drive,
- * ver drive-sync.ts) e ainda não estão — ou estão incompletas — nesta máquina. Só pra projeto que
- * esta máquina conhece (é dele que sai o `projectPath` certo). Devolve quantas conversas mexeu.
- * A fonte de verdade local segue sendo `threadPath`; o espelho só alimenta.
+ * ver drive-sync.ts, ou `projetosDir` numa pasta que o app do Drive sincroniza por fora) e ainda
+ * não estão — ou estão incompletas — nesta máquina. Só pra projeto que esta máquina conhece (é
+ * dele que sai o `projectPath` certo). Devolve quantas conversas mexeu. A fonte de verdade local
+ * segue sendo `threadPath`; o espelho só alimenta. Leitura da pasta é assíncrona: ela costuma
+ * ser o Drive, e ler ali de forma síncrona já congelou o motor (ver `espelharNoProjeto`).
  */
-export function importarConversas(home: string): number {
+export async function importarConversas(home: string): Promise<number> {
+  if (importando) return importando;
+  importando = importarAgora(home).finally(() => {
+    importando = undefined;
+  });
+  return importando;
+}
+
+/** Rodada em voo: quem chama de novo no meio espera a mesma (sync periódico + subida). */
+let importando: Promise<number> | undefined;
+
+/** Espelho -> "mtime:tamanho" da última leitura: arquivo igual não é relido do Drive. */
+const espelhoLido = new Map<string, string>();
+
+async function importarAgora(home: string): Promise<number> {
   const root = projetosRoot(home);
-  if (!existsSync(root)) return 0;
+  const slugs = await readdir(root).catch(() => [] as string[]);
+  if (!slugs.length) return 0;
   const porSlug = new Map<string, string>();
   for (const p of projetosConhecidos(home)) porSlug.set(projectSlug(p, home).slug, p);
+  const apagadas = lerEspelhosAApagar(home);
   let mexeu = 0;
-  for (const slug of readdirSync(root)) {
+  for (const slug of slugs) {
     const projectPath = porSlug.get(slug);
+    if (!projectPath) continue;
     const dir = join(root, slug, "conversas");
-    if (!projectPath || !existsSync(dir)) continue;
-    for (const arquivo of readdirSync(dir)) {
+    const arquivos = await readdir(dir).catch(() => [] as string[]);
+    for (const arquivo of arquivos) {
       if (!arquivo.endsWith(".jsonl")) continue;
       const id = arquivo.slice(0, -".jsonl".length);
+      if (id in apagadas) continue; // apagada aqui, espelho só não saiu ainda: não ressuscita
+      const origem = join(dir, arquivo);
       try {
         assertSlug(id);
-        const linhas = readFileSync(join(dir, arquivo), "utf8")
-          .split("\n")
-          .filter((l) => l.trim());
+        const st = await stat(origem);
+        const marca = `${st.mtimeMs}:${st.size}`;
+        if (espelhoLido.get(origem) === marca && existsSync(threadPath(id, home))) continue;
+        const linhas = (await readFile(origem, "utf8")).split("\n").filter((l) => l.trim());
+        espelhoLido.set(origem, marca);
+        // daqui pra baixo é disco local e síncrono: ler e gravar no mesmo tick não perde evento
+        // que o turno em voo tenha acabado de gravar
+        if (id in lerEspelhosAApagar(home)) continue; // apagada enquanto o Drive respondia
         const alvo = threadPath(id, home);
         if (!existsSync(alvo)) {
           if (!linhas.some(ehMeta)) continue; // sem meta não é conversa que a gente consiga abrir
@@ -239,6 +288,10 @@ export function importarConversas(home: string): number {
  * o espelho existe pra viajar junto da pasta do projeto (sync entre máquinas). Conversa
  * antiga sem espelho é copiada inteira no primeiro evento novo. Best-effort: nunca lança,
  * senão uma pasta de projeto indisponível derrubaria o turno.
+ *
+ * A gravação é assíncrona, numa fila por conversa: a pasta do projeto costuma ser o Drive, e um
+ * `appendFileSync` lá já segurou o motor 8,8 s (perfil de CPU, 2026-09-28) — o app achou que o
+ * motor morreu e reiniciou. Aqui só entra a linha no buffer; `drenarEspelho` grava fora do loop.
  */
 function espelharNoProjeto(event: ThreadEvent, path: string, linha: string, home: string): void {
   try {
@@ -250,13 +303,134 @@ function espelharNoProjeto(event: ThreadEvent, path: string, linha: string, home
       projectPath = meta.projectPath;
       projetoDaConversa.set(event.threadId, projectPath);
     }
-    const espelho = conversaEspelhoPath(event.threadId, projectPath, home);
-    mkdirSync(dirname(espelho), { recursive: true });
-    if (existsSync(espelho)) appendFileSync(espelho, linha, "utf8");
-    else copyFileSync(path, espelho);
+    let fila = filasDoEspelho.get(event.threadId);
+    if (!fila) {
+      fila = { projectPath, path, linhas: [] };
+      filasDoEspelho.set(event.threadId, fila);
+    }
+    fila.linhas.push(linha);
+    fila.rodando ??= drenarEspelho(event.threadId, fila, home);
   } catch (e) {
     log.erro("sync", "falha ao espelhar conversa", { threadId: event.threadId, erro: (e as Error).message });
   }
+}
+
+type FilaDoEspelho = { projectPath: string; path: string; linhas: string[]; rodando?: Promise<void> };
+
+/** threadId -> linhas esperando pra ir pro espelho (e a gravação em voo, se houver). */
+const filasDoEspelho = new Map<string, FilaDoEspelho>();
+
+/** threadId -> caminho do espelho: `projectDir` mexe no disco do projeto, então só uma vez por conversa. */
+const espelhoDaConversa = new Map<string, string>();
+
+async function drenarEspelho(id: string, fila: FilaDoEspelho, home: string): Promise<void> {
+  await Promise.resolve(); // nunca grava no mesmo tick do appendEvent
+  while (fila.linhas.length) {
+    if (!existsSync(fila.path)) break; // conversa apagada no meio: removeThread cuida do espelho
+    let linhas = fila.linhas.splice(0);
+    try {
+      let espelho = espelhoDaConversa.get(id);
+      if (!espelho) {
+        espelho = conversaEspelhoPath(id, fila.projectPath, home);
+        espelhoDaConversa.set(id, espelho);
+      }
+      const existe = await stat(espelho).then(
+        () => true,
+        () => false,
+      );
+      if (!existe) {
+        // conversa antiga sem espelho: vai o arquivo local inteiro, lido no mesmo tick em que o
+        // buffer esvazia — assim nenhuma linha fica de fora nem entra duas vezes
+        linhas = [readFileSync(fila.path, "utf8")];
+        fila.linhas.length = 0;
+        await mkdir(dirname(espelho), { recursive: true });
+      }
+      await appendFile(espelho, linhas.join(""), "utf8");
+    } catch (e) {
+      espelhoDaConversa.delete(id);
+      log.erro("sync", "falha ao espelhar conversa", { threadId: id, erro: (e as Error).message });
+    }
+  }
+  fila.rodando = undefined;
+  filasDoEspelho.delete(id);
+}
+
+/** Espera todo espelho pendente chegar no disco (testes e desligamento). */
+export async function espelhosEmDia(): Promise<void> {
+  while (filasDoEspelho.size) await Promise.all([...filasDoEspelho.values()].map((f) => f.rodando));
+}
+
+/** Conversa apagada cujo espelho ainda não saiu da pasta do projeto: id -> projectPath. */
+type EspelhosAApagar = Record<string, string>;
+
+function espelhosAApagarPath(home: string): string {
+  return join(home, "espelhos-a-apagar.json");
+}
+
+function lerEspelhosAApagar(home: string): EspelhosAApagar {
+  const path = espelhosAApagarPath(home);
+  if (!existsSync(path)) return {};
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as EspelhosAApagar;
+  } catch (e) {
+    log.aviso("sync", "lista de espelhos a apagar ilegível; recomeçando vazia", { erro: (e as Error).message });
+    return {};
+  }
+}
+
+function gravarEspelhosAApagar(home: string, lista: EspelhosAApagar): void {
+  const path = espelhosAApagarPath(home);
+  if (!Object.keys(lista).length) rmSync(path, { force: true });
+  else writeFileSync(path, JSON.stringify(lista, null, 2), "utf8");
+}
+
+/**
+ * Tira o espelho da conversa da pasta do projeto — do slug atual E de qualquer outra pasta da
+ * raiz (o slug muda quando o remote git passa a ser lido, e o espelho antigo ficava pra trás).
+ * Falhou (Drive fora do ar, arquivo preso pelo app do Drive): loga e deixa na lista pra
+ * `retentarEspelhosApagados` tentar de novo. Devolve se saiu tudo.
+ */
+function apagarEspelhos(id: string, projectPath: string, home: string): boolean {
+  const alvos = new Set<string>();
+  const erros: string[] = [];
+  try {
+    alvos.add(conversaEspelhoPath(id, projectPath, home));
+  } catch (e) {
+    erros.push((e as Error).message);
+  }
+  try {
+    const root = projetosRoot(home);
+    if (existsSync(root)) {
+      for (const slug of readdirSync(root)) alvos.add(join(root, slug, "conversas", `${assertSlug(id)}.jsonl`));
+    }
+  } catch (e) {
+    erros.push((e as Error).message);
+  }
+  for (const alvo of alvos) {
+    try {
+      rmSync(alvo, { force: true });
+    } catch (e) {
+      erros.push(`${alvo}: ${(e as Error).message}`);
+    }
+  }
+  const lista = lerEspelhosAApagar(home);
+  if (erros.length) {
+    log.aviso("sync", "não consegui apagar o espelho da conversa; tento de novo no próximo sync", { threadId: id, erro: erros[0] });
+    lista[id] = projectPath;
+  } else {
+    delete lista[id];
+  }
+  gravarEspelhosAApagar(home, lista);
+  return !erros.length;
+}
+
+/** Tenta de novo apagar os espelhos que falharam antes (roda junto do sync periódico). */
+export function retentarEspelhosApagados(home: string): number {
+  let saiu = 0;
+  for (const [id, projectPath] of Object.entries(lerEspelhosAApagar(home))) {
+    if (apagarEspelhos(id, projectPath, home)) saiu++;
+  }
+  return saiu;
 }
 
 /**
@@ -270,12 +444,10 @@ export async function removeThread(id: string, home: string): Promise<void> {
   const head = threadHead(id, home);
   rmSync(path);
   if (head?.projectPath) {
+    await filasDoEspelho.get(id)?.rodando; // gravação em voo recriaria o espelho depois de apagado
     projetoDaConversa.delete(id);
-    try {
-      rmSync(conversaEspelhoPath(id, head.projectPath, home), { force: true });
-    } catch {
-      // espelho é best-effort
-    }
+    espelhoDaConversa.delete(id);
+    apagarEspelhos(id, head.projectPath, home);
   }
   if (head?.projectPath && head.worktreeDir) {
     const aindaUsada = listThreads(head.projectPath, home).some((t) => t.worktreeDir === head.worktreeDir);
@@ -300,6 +472,8 @@ export type ThreadHead = {
   projectPath?: string;
   profileId: string;
   preview: string;
+  /** De onde veio o nome atual, quando veio de um `thread_title` (ver o evento). */
+  tituloOrigem?: "manual" | "auto" | "plano";
   updatedAt: string;
   /** Agente personalizado da conversa, quando ela nasceu de um. */
   agentId?: string;
@@ -317,7 +491,19 @@ export type ThreadHead = {
   planejamento?: { slug: string };
   /** Conversa de implementação do plano `<slug>`: ganha as ferramentas do plano pra marcar o andamento. */
   handoff?: { slug: string };
+  /** Esta conversa abriu o plano `<slug>`; `ligada` = a ponte com o Manager está ativa. Ver `ponte-plano.ts`. */
+  planoLigado?: { slug: string; managerThreadId: string; titulo: string; ligada: boolean };
 };
+
+/** Último `plano_ligado` da conversa + o estado da ponte depois dele. */
+function planoLigadoDe(events: ThreadEvent[]): ThreadHead["planoLigado"] {
+  let atual: ThreadHead["planoLigado"];
+  for (const e of events) {
+    if (e.type === "plano_ligado") atual = { slug: e.slug, managerThreadId: e.managerThreadId, titulo: e.titulo, ligada: true };
+    else if (e.type === "plano_ponte" && atual) atual = { ...atual, ligada: e.ligada };
+  }
+  return atual;
+}
 
 /**
  * Cabeçalho por arquivo, válido enquanto `mtime`+`size` não mudarem (append sempre muda o
@@ -354,6 +540,8 @@ function lerCabecalho(id: string, home: string): ThreadHead | undefined {
   if (!meta || meta.type !== "thread_meta") return undefined;
   const firstUser = events.find((e) => e.type === "user");
   const last = events.at(-1);
+  let titulo: Extract<ThreadEvent, { type: "thread_title" }> | undefined;
+  for (const e of events) if (e.type === "thread_title") titulo = e;
   return {
     id,
     projectPath: meta.projectPath,
@@ -364,8 +552,12 @@ function lerCabecalho(id: string, home: string): ThreadHead | undefined {
      * a lista com várias linhas idênticas começando em "# Objetivo do time".
      */
     preview:
+      titulo?.title ||
       meta.title ||
+      // Manager criado antes do título: o 1º pedido é o automático ("Monte o plano…"), não serve de nome
+      (meta.planejamento ? `Plano · ${meta.planejamento.slug}` : "") ||
       (firstUser && firstUser.type === "user" ? firstUser.text.replace(/\s+/g, " ").slice(0, 72) : "Conversa nova"),
+    ...(titulo ? { tituloOrigem: titulo.origem } : {}),
     updatedAt: last?.ts ?? meta.ts,
     ...(activeAgentId(events) ? { agentId: activeAgentId(events) } : {}),
     ...(meta.runId ? { runId: meta.runId } : {}),
@@ -379,7 +571,24 @@ function lerCabecalho(id: string, home: string): ThreadHead | undefined {
     ...(meta.oculta || meta.semRoteamento ? { oculta: true } : {}),
     ...(meta.planejamento ? { planejamento: meta.planejamento } : {}),
     ...(meta.handoff ? { handoff: meta.handoff } : {}),
+    ...(planoLigadoDe(events) ? { planoLigado: planoLigadoDe(events) } : {}),
   };
+}
+
+export const TITULO_MAX = 120;
+
+/**
+ * Dá nome à conversa (grava um `thread_title`). Nome `auto` não passa por cima de um que a
+ * pessoa deu. Devolve se gravou. Nome vazio ou igual ao atual não grava nada.
+ */
+export function renomearThread(id: string, title: string, origem: "manual" | "auto" | "plano", home: string): boolean {
+  const nome = title.replace(/\s+/g, " ").trim().slice(0, TITULO_MAX);
+  const head = threadHead(id, home);
+  if (!head) throw new Error(`thread não existe: ${id}`);
+  if (!nome || nome === head.preview) return false;
+  if (origem === "auto" && head.tituloOrigem === "manual") return false;
+  appendEvent({ ts: nowIso(), type: "thread_title", threadId: id, title: nome, origem }, home);
+  return true;
 }
 
 /** `projectPath` ausente lista as conversas globais (sem projeto), não todas. */
@@ -394,7 +603,8 @@ export function listThreads(projectPath: string | undefined, home: string): Thre
     if (!head || head.projectPath !== projectPath) continue;
     // passo de time chamado de um chat pertence àquele chat; conversa de trabalho do Nexos
     // (geração do DS) pertence à tela dela — nenhuma das duas é conversa da pessoa
-    if (head.origemThreadId || head.oculta) continue;
+    // exceção: o Manager de um plano nascido de conversa É conversa da pessoa (ela fala com ele)
+    if ((head.origemThreadId && !head.planejamento) || head.oculta) continue;
     out.push(head);
   }
   out.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));

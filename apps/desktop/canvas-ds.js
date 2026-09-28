@@ -16,6 +16,7 @@
  */
 
 import { resumoCurto } from "./ds-extrator.js";
+import { editarNome } from "./editar-nome.js";
 import { rotuloDoElemento } from "./inspector-mensagem.js";
 
 /* ---------------------------------------------------------------------------
@@ -344,6 +345,11 @@ export function createDsCanvas({
   aoMencionarNoChat = () => {},
   /** Manda pro chat um pedido com elementos apontados nos cards (mesmo formato do inspector do Browser). */
   aoMandarNoChat = () => {},
+  /**
+   * Painel de vídeo (canvas-video.js): os vídeos do projeto entram no MESMO seletor de sistema
+   * ("Nome (vídeo de <DS oficial>)"), como o painel de mocks. null = sem vídeo.
+   */
+  videos = null,
   doc = document,
   win = window,
 }) {
@@ -402,6 +408,8 @@ export function createDsCanvas({
       overrides.clear();
       limparFrames();
     }
+    // vídeos do projeto no seletor + o stream deles (o agente abre um vídeo com nexo_video_*)
+    await videos?.ativarCanvas();
     await recarregar({ animar: false });
     try {
       geracao = (await req(`/v1/ds/gerar?${qs()}`)).geracao;
@@ -553,19 +561,30 @@ export function createDsCanvas({
   function pintarCabecalho() {
     const sel = el("ds-sistema");
     sel.innerHTML = "";
+    const videoAtivo = videos?.ativo() ?? null;
     for (const s of estado.sistemas) {
       const o = doc.createElement("option");
       o.value = s.id;
       o.textContent = rotuloDoSistema(s);
-      o.selected = s.id === estado.ativo;
+      o.selected = !videoAtivo && s.id === estado.ativo;
       sel.append(o);
     }
-    sel.classList.toggle("hidden", estado.sistemas.length < 2);
+    const nomeOficial = estado.sistemas.find((s) => s.id === estado.oficial)?.nome ?? "";
+    const opsVideo = videos ? videos.opcoes(nomeOficial) : [];
+    for (const v of opsVideo) {
+      const o = doc.createElement("option");
+      o.value = v.valor;
+      o.textContent = v.rotulo;
+      o.selected = v.valor === `video:${videoAtivo}`;
+      sel.append(o);
+    }
+    sel.classList.toggle("hidden", estado.sistemas.length + opsVideo.length < 2);
     const ds = estado.ds;
     // sem DS não há o que ajustar: só o título e o fechar
     el("ds-toolbar").classList.toggle("hidden", !ds);
     el("ds-pasta").classList.toggle("hidden", !ds);
     el("ds-nome").textContent = ds ? ds.nome : "";
+    el("ds-nome").title = ds ? "Duplo clique pra renomear" : "";
     const selo = el("ds-selo");
     const ehOficial = !!ds && ds.id === estado.oficial;
     const origem = ds?.origem;
@@ -602,6 +621,21 @@ export function createDsCanvas({
   function rotuloDoSistema(s) {
     if (s.mocksDe) return `${s.nome} (mocks de ${estado.sistemas.find((x) => x.id === s.mocksDe)?.nome ?? s.mocksDe})`;
     return s.id === estado.oficial ? `${s.nome} · oficial` : s.nome;
+  }
+
+  /** Duplo clique no nome: renomeia no lugar (só o nome — id e pasta ficam, ver design-system.ts). */
+  async function renomearSistema() {
+    const ds = estado.ds;
+    if (!ds) return;
+    await editarNome(el("ds-nome"), {
+      atual: ds.nome,
+      max: 80,
+      salvar: async (nome) => {
+        estado = await req(`/v1/ds/sistemas/${encodeURIComponent(ds.id)}?${qs()}`, { method: "PATCH", body: JSON.stringify({ nome }) });
+      },
+      aoFalhar: (e) => erroTopo(e.message),
+    });
+    pintarCabecalho();
   }
 
   async function tornarOficial() {
@@ -1509,8 +1543,21 @@ export function createDsCanvas({
       tema = e.target.value;
       if (estado.ds) for (const f of frames.values()) aplicarVarsNoFrame(f, estado.ds);
     });
-    el("ds-sistema").addEventListener("change", (e) => void trocarSistema(e.target.value));
+    el("ds-sistema").addEventListener("change", (e) => {
+      const v = e.target.value;
+      if (v.startsWith("video:")) {
+        void videos?.abrir(v.slice(6)).then(pintarCabecalho);
+        return;
+      }
+      videos?.fechar();
+      if (v === estado.ativo) {
+        pintar();
+        return;
+      }
+      void trocarSistema(v);
+    });
     el("ds-tornar-oficial").addEventListener("click", () => void tornarOficial());
+    el("ds-nome").addEventListener("dblclick", () => void renomearSistema());
     el("ds-btn-novo").addEventListener("click", mostrarNovo);
     el("ds-avisos").addEventListener("click", () => {
       const comAviso = estado.ds?.cards.find((c) => c.lint.length);
@@ -2790,6 +2837,7 @@ export function createDsCanvas({
   return {
     abrir,
     recarregar,
+    repintarCabecalho: () => pintarCabecalho(),
     parar,
     trocouProjeto,
     ajustar,

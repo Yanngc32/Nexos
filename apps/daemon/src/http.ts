@@ -65,6 +65,8 @@ import {
 } from "./skills-install.ts";
 import { cliAuthStatus } from "./auth-status.ts";
 import { cancelLogin, loginStatus, startLogin, submitCode } from "./login-session.ts";
+import { alternarPonte, iniciarPontePlano, mandarPelaPonte, ponteLigada } from "./ponte-plano.ts";
+import { conversaDoManager as managerDoPlano, planejarConversa } from "./plano-da-conversa.ts";
 import {
   activeAgentId,
   appendEvent,
@@ -74,6 +76,7 @@ import {
   projectsFromThreads,
   projetosConhecidos,
   readThread,
+  renomearThread,
   threadHead,
 } from "./threads.ts";
 import {
@@ -82,6 +85,7 @@ import {
   allLimits,
   pingUsoDaConta,
   busyThreads,
+  turnoEmCurso,
   clearThread,
   dropThread,
   injetarMensagem,
@@ -109,6 +113,8 @@ import { ferramentaDeDelegar, modoDeDelegacaoDaThread } from "./delegar.ts";
 import { ferramentasDeNavegador, modoDeNavegadorDaThread, responderNavegador } from "./navegador.ts";
 import { chromeBus, extensaoConectou, extensaoRecente, ferramentasDoChrome, responderChrome, statusDaExtensao } from "./chrome.ts";
 import { ferramentaDePrintDoDs, responderPrint } from "./ds-print.ts";
+import { registrarRotasDeVideo } from "./video-http.ts";
+import { ferramentasDeVideo } from "./video-ferramentas.ts";
 import { ferramentasDeControleDoWindows } from "./windows-control.ts";
 import {
   abortarRun,
@@ -155,6 +161,7 @@ import {
   aplicarControles,
   apagarCard,
   ativarDs,
+  renomearDs,
   criarDs,
   definirOficial,
   estadoDs,
@@ -231,7 +238,6 @@ import {
   salvarRoteiro,
   type CardInput,
   vincularImplementacao,
-  vincularThread,
   type EventoPlano,
 } from "./planejamento.ts";
 import { ferramentasDePlanejamento } from "./planejamento-ferramentas.ts";
@@ -239,12 +245,11 @@ import { ferramentaDePainel, ferramentaDePlanejar, responderPainel } from "./pai
 import {
   alvosDeAnexo,
   blocoDeTarefas,
-  conversaDeOrigem,
   avaliarDesign,
   enviarAoQuadro,
   marcarImplementacaoDaEtapa,
-  pedidoDeConversa,
   resolverIntegracao,
+  salvarRoteiroComNome,
 } from "./planejamento-integracao.ts";
 import { montarHandoff, pedidoAoManager, prontidao } from "./planejamento-handoff.ts";
 
@@ -286,6 +291,7 @@ type McpCtx = {
 
 export function createApp(home: string, token: string): Hono {
   const app = new Hono();
+  iniciarPontePlano();
   /*
    * O token é MUTÁVEL porque `POST /v1/token/rotate` o troca com o daemon de
    * pé. Fica na closure e não em estado de módulo: os testes criam vários apps,
@@ -659,7 +665,7 @@ export function createApp(home: string, token: string): Hono {
     const projectPath = c.req.query("projectPath") || undefined;
     // `busy` é estado vivo (memória), não vem do JSONL: por isso é carimbado aqui.
     const busy = new Set(busyThreads());
-    return c.json(listThreads(projectPath, home).map((t) => ({ ...t, busy: busy.has(t.id) })));
+    return c.json(listThreads(projectPath, home).map((t) => ({ ...t, busy: busy.has(t.id) || turnoEmCurso(t.id) })));
   });
 
   /**
@@ -927,6 +933,17 @@ export function createApp(home: string, token: string): Hono {
     }
   });
 
+  /** Turno em curso nesta conversa (inclui o que acabou de ser pedido e ainda sobe o motor). */
+  app.get("/v1/threads/:id/em-curso", (c) => c.json({ emCurso: turnoEmCurso(c.req.param("id")) }));
+
+  /** Liga/desliga a ponte do chat de origem com o Manager do plano que ele abriu (ver ponte-plano.ts). */
+  app.post("/v1/threads/:id/ponte", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { ligada?: unknown };
+    if (typeof body.ligada !== "boolean") return c.json({ error: "ligada (boolean) obrigatório" }, 400);
+    if (!alternarPonte(c.req.param("id"), body.ligada, home)) return c.json({ error: "esta conversa não abriu nenhum plano" }, 404);
+    return c.json({ ok: true, ligada: body.ligada });
+  });
+
   /** Times chamados deste chat (em curso e recentes) — a barra "trabalhando" acima do input. */
   app.get("/v1/threads/:id/runs", (c) => c.json(runsDoChat(c.req.param("id"), home)));
 
@@ -962,6 +979,13 @@ export function createApp(home: string, token: string): Hono {
     // Mensagem só de imagem (ou só de elementos do preview) vale; vazia de tudo, não.
     if (!text.trim() && images.length === 0 && elementos.length === 0) return c.json({ error: "mensagem vazia" }, 400);
     try {
+      // agente parado numa pergunta: o que a pessoa digitou É a resposta (senão ficava na fila do turno que espera ela)
+      if (images.length === 0 && responderPergunta(c.req.param("id"), text)) return c.json({ ok: true, respondeu: true });
+      // chat ligado a um plano: a mensagem vai pro Manager (a resposta dele volta como `ponte`)
+      if (ponteLigada(c.req.param("id"), home)) {
+        mandarPelaPonte(c.req.param("id"), text, images, home);
+        return c.json({ ok: true, ponte: true });
+      }
       await postMessage(c.req.param("id"), text, home, images, elementos.length ? { elementos } : {});
       return c.json({ ok: true });
     } catch (e) {
@@ -977,6 +1001,11 @@ export function createApp(home: string, token: string): Hono {
     const images = Array.isArray(body.images) ? body.images : [];
     if (!text.trim() && images.length === 0) return c.json({ error: "mensagem vazia" }, 400);
     try {
+      if (images.length === 0 && responderPergunta(c.req.param("id"), text)) return c.json({ injetada: true, respondeu: true });
+      if (ponteLigada(c.req.param("id"), home)) {
+        mandarPelaPonte(c.req.param("id"), text, images, home);
+        return c.json({ injetada: true, ponte: true });
+      }
       return c.json({ injetada: injetarMensagem(c.req.param("id"), text, home, images) });
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400);
@@ -1028,6 +1057,19 @@ export function createApp(home: string, token: string): Hono {
     } catch (e) {
       return c.json({ error: (e as Error).message }, 404);
     }
+  });
+
+  /** A pessoa renomeia a conversa (sidebar: duplo clique ou menu). */
+  app.patch("/v1/threads/:id", async (c) => {
+    const id = c.req.param("id");
+    const body = (await c.req.json().catch(() => ({}))) as { title?: unknown };
+    if (typeof body.title !== "string" || !body.title.trim()) return c.json({ error: "title obrigatório" }, 400);
+    try {
+      renomearThread(id, body.title, "manual", home);
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 404);
+    }
+    return c.json({ ok: true, thread: threadHead(id, home) });
   });
 
   app.delete("/v1/threads/:id", async (c) => {
@@ -1351,6 +1393,18 @@ export function createApp(home: string, token: string): Hono {
     }
   });
 
+  /** Renomeia o DS (só o nome; o id e a pasta ficam). */
+  app.patch("/v1/ds/sistemas/:id", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as { nome?: unknown };
+      return c.json(renomearDs(projectPath, home, c.req.param("id"), body.nome));
+    } catch (e) {
+      return dsErro(c, e);
+    }
+  });
+
   app.put("/v1/ds/ativo", async (c) => {
     const projectPath = c.req.query("projectPath") || "";
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
@@ -1665,6 +1719,10 @@ export function createApp(home: string, token: string): Hono {
     });
   });
 
+  /* ---------- Painel de vídeo do Canvas (video.ts / video-motor.ts) ---------- */
+
+  registrarRotasDeVideo(app, home);
+
   /* ---------- Tarefas (quadro Kanban por projeto) ---------- */
 
   app.get("/v1/tarefas/quadro", (c) => {
@@ -1939,23 +1997,8 @@ export function createApp(home: string, token: string): Hono {
     return c.json(listarPlanos(projectPath, home));
   });
 
-  /**
-   * A conversa do Agent Manager do plano: a que já está ligada a ele, ou uma nova (com
-   * `thread_meta.planejamento`) se não houver ou se ela sumiu do disco.
-   */
-  const conversaDoManager = (projectPath: string, slug: string, profileId: unknown, origemThreadId?: string): string => {
-    const atual = abrirPlano(projectPath, home, slug).roteiro.threadId;
-    if (atual && threadHead(atual, home)?.planejamento?.slug === slug) return atual;
-    if (typeof profileId !== "string" || !profileId) {
-      const err = new Error("profileId obrigatório pra abrir a conversa do Manager") as Error & { status: number };
-      err.status = 400;
-      throw err;
-    }
-    // `origemThreadId`: plano nascido de conversa — o botão "voltar" do chat leva pra ela
-    const { id } = createThread({ projectPath, profileId, planejamento: { slug }, ...(origemThreadId ? { origemThreadId } : {}) }, home);
-    vincularThread(projectPath, home, slug, id);
-    return id;
-  };
+  const conversaDoManager = (projectPath: string, slug: string, profileId: unknown): string =>
+    managerDoPlano(projectPath, slug, profileId, home);
 
   /**
    * Cria o plano e, com `profileId`, já a conversa do Manager. Com `deThreadId`, o plano nasce de
@@ -1966,13 +2009,8 @@ export function createApp(home: string, token: string): Hono {
     try {
       const body = (await c.req.json().catch(() => ({}))) as { titulo?: unknown; profileId?: unknown; deThreadId?: unknown };
       if (typeof body.deThreadId === "string" && body.deThreadId) {
-        const origem = conversaDeOrigem(body.deThreadId, home);
-        const plano = criarPlano(origem.projectPath, home, { titulo: body.titulo || origem.titulo });
-        const threadId = conversaDoManager(origem.projectPath, plano.slug, body.profileId, body.deThreadId);
-        void postMessage(threadId, pedidoDeConversa(origem), home, [], { automatico: true }).catch((err) =>
-          log.erro("turno", `plano a partir da conversa ${String(body.deThreadId)} falhou`, { threadId, erro: (err as Error).message }),
-        );
-        return c.json({ ...abrirPlano(origem.projectPath, home, plano.slug), projectPath: origem.projectPath, threadId }, 201);
+        const r = planejarConversa(body.deThreadId, home, { profileId: body.profileId, titulo: body.titulo });
+        return c.json({ ...abrirPlano(r.projectPath, home, r.slug), projectPath: r.projectPath, threadId: r.threadId }, 201);
       }
       const projectPath = c.req.query("projectPath") || "";
       if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
@@ -2037,7 +2075,7 @@ export function createApp(home: string, token: string): Hono {
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
     try {
       const body = (await c.req.json().catch(() => ({}))) as { etapas?: unknown; titulo?: unknown; expectedRev?: unknown };
-      return c.json(salvarRoteiro(projectPath, home, c.req.param("slug"), { ...body, expectedRev: body.expectedRev }));
+      return c.json(salvarRoteiroComNome(projectPath, home, c.req.param("slug"), { ...body, expectedRev: body.expectedRev }));
     } catch (e) {
       return erroDoPlano(c, e);
     }
@@ -2441,9 +2479,11 @@ export function createApp(home: string, token: string): Hono {
       ...(modoNavegador !== "negado" ? ferramentasDeNavegador(threadId, home, modoNavegador)() : []),
       ...(modoNavegador !== "negado" && extensaoRecente() ? ferramentasDoChrome(threadId, home, modoNavegador)() : []),
       ...(threadId && projectPath && !runId ? ferramentaDePrintDoDs(threadId, projectPath, home)() : []),
+      // painel de vídeo do Canvas (video-ferramentas.ts): mesma regra do DS, conversa normal de projeto
+      ...(threadId && projectPath && !runId ? ferramentasDeVideo(projectPath, home)() : []),
       ...(threadId && !runId ? ferramentaDePainel(threadId, modoNavegador, home)() : []),
       // conversa de implementação já nasceu de um plano: não abre outro
-      ...(threadId && projectPath && !runId && !impl?.handoff ? ferramentaDePlanejar(threadId)() : []),
+      ...(threadId && projectPath && !runId && !impl?.handoff ? ferramentaDePlanejar(threadId, home)() : []),
       // Gate mestre: `--allowed-tools` (engines/cli.ts::profileFlags) já barra a CHAMADA
       // incondicionalmente se a config estiver desligada; listar aqui também, e não só lá,
       // é só pra não expor `tools/list` como se a ferramenta existisse quando não pode rodar.

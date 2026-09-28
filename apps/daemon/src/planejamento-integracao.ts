@@ -5,6 +5,7 @@ import {
   chaveDoAnexo,
   marcarImplementacao,
   salvarCard,
+  salvarRoteiro,
   vincularTarefas,
   type Card,
   type EstadoImplementacao,
@@ -13,7 +14,8 @@ import {
   type Roteiro,
 } from "./planejamento.ts";
 import { adicionarChecklistItem, getQuadro, getTarefa, listarTarefas, salvarMarco, salvarTarefa, type Quadro, type Tarefa } from "./tarefas.ts";
-import { readThread, threadHead } from "./threads.ts";
+import { listThreads, readThread, renomearThread, threadHead } from "./threads.ts";
+import { log } from "./log.ts";
 
 /**
  * F7 da Tela de Planejamento: o plano deixa de ser ilha. Três pontes, sem sincronizar nada
@@ -210,11 +212,11 @@ export function enviarAoQuadro(projectPath: string, home: string, slug: string, 
   const inicial = colunaInicial(quadro);
   if (!inicial) throw Object.assign(new Error("o Quadro deste projeto não tem colunas"), { status: 400 });
 
-  const nomeDoMarco = `Plano: ${p.roteiro.titulo}`.slice(0, 80);
-  let marcoId = quadro.marcos.find((m) => m.nome === nomeDoMarco)?.id;
+  const marcoDoPlano = nomeDoMarco(p.roteiro.titulo);
+  let marcoId = quadro.marcos.find((m) => m.nome === marcoDoPlano)?.id;
   if (!marcoId) {
     try {
-      marcoId = salvarMarco(projectPath, { nome: nomeDoMarco }, home).id;
+      marcoId = salvarMarco(projectPath, { nome: marcoDoPlano }, home).id;
     } catch {
       marcoId = undefined; // limite de marcos: as tarefas vão mesmo assim
     }
@@ -381,6 +383,15 @@ const TRANSCRICAO_TETO = 40_000;
 
 export type ConversaDeOrigem = { projectPath: string; titulo: string; transcricao: string };
 
+/** Título do plano a partir da conversa: até ~60 caracteres, cortado no fim de uma palavra. */
+export function tituloCurto(texto: string, max = 60): string {
+  const t = texto.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const corte = t.slice(0, max + 1);
+  const espaco = corte.lastIndexOf(" ");
+  return `${(espaco > max / 2 ? corte.slice(0, espaco) : t.slice(0, max)).replace(/[\s.,;:–—-]+$/, "")}…`;
+}
+
 export function conversaDeOrigem(threadId: string, home: string): ConversaDeOrigem {
   const head = threadHead(threadId, home);
   if (!head) throw Object.assign(new Error("conversa não encontrada"), { status: 404 });
@@ -393,7 +404,7 @@ export function conversaDeOrigem(threadId: string, home: string): ConversaDeOrig
   }
   let transcricao = falas.join("\n\n");
   if (transcricao.length > TRANSCRICAO_TETO) transcricao = `[…início cortado…]\n\n${transcricao.slice(-TRANSCRICAO_TETO)}`;
-  return { projectPath: head.projectPath, titulo: head.preview.slice(0, 120), transcricao };
+  return { projectPath: head.projectPath, titulo: tituloCurto(head.preview), transcricao };
 }
 
 /** Primeira mensagem do Manager num plano nascido de conversa. */
@@ -409,3 +420,51 @@ export function pedidoDeConversa(o: ConversaDeOrigem): string {
   ].join("\n");
 }
 
+/** Nome do marco do Quadro de um plano (o mesmo que `enviarAoQuadro` cria). */
+function nomeDoMarco(titulo: string): string {
+  return `Plano: ${titulo}`.slice(0, 80);
+}
+
+/**
+ * `salvarRoteiro` + o nome novo do plano chegando em quem o carrega: a conversa do Manager
+ * ("Plano · X"), as de implementação ("Implementação: X") e o marco do Quadro. Antes o renome
+ * ficava só no roteiro e o resto seguia com o nome velho (ou "Sem nome"). Conversa que a pessoa
+ * renomeou à mão fica com o nome dela; falha em propagar só loga — o roteiro já está salvo.
+ */
+export function salvarRoteiroComNome(
+  projectPath: string,
+  home: string,
+  slug: string,
+  input: { etapas?: unknown; titulo?: unknown; expectedRev: unknown },
+  origem: Origem = "tela",
+): Roteiro {
+  const antes = abrirPlano(projectPath, home, slug).roteiro.titulo;
+  const novo = salvarRoteiro(projectPath, home, slug, input, origem);
+  if (novo.titulo !== antes) propagarTitulo(projectPath, home, slug, antes, novo);
+  return novo;
+}
+
+function propagarTitulo(projectPath: string, home: string, slug: string, antes: string, r: Roteiro): void {
+  const renomear = (threadId: string, nome: string) => {
+    try {
+      const head = threadHead(threadId, home);
+      if (!head || head.tituloOrigem === "manual") return;
+      renomearThread(threadId, nome, "plano", home);
+    } catch (e) {
+      log.aviso("turno", "não consegui levar o nome novo do plano pra conversa", { slug, threadId, erro: (e as Error).message });
+    }
+  };
+  if (r.threadId) renomear(r.threadId, `Plano · ${r.titulo}`);
+  const implementacoes = new Set(r.implementacaoThreadId ? [r.implementacaoThreadId] : []);
+  for (const t of listThreads(projectPath, home)) if (t.handoff?.slug === slug) implementacoes.add(t.id);
+  for (const id of implementacoes) renomear(id, `Implementação: ${r.titulo}`);
+  try {
+    const quadro = getQuadro(projectPath, home);
+    const velho = quadro.marcos.find((m) => m.nome === nomeDoMarco(antes));
+    // outro plano já usa o nome novo: juntar os dois marcos seria pior que deixar o velho
+    const ocupado = quadro.marcos.some((m) => m.nome === nomeDoMarco(r.titulo));
+    if (velho && !ocupado) salvarMarco(projectPath, { id: velho.id, nome: nomeDoMarco(r.titulo) }, home);
+  } catch (e) {
+    log.aviso("projeto", "não consegui renomear o marco do plano no Quadro", { slug, erro: (e as Error).message });
+  }
+}

@@ -38,6 +38,8 @@
     "scripts/nexo.mjs",
     "scripts/resolve-tsx.mjs",
     "scripts/resolve-tsx.cjs",
-    "src/windows-control/native"
+    "src/windows-control/native",
+    "video-assets",
+    "skills"
   ]
 }

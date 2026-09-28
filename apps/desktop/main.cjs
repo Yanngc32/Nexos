@@ -1569,6 +1569,51 @@ app.whenReady().then(async () => {
       throw new Error(e?.message || "winget falhou");
     }
   });
+  /**
+   * Painel Vídeo: sem FFmpeg nada renderiza. Mesmo caminho do `gh` ausente: `winget` direto
+   * (Gyan.FFmpeg); sem `winget` (ENOENT), abre a página oficial. O daemon acha o ffmpeg novo
+   * mesmo sem reiniciar (ele soma a pasta de links do winget no PATH do render).
+   */
+  handle("video:instalar-ffmpeg", async () => {
+    try {
+      await new Promise((res, rej) => {
+        execFile(
+          "winget",
+          ["install", "--id", "Gyan.FFmpeg", "-e", "--source", "winget", "--accept-package-agreements", "--accept-source-agreements"],
+          { windowsHide: true },
+          (err) => (err ? rej(err) : res()),
+        );
+      });
+      return { metodo: "winget" };
+    } catch (e) {
+      if (e && e.code === "ENOENT") {
+        await shell.openExternal("https://www.gyan.dev/ffmpeg/builds/");
+        return { metodo: "pagina" };
+      }
+      logApp.aviso("app", "winget install Gyan.FFmpeg falhou", { erro: e?.message });
+      throw new Error(e?.message || "winget falhou");
+    }
+  });
+  /**
+   * MP4/capa do painel Vídeo: abrir no player do sistema ou mostrar na pasta. Só arquivo que
+   * existe dentro de `videos/<id>/render/` (o caminho vem do daemon, não de quem digita).
+   */
+  const arquivoDeVideo = async (raw) => {
+    const alvo = resolve(String(raw ?? ""));
+    if (!/[\\/]videos[\\/][^\\/]+[\\/]render[\\/][^\\/]+\.(mp4|png)$/i.test(alvo)) throw new Error("Não é um arquivo de vídeo do Nexos");
+    const info = await stat(alvo).catch(() => null);
+    if (!info?.isFile()) throw new Error("Não renderizado aqui");
+    return alvo;
+  };
+  handle("video:abrir", async (_e, raw) => {
+    const erro = await shell.openPath(await arquivoDeVideo(raw));
+    if (erro) throw new Error(erro);
+    return { ok: true };
+  });
+  handle("video:mostrar", async (_e, raw) => {
+    shell.showItemInFolder(await arquivoDeVideo(raw));
+    return { ok: true };
+  });
   handle("folder:pick", async () => {
     const r = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
     if (r.canceled) return null;

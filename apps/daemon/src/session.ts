@@ -17,6 +17,7 @@ import { MCP_TOOLS_DELEGAR, resetContadorDeDelegacao } from "./delegar.ts";
 import { MCP_TOOLS_NAVEGADOR } from "./navegador.ts";
 import { extensaoRecente, MCP_TOOLS_CHROME } from "./chrome.ts";
 import { MCP_TOOLS_DS_PRINT } from "./ds-print.ts";
+import { MCP_TOOLS_VIDEO } from "./video-ferramentas.ts";
 import { MCP_TOOLS_PAINEL, MCP_TOOLS_PLANEJAR } from "./paineis.ts";
 import { MCP_TOOLS_WINDOWS_CONTROL } from "./windows-control.ts";
 import { MCP_TOOLS_TAREFA } from "./tarefas.ts";
@@ -44,7 +45,9 @@ import {
 } from "./compactar.ts";
 import { assertSwitch, suggestFallback } from "./router.ts";
 import { spawnCwd } from "./project-cwd.ts";
-import { activeAgentId, activeProfileId, appendEvent, readThread, removeThread, threadUsage } from "./threads.ts";
+import { activeAgentId, activeProfileId, appendEvent, readThread, removeThread, renomearThread, threadUsage } from "./threads.ts";
+import { limparTitulo, pedidoDeTitulo, tituloPorRegra } from "./titulo-auto.ts";
+import { log } from "./log.ts";
 import { avisoNovoDePausa, decidirRoteamento, escolherExecucao, type EscolhaDeExecucao, type PausaDoTypesafe } from "./typesafe.ts";
 
 const CONTINUE = "Continue de onde parou.";
@@ -242,6 +245,19 @@ const lives = new Map<string, Live>();
  */
 function emVoo(l: Live): boolean {
   return l.pendingTurn !== null && l.lastTerminal === null;
+}
+
+/**
+ * Mensagem aceita cujo turno ainda não tem motor em voo (roteamento, subida do CLI, fila da trava):
+ * já conta como ocupada. Sem isso, conversa que o próprio Nexos manda trabalhar (Manager do plano)
+ * abria na tela parada — maguinho em repouso e sem "Pensando" — nos primeiros segundos.
+ */
+const turnosComecando = new Map<string, number>();
+
+/** Esta conversa tem turno em curso (ou prestes a começar)? */
+export function turnoEmCurso(threadId: string): boolean {
+  const l = lives.get(threadId);
+  return (turnosComecando.get(threadId) ?? 0) > 0 || Boolean(l && emVoo(l));
 }
 
 /** Threads com turno em voo agora: alimenta o indicador de atividade na lista. */
@@ -767,6 +783,8 @@ function mcpDaConversa(
     ...(!meta.runId && perfil.navegadorModo && perfil.navegadorModo !== "negado" && extensaoRecente() ? MCP_TOOLS_CHROME : []),
     // print do card do design system renderizado (ds-print.ts): conversa normal de projeto
     ...(!meta.runId && meta.projectPath ? MCP_TOOLS_DS_PRINT : []),
+    // painel de vídeo do Canvas (video-ferramentas.ts): mesma regra do DS
+    ...(!meta.runId && meta.projectPath ? MCP_TOOLS_VIDEO : []),
     // abrir o painel certo na área de trabalho (navegador, design, quadro…): conversa normal
     ...(!meta.runId && loadConfig(home).paineisDoAgente.modo !== "nunca" ? MCP_TOOLS_PAINEL : []),
     ...(!meta.runId && meta.projectPath && !meta.handoff ? MCP_TOOLS_PLANEJAR : []),
@@ -907,10 +925,57 @@ async function talvezCompactar(threadId: string, home: string): Promise<void> {
   }
 }
 
+/** Conversas que já tiveram a chance de ganhar nome automático nesta subida (uma tentativa só). */
+const titulados = new Set<string>();
+
+/**
+ * Nome automático depois da 1ª resposta: haiku/low numa conta claude (a da conversa, se for
+ * claude), com a regra sem IA de reserva (`titulo-auto.ts`). Só pra conversa da pessoa sem nome
+ * ainda — passo de time, plano, DS e conversa já renomeada ficam como estão. Nunca lança.
+ */
+async function talvezTitular(threadId: string, home: string): Promise<void> {
+  if (titulados.has(threadId)) return;
+  titulados.add(threadId);
+  try {
+    const eventos = readThread(threadId, home);
+    const meta = eventos.find((e) => e.type === "thread_meta");
+    if (!meta || meta.type !== "thread_meta") return;
+    if (meta.title || meta.planejamento || meta.handoff || meta.oculta || meta.semRoteamento || meta.runId) return;
+    if (eventos.some((e) => e.type === "thread_title")) return;
+    const pedido = eventos.find((e) => e.type === "user");
+    const resposta = eventos.find((e) => e.type === "assistant");
+    if (pedido?.type !== "user" || !pedido.text.trim()) return;
+    let nome = "";
+    const p = getProfile(activeProfileId(eventos), home);
+    if (p?.engine === "claude") {
+      try {
+        const bruto = await turnoDeResumo(p, home, home, pedidoDeTitulo(pedido.text, resposta?.type === "assistant" ? resposta.text : ""), {
+          overrides: MODELO_DO_PING,
+          tetoMs: 60_000,
+        });
+        nome = limparTitulo(bruto);
+      } catch (e) {
+        log.avisoUmaVez("titulo-ia", "turno", "título automático pela IA falhou; usando a regra", { threadId, erro: (e as Error).message });
+      }
+    }
+    if (!nome) nome = tituloPorRegra(pedido.text);
+    if (nome) renomearThread(threadId, nome, "auto", home);
+  } catch (e) {
+    log.aviso("turno", "não consegui dar nome à conversa", { threadId, erro: (e as Error).message });
+  }
+}
+
 /** Um turno só, num motor descartável, devolvendo o texto que ele produziu. */
-function turnoDeResumo(p: Profile, projectPath: string | undefined, home: string, pedido: string): Promise<string> {
+function turnoDeResumo(
+  p: Profile,
+  projectPath: string | undefined,
+  home: string,
+  pedido: string,
+  opts: { overrides?: EngineOverrides; tetoMs?: number } = {},
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const engine = createEngine(p, projectPath, home);
+    if (opts.overrides) engine.updateOverrides(opts.overrides);
     let buf = "";
     let fechou = false;
     const fim = (erro?: string) => {
@@ -921,7 +986,7 @@ function turnoDeResumo(p: Profile, projectPath: string | undefined, home: string
       if (erro) reject(new Error(erro));
       else resolve(buf);
     };
-    const relogio = setTimeout(() => fim("o resumo passou do teto de turno"), TURNO_TETO_MS);
+    const relogio = setTimeout(() => fim("o resumo passou do teto de turno"), opts.tetoMs ?? TURNO_TETO_MS);
     void engine
       /*
        * `compact-` e não `compact:`: o threadId vira nome de arquivo de pid
@@ -1182,6 +1247,7 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     // deve esperar por ele. Sem await de propósito — falha aqui não é falha do
     // turno que acabou de dar certo.
     void talvezCompactar(threadId, home);
+    void talvezTitular(threadId, home);
     return;
   }
   if (ev.type === "quota") {
@@ -1595,6 +1661,23 @@ export async function postMessage(
   opts: { automatico?: boolean; elementos?: ElementoDoPreview[] } = {},
 ): Promise<void> {
   if (!opts.automatico) ultimaMensagemHumanaEm = Date.now();
+  turnosComecando.set(threadId, (turnosComecando.get(threadId) ?? 0) + 1);
+  try {
+    await turnoDaMensagem(threadId, text, home, images, opts);
+  } finally {
+    const n = (turnosComecando.get(threadId) ?? 1) - 1;
+    if (n > 0) turnosComecando.set(threadId, n);
+    else turnosComecando.delete(threadId);
+  }
+}
+
+async function turnoDaMensagem(
+  threadId: string,
+  text: string,
+  home: string,
+  images: IncomingImage[],
+  opts: { automatico?: boolean; elementos?: ElementoDoPreview[] },
+): Promise<void> {
   await withLocked(threadId, async () => {
     // Teto de `nexo_delegar` é POR TURNO: mensagem nova reabre a cota.
     resetContadorDeDelegacao(threadId);

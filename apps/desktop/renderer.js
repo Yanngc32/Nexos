@@ -16,6 +16,7 @@ import { diffDeFerramenta, nomeArquivo, renderDiff } from "./diff-view.js";
 import { createTarefasBoard } from "./tarefas-board.js";
 import { createPlanejamentoBoard, estadoDoDesign } from "./planejamento-board.js";
 import { createDsCanvas, documentoDoPrint } from "./canvas-ds.js";
+import { createVideoPanel } from "./canvas-video.js";
 import { createBarraTimes } from "./chat-times.js";
 import { capturarReferencia } from "./ds-extrator.js";
 import { createDialogo } from "./dialogo.js";
@@ -29,6 +30,7 @@ import { agruparConversas } from "./thread-groups.js";
 import { marcarLinhaAtiva } from "./thread-mark.js";
 import { escapeHtml, renderMd } from "./markdown.js";
 import { secaoDaVersao } from "./changelog.js";
+import { aplicarEventoNaPonte, ponteDosEventos, textoDaPonte } from "./ponte-plano.js";
 import {
   ago,
   clip,
@@ -64,6 +66,7 @@ import { montarMensagem, rotuloDoElemento } from "./inspector-mensagem.js";
 import { rotuloDaFerramenta } from "./rotulos-ferramenta.js";
 import { criarInspectorHost } from "./inspector-host.js";
 import { FASE } from "./inspector-estado.js";
+import { editarNome } from "./editar-nome.js";
 import { criarNavegadorHost } from "./navegador-host.js";
 import { LIMITE_DO_CHAT, inicioDaJanela, mensagensAntesDe } from "./janela-do-chat.js";
 import { criarAreaDeChats, criarEstadoDoChat, elementoDoChat, ligarEstadoDoChat, ouvirConversa } from "./chat-instancia.js";
@@ -143,6 +146,7 @@ const ICO_ACAO = {
   abrir: '<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>',
   enviar: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
   baixar: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+  editar: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
 };
 
 /** `icoSvg` pronto pro menu de botão direito. */
@@ -3473,13 +3477,46 @@ async function vincularPastaManualmente(path) {
   $("slug-manual").focus();
 }
 
+/**
+ * Selo da linha na barra lateral: "Plano" na conversa do Agent Manager; ícone do plano (aceso com a
+ * ponte ligada) na conversa que abriu um plano. Texto no title: a cor sozinha não diz nada.
+ */
+function seloDePlano(t) {
+  if (!t.planejamento && !t.planoLigado) return null;
+  const selo = document.createElement("span");
+  selo.className = "stub-plano";
+  if (t.planejamento) {
+    selo.dataset.tipo = "manager";
+    selo.innerHTML = `${icoSvg("planejamento", "")}Plano`;
+    selo.title = "Conversa do Agent Manager de um plano (botão direito → Abrir planejamento)";
+  } else {
+    selo.dataset.tipo = "origem";
+    selo.innerHTML = icoSvg("planejamento", "");
+    selo.title = t.planoLigado.ligada
+      ? `Abriu o plano "${t.planoLigado.titulo}" — conversando com o Agent Manager`
+      : `Abriu o plano "${t.planoLigado.titulo}"`;
+    if (t.planoLigado.ligada) selo.dataset.ligada = "1";
+  }
+  return selo;
+}
+
 /** Botão direito numa conversa da árvore. */
-function menuDaConversa(e, path, t) {
+function menuDaConversa(e, path, t, li) {
   menuContexto.abrir(e, [
     { titulo: clip(t.preview || "Conversa nova", 40) },
     { rotulo: "Abrir conversa", icoSvg: ctxIco("abrir"), onSelect: () => void openThreadInRepo(path, t.id) },
+    { rotulo: "Renomear", icoSvg: ctxIco("editar"), onSelect: () => void renomearConversa(li, t) },
     { rotulo: "Abrir ao lado", icoSvg: ctxIco("abrir"), onSelect: () => void abrirChatAoLado(t.id, path) },
     { rotulo: "Nova conversa neste repositório", icoSvg: ctxIco("mais"), onSelect: () => void criarConversaEmRepo(path) },
+    ...(t.planejamento || t.planoLigado
+      ? [
+          {
+            rotulo: "Abrir planejamento",
+            icoSvg: icoSvg("planejamento", "ctx-svg"),
+            onSelect: () => void abrirPlanoExistente(path, t.planejamento?.slug || t.planoLigado.slug),
+          },
+        ]
+      : []),
     // conversa de plano (Manager) já é plano: não vira outro
     ...(t.planejamento
       ? []
@@ -3494,6 +3531,28 @@ function menuDaConversa(e, path, t) {
     { separador: true },
     { rotulo: "Apagar conversa", icoSvg: ctxIco("lixo"), perigo: true, onSelect: () => void deleteThread(t.id) },
   ]);
+}
+
+/**
+ * Renomeia a conversa no próprio item da barra lateral. Enquanto o campo está aberto a árvore
+ * não é redesenhada (o poll de 4 s apagaria o que a pessoa está digitando).
+ */
+async function renomearConversa(li, t) {
+  const el = li?.querySelector(".stub-title");
+  if (!el) return;
+  state.renomeandoConversa = t.id;
+  try {
+    await editarNome(el, {
+      atual: t.preview || "Conversa nova",
+      salvar: (title) => req(`/v1/threads/${encodeURIComponent(t.id)}`, { method: "PATCH", body: JSON.stringify({ title }) }),
+      aoFalhar: (e) => void dialogo.avisar(`Renomear: ${e.message}`),
+    });
+  } finally {
+    state.renomeandoConversa = null;
+  }
+  state.fpThreads = "";
+  await loadThreads();
+  setChatHead();
 }
 
 /** Abre uma conversa do chat geral — sem `bindProject`, porque ela não pertence a repo nenhum. */
@@ -3552,10 +3611,11 @@ async function criarConversaGeral() {
 }
 
 /** Botão direito numa conversa do chat geral. */
-function menuDaConversaGeral(e, t) {
+function menuDaConversaGeral(e, t, li) {
   menuContexto.abrir(e, [
     { titulo: clip(t.preview || "Conversa nova", 40) },
     { rotulo: "Abrir conversa", icoSvg: ctxIco("abrir"), onSelect: () => void openThreadInGlobal(t.id) },
+    { rotulo: "Renomear", icoSvg: ctxIco("editar"), onSelect: () => void renomearConversa(li, t) },
     { rotulo: "Abrir ao lado", icoSvg: ctxIco("abrir"), onSelect: () => void abrirChatAoLado(t.id, null) },
     { rotulo: "Nova conversa no chat geral", icoSvg: ctxIco("mais"), onSelect: () => void criarConversaGeral() },
     { rotulo: "Importar zip (Claude.ai export)…", icoSvg: ctxIco("enviar"), onSelect: () => void importarZipGeral() },
@@ -3659,7 +3719,7 @@ function montarSecaoChatGeral() {
       e.stopPropagation();
       void deleteThread(t.id);
     });
-    li.append(title, meta, del);
+    li.append(...[title, seloDePlano(t), meta, del].filter(Boolean));
     if (busy) {
       const dot = document.createElement("span");
       dot.className = "run-dot";
@@ -3670,7 +3730,11 @@ function montarSecaoChatGeral() {
       if (e.ctrlKey || e.metaKey) void abrirChatAoLado(t.id, null);
       else void openThreadInGlobal(t.id);
     });
-    li.addEventListener("contextmenu", (e) => menuDaConversaGeral(e, t));
+    li.addEventListener("contextmenu", (e) => menuDaConversaGeral(e, t, li));
+    title.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      void renomearConversa(li, t);
+    });
     linhaAbreAoLado(li, t.id, null);
     ul.append(li);
   }
@@ -3681,6 +3745,7 @@ function montarSecaoChatGeral() {
 function renderRepoTree() {
   const tree = $("repo-tree");
   if (!tree) return;
+  if (state.renomeandoConversa) return; // campo de renomear aberto: redesenha quando fechar
   tree.replaceChildren();
   $("threads-empty").classList.toggle("hidden", state.repos.length > 0);
   updateChatEmptyState();
@@ -3786,7 +3851,7 @@ function renderRepoTree() {
         e.stopPropagation();
         void deleteThread(t.id);
       });
-      li.append(title, meta, del);
+      li.append(...[title, seloDePlano(t), meta, del].filter(Boolean));
       if (busy) {
         const dot = document.createElement("span");
         dot.className = "run-dot";
@@ -3797,7 +3862,11 @@ function renderRepoTree() {
         if (e.ctrlKey || e.metaKey) void abrirChatAoLado(t.id, path);
         else void openThreadInRepo(path, t.id);
       });
-      li.addEventListener("contextmenu", (e) => menuDaConversa(e, path, t));
+      li.addEventListener("contextmenu", (e) => menuDaConversa(e, path, t, li));
+      title.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+        void renomearConversa(li, t);
+      });
       linhaAbreAoLado(li, t.id, path);
       return li;
     };
@@ -4460,6 +4529,25 @@ function appendEvent(ev, scroll = true) {
     li.querySelector(".you-auto-txt").textContent = rotuloDoContexto();
     if (md) renderMd(li.querySelector(".you-auto-md"), ev.text);
     else li.querySelector(".you-text").textContent = ev.text;
+  } else if (ev.type === "plano_ligado") {
+    li.className = "plano-ligado";
+    li.innerHTML =
+      `<div class="plano-ligado-card"><span class="plano-ligado-ico">${icoSvg("planejamento", "plano-ligado-svg")}</span>` +
+      `<div class="plano-ligado-txt"><div class="plano-ligado-rot">Planejamento criado</div><div class="plano-ligado-nome"></div></div>` +
+      `<button type="button" class="primary plano-ligado-abrir">Abrir planejamento</button></div>`;
+    li.querySelector(".plano-ligado-nome").textContent = ev.titulo || ev.slug;
+    li.querySelector(".plano-ligado-abrir").dataset.slug = ev.slug;
+  } else if (ev.type === "plano_ponte") {
+    li.className = "roteamento-marca";
+    li.innerHTML = `<span class="stamp">${ev.ligada ? "Conversa com o Agent Manager religada" : "Conversa com o Agent Manager desligada — o agente deste chat volta a responder"}</span>`;
+  } else if (ev.type === "ponte") {
+    const ida = ev.direcao === "ida";
+    li.className = ida ? "you ponte-ida" : "bot ponte-volta";
+    li.innerHTML = ida
+      ? `<div class="who">Você → Agent Manager</div><div class="you-text"></div>`
+      : `<div class="who">Agent Manager · plano</div><div class="md"></div>`;
+    if (ida) li.querySelector(".you-text").textContent = ev.texto || "";
+    else renderMd(li.querySelector(".md"), ev.texto || "");
   } else if (ev.type === "run_resultado") {
     li.className = "run-resultado";
     li.dataset.status = ev.status;
@@ -4469,7 +4557,7 @@ function appendEvent(ev, scroll = true) {
     renderMd(li.querySelector(".rr-texto"), ev.texto || "");
   } else if (ev.type === "user") {
     li.className = "you";
-    li.innerHTML = `<div class="who">Você</div><div class="you-text">${escapeHtml(ev.text)}</div>`;
+    li.innerHTML = `<div class="who">${ev.viaPonte ? "Você · pelo chat de origem" : "Você"}</div><div class="you-text">${escapeHtml(ev.text)}</div>`;
     if (!ev.text) li.querySelector(".you-text").remove();
     if (ev.elementos?.length) li.append(chipsDeElementos(ev.elementos));
     const shots = ev.previews ?? ev.attachments ?? [];
@@ -4775,6 +4863,11 @@ porChat(() => {
       form.querySelector("input")?.focus();
       return;
     }
+    const abrirPlano = e.target.closest(".plano-ligado-abrir");
+    if (abrirPlano) {
+      void abrirPlanoDaConversa(abrirPlano.dataset.slug);
+      return;
+    }
     const linha = e.target.closest(".tool-line");
     if (!linha) return;
     const li = linha.closest("li.tool");
@@ -4832,6 +4925,14 @@ function pintarRespostaDaPergunta(li, resposta) {
   resp.textContent = resposta;
   if (form) form.replaceWith(resp);
   else li.append(resp);
+}
+
+/** Bolha de pergunta ainda sem resposta no chat atual (a mais recente), ou null. */
+function perguntaAbertaNoChat() {
+  const abertas = $("log").querySelectorAll("li.pergunta:not([data-respondida='1']):not([data-enviando='1'])");
+  const li = abertas.length ? abertas[abertas.length - 1] : null;
+  // bolha velha (turno que expirou) não pode engolir mensagem: só vale se o motor ainda espera ela
+  return li && state.agents.perguntasPendentes.has(li.dataset.threadId) ? li : null;
 }
 
 /** Manda a resposta pro daemon e só desabilita os controles — quem pinta o estado final é o eco (`pergunta_resposta`). */
@@ -4948,9 +5049,11 @@ function pintarChips() {
   }
 }
 
-/** Chats da tela agora: no plano, Manager e Implementação; fora dele, os normais. */
+/** Chats da tela agora: no plano, o Manager (e a Implementação, só depois que existe); fora dele, os normais. */
 function chatsDaVez() {
-  return planoAberto ? [planoAberto.manager, planoAberto.impl] : areaDeChats.chats.filter((c) => !c.fixo);
+  if (!planoAberto) return areaDeChats.chats.filter((c) => !c.fixo);
+  const { manager, impl } = planoAberto;
+  return impl.threadId ? [manager, impl] : [manager];
 }
 
 function distribuirChats() {
@@ -4991,14 +5094,17 @@ function desenharArea() {
     root.dataset.foco = areaDeChats.ehFoco(chat) ? "1" : "0";
     root.style.setProperty("--peso", String(chat.peso || 1));
     const janela = root.querySelector(".chat-janela");
-    janela.classList.toggle("hidden", chats.length < 2);
+    // no plano o Manager sozinho também minimiza (vira pílula)
+    janela.classList.toggle("hidden", chats.length < 2 && !planoAberto);
     // chats do plano são fixos: sem ×
     janela.querySelector('[data-janela="fechar"]').classList.toggle("hidden", Boolean(chat.fixo));
     const max = janela.querySelector('[data-janela="maximizar"]');
+    max.classList.toggle("hidden", Boolean(planoAberto) && chats.length < 2);
     const rotulo = chatMaximizado === chat ? "Restaurar" : "Maximizar";
     max.title = rotulo;
     max.setAttribute("aria-label", rotulo);
-    root.querySelector(".chat-head").draggable = chats.length > 1;
+    // no plano o cabeçalho move a janela flutuante (não reordena)
+    root.querySelector(".chat-head").draggable = chats.length > 1 && !planoAberto;
     if (!aberto) continue;
     if (anterior) colunasDosChats.insertBefore(criarDivisor(anterior, chat), root);
     anterior = chat;
@@ -5007,6 +5113,8 @@ function desenharArea() {
   vazio.classList.toggle("hidden", abertos.length > 0);
   // tudo minimizado no plano: a faixa encolhe pra barra de chips e o canvas ganha a altura
   $("pane-chat").dataset.tudoMin = planoAberto && abertos.length === 0 ? "1" : "0";
+  // no plano os chats flutuam: a largura da janela acompanha quantos estão abertos
+  $("pane-chat").dataset.abertos = String(abertos.length);
   lembrarLayout();
   pintarEstadosDosChats();
 }
@@ -5398,7 +5506,11 @@ async function openThread(id, { chat: alvo = null } = {}) {
   const stub = threadStub(id);
   chat.projeto = stub ? stub.path : state.projectPath || null;
   if (foco()) localStorage.setItem("nexo.thread", id);
-  const events = await req(`/v1/threads/${id}`);
+  // turno que o próprio Nexos mandou (Manager do plano) ainda não aparece na lista de agentes
+  const [events, emCurso] = await Promise.all([
+    req(`/v1/threads/${id}`),
+    req(`/v1/threads/${id}/em-curso`).then((r) => Boolean(r?.emCurso)).catch(() => false),
+  ]);
   // outra conversa foi aberta neste chat durante a espera: a resposta velha não vale mais
   if (chat.threadId !== id || !areaDeChats.chats.includes(chat)) return;
   // o resto desenha NESTE chat, mesmo que o foco tenha ido pra outro durante a espera
@@ -5412,6 +5524,8 @@ async function openThread(id, { chat: alvo = null } = {}) {
     state.profileId = switched?.toProfileId || meta?.profileId || "";
     setVia();
     renderEvents(events);
+    state.ponte = ponteDosEventos(events);
+    pintarPonte();
     // Depois de `renderEvents` (que popula `state.events`): o agente pode ter sido
     // atribuído por roteamento no meio da conversa, e o `thread_meta` não sabe disso.
     sincronizarAgenteDaConversa();
@@ -5419,7 +5533,7 @@ async function openThread(id, { chat: alvo = null } = {}) {
     // "Falando" é por conversa: com duas contas trabalhando em paralelo, sair de uma
     // em voo não pode deixar a próxima com o indicador aceso e o Parar mirando errado.
     petParou();
-    if (state.ok) setMotor(true, state.agents.list.some((a) => a.threadId === id && a.busy));
+    if (state.ok) setMotor(true, emCurso || state.agents.list.some((a) => a.threadId === id && a.busy));
     setChatHead();
     state.queuePaused = false;
     paintQueue();
@@ -5674,6 +5788,17 @@ function onLive(ev) {
     return;
   }
   if (ev.type === "run_resultado") {
+    appendEvent(ev);
+    return;
+  }
+  if (ev.type === "plano_ligado" || ev.type === "plano_ponte" || ev.type === "ponte") {
+    appendEvent(ev);
+    state.ponte = aplicarEventoNaPonte(state.ponte, ev);
+    pintarPonte();
+    return;
+  }
+  // pedido que veio pela ponte do chat de origem (chat do Manager aberto): mostra na hora
+  if (ev.type === "user" && ev.viaPonte) {
     appendEvent(ev);
     return;
   }
@@ -6484,9 +6609,10 @@ async function entrarNoPlano(path, slug, managerThreadId) {
     [manager.minimizado, impl.minimizado] = salvo.minimizados;
     [manager.peso, impl.peso] = salvo.pesos;
   }
-  if (salvo?.faixa) $("work").style.setProperty("--faixa-plano", `${salvo.faixa}px`);
-  else $("work").style.removeProperty("--faixa-plano");
-  // janela baixa: a faixa começa minimizada pro canvas caber
+  // Implementação nasce como pílula: o plano é o foco, ela abre no clique
+  if (!salvo) impl.minimizado = true;
+  aplicarTamanhoDoFlutuante();
+  // janela baixa: o Manager começa minimizado pro plano caber
   if (window.innerHeight < 600) manager.minimizado = impl.minimizado = true;
   planoAberto = { slug, path, manager, impl, antes, lateral: Boolean(salvo?.lateral) };
   document.body.dataset.plano = "1";
@@ -6570,7 +6696,8 @@ function aoCarregarPlano(plano) {
   const r = plano.roteiro;
   const { manager, impl } = planoAberto;
   if (r.threadId && manager.threadId !== r.threadId) void openThread(r.threadId, { chat: manager });
-  if (r.implementacaoThreadId && impl.threadId !== r.implementacaoThreadId) void openThread(r.implementacaoThreadId, { chat: impl });
+  // a Implementação só entra na tela (como pílula) quando existe
+  if (r.implementacaoThreadId && impl.threadId !== r.implementacaoThreadId) void openThread(r.implementacaoThreadId, { chat: impl }).then(() => desenharArea());
   // já tem implementação: o envio sai da barra (fica no estado vazio só enquanto não houver)
   $("btn-pl-enviar").classList.toggle("hidden", Boolean(r.implementacaoThreadId));
   planoAberto.mockAguardando = plano.cards.some((c) => estadoDoDesign(c, plano.integracao) === "aguardando");
@@ -6593,45 +6720,104 @@ function alternarLateralDoPlano() {
   lembrarLayout();
 }
 
-/** Divisor entre o canvas e a faixa de chats: arrastar muda a altura, duplo clique alterna 40%/minimizado. */
+/* Chats do plano flutuam por cima do canvas, ancorados embaixo à direita. O canto de cima à esquerda
+   (`#split-plano`) redimensiona; duplo clique nele minimiza/restaura tudo. Tamanho vale pra todo plano. */
+const CHAVE_FLUTUANTE = "nexo.planoFlutuante";
+const FLUT_MIN = { w: 320, h: 260 };
+
+function aplicarTamanhoDoFlutuante(tam = null) {
+  let t = tam;
+  if (!t) {
+    try {
+      t = JSON.parse(lsGet(CHAVE_FLUTUANTE, "null"));
+    } catch {
+      t = null;
+    }
+  }
+  const work = $("work");
+  for (const v of ["--flut-r", "--flut-b"]) work.style.removeProperty(v);
+  if (t && t.r >= 0 && t.b >= 0) {
+    // posição guardada: nunca colada na borda (8px), mesmo vinda de uma versão sem essa margem
+    work.style.setProperty("--flut-r", `${Math.round(Math.max(8, t.r))}px`);
+    work.style.setProperty("--flut-b", `${Math.round(Math.max(8, t.b))}px`);
+  }
+  if (!t || !(t.w > 0) || !(t.h > 0)) {
+    work.style.removeProperty("--flut-w");
+    work.style.removeProperty("--flut-h");
+    return;
+  }
+  // tela ainda sem medida (entrando no plano): não corta, o CSS limita com max-width/max-height
+  const caixa = work.getBoundingClientRect();
+  const w = Math.max(FLUT_MIN.w, caixa.width > 0 ? Math.min(caixa.width - 32, t.w) : t.w);
+  const h = Math.max(FLUT_MIN.h, caixa.height > 0 ? Math.min(caixa.height - 32, t.h) : t.h);
+  work.style.setProperty("--flut-w", `${Math.round(w)}px`);
+  work.style.setProperty("--flut-h", `${Math.round(h)}px`);
+}
+
 {
   const div = $("split-plano");
-  const FAIXA_MIN = 180;
-  const CANVAS_MIN = 240;
-  const aplicar = (px) => {
-    const total = $("work").getBoundingClientRect().height;
-    const h = Math.max(FAIXA_MIN, Math.min(total - CANVAS_MIN, px));
-    $("work").style.setProperty("--faixa-plano", `${Math.round(h)}px`);
-    div.setAttribute("aria-valuenow", String(Math.round((h / total) * 100)));
+  const abertos = () => Math.max(1, Number($("pane-chat").dataset.abertos) || 1);
+  const tamanhoAtual = () => {
+    const r = $("pane-chat").getBoundingClientRect();
+    const caixa = $("work").getBoundingClientRect();
+    return { w: r.width / abertos(), h: r.height, r: caixa.right - r.right, b: caixa.bottom - r.bottom };
   };
-  const alturaAtual = () => $("pane-chat").getBoundingClientRect().height;
+  const guardar = () => lsSet(CHAVE_FLUTUANTE, JSON.stringify(tamanhoAtual()));
   div.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     div.setPointerCapture(e.pointerId);
+    const x0 = e.clientX;
     const y0 = e.clientY;
-    const h0 = alturaAtual();
-    const mexe = (ev) => aplicar(h0 + (y0 - ev.clientY));
+    const t0 = tamanhoAtual();
+    const n = abertos();
+    const mexe = (ev) => aplicarTamanhoDoFlutuante({ ...t0, w: t0.w + (x0 - ev.clientX) / n, h: t0.h + (y0 - ev.clientY) });
     const solta = () => {
       div.removeEventListener("pointermove", mexe);
       div.removeEventListener("pointerup", solta);
-      lembrarLayout();
+      guardar();
     };
     div.addEventListener("pointermove", mexe);
     div.addEventListener("pointerup", solta);
   });
   div.addEventListener("keydown", (e) => {
-    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    const passo = { ArrowUp: [0, 24], ArrowDown: [0, -24], ArrowLeft: [24, 0], ArrowRight: [-24, 0] }[e.key];
+    if (!passo) return;
     e.preventDefault();
-    aplicar(alturaAtual() + (e.key === "ArrowUp" ? 24 : -24));
-    lembrarLayout();
+    const t = tamanhoAtual();
+    aplicarTamanhoDoFlutuante({ ...t, w: t.w + passo[0], h: t.h + passo[1] });
+    guardar();
+  });
+  // arrastar pelo cabeçalho do chat move a janela (fica dentro da área do plano)
+  $("pane-chat").addEventListener("pointerdown", (e) => {
+    if (!planoAberto || e.button !== 0) return;
+    const head = e.target.closest(".chat-head");
+    if (!head || e.target.closest("button, a, input, select, textarea, [contenteditable]")) return;
+    e.preventDefault();
+    head.setPointerCapture(e.pointerId);
+    const t0 = tamanhoAtual();
+    const caixa = $("work").getBoundingClientRect();
+    const r = $("pane-chat").getBoundingClientRect();
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    const mexe = (ev) => {
+      const M = 8;
+      const nr = Math.max(M, Math.min(caixa.width - r.width - M, t0.r - (ev.clientX - x0)));
+      const nb = Math.max(M, Math.min(caixa.height - r.height - M, t0.b - (ev.clientY - y0)));
+      aplicarTamanhoDoFlutuante({ ...t0, r: nr, b: nb });
+    };
+    const solta = () => {
+      head.removeEventListener("pointermove", mexe);
+      head.removeEventListener("pointerup", solta);
+      guardar();
+    };
+    head.addEventListener("pointermove", mexe);
+    head.addEventListener("pointerup", solta);
   });
   div.addEventListener("dblclick", () => {
     if (!planoAberto) return;
-    const { manager, impl } = planoAberto;
-    const minimizar = !(manager.minimizado && impl.minimizado);
-    manager.minimizado = minimizar;
-    impl.minimizado = minimizar;
-    if (!minimizar) $("work").style.removeProperty("--faixa-plano");
+    const chats = chatsDaVez();
+    const minimizar = !chats.every((c) => c.minimizado);
+    for (const c of chats) c.minimizado = minimizar;
     desenharArea();
   });
 }
@@ -6786,6 +6972,70 @@ async function abrirTelaDePlanejamento(path) {
   else await novoPlanejamento(path);
 }
 
+/** Manda pro chat em foco sem tirar a pessoa do Canvas (mesmo caminho do inspector dos cards). */
+function mandarDoCanvas(texto, elementos = []) {
+  if (!state.sideChat) {
+    state.sideChat = true;
+    applyWorkLayout();
+  }
+  void sendChatMessage(texto, null, { elementos });
+}
+
+/** Põe um texto no campo do chat, sem mandar (a pessoa completa). */
+function pedirNoChatDoCanvas(texto) {
+  if (!state.sideChat) {
+    state.sideChat = true;
+    applyWorkLayout();
+  }
+  const input = $("input");
+  input.value = texto;
+  input.dispatchEvent(new Event("input"));
+  input.focus();
+}
+
+// Painel de vídeo do Canvas (canvas-video.js): entra no seletor de sistema do DS
+const videoPanel = createVideoPanel({
+  req,
+  api,
+  headers,
+  el: $,
+  getProjectPath: () => state.projectPath,
+  isOk: () => state.ok,
+  lerEventos,
+  avisar: (msg) => dialogo.avisar(msg),
+  confirmar: (msg) => dialogo.confirmar(msg),
+  aoMandarNoChat: mandarDoCanvas,
+  aoPedirNoChat: pedirNoChatDoCanvas,
+  aoMudarModo: (ligado) => $("pane-ds").classList.toggle("modo-video", ligado),
+  aoMudarLista: () => dsCanvas?.repintarCabecalho?.(),
+  instalarFfmpeg: () => window.nexo.instalarFfmpeg(),
+  abrirArquivo: (caminho) => window.nexo.abrirVideo(caminho),
+  mostrarNaPasta: (caminho) => window.nexo.mostrarVideo(caminho),
+  abrirLink: (url) => window.nexo.openExternal(url),
+  copiarTexto: (t) => navigator.clipboard.writeText(t),
+});
+
+// "+ Vídeo" no cabeçalho do Canvas: nome + formato e já abre o painel
+$("ds-btn-video").addEventListener("click", () => {
+  const caixa = $("ds-video-novo");
+  caixa.classList.toggle("hidden");
+  if (!caixa.classList.contains("hidden")) $("ds-video-nome").focus();
+});
+$("ds-video-criar").addEventListener("click", async () => {
+  const nome = $("ds-video-nome").value.trim() || "Vídeo";
+  $("ds-video-err").textContent = "";
+  try {
+    await videoPanel.criar(nome, $("ds-video-formato").value);
+    $("ds-video-novo").classList.add("hidden");
+    $("ds-video-nome").value = "";
+  } catch (e) {
+    $("ds-video-err").textContent = e.message;
+  }
+});
+$("ds-video-nome").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("ds-video-criar").click();
+});
+
 const dsCanvas = createDsCanvas({
   req,
   api,
@@ -6824,13 +7074,8 @@ const dsCanvas = createDsCanvas({
     input.setSelectionRange(input.value.length, input.value.length);
   },
   // seleção nos cards: vai direto como mensagem com chips, igual ao "Mandar" do inspector do Browser
-  aoMandarNoChat: (texto, elementos) => {
-    if (!state.sideChat) {
-      state.sideChat = true;
-      applyWorkLayout();
-    }
-    void sendChatMessage(texto, null, { elementos });
-  },
+  aoMandarNoChat: (texto, elementos) => mandarDoCanvas(texto, elementos),
+  videos: videoPanel,
 });
 
 /** Texto da mensagem automática recolhida: pra quem o Nexos está passando o contexto. */
@@ -6910,6 +7155,11 @@ async function loadAgents() {
   try {
     state.agents.list = await req("/v1/agents");
     state.agents.unsupported = false;
+    // app recarregado no meio de uma pergunta: o SSE não repete o evento, o retrato diz quem espera
+    for (const a of state.agents.list) {
+      if (a.aguardando) state.agents.perguntasPendentes.add(a.threadId);
+      else state.agents.perguntasPendentes.delete(a.threadId);
+    }
   } catch (e) {
     // motor antigo (sem a rota) ou fora do ar: painel vazio, não erro na cara
     state.agents.list = [];
@@ -6960,13 +7210,16 @@ const VIEW_DO_PAINEL = { navegador: "browser", design: "ds", planejamento: "plan
  */
 async function tratarAbrirPainel(ev) {
   const responder = (r) => req(`/v1/paineis/${encodeURIComponent(ev.id)}/responder`, { method: "POST", body: JSON.stringify(r) }).catch(() => {});
-  if (ev.criarPlano) {
-    const r = await planejarDaConversa(ev.threadId);
-    return void responder(
-      r.ok
-        ? { ok: true, texto: "plano criado e aberto na Tela de Planejamento; o Agent Manager já recebeu esta conversa e segue de lá" }
-        : { ok: false, texto: `não criou o plano: ${r.erro}` },
-    );
+  if (ev.abrirPlano) {
+    // o motor já criou o plano: responde na hora (montar a tela passa do prazo da ferramenta) e abre depois
+    void responder({ ok: true, texto: "Tela de Planejamento abrindo" });
+    const { slug, projectPath, managerThreadId } = ev.abrirPlano;
+    try {
+      await entrarNoPlano(projectPath || state.projectPath, slug, managerThreadId);
+    } catch (e) {
+      void dialogo.avisar(`Não abriu o planejamento: ${e.message}`);
+    }
+    return;
   }
   const view = VIEW_DO_PAINEL[ev.painel];
   if (!view) return void responder({ ok: false, texto: `painel desconhecido: ${ev.painel}` });
@@ -7702,6 +7955,8 @@ async function bindProject(path) {
   fecharLogServico();
   svcPanel.limparPortas();
   dsCanvas.trocouProjeto();
+  videoPanel.fechar();
+  videoPanel.trocouProjeto();
   if (state.view === "ds") void dsCanvas.abrir();
   if (state.ok) await loadThreads();
   await loadServices();
@@ -8922,8 +9177,69 @@ function chipsDeElementos(elementos) {
   return row;
 }
 
+/**
+ * Chat ligado a um plano (ponte ligada): a mensagem vai pro Agent Manager — o daemon grava a
+ * `ponte` de ida e ela chega pelo SSE, então aqui não desenha bolha local (sairia dobrada).
+ */
+async function mandarPelaPonte(text, pendentes) {
+  const chat = areaDeChats.atual();
+  const threadId = chat.threadId;
+  let images = [];
+  try {
+    images = await encodeImages(pendentes ?? takePending());
+  } catch (err) {
+    areaDeChats.comChat(chat, () => appendEvent({ type: "error", message: err.message || "Não consegui ler a imagem." }));
+    return;
+  }
+  try {
+    await req(`/v1/threads/${threadId}/messages`, { method: "POST", body: JSON.stringify({ text, ...(images.length ? { images } : {}) }) });
+  } catch (err) {
+    areaDeChats.comChat(chat, () => appendEvent({ type: "error", message: err.message || "Falha ao enviar pro Agent Manager." }));
+  }
+}
+
+/** Barra acima do composer: a conversa abriu um plano (botão pra ir até ele) e a ponte com o Manager. */
+function pintarPonte() {
+  const bar = $("ponte-bar");
+  if (!bar) return;
+  const ponte = state.ponte;
+  const input = $("input");
+  bar.classList.toggle("hidden", !ponte);
+  input.placeholder = ponte?.ligada ? "Mensagem pro Agent Manager do plano…" : input.dataset.placeholderPadrao || input.placeholder;
+  if (!ponte) return;
+  bar.dataset.ligada = ponte.ligada ? "1" : "0";
+  bar.querySelector(".ponte-txt").textContent = textoDaPonte(ponte);
+  const alternar = bar.querySelector(".ponte-alternar");
+  alternar.textContent = ponte.ligada ? "Falar com o agente deste chat" : "Falar com o Manager";
+  alternar.title = ponte.ligada
+    ? "Desliga a ponte: o que você escrever volta a ir pro agente desta conversa"
+    : "Religa a ponte: o que você escrever vai pro Agent Manager do plano";
+}
+
+/** Plano que esta conversa abriu: Tela de Planejamento na conversa do Manager dele. */
+async function abrirPlanoDaConversa(slug = state.ponte?.slug) {
+  if (!slug) return;
+  const path = areaDeChats.atual().projeto || state.projectPath;
+  if (path) await abrirPlanoExistente(path, slug);
+}
+
+porChat((chat) => {
+  const input = $("input");
+  if (!input.dataset.placeholderPadrao) input.dataset.placeholderPadrao = input.placeholder;
+  $("ponte-bar").addEventListener("click", async (e) => {
+    if (e.target.closest(".ponte-abrir")) return void abrirPlanoDaConversa(chat.ponte?.slug);
+    if (!e.target.closest(".ponte-alternar") || !chat.ponte || !chat.threadId) return;
+    try {
+      await req(`/v1/threads/${chat.threadId}/ponte`, { method: "POST", body: JSON.stringify({ ligada: !chat.ponte?.ligada }) });
+    } catch (err) {
+      void dialogo.avisar(`Não trocou: ${err.message}`);
+    }
+  });
+});
+
 async function sendChatMessage(text, pendentes = null, { elementos = [] } = {}) {
   if (!state.threadId) return;
+  if (state.ponte?.ligada) return mandarPelaPonte(text, pendentes);
   // Ocupado não descarta: enfileira. Antes a mensagem sumia sem aviso nenhum.
   if (state.talking) {
     enfileirar(text, pendentes ?? takePending(), elementos);
@@ -8979,7 +9295,14 @@ porChat(() => {
       return;
     }
     $("input").value = "";
-    if (state.talking) {
+    // pergunta aberta no chat: o texto é a resposta dela (o turno está parado esperando isso)
+    const pergunta = perguntaAbertaNoChat();
+    if (pergunta && state.pendingImages.length === 0) {
+      void responderPergunta(pergunta, text);
+      return;
+    }
+    // com a ponte ligada o turno deste chat não segura nada: a mensagem é do Manager
+    if (state.talking && !state.ponte?.ligada) {
       enfileirar(text, takePending());
       return;
     }
@@ -10832,7 +11155,8 @@ function initBarOverflow() {
 
   new ResizeObserver((entries) => {
     const largura = entries[0]?.contentRect.width ?? composer.clientWidth;
-    aplicar(largura < LIMIAR);
+    // chat flutuante do plano: os controles ficam à vista, compactos e quebrando linha (ver styles.css)
+    aplicar(largura < (document.body.dataset.plano === "1" ? 240 : LIMIAR));
   }).observe(composer);
 
   btnMore.addEventListener("click", () => {

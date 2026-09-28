@@ -37,7 +37,8 @@ export type Origem =
   | "repomap"
   | "processo"
   | "login"
-  | "projeto";
+  | "projeto"
+  | "video";
 
 const PESO: Record<LogNivel, number> = { debug: 0, info: 1, aviso: 2, erro: 3 };
 const ROTULO: Record<LogNivel, string> = { debug: "DEBUG", info: "INFO ", aviso: "AVISO", erro: "ERRO " };

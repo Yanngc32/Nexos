@@ -57,7 +57,16 @@ export const DADOS_DO_PROJETO: readonly string[] = [
   "planejamento",
   "design-system",
   "design-system.json",
+  "videos",
 ];
+
+/**
+ * Dentro de `videos/<id>/`, `render/` é derivado (composição montada, MP4, capa): determinístico a
+ * partir das cenas, então outra máquina renderiza de novo em vez de baixar MP4 pelo Drive.
+ */
+function derivadoDeVideo(partes: string[]): boolean {
+  return partes[1] === "videos" && partes[3] === "render";
+}
 export const PREFIXO_ICONE_MANUAL = "icone-manual.";
 
 /** Item de 1º nível dentro da pasta de um projeto que é dado do Nexos. */
@@ -76,9 +85,11 @@ export function dadoDoProjeto(nome: string): boolean {
  * sync só IGNORA: nunca apaga, nem local nem remoto.
  */
 export function sincronizavel(rel: string): boolean {
-  const [topo, item] = rel.split("/");
+  const partes = rel.split("/");
+  const [topo, item] = partes;
   if (!topo || item === undefined) return false;
-  return topo === PASTA_BIBLIOTECA || dadoDoProjeto(item);
+  if (topo === PASTA_BIBLIOTECA) return true;
+  return dadoDoProjeto(item) && !derivadoDeVideo(partes);
 }
 
 /** Contagem do que ficou de fora, por pasta, pro log do fim da varredura. */

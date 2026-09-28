@@ -33,6 +33,10 @@ function render(event: ThreadEvent): string | undefined {
       return `System: switched ${event.fromProfileId} -> ${event.toProfileId} (${event.reason})`;
     case "error":
       return `System: error ${event.message}`;
+    case "ponte":
+      return event.direcao === "ida"
+        ? `User (pro Agent Manager do plano): ${event.texto}`
+        : `System: o Agent Manager do plano respondeu:\n${event.texto}`;
     case "run_resultado":
       return `System: o time "${event.titulo}" (chamado desta conversa) terminou com status ${event.status}.${event.arquivo ? ` Saída completa em ${event.arquivo}.` : ""}\n${event.texto}`;
   }

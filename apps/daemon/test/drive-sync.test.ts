@@ -11,7 +11,7 @@ import { disconnectGoogle, googleAccessToken, googleAccount, readGoogleStore, up
 import { cancelAllGoogleLogins, googleLoginStatus, startEscolherPasta, startGoogleLogin } from "../src/google-conectar.ts";
 import { projetosRoot } from "../src/projeto-dir.ts";
 import { addProfile } from "../src/profiles.ts";
-import { appendEvent, importarConversas, listThreads, mesclarJsonl, readThread } from "../src/threads.ts";
+import { appendEvent, espelhosEmDia, importarConversas, listThreads, mesclarJsonl, readThread } from "../src/threads.ts";
 import { threadPath } from "../src/home.ts";
 import { tempHome } from "./helpers.ts";
 
@@ -776,11 +776,12 @@ describe("conversas no projeto", () => {
     return pasta;
   }
 
-  it("evento novo é espelhado em projetos/<slug>/conversas/", () => {
+  it("evento novo é espelhado em projetos/<slug>/conversas/", async () => {
     const home = tempHome();
     const pasta = projetoLocal(home, "meu-app");
     appendEvent({ ts: "2026-03-01T00:00:00Z", type: "thread_meta", threadId: "t-1", projectPath: pasta, profileId: "p1" }, home);
     appendEvent({ ts: "2026-03-01T00:00:01Z", type: "user", threadId: "t-1", text: "oi" }, home);
+    await espelhosEmDia();
     const espelho = ler(home, "meu-app/conversas/t-1.jsonl");
     expect(espelho).toBe(readFileSync(threadPath("t-1", home), "utf8"));
   });
@@ -805,15 +806,16 @@ describe("conversas no projeto", () => {
     expect(lista[0]?.worktreeDir).toBeUndefined();
   });
 
-  it("linhas novas de uma conversa já existente são incorporadas sem duplicar", () => {
+  it("linhas novas de uma conversa já existente são incorporadas sem duplicar", async () => {
     const home = tempHome();
     const pasta = projetoLocal(home, "meu-app");
     appendEvent({ ts: "2026-03-01T00:00:00Z", type: "thread_meta", threadId: "t-2", projectPath: pasta, profileId: "p1" }, home);
     appendEvent({ ts: "2026-03-01T00:00:01Z", type: "user", threadId: "t-2", text: "aqui" }, home);
+    await espelhosEmDia();
     const espelho = join(projetosRoot(home), "meu-app", "conversas", "t-2.jsonl");
     writeFileSync(espelho, `${readFileSync(espelho, "utf8")}${JSON.stringify({ ts: "2026-03-01T00:00:02Z", type: "user", threadId: "t-2", text: "lá" })}\n`);
-    expect(importarConversas(home)).toBe(1);
+    expect(await importarConversas(home)).toBe(1);
     expect(readThread("t-2", home).map((e) => (e.type === "user" ? e.text : e.type))).toEqual(["thread_meta", "aqui", "lá"]);
-    expect(importarConversas(home)).toBe(0); // idempotente
+    expect(await importarConversas(home)).toBe(0); // idempotente
   });
 });

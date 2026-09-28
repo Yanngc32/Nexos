@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { resetTypesafeCircuitoForTest, saveTypesafeApiKey } from "../src/typesafe.ts";
 import { addProfile, engineEnv, getProfile, markReady, rememberContextWindow, updateProfile } from "../src/profiles.ts";
-import { activeAgentId, appendEvent, createThread, readThread, threadUsage } from "../src/threads.ts";
+import { activeAgentId, appendEvent, createThread, readThread, threadHead, threadUsage } from "../src/threads.ts";
 import { lerSessaoClaude } from "../src/claude-session.ts";
 import {
   abortThread,
@@ -21,6 +21,7 @@ import {
   retomarTurnoPendente,
   sessionBus,
   switchThread,
+  turnoEmCurso,
 } from "../src/session.ts";
 import { janelaDaConta, MEMORIA_NO_PACK_MAX, memoriaDoPack, modeloDoMotor } from "../src/session.ts";
 import { StubEngine } from "../src/engines/stub.ts";
@@ -49,6 +50,24 @@ describe("session", () => {
       const types = readThread(t.id, home).map((e) => e.type);
       expect(types).toEqual(["thread_meta", "user", "assistant"]);
     });
+  });
+
+  it("depois da 1ª resposta a conversa ganha nome (conta não-claude: pela regra, sem IA)", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    await postMessage(t.id, "oi! o motor não para de travar e cair. olha o log", home);
+    await vi.waitFor(() => expect(threadHead(t.id, home)).toMatchObject({ preview: "O motor não para de travar e cair", tituloOrigem: "auto" }));
+  });
+
+  it("conversa conta como em turno desde o pedido, antes do motor subir, e larga ao terminar", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    const turno = postMessage(t.id, "oi", home, [], { automatico: true });
+    expect(turnoEmCurso(t.id)).toBe(true);
+    await turno;
+    expect(turnoEmCurso(t.id)).toBe(false);
   });
 
   it("usage grava o contexto do último request, não o somado do turno", async () => {

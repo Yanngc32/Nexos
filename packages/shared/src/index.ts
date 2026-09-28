@@ -606,6 +606,21 @@ export type ThreadEvent =
       arquivo?: string;
     }
   | { ts: string; type: "assistant"; threadId: string; text: string }
+  /**
+   * Nome da conversa depois de criada (o último vale, por cima do `thread_meta.title`).
+   * `manual` = a pessoa renomeou; `auto` = título gerado depois da 1ª resposta, que nunca passa
+   * por cima de um `manual`; `plano` = acompanhou o renome do plano ligado.
+   */
+  | { ts: string; type: "thread_title"; threadId: string; title: string; origem: "manual" | "auto" | "plano" }
+  /**
+   * Esta conversa abriu o plano `<slug>` (chat → Tela de Planejamento). Liga a PONTE: o que a
+   * pessoa escreve aqui vai pro Manager (`managerThreadId`) e a fala dele volta como `ponte`.
+   */
+  | { ts: string; type: "plano_ligado"; threadId: string; slug: string; managerThreadId: string; titulo: string }
+  /** Liga/desliga a ponte com o Manager (desligada, o chat volta a falar com o próprio agente). */
+  | { ts: string; type: "plano_ponte"; threadId: string; ligada: boolean }
+  /** Mensagem que passou pela ponte: `ida` = a pessoa pro Manager; `volta` = fala do Manager. */
+  | { ts: string; type: "ponte"; threadId: string; direcao: "ida" | "volta"; texto: string; managerThreadId: string }
   | {
       ts: string;
       type: "tool";

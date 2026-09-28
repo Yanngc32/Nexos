@@ -19,7 +19,7 @@ import { sincronizarBiblioteca } from "./biblioteca.ts";
 import { googleAccount } from "./google-auth.ts";
 import { migrarProjeto, resgatarDaPastaDeRepos } from "./projeto-dir.ts";
 import { sincronizarRepoMapResumos } from "./repo-map-auto.ts";
-import { createThread, listThreads, projetosConhecidos, readThread } from "./threads.ts";
+import { createThread, importarConversas, listThreads, projetosConhecidos, readThread, retentarEspelhosApagados } from "./threads.ts";
 import { pingUsoDeTodasAsContas, postMessage, sessionBus, switchThread } from "./session.ts";
 import { loginProfile } from "./login.ts";
 import { CODIGO_TRAVADO, pidPath, startDaemon, waitClosed } from "./server.ts";
@@ -27,6 +27,7 @@ import { iniciarLog, log, registrarErrosSemDono } from "./log.ts";
 import { vigiarCongelamento } from "./congelamento.ts";
 import { fecharTudo, pararDeManter } from "./escuta.ts";
 import { instalarSkill } from "./skill.ts";
+import { instalarSkillsDoNexos } from "./skills-do-nexos.ts";
 import { apagarBranchesNexo, listarBranchesNexo, podeIsolar } from "./worktree.ts";
 import {
   isTrusted,
@@ -81,6 +82,8 @@ async function cmdUp(): Promise<void> {
   const modulos = loadConfig(home).modulos;
   if (modulos.rtk) void ensureRtkInstalled(home);
   if (modulos.caveman) void ensureCavemanInstalled(home);
+  // skills que vêm no pacote (nexo-video): síncrono e local, só copia arquivo
+  instalarSkillsDoNexos(home);
   // Síncrono e barato (só lê agents.json/hooks.json) — sem network, não precisa de fire-and-forget.
   const r = sincronizarRepoMapResumos(home);
   if (!r.ok) log.aviso("motor", "resumos do repo map", { motivo: r.motivo });
@@ -108,12 +111,18 @@ async function cmdUp(): Promise<void> {
    */
   const SYNC_DRIVE_MS = 2 * 60_000;
   const syncDrive = (): void => {
+    // conversa apagada cujo espelho ficou preso no Drive: tenta tirar de novo (ver threads.ts)
+    retentarEspelhosApagados(home);
     const acc = googleAccount(home);
     if (!acc.connected) {
       // sem conta Google, a pasta de projetos ainda pode estar numa pasta sincronizada por fora
       // (`projetosDir`): a biblioteca concilia com o espelho dela do mesmo jeito
       const b = sincronizarBiblioteca(home);
       if (b.erros.length) log.aviso("sync", `biblioteca: ${b.erros.length} erro(s)`, { primeiro: b.erros[0] });
+      // e as conversas: o que outra máquina (ou uma instalação anterior) deixou na pasta aparece aqui
+      void importarConversas(home).then((n) => {
+        if (n) log.info("sync", `${n} conversa(s) trazida(s) da pasta de projetos`);
+      });
       return;
     }
     void sincronizarDrive(home).then((r) => {

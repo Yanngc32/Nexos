@@ -31,6 +31,17 @@ incluindo os requisitos de Uso Limitado.
 - No Google: https://myaccount.google.com/permissions → Nexos → **Remover acesso**.
 - A pasta no Drive é sua: apague quando quiser.
 
+## Motor de vídeo (painel Vídeo do Canvas)
+
+- O render de vídeo usa o [Hyperframes](https://github.com/heygen-com/hyperframes) (HeyGen, Apache 2.0),
+  baixado pelo `npx` na primeira vez que você renderiza. O Hyperframes envia **telemetria anônima de uso**
+  para a HeyGen por padrão (o Nexos deixa como vem). Pra desligar, rode uma vez no terminal:
+  `npx hyperframes telemetry disable`.
+- O motor de vídeo não manda suas cenas nem suas músicas pra lugar nenhum. O MP4 renderizado
+  fica só nesta máquina (não vai pro Drive).
+- Créditos e licenças do que vem junto (músicas ende.app, efeitos Kenney, trechos do brag e do
+  Hyperframes, GSAP): [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ## Contato
 
 Dúvidas: abra uma issue em https://github.com/Yanngc32/Nexos/issues ou escreva para

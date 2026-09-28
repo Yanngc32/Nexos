@@ -25,7 +25,7 @@ import { LIMITE_DO_CHAT } from "./janela-do-chat.js";
  */
 export const IDS_DO_CHAT = Object.freeze(
   new Set(
-    "chat-head btn-voltar-origem crumb-repo btn-roteamento crumb-thread log-wrap log chat-history-rail btn-scroll-bottom chat-empty chat-empty-eb chat-empty-title chat-empty-sub chat-empty-acoes chat-empty-cta chat-empty-clonar think-bar think-glyph think-word think-meta times-bar composer slash-menu queue-strip attach-strip input profile-select model-select model-custom mode-select effort-range effort-label btn-login btn-import-login profiles-empty btn-attach attach-input btn-bar-more bar-more-panel btn-abort btn-send".split(
+    "chat-head btn-voltar-origem crumb-repo btn-roteamento crumb-thread log-wrap log chat-history-rail btn-scroll-bottom chat-empty chat-empty-eb chat-empty-title chat-empty-sub chat-empty-acoes chat-empty-cta chat-empty-clonar think-bar think-glyph think-word think-meta ponte-bar times-bar composer slash-menu queue-strip attach-strip input profile-select model-select model-custom mode-select effort-range effort-label btn-login btn-import-login profiles-empty btn-attach attach-input btn-bar-more bar-more-panel btn-abort btn-send".split(
       " ",
     ),
   ),
@@ -87,6 +87,8 @@ export function criarEstadoDoChat({ threadId = "", profileId = "", el = null } =
     pendingImages: [],
     /** Menu de autocomplete do composer ("/" e "@"). */
     slash: { open: false, index: 0, matches: [], kind: "cmd" },
+    /** Plano que esta conversa abriu e a ponte com o Manager dele (ponte-plano.js); null = nenhum. */
+    ponte: null,
     /** Fila pausada porque o turno acabou mal (quota/login/erro). */
     queuePaused: false,
     /** Markdown da fala em voo: no máximo um render por frame (ver scheduleStreamRender). */

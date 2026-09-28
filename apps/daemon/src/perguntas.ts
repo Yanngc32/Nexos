@@ -112,7 +112,7 @@ function origemDe(threadId: string, home: string): { threadId: string; de: strin
   const meta = eventos.find((e) => e.type === "thread_meta");
   if (!meta || meta.type !== "thread_meta" || !meta.origemThreadId) return null;
   const agente = meta.agentId ? getAgent(meta.agentId, home) : undefined;
-  return { threadId: meta.origemThreadId, de: agente?.name || meta.title || "subagente" };
+  return { threadId: meta.origemThreadId, de: meta.planejamento ? "Agent Manager" : agente?.name || meta.title || "subagente" };
 }
 
 /**

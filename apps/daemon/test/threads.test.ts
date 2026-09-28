@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
@@ -12,7 +12,13 @@ import {
   removeThread,
   activeAgentId,
   threadHead,
+  conversaEspelhoPath,
+  retentarEspelhosApagados,
+  espelhosEmDia,
+  importarConversas,
+  renomearThread,
 } from "../src/threads.ts";
+import { projetosRoot } from "../src/projeto-dir.ts";
 import { addProfile } from "../src/profiles.ts";
 import { tempHome } from "./helpers.ts";
 
@@ -64,6 +70,20 @@ describe("threads", () => {
     expect(listThreads("/proj", home)[0]?.preview).toBe("Conversa nova");
     appendEvent({ ts: "2099-01-01T00:00:00.000Z", type: "user", threadId: t.id, text: "primeiro pedido" }, home);
     expect(listThreads("/proj", home)[0]).toMatchObject({ preview: "primeiro pedido", updatedAt: "2099-01-01T00:00:00.000Z" });
+  });
+
+  it("renomear: o último nome vale e o automático não passa por cima do manual", () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    appendEvent({ ts: "2026-01-01T00:00:01.000Z", type: "user", threadId: t.id, text: "oi tudo bem" }, home);
+    expect(renomearThread(t.id, "Ajuste do login", "auto", home)).toBe(true);
+    expect(threadHead(t.id, home)).toMatchObject({ preview: "Ajuste do login", tituloOrigem: "auto" });
+    expect(renomearThread(t.id, "  Meu   nome ", "manual", home)).toBe(true);
+    expect(threadHead(t.id, home)?.preview).toBe("Meu nome");
+    expect(renomearThread(t.id, "Outro automático", "auto", home)).toBe(false);
+    expect(renomearThread(t.id, "Meu nome", "manual", home)).toBe(false); // igual: não grava
+    expect(threadHead(t.id, home)).toMatchObject({ preview: "Meu nome", tituloOrigem: "manual" });
   });
 
   it("removeThread apaga o jsonl", () => {
@@ -233,6 +253,62 @@ describe("threads sem projeto (chat geral)", () => {
     const { id } = createThread({ profileId: "p1" }, home);
     await expect(removeThread(id, home)).resolves.not.toThrow();
     expect(() => readThread(id, home)).toThrow();
+  });
+
+  it("removeThread tira o espelho do slug atual e o que ficou em pasta de slug antigo", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const projectPath = mkdtempSync(join(tmpdir(), "nexo-espelho-"));
+    const { id } = createThread({ profileId: "p1", projectPath }, home);
+    await espelhosEmDia();
+    const atual = conversaEspelhoPath(id, projectPath, home);
+    expect(existsSync(atual)).toBe(true);
+    const antigo = join(projetosRoot(home), "slug-antigo", "conversas", `${id}.jsonl`);
+    mkdirSync(join(antigo, ".."), { recursive: true });
+    writeFileSync(antigo, "{}", "utf8");
+    await removeThread(id, home);
+    expect(existsSync(atual)).toBe(false);
+    expect(existsSync(antigo)).toBe(false);
+    expect(existsSync(join(home, "espelhos-a-apagar.json"))).toBe(false);
+  });
+
+  it("conversa que só existe na pasta de projetos aparece aqui; apagada que o espelho não saiu, não volta", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const projectPath = mkdtempSync(join(tmpdir(), "nexo-espelho-"));
+    const { id } = createThread({ profileId: "p1", projectPath }, home);
+    await espelhosEmDia();
+    const dir = join(conversaEspelhoPath(id, projectPath, home), "..");
+    const conversa = (tid: string, texto: string) =>
+      [
+        { ts: "2026-03-01T00:00:00Z", type: "thread_meta", threadId: tid, projectPath: "D:/outro/pc", profileId: "p1" },
+        { ts: "2026-03-01T00:00:01Z", type: "user", threadId: tid, text: texto },
+      ]
+        .map((e) => JSON.stringify(e))
+        .join("\n") + "\n";
+    writeFileSync(join(dir, "t-de-fora.jsonl"), conversa("t-de-fora", "feita em outro PC"), "utf8");
+    writeFileSync(join(dir, "t-apagada.jsonl"), conversa("t-apagada", "apagada aqui"), "utf8");
+    writeFileSync(join(home, "espelhos-a-apagar.json"), JSON.stringify({ "t-apagada": projectPath }), "utf8");
+    expect(await importarConversas(home)).toBe(1);
+    const ids = listThreads(projectPath, home).map((t) => t.id);
+    expect(ids).toContain("t-de-fora");
+    expect(ids).not.toContain("t-apagada");
+    expect(await importarConversas(home)).toBe(0); // arquivo igual: nem relê
+  });
+
+  it("espelho que não sai na hora fica na lista e sai na próxima tentativa", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const projectPath = mkdtempSync(join(tmpdir(), "nexo-espelho-"));
+    const { id } = createThread({ profileId: "p1", projectPath }, home);
+    // pasta no lugar do arquivo: rmSync sem recursive falha, como arquivo preso pelo Drive
+    const preso = join(projetosRoot(home), "slug-antigo", "conversas", `${id}.jsonl`);
+    mkdirSync(join(preso, "x"), { recursive: true });
+    await removeThread(id, home);
+    expect(existsSync(join(home, "espelhos-a-apagar.json"))).toBe(true);
+    rmSync(preso, { recursive: true });
+    expect(retentarEspelhosApagados(home)).toBe(1);
+    expect(existsSync(join(home, "espelhos-a-apagar.json"))).toBe(false);
   });
 
   it("createThreadNaBranch sem projectPath ignora branch e cria conversa global normal", async () => {

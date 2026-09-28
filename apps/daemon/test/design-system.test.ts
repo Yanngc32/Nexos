@@ -12,6 +12,7 @@ import {
   salvarCard,
   salvarTokens,
   tokensParaCss,
+  renomearDs,
 } from "../src/design-system.ts";
 import { assinarDs, pastasObservadas } from "../src/ds-watch.ts";
 import { projectDir, projectDirSemCriar } from "../src/projeto-dir.ts";
@@ -109,6 +110,16 @@ describe("criar / ler / salvar", () => {
     expect(est.ds!.cards.flatMap((c) => c.lint)).toEqual([]);
     expect(est.ds!.tokensLint).toEqual([]);
     expect(est.ds!.css).toContain("--color-primary: #c81e2c;");
+  });
+
+  it("renomear troca só o nome: id e pasta ficam", () => {
+    const home = tempHome();
+    const p = projeto();
+    const antes = criarDs(p, home, { nome: "Nova Grumari" }).ds!;
+    const depois = renomearDs(p, home, "nova-grumari", "  Grumari   2026 ");
+    expect(depois.ds).toMatchObject({ id: "nova-grumari", nome: "Grumari 2026", pastaAbs: antes.pastaAbs });
+    expect(() => renomearDs(p, home, "nova-grumari", "  ")).toThrow(/nome/);
+    expect(() => renomearDs(p, home, "nao-existe", "X")).toThrow(/não encontrado/);
   });
 
   it("pasta que já tem tokens.json (sincronizada sem o ponteiro) é adotada sem sobrescrever", () => {

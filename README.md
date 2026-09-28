@@ -287,3 +287,7 @@ por que nada compila, o que o Windows quebra, e a barra para uma dependência no
 ## Licença
 
 MIT — ver [LICENSE](LICENSE).
+
+O painel de vídeo leva músicas (ende.app, CC BY 4.0), efeitos (Kenney, CC0), trechos do
+[brag](https://github.com/latent-spaces/brag) (MIT) e do Hyperframes (Apache 2.0), GSAP e fontes OFL:
+créditos e licenças em [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

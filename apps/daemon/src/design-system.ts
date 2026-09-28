@@ -868,6 +868,19 @@ export function salvarCard(
   return lerSistema(projectPath, home, s);
 }
 
+/**
+ * Troca só o nome que aparece na tela. O id (e a pasta, que é o id) fica: cards, planos e o
+ * painel de mocks apontam pra ele. Nome vazio é recusado.
+ */
+export function renomearDs(projectPath: string, home: string, id: string, nome: unknown): DsEstado {
+  const limpo = typeof nome === "string" ? nome.replace(/\s+/g, " ").trim().slice(0, 80) : "";
+  if (!limpo) throw erro("nome obrigatório");
+  const p = lerPonteiro(projectPath, home);
+  if (!p.sistemas.some((s) => s.id === id)) throw erro("design system não encontrado", 404);
+  salvarPonteiro(projectPath, home, { ...comOficialFixo(p), sistemas: p.sistemas.map((s) => (s.id === id ? { ...s, nome: limpo } : s)) });
+  return estadoDs(projectPath, home);
+}
+
 export function ativarDs(projectPath: string, home: string, id: string): DsEstado {
   const p = lerPonteiro(projectPath, home);
   if (!p.sistemas.some((s) => s.id === id)) throw erro("design system não encontrado", 404);

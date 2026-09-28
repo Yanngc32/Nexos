@@ -90,21 +90,31 @@ describe("ferramenta", () => {
 });
 
 describe("nexo_plano_iniciar", () => {
-  it("pede ao app pra criar o plano desta conversa, mesmo com os painéis em nunca", async () => {
+  it("cria o plano no motor, pede ao app só pra abrir, e chamar de novo não duplica (mesmo com os painéis em nunca)", async () => {
     const home = tempHome();
     saveConfig(home, { paineisDoAgente: { modo: "nunca", paineis: [], trazerPraFrente: false } });
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const origem = createThread({ projectPath: "C:/proj/plano", profileId: "p1" }, home).id;
     const pedidos: Record<string, unknown>[] = [];
     const ouvir = (ev: Record<string, unknown>) => {
       if (ev.type !== "abrir_painel") return;
       pedidos.push(ev);
-      responderPainel(String(ev.id), { ok: true, texto: "plano criado" });
+      responderPainel(String(ev.id), { ok: true, texto: "aberto" });
     };
     sessionBus.on("*", ouvir);
     try {
-      const [f] = ferramentaDePlanejar("t1")();
+      const [f] = ferramentaDePlanejar(origem, home)();
       expect(f!.name).toBe("nexo_plano_iniciar");
-      expect(await f!.executar({})).toEqual({ ok: true, texto: "plano criado" });
-      expect(pedidos[0]).toMatchObject({ threadId: "t1", painel: "planejamento", criarPlano: true, frente: true });
+      const primeira = await f!.executar({});
+      expect(primeira.ok).toBe(true);
+      expect(primeira.texto).toContain("criado");
+      const abrir = pedidos[0]!.abrirPlano as { slug: string; managerThreadId: string };
+      expect(pedidos[0]).toMatchObject({ threadId: origem, painel: "planejamento", frente: true });
+      expect(abrir.slug).toBeTruthy();
+
+      const segunda = await f!.executar({});
+      expect(segunda.texto).toContain("já tinha aberto");
+      expect(pedidos[1]!.abrirPlano).toEqual(pedidos[0]!.abrirPlano);
     } finally {
       sessionBus.off("*", ouvir);
     }

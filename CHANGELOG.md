@@ -10,6 +10,24 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Alterado
 
+## [0.12.0] - 2026-09-28
+
+### Adicionado
+
+- Painel Vídeo no Canvas: monte um vídeo curto de lançamento ou release com a cara do design system oficial. Cada cena é um card (nova, ou uma tela do DS importada como cópia) com barra de tempo no card, reordenável numa faixa (arrastar ou Alt+setas), formato 16:9, 9:16 ou 1:1, prévia do vídeo inteiro sem render, `Check` e render em MP4 (rascunho ou final, um por vez, com cancelar). O motor é o Hyperframes (`npx`, versão fixada 0.8.82, precisa de internet na primeira vez) com FFmpeg; sem FFmpeg o painel avisa e oferece instalar pelo `winget`, e a edição continua funcionando. Cenas e configuração sincronizam pelo Drive; o MP4 fica só na máquina.
+- Transições entre cenas: corte, fade, pelo fundo, deslizar, máscara circular, ou descrita em texto (o pedido vai pro chat em foco e o frame do meio da transição volta pro popover). A transição sobrepõe as cenas, então encurta o vídeo.
+- Trilha de áudio: 5 músicas da ende.app (CC BY 4.0) com batidas, efeitos da Kenney (CC0), música própria (mp3/wav/m4a, batidas calculadas na hora). Efeitos presos à cena, arrastáveis com encaixe na batida (≤ 0,15 s) e fade-out de 1 s no fim. O crédito da música entra sozinho no texto pra postar.
+- Skill `nexo-video` (instalada sozinha) e ferramentas `nexo_video_*`: o agente monta o vídeo no painel a partir do CHANGELOG, do README e das telas do DS, em vez de gerar MP4 solto. Licenças e créditos de terceiros em `THIRD_PARTY_NOTICES.md`; a telemetria anônima do Hyperframes está explicada no `PRIVACY.md`.
+- Ponte entre o chat que abriu um plano e o Agent Manager dele, nome automático da conversa depois da 1ª resposta e edição de nome no próprio lugar.
+
+### Corrigido
+
+- Tela importada do DS numa cena do vídeo não estoura mais o quadro: entra na largura em que foi desenhada e amplia pela largura do vídeo.
+
+### Alterado
+
+- O instalador leva ~17 MB a mais (músicas, efeitos, GSAP e fontes do vídeo).
+
 ## [0.11.0] - 2026-09-28
 
 ### Adicionado

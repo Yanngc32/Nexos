@@ -15,7 +15,7 @@ import type { Engine, EngineHandler, EngineMcp } from "./types.ts";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { attachmentsDir, enginePidPath, globalChatDir, globalSkillsDir, instrucoesPath } from "../home.ts";
-import { killTree } from "../kill-tree.ts";
+import { killTreeAsync } from "../kill-tree.ts";
 import { spawnCwd } from "../project-cwd.ts";
 import { agentOverrides } from "../agents.ts";
 import { loadConfig } from "../config.ts";
@@ -638,7 +638,7 @@ export class CliEngine implements Engine {
     this.child = undefined;
     const pidPath = this.threadId ? enginePidPath(this.threadId, this.home) : "";
     const pid = child?.pid;
-    if (pid) killTree(pid);
+    if (pid) await killTreeAsync(pid);
     else if (child && !child.killed) child.kill();
     if (pidPath && existsSync(pidPath)) {
       try {

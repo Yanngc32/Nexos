@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/http.ts";
 import { apagarCard as apagarCardDoDs, criarDs, salvarCardDaFerramenta } from "../src/design-system.ts";
-import { abrirPlano, criarPlano, salvarCard, salvarRoteiro, validarAnexos } from "../src/planejamento.ts";
+import { abrirPlano, criarPlano, salvarCard, salvarRoteiro, validarAnexos, vincularImplementacao, vincularThread } from "../src/planejamento.ts";
 import {
   alvosDeAnexo,
   conversaDeOrigem,
@@ -14,10 +14,11 @@ import {
   marcarImplementacaoDaEtapa,
   pedidoDeConversa,
   resolverIntegracao,
+  salvarRoteiroComNome,
 } from "../src/planejamento-integracao.ts";
 import { ferramentasDePlanejamento, planoEmTexto } from "../src/planejamento-ferramentas.ts";
 import { apagarTarefa, getQuadro, getTarefa, salvarTarefa } from "../src/tarefas.ts";
-import { appendEvent, createThread, readThread, threadHead } from "../src/threads.ts";
+import { appendEvent, createThread, readThread, renomearThread, threadHead } from "../src/threads.ts";
 import { addProfile } from "../src/profiles.ts";
 import { tempHome } from "./helpers.ts";
 
@@ -374,5 +375,42 @@ describe("aprovação do design da tela", () => {
     await vi.waitFor(() =>
       expect(readThread(threadId, home).some((e) => e.type === "user" && e.text.includes("Design REPROVADO") && e.text.includes("cores erradas"))).toBe(true),
     );
+  });
+});
+
+describe("renomear o plano", () => {
+  it("leva o nome novo pro Manager, pra implementação e pro marco; nome manual da conversa fica", async () => {
+    const home = tempHome();
+    const p = projeto();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const slug = planoComEtapas(p, home);
+    const manager = createThread({ projectPath: p, profileId: "p1", title: "Plano · Login novo", planejamento: { slug } }, home);
+    const impl = createThread({ projectPath: p, profileId: "p1", title: "Implementação: Login novo", handoff: { slug } }, home);
+    const outraImpl = createThread({ projectPath: p, profileId: "p1", title: "Implementação: Login novo", handoff: { slug } }, home);
+    renomearThread(outraImpl.id, "A minha", "manual", home);
+    vincularThread(p, home, slug, manager.id);
+    vincularImplementacao(p, home, slug, impl.id);
+    enviarAoQuadro(p, home, slug);
+    const rev = abrirPlano(p, home, slug).roteiro.rev;
+
+    salvarRoteiroComNome(p, home, slug, { titulo: "Login com Google", expectedRev: rev });
+
+    expect(threadHead(manager.id, home)?.preview).toBe("Plano · Login com Google");
+    expect(threadHead(impl.id, home)?.preview).toBe("Implementação: Login com Google");
+    expect(threadHead(outraImpl.id, home)?.preview).toBe("A minha");
+    expect(getQuadro(p, home).marcos.map((m) => m.nome)).toContain("Plano: Login com Google");
+    expect(getQuadro(p, home).marcos.map((m) => m.nome)).not.toContain("Plano: Login novo");
+  });
+
+  it("Manager só dá nome a plano \"Sem nome\"", async () => {
+    const home = tempHome();
+    const p = projeto();
+    const { slug } = criarPlano(p, home, {});
+    const ferramenta = (nome: string) => ferramentasDePlanejamento(p, slug, home, "manager")().find((f) => f.name === nome)!;
+    const roteiro = ferramenta("nexo_plano_roteiro");
+    await roteiro.executar({ etapas: [{ id: "a", titulo: "A" }], titulo: "Busca de clientes", expected_rev: 1 });
+    expect(abrirPlano(p, home, slug).roteiro.titulo).toBe("Busca de clientes");
+    await roteiro.executar({ etapas: [{ id: "a", titulo: "A" }], titulo: "Outro nome", expected_rev: 2 });
+    expect(abrirPlano(p, home, slug).roteiro.titulo).toBe("Busca de clientes");
   });
 });
