@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi } from "vitest";
-import { createServicesPanel } from "../services.js";
+import { createServicesPanel, resumoDe } from "../services.js";
 
 const HTML = `
-  <div id="svc-strip"><p id="svc-empty"></p><p id="svc-error"></p>
-    <button id="btn-svc-trust"></button><ul id="svc-list"></ul></div>
+  <div id="svc-strip"><button id="btn-svc-toggle"><span id="svc-resumo" class="hidden"></span></button>
+    <div id="svc-corpo"><p id="svc-empty"></p><p id="svc-error"></p>
+    <button id="btn-svc-trust"></button><ul id="svc-list"></ul></div></div>
   <div id="svc-log" class="hidden"><span id="svc-log-title"></span><pre id="svc-log-body"></pre></div>
 `;
 
@@ -33,7 +34,13 @@ function stream(...eventos) {
   };
 }
 
-function montar({ req, projectPath = "/proj", ok = true, fetchImpl } = {}) {
+/** localStorage de mentira: cada teste começa do zero. */
+function memoria(inicial = {}) {
+  const m = new Map(Object.entries(inicial));
+  return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)), m };
+}
+
+function montar({ req, projectPath = "/proj", ok = true, fetchImpl, storage = memoria() } = {}) {
   document.body.innerHTML = HTML;
   const erros = [];
   const browser = [];
@@ -47,6 +54,7 @@ function montar({ req, projectPath = "/proj", ok = true, fetchImpl } = {}) {
     abrirNoBrowser: (url) => browser.push(url),
     aoErro: (m) => erros.push(m),
     fetchImpl: fetchImpl ?? (async () => new Promise(() => {})),
+    storage,
   });
   return { panel, erros, browser, $: (id) => document.getElementById(id) };
 }
@@ -397,5 +405,42 @@ describe("troca de projeto", () => {
     panel.limparPortas();
     panel.paint();
     expect($("svc-list").querySelector(".svc-dot").dataset.state).toBe("waiting");
+  });
+});
+
+describe("recolher a seção", () => {
+  const lista = [
+    svc({ id: "a", proc: "running" }),
+    svc({ id: "b", conflito: { porta: 8000, processos: [{ pid: 1, nome: "x.exe" }] } }),
+    svc({ id: "c" }),
+  ];
+
+  it("recolhe, esconde o corpo, mostra o resumo e lembra", async () => {
+    const storage = memoria();
+    const { panel, $ } = montar({ req: async () => ({ services: lista }), storage });
+    await panel.load();
+    expect($("svc-corpo").hidden).toBe(false);
+    expect($("btn-svc-toggle").getAttribute("aria-expanded")).toBe("true");
+    panel.alternarRecolhido();
+    expect($("svc-corpo").hidden).toBe(true);
+    expect($("btn-svc-toggle").getAttribute("aria-expanded")).toBe("false");
+    expect($("svc-resumo").textContent).toBe("1/3 rodando · ⚠ 1 porta ocupada");
+    expect(storage.m.get("nexo.svcRecolhido")).toBe("1");
+  });
+
+  it("nasce recolhida quando ficou assim da última vez", async () => {
+    const { panel, $ } = montar({ req: async () => ({ services: lista }), storage: memoria({ "nexo.svcRecolhido": "1" }) });
+    await panel.load();
+    expect(panel.recolhido()).toBe(true);
+    expect($("svc-corpo").hidden).toBe(true);
+    panel.alternarRecolhido();
+    expect($("svc-corpo").hidden).toBe(false);
+    expect($("svc-resumo").classList.contains("hidden")).toBe(true);
+  });
+
+  it("resumo: vazio sem serviço, plural nas portas, erro com ícone", () => {
+    expect(resumoDe([])).toBe("");
+    expect(resumoDe([svc({ conflito: {} }), svc({ conflito: {} })])).toBe("0/2 rodando · ⚠ 2 portas ocupadas");
+    expect(resumoDe([], "falhou")).toBe("⚠ erro");
   });
 });

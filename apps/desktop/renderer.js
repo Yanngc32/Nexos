@@ -8112,6 +8112,7 @@ $("btn-svc-create").addEventListener("click", async () => {
 });
 
 $("btn-svc-refresh").addEventListener("click", () => void loadServices());
+$("btn-svc-toggle").addEventListener("click", () => svcPanel.alternarRecolhido());
 $("btn-svc-log-close").addEventListener("click", fecharLogServico);
 $("btn-svc-trust").addEventListener("click", () => void svcPanel.confiar());
 $("btn-close-file").addEventListener("click", fecharAbaAtual);

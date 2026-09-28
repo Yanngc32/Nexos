@@ -5394,6 +5394,42 @@ body[data-side-mini="1"] .svc-strip {
   padding: 0 2px 2px;
 }
 
+/* título da seção vira botão de recolher (aria-expanded); resumo só aparece recolhida */
+.svc-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  padding: 2px 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+}
+.svc-toggle:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+.svc-chevron {
+  font-size: var(--fs-2xs);
+  color: var(--faint);
+  transition: transform var(--dur) ease;
+}
+.svc-recolhido .svc-chevron {
+  transform: rotate(-90deg);
+}
+.svc-resumo {
+  overflow: hidden;
+  font-size: var(--fs-2xs);
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.svc-resumo.hidden {
+  display: none;
+}
+
 .svc-list {
   list-style: none;
   margin: 0;

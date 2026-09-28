@@ -78,9 +78,15 @@
       <span id="project-path" class="hidden"></span>
       <div id="svc-strip" class="svc-strip hidden">
         <div class="svc-head">
-          <span class="repo-label">Serviços</span>
+          <!-- recolher/abrir a seção (lembrado); recolhida, o resumo fica ao lado do título -->
+          <button type="button" id="btn-svc-toggle" class="svc-toggle" aria-expanded="true" aria-controls="svc-corpo" title="Recolher serviços">
+            <span class="svc-chevron" aria-hidden="true">▾</span>
+            <span class="repo-label">Serviços</span>
+            <span id="svc-resumo" class="svc-resumo hidden"></span>
+          </button>
           <button type="button" id="btn-svc-refresh" class="ghost" title="Atualizar status">⟳</button>
         </div>
+        <div id="svc-corpo">
         <ul id="svc-list" class="svc-list"></ul>
         <div id="svc-empty" class="svc-empty hidden">
           <p>Nenhum serviço declarado neste projeto.</p>
@@ -90,6 +96,7 @@
         <button type="button" id="btn-svc-trust" class="ghost svc-trust hidden" title="Libera o autostart declarado no nexos.json">
           Confiar neste projeto
         </button>
+        </div>
       </div>
       <div id="svc-log" class="svc-log hidden" role="dialog" aria-label="Log do serviço">
         <div class="svc-log-head">

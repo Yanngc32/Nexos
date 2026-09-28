@@ -11,6 +11,19 @@ import { lerEventos } from "./sse.js";
  * porque o painel não deve saber o que é aba de browser nem log de chat — e
  * porque, sem isso, importar o renderer de volta faria ciclo.
  */
+const CHAVE_RECOLHIDO = "nexo.svcRecolhido";
+
+/** Resumo da seção recolhida: "2/3 rodando · ⚠ 1 porta ocupada". Vazio sem serviço. */
+export function resumoDe(list, error = "") {
+  if (error) return "⚠ erro";
+  if (!list.length) return "";
+  const rodando = list.filter((s) => s.proc === "running").length;
+  const conflitos = list.filter((s) => s.conflito).length;
+  const partes = [`${rodando}/${list.length} rodando`];
+  if (conflitos) partes.push(`⚠ ${conflitos} porta${conflitos > 1 ? "s" : ""} ocupada${conflitos > 1 ? "s" : ""}`);
+  return partes.join(" · ");
+}
+
 export function createServicesPanel({
   req,
   api,
@@ -21,8 +34,11 @@ export function createServicesPanel({
   abrirNoBrowser,
   aoErro,
   fetchImpl = fetch,
+  storage = globalThis.localStorage,
 }) {
   let list = [];
+  /** Seção recolhida (lembrado entre sessões): conflito de porta ocupa meia barra. */
+  let recolhido = storage?.getItem(CHAVE_RECOLHIDO) === "1";
   let error = "";
   let trusted = false;
   let logId = "";
@@ -50,6 +66,8 @@ export function createServicesPanel({
     // só oferece confiar quando existe autostart declarado esperando liberação
     const querAutostart = list.some((s) => s.autostart);
     el("btn-svc-trust").classList.toggle("hidden", trusted || !querAutostart);
+
+    pintarRecolhido();
 
     const ul = el("svc-list");
     const doc = ul.ownerDocument;
@@ -90,6 +108,31 @@ export function createServicesPanel({
       ul.append(li);
       if (s.conflito) ul.append(linhaDeConflito(doc, s));
     }
+  }
+
+  /**
+   * Recolhida: só o título, com um resumo do que importa (quantos rodam, conflito de porta com
+   * ícone — cor sozinha não diz estado). Aberta: tudo como antes.
+   */
+  function pintarRecolhido() {
+    const btn = el("btn-svc-toggle");
+    btn.setAttribute("aria-expanded", String(!recolhido));
+    btn.title = recolhido ? "Mostrar serviços" : "Recolher serviços";
+    el("svc-strip").classList.toggle("svc-recolhido", recolhido);
+    el("svc-corpo").hidden = recolhido;
+    const resumo = el("svc-resumo");
+    resumo.textContent = recolhido ? resumoDe(list, error) : "";
+    resumo.classList.toggle("hidden", !resumo.textContent);
+  }
+
+  function alternarRecolhido() {
+    recolhido = !recolhido;
+    try {
+      storage?.setItem(CHAVE_RECOLHIDO, recolhido ? "1" : "0");
+    } catch {
+      /* sem storage: vale só nesta sessão */
+    }
+    pintarRecolhido();
   }
 
   /**
@@ -348,6 +391,8 @@ export function createServicesPanel({
   }
 
   return {
+    alternarRecolhido,
+    recolhido: () => recolhido,
     paint,
     load,
     listen,
