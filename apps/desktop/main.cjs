@@ -1294,7 +1294,13 @@ function createTray() {
       { label: "Abrir", click: () => win?.show() },
       { label: "Painel de borda", click: () => alternarPainel() },
       { label: "Ligar motor", click: () => void subirMotor() },
-      { label: "Desligar motor", click: () => spawnNexo(["down"]).unref() },
+      {
+        label: "Desligar motor",
+        click: () => {
+          logApp.info("app", "pessoa desligou o motor", { origem: "bandeja" });
+          spawnNexo(["down"]).unref();
+        },
+      },
       { type: "separator" },
       { label: "Sair", click: () => app.quit() },
     ]),
@@ -1365,7 +1371,9 @@ app.whenReady().then(async () => {
     logApp.info("app", forcar ? "pessoa pediu pra matar o PID na mão e reiniciar" : "pessoa escolheu reiniciar o motor travado");
     return reiniciarTravado({ forcar });
   });
-  handle("daemon:stop", () => {
+  handle("daemon:stop", (_e, opts) => {
+    // desligar pela tela fica no log: sem isso, motor desligado por clique parecia morrer do nada
+    logApp.info("app", "pessoa desligou o motor", { origem: String(opts?.origem || "tela") });
     spawnNexo(["down"]).unref();
     return { ok: true };
   });

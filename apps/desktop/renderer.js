@@ -19,6 +19,7 @@ import { createDsCanvas, documentoDoPrint } from "./canvas-ds.js";
 import { createBarraTimes } from "./chat-times.js";
 import { capturarReferencia } from "./ds-extrator.js";
 import { createDialogo } from "./dialogo.js";
+import { decidirCliqueDoMotor } from "./motor-botao.js";
 import { criarMenuContexto } from "./menu-contexto.js";
 import { lerEventos } from "./sse.js";
 import { initCombobox } from "./combobox.js";
@@ -1378,7 +1379,8 @@ function initPet() {
   const sprite = $("pet-sprite");
   if (!stage || !sprite) return;
   petState.reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
-  stage.addEventListener("click", () => $("btn-motor").click());
+  // o mago só LIGA o motor: desligar é ação de botão, com o rótulo à vista (ver motor-botao.js)
+  stage.addEventListener("click", () => void cliqueNoMotor({ doMago: true }));
 
   const all = [
     ...new Set([
@@ -1500,6 +1502,17 @@ function bannerPadrao() {
   $("banner").textContent = BANNER_PADRAO;
 }
 
+/** Ação que o botão do motor exibe e desde quando (ver `decidirCliqueDoMotor`). */
+const acaoDoMotor = { acao: "", desde: 0 };
+
+/** Troca o rótulo do botão do motor; só marca a hora quando a AÇÃO muda (o poll repinta a cada 4 s). */
+function mostrarAcaoDoMotor(acao, rotulo) {
+  $("motor-label").textContent = rotulo;
+  if (acaoDoMotor.acao === acao) return;
+  acaoDoMotor.acao = acao;
+  acaoDoMotor.desde = Date.now();
+}
+
 /**
  * Motor fora do ar: subindo (boot ou botão) é "Ligando", não "Desligado" — senão a
  * primeira abertura parece quebrada e convida a clicar em Ligar no meio da subida.
@@ -1511,7 +1524,7 @@ function avisoMotorFora(info) {
   }
   if (info.starting) {
     $("motor-status").textContent = "Ligando…";
-    $("motor-label").textContent = "Ligando…";
+    mostrarAcaoDoMotor("", "Ligando…");
     $("banner").textContent = "Ligando o motor…";
   } else if (info.erro) {
     bannerErro(info.erro);
@@ -1525,7 +1538,7 @@ function avisoMotorFora(info) {
  */
 function motorTravado(t) {
   $("motor-status").textContent = "Motor travado";
-  $("motor-label").textContent = "Reiniciar";
+  mostrarAcaoDoMotor("reiniciar", "Reiniciar");
   const banner = $("banner");
   banner.replaceChildren();
   banner.classList.add("banner-travado");
@@ -1578,7 +1591,7 @@ function setMotor(on, live = false) {
   if (!on && $("banner").classList.contains("banner-travado")) bannerPadrao();
   if (petState.ok) st.classList.add("sr-only");
   syncPet(on, live);
-  $("motor-label").textContent = on ? "Desligar" : "Ligar";
+  mostrarAcaoDoMotor(on ? "desligar" : "ligar", on ? "Desligar" : "Ligar");
   $("btn-motor").dataset.on = on ? "1" : "0";
   if (on) bannerPadrao();
   $("banner").classList.toggle("hidden", on);
@@ -7683,18 +7696,32 @@ async function bindProject(path) {
   listenServices();
 }
 
-$("btn-motor").addEventListener("click", async () => {
-  const wantOn = !state.ok;
+/**
+ * Clique no botão do motor (ou no mago). Faz o que o botão MOSTRAVA — ver `decidirCliqueDoMotor`:
+ * antes lia `state.ok` na hora do clique, e o motor que voltava de um congelamento era desligado
+ * pelo clique que a pessoa deu pra ligá-lo.
+ */
+async function cliqueNoMotor(opts = {}) {
+  const acao = decidirCliqueDoMotor(acaoDoMotor, Date.now(), opts);
+  if (!acao) return;
+  if (acao === "reiniciar") {
+    await window.nexo.destravarMotor({ forcar: false });
+    await refreshDaemon();
+    return;
+  }
+  const wantOn = acao === "ligar";
   // `daemon:start` já espera o /health responder (ou falhar) do lado do main process —
   // só sobra reconferir aqui. `daemon:stop` é fire-and-forget, esse sim precisa do poll.
-  const result = wantOn ? await window.nexo.startDaemon() : await window.nexo.stopDaemon();
+  const result = wantOn ? await window.nexo.startDaemon() : await window.nexo.stopDaemon({ origem: "botão" });
   for (let i = 0; i < 25; i++) {
     await refreshDaemon();
     if (state.ok === wantOn) break;
     await new Promise((r) => setTimeout(r, 300));
   }
   if (wantOn && !state.ok && result?.error) bannerErro(result.error);
-});
+}
+
+$("btn-motor").addEventListener("click", () => void cliqueNoMotor());
 
 porChat(() => {
   $("model-select").addEventListener("change", (e) => {

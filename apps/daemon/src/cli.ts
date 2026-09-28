@@ -160,6 +160,9 @@ function cmdDown(): void {
     return;
   }
   const pid = Number(readFileSync(path, "utf8"));
+  // no Windows o kill é seco (o SIGTERM do motor não roda, nem o "desligando"): registra aqui quem pediu
+  iniciarLog(home);
+  log.info("motor", `down: desligando o motor (PID ${pid})`, { pid, chamador: process.ppid });
   try {
     process.kill(pid);
   } catch {
