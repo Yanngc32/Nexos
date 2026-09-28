@@ -6,12 +6,29 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+### Corrigido
+
+### Alterado
+
+## [0.11.0] - 2026-09-28
+
+### Adicionado
+
+- Extensão do Chrome: o agente pode usar o Chrome da pessoa, com os logins dela (listar e abrir abas, ler a página, markdown, screenshot, clicar, digitar, rolar, teclas), só nas abas do grupo "Nexos" que ele mesmo abrir. Instalação guiada em Configurações › Extensão do Chrome: o app deixa a pasta pronta num lugar fixo, copia o caminho e abre `chrome://extensions` pra "Carregar sem compactação". Segue o modo do navegador da conversa (negado tira as ferramentas).
 - `pnpm medir [--dias 7]`: mostra onde a quota foi gasta, por origem (chat, passo de time, supervisor, hook, DS, planejamento, ping de uso, resumo da compactação) e por modelo, lendo só o disco, sem chamar modelo. Os pings e os resumos não têm thread; o script os acha nas transcrições do próprio CLI `claude` de cada conta. Também conta as compactações de conta `codex` e quanto o teto da memória corta. Rodar antes e depois de atualizar mostra o ganho real.
+- Seção Serviços da barra lateral pode ser recolhida: clique no título. Recolhida, ela mostra um resumo (quantos rodam e portas ocupadas, com ícone), e o app lembra a escolha.
 
 ### Corrigido
 
 - Conta `codex` não gasta mais um turno extra de resumo a cada mensagem em conversa longa. A compactação só pulava o `claude` com sessão retomada, mas o `codex` também retoma (`exec resume`) e nesse caso o resumo nunca chegava ao modelo. Sem janela reportada, o teto caía em 8k tokens e o resumo disparava quase todo turno depois da 20ª mensagem.
 - Motor não falha mais ao subir com histórico grande (acima de ~32k tokens) no Linux: o pack inteiro ia numa variável de ambiente que ninguém lia e estourava o limite do sistema (`E2BIG`).
+- Arrastar uma conversa pra abrir ao lado (ou Ctrl+clique) trazia junto o preview/área de trabalho dela, trocando o que estava na tela. Agora ela chega só como conversa, ao lado, e o foco fica no chat que já estava; clicar nela depois abre a área de trabalho dela normalmente.
+- Motor travando de 2 a 13 s várias vezes por minuto quando um serviço com autostart tinha a porta ocupada (ex.: Docker segurando a 8000): o app pedia o autostart de novo a cada 4 s, e cada pedido rodava `netstat` e `tasklist` com o motor parado. Agora o autostart roda uma vez por projeto por sessão (confiar no projeto libera de novo), e o motor não tenta sozinho um serviço que está esperando a decisão sobre a porta. Medido com perfil de CPU do motor: 13 s de CPU em 3 minutos só nisso.
+- Leitura do login das contas a cada poll caiu de ~120 ms pra ~9 ms: a checagem da credencial não desce mais nas pastas de histórico do CLI (`projects`, `file-history`, `plugins`…), onde credencial nunca fica.
+- Motor que "morria do nada" logo depois de um travamento: com o motor sem responder, o botão mostrava "Reiniciar"/"Ligar"; o motor voltava um segundo depois e o mesmo clique o desligava. Agora o botão faz o que estava mostrando e ignora clique logo depois de trocar de rótulo. "Reiniciar" reinicia de verdade, clicar no mago nunca desliga o motor, e todo desligamento fica registrado no log (de onde veio).
+- Falhas que sumiam caladas agora vão pro log com o motivo real: busca do CLI no PATH, `claude auth status` (o login não diz mais "o código não foi aceito" quando o problema é o CLI não rodar), API do GitHub ao instalar skill (mostra o erro do GitHub em vez de "não achei SKILL.md"), HTTPS pelo Tailscale, `git ls-files` do repo map, design system ilegível (a lista de DS corrompida ganha uma cópia antes de ser regravada), skills que não leem, `taskkill` que falha e a consulta de processo do "motor travado".
+- Pasta de projetos no Google Drive (`G:\Meu Drive\…`) com o Drive para desktop ainda ligando: o Quadro e as outras telas mostravam "Internal Server Error". Agora o motor responde com o motivo e a pasta ("pasta de projetos inacessível — o Drive está ligado?"). A barra lateral mostra um aviso só, que some sozinho quando a pasta volta. O Nexos também não cria mais uma árvore de pastas vazia no lugar da unidade que sumiu.
+- Ícone escolhido à mão sumia da barra lateral depois de atualizar o app: na subida, o Drive ainda não tinha montado e o app guardava "sem ícone" até fechar. Agora ele busca de novo quando a pasta volta, e um "sem ícone" só vale por 5 minutos.
 
 ### Alterado
 
