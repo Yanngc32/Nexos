@@ -2895,6 +2895,20 @@ function pickPaletteItem(item) {
   pickModule(item.id);
 }
 
+/**
+ * Pasta de projetos fora do ar (ex.: `G:\Meu Drive\…` com o Drive para desktop ainda ligando):
+ * tarefas, memória e planejamento não carregam. Um aviso só na barra lateral, em vez de cada tela
+ * mostrar o próprio erro; some sozinho no poll seguinte quando a pasta volta.
+ */
+function pintarAvisoRaiz(dir) {
+  const aviso = $("aviso-raiz");
+  const voltou = !dir && !aviso.classList.contains("hidden");
+  aviso.classList.toggle("hidden", !dir);
+  // ícone escolhido à mão mora na pasta de projetos: repinta a barra pra buscar de novo
+  if (voltou) esquecerSemLogo();
+  if (dir) $("aviso-raiz-txt").textContent = `Pasta de projetos inacessível: ${dir}. Tarefas, memória e planos não carregam até ela voltar. O Google Drive está ligado?`;
+}
+
 async function refreshDaemon() {
   const info = await window.nexo.daemonInfo();
   aplicarInfoDoMotor(info);
@@ -2915,6 +2929,7 @@ async function refreshDaemon() {
   for (const chat of areaDeChats.chats) if (chat.threadId && !chat.sseOn) listenSse(chat);
   try {
     const cfg = await req("/v1/config");
+    pintarAvisoRaiz(cfg.projetosDirIndisponivel);
     if (cfg.accent) applyAccent(cfg.accent);
     if (cfg.tema) applyTema(cfg.tema);
     state.coletaDesign = cfg.modulos?.coletaDesign !== false;
@@ -3846,27 +3861,47 @@ function renderRepoTree() {
 const logosDeProjeto = new Map();
 /** path normalizado → quantas vezes o ícone foi trocado nesta sessão (ver `recarregarLogoDoRepo`). */
 const versaoDoLogo = new Map();
+/** path normalizado → quando chegou o "sem logo". */
+const semLogoDesde = new Map();
+/** "Sem logo" vale por um tempo, não pela sessão inteira: o ícone pode aparecer depois (repo, Drive que montou). */
+const SEM_LOGO_MS = 5 * 60_000;
 
-/** Logo do projeto pelo daemon (`/v1/projects/logo`). Pede uma vez por projeto; 404 fica guardado como "sem logo". */
+function guardarSemLogo(k) {
+  logosDeProjeto.set(k, null);
+  semLogoDesde.set(k, Date.now());
+}
+
+/** Logo do projeto pelo daemon (`/v1/projects/logo`). Pede uma vez por projeto; 404 fica guardado como "sem logo" por `SEM_LOGO_MS`. */
 function logoDoRepo(path) {
   const k = normPath(path);
+  if (logosDeProjeto.get(k) === null && Date.now() - (semLogoDesde.get(k) ?? 0) > SEM_LOGO_MS) logosDeProjeto.delete(k);
   if (logosDeProjeto.has(k)) return logosDeProjeto.get(k);
   // `v` fura o cache HTTP (max-age=300) depois de trocar o ícone à mão
   const v = versaoDoLogo.get(k) ?? 0;
   const p = reqBlob(`/v1/projects/logo?projectPath=${encodeURIComponent(path)}${v ? `&v=${v}` : ""}`)
     .then((blob) => {
-      const url = blob && blob.size ? URL.createObjectURL(blob) : null;
+      if (!blob?.size) {
+        guardarSemLogo(k);
+        return null;
+      }
+      const url = URL.createObjectURL(blob);
       logosDeProjeto.set(k, url);
       return url;
     })
     .catch((e) => {
-      // 404 = projeto sem logo, guarda; motor fora do ar não: tenta de novo na próxima pintura
-      if (/\b404\b/.test(e?.message || "")) logosDeProjeto.set(k, null);
+      // 404 = projeto sem logo, guarda; motor fora do ar ou pasta de projetos inacessível (503): tenta de novo na próxima pintura
+      if (/\b404\b/.test(e?.message || "")) guardarSemLogo(k);
       else logosDeProjeto.delete(k);
       return null;
     });
   logosDeProjeto.set(k, p);
   return p;
+}
+
+/** Esquece os "sem logo" guardados e repinta a barra (a pasta de projetos voltou). */
+function esquecerSemLogo() {
+  for (const [k, v] of logosDeProjeto) if (v === null) logosDeProjeto.delete(k);
+  renderRepoTree();
 }
 
 /** Esquece o logo guardado do projeto e repinta a barra (cheia e minimizada). */

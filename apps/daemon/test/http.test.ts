@@ -1356,6 +1356,33 @@ describe("http tarefas", () => {
     expect(res.status).toBe(400);
   });
 
+  it("/v1/tarefas/quadro com a pasta de projetos fora do ar é 503 com a pasta no texto (não 500 cru)", async () => {
+    const home = tempHome();
+    // unidade do Drive desmontada: nem a pasta nem a de cima existem
+    const fora = join(home, "drive-desmontado", "Meu Drive", "Nexos");
+    saveConfig(home, { projetosDir: fora });
+    const app = createApp(home, token);
+    const res = await app.request(`/v1/tarefas/quadro?projectPath=${encodeURIComponent(PROJ)}`, { headers: hdr });
+    expect(res.status).toBe(503);
+    const corpo = (await res.json()) as { error: string; code: string; dir: string };
+    expect(corpo.code).toBe("raiz_indisponivel");
+    expect(corpo.dir).toBe(fora);
+    expect(corpo.error).toContain(fora);
+    // não criou árvore fantasma no lugar da unidade
+    expect(existsSync(join(home, "drive-desmontado"))).toBe(false);
+    // a config avisa o app (um aviso só, na barra lateral)
+    const cfg = (await (await app.request("/v1/config", { headers: hdr })).json()) as { projetosDirIndisponivel?: string };
+    expect(cfg.projetosDirIndisponivel).toBe(fora);
+  });
+
+  it("/v1/projects/logo com a pasta de projetos fora do ar é 503, não 404 (o app não guarda 'sem logo')", async () => {
+    const home = tempHome();
+    saveConfig(home, { projetosDir: join(home, "drive-desmontado", "Meu Drive", "Nexos") });
+    const app = createApp(home, token);
+    const res = await app.request(`/v1/projects/logo?projectPath=${encodeURIComponent(PROJ)}`, { headers: hdr });
+    expect(res.status).toBe(503);
+  });
+
   it("/v1/tarefas/quadro nasce com 3 colunas padrão", async () => {
     const home = tempHome();
     const app = createApp(home, token);

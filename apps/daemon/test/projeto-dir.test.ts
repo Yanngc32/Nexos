@@ -6,7 +6,7 @@ import { basename, join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { saveConfig } from "../src/config.ts";
 import { googleAuthPath, projectKey } from "../src/home.ts";
-import { migrarArmazenamento, migrarProjeto, pastaDeCodigo, trazerPastaManualProDrive, migrarRaizLegadaRemovida, projectDir, projectSlug, projetosRoot } from "../src/projeto-dir.ts";
+import { migrarArmazenamento, migrarProjeto, pastaDeCodigo, trazerPastaManualProDrive, migrarRaizLegadaRemovida, projectDir, projectSlug, projetosRoot, raizIndisponivel, RaizIndisponivelError, resetProjetosDirForTest } from "../src/projeto-dir.ts";
 import { tempHome } from "./helpers.ts";
 
 function tempProjeto(): string {
@@ -369,5 +369,31 @@ describe("pastaDeCodigo", () => {
     writeFileSync(join(dados, "proj-a", "meta.json"), "{}");
     expect(pastaDeCodigo(dados)).toBe(false);
     expect(pastaDeCodigo(join(dados, "nao-existe"))).toBe(false);
+  });
+});
+
+describe("raizIndisponivel", () => {
+  it("pasta manual numa unidade que sumiu: projectDir recusa sem criar nada", () => {
+    resetProjetosDirForTest();
+    const home = tempHome();
+    const fora = join(home, "G-desmontado", "Meu Drive", "Nexos");
+    saveConfig(home, { projetosDir: fora });
+    expect(raizIndisponivel(home)).toBe(fora);
+    expect(() => projectDir(tempProjeto(), home)).toThrow(RaizIndisponivelError);
+    expect(existsSync(join(home, "G-desmontado"))).toBe(false);
+  });
+
+  it("pasta nova numa unidade que existe continua sendo criada", () => {
+    resetProjetosDirForTest();
+    const home = tempHome();
+    const nova = join(home, "dados-nexos");
+    saveConfig(home, { projetosDir: nova });
+    expect(raizIndisponivel(home)).toBe("");
+    expect(existsSync(join(projectDir(tempProjeto(), home), "meta.json"))).toBe(true);
+  });
+
+  it("raiz padrão nunca conta como fora", () => {
+    resetProjetosDirForTest();
+    expect(raizIndisponivel(tempHome())).toBe("");
   });
 });

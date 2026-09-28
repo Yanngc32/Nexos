@@ -414,6 +414,24 @@ body[data-side-mini="1"] .side .ico-only {
   padding: var(--s-6) var(--s-5) var(--s-4);
 }
 
+/* Pasta de projetos inacessível (ver pintarAvisoRaiz em renderer.js): estado de atenção, com ícone. */
+.aviso-raiz {
+  display: flex;
+  gap: var(--s-3);
+  align-items: flex-start;
+  margin: 0 var(--s-5) var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--warn);
+  border-radius: var(--r-md);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.aviso-raiz-ico {
+  color: var(--warn);
+}
+
 .word {
   font-weight: 600;
   font-size: var(--fs-xl);

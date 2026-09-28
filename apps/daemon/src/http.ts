@@ -27,6 +27,8 @@ import {
   projectDir,
   projectSlug,
   projetosDirIgnorado,
+  raizIndisponivel,
+  RaizIndisponivelError,
 } from "./projeto-dir.ts";
 import {
   accountInfo,
@@ -289,6 +291,21 @@ export function createApp(home: string, token: string): Hono {
    * e um token global vazaria entre eles.
    */
   let atual = token;
+  /*
+   * Pasta de projetos fora do ar (Drive para desktop ainda montando o G:): qualquer rota que
+   * tropeçar nela — pelo `projectDir` ou num ENOENT/EACCES de leitura enquanto ela está fora —
+   * responde 503 com a pasta no texto, em vez do 500 cru que a tela mostrava como
+   * "Internal Server Error". O resto continua 500 (defeito nosso).
+   */
+  app.onError((e, c) => {
+    const fora = e instanceof RaizIndisponivelError ? e.dir : raizIndisponivel(home);
+    if (fora) {
+      const err = e instanceof RaizIndisponivelError ? e : new RaizIndisponivelError(fora);
+      return c.json({ error: err.message, code: err.code, dir: err.dir }, 503);
+    }
+    log.erro("motor", `rota ${c.req.method} ${c.req.path} falhou`, { erro: e.message });
+    return c.json({ error: e.message || "erro interno" }, 500);
+  });
   app.use(
     "*",
     cors({
@@ -2557,7 +2574,13 @@ export function createApp(home: string, token: string): Hono {
   app.get("/v1/config", (c) => {
     // pasta de projetos salva que é pasta de repos: ignorada (ver projetosRoot) — a tela avisa
     const ignorada = projetosDirIgnorado(home);
-    return c.json({ ...loadConfig(home), ...(ignorada ? { projetosDirIgnorado: ignorada } : {}) });
+    // pasta de projetos fora do ar (Drive desmontado): o app mostra um aviso só, no topo
+    const indisponivel = raizIndisponivel(home);
+    return c.json({
+      ...loadConfig(home),
+      ...(ignorada ? { projetosDirIgnorado: ignorada } : {}),
+      ...(indisponivel ? { projetosDirIndisponivel: indisponivel } : {}),
+    });
   });
   app.put("/v1/config", async (c) => {
     const cfgAntes = loadConfig(home);

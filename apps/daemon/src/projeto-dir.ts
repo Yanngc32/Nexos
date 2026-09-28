@@ -74,6 +74,54 @@ function avisarIgnorada(dir: string): void {
 export function resetProjetosDirForTest(): void {
   cacheCodigo.clear();
   ignoradaAvisada.clear();
+  cacheRaiz.clear();
+  raizesFora.clear();
+}
+
+/**
+ * Pasta de projetos fora do ar: `projetosDir` apontado pra unidade que ainda não montou (Google
+ * Drive para desktop ligando: `G:\Meu Drive\…` some por alguns minutos). Antes o `mkdirSync` do
+ * `projectDir` dava ENOENT e a rota virava 500 cru ("Internal Server Error"); pior, com a unidade
+ * montada pela metade, criaria uma árvore fantasma no lugar. Vira 503 com a pasta no texto.
+ */
+export class RaizIndisponivelError extends Error {
+  readonly status = 503;
+  readonly code = "raiz_indisponivel";
+  constructor(readonly dir: string) {
+    super(`A pasta de projetos do Nexos (${dir}) não está acessível agora. Se ela fica no Google Drive, confira se o Drive para desktop está ligado e tente de novo.`);
+    this.name = "RaizIndisponivelError";
+  }
+}
+
+/** `raizIndisponivel` roda em toda escrita de dado de projeto: cache curto pra não martelar o Drive. */
+const cacheRaiz = new Map<string, { valor: boolean; em: number }>();
+const CACHE_RAIZ_MS = 3_000;
+const raizesFora = new Set<string>();
+
+/**
+ * `projetosDir` manual em uso que não dá pra acessar, ou `""`. Fora = nem a pasta nem a de cima
+ * existem: pasta nova numa unidade que existe é criada normalmente (como sempre foi); o que muda é
+ * não criar a árvore inteira quando a unidade (ou o `Meu Drive`) sumiu. Raiz padrão e a do sync
+ * pela API (`<home>/drive`) são do Nexos e nunca contam como fora.
+ */
+export function raizIndisponivel(home: string): string {
+  const dir = loadConfig(home).projetosDir;
+  if (!dir || projetosRoot(home) !== dir) return "";
+  const c = cacheRaiz.get(dir);
+  let fora: boolean;
+  if (c && Date.now() - c.em < CACHE_RAIZ_MS) fora = c.valor;
+  else {
+    fora = !existsSync(dir) && !existsSync(dirname(dir));
+    cacheRaiz.set(dir, { valor: fora, em: Date.now() });
+  }
+  // log só na virada (fora ↔ de volta), não a cada rota que tropeça nela
+  if (fora && !raizesFora.has(dir)) {
+    raizesFora.add(dir);
+    log.aviso("drive", `pasta de projetos ${dir} inacessível — o Drive está ligado?`, { projetosDir: dir });
+  } else if (!fora && raizesFora.delete(dir)) {
+    log.info("drive", `pasta de projetos ${dir} acessível de novo`, { projetosDir: dir });
+  }
+  return fora ? dir : "";
 }
 
 /**
@@ -477,6 +525,8 @@ export function projectDir(projectPath: string, home: string): string {
   const dir = dirDoProjeto(projectPath, home, modo);
   const metaPath = join(dir, "meta.json");
   if (!existsSync(metaPath)) {
+    const fora = modo === "pasta" ? raizIndisponivel(home) : "";
+    if (fora) throw new RaizIndisponivelError(fora);
     mkdirSync(dir, { recursive: true });
     // no modo pasta, o nome da pasta (com o sufixo da trava, se houve colisão com o repo)
     const nome = modo === "pasta" ? basename(dir) : slug;

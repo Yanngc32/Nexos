@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { projectKey } from "./home.ts";
-import { projectDir, projectDirSemCriar } from "./projeto-dir.ts";
+import { projectDir, projectDirSemCriar, raizIndisponivel, RaizIndisponivelError } from "./projeto-dir.ts";
 
 /**
  * Logo/ícone do projeto pra barra lateral do app (no lugar do ícone de pasta).
@@ -134,6 +134,13 @@ export function limparLogoManual(projectPath: string, home: string): void {
 export function logoDoProjeto(projectPath: string, home: string): (LogoDoProjeto & { manual?: boolean }) | null {
   const manual = logoManual(projectPath, home);
   if (manual) return { ...manual, manual: true };
+  /*
+   * Pasta de projetos fora do ar (Drive ainda montando na subida do app): o manual pode estar lá e
+   * só não dá pra ver. Cair no automático ou no 404 fazia o app guardar "sem logo"/o ícone errado e
+   * o manual sumia da barra até reiniciar. 503 (via onError) = o app tenta de novo depois.
+   */
+  const fora = raizIndisponivel(home);
+  if (fora) throw new RaizIndisponivelError(fora);
   const chave = projectKey(projectPath);
   const c = cache.get(chave);
   if (c && Date.now() - c.em < TTL_MS) return c.logo;
