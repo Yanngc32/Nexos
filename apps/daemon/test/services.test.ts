@@ -154,6 +154,27 @@ describe("porta dos serviços", () => {
     }
   });
 
+  it.runIf(process.platform === "win32")("autostart com a porta ocupada não tenta de novo sozinho (a pessoa decide)", async () => {
+    const home = tempHome();
+    const porta = await portaLivre();
+    const ocupante = spawn(process.execPath, [fixture, "listen", String(porta)], { stdio: ["ignore", "pipe", "ignore"] });
+    try {
+      await new Promise<void>((r) => ocupante.stdout.once("data", () => r()));
+      const dir = projeto([
+        { id: "svc", cmd: `${node} ${JSON.stringify(fixture)}`, url: `http://127.0.0.1:${porta}`, autostart: true },
+      ]);
+      trustProject(dir, home);
+      const primeira = autostartServices(dir, home);
+      expect(primeira[0]?.conflito?.porta).toBe(porta);
+      // o app chamava isto a cada poll: cada chamada rodava netstat + tasklist síncronos (motor parado)
+      expect(autostartServices(dir, home)).toEqual([]);
+      // a pessoa escolhendo continua funcionando
+      expect(startService(dir, "svc", home, { matar: true }).proc).toBe("running");
+    } finally {
+      ocupante.kill();
+    }
+  });
+
   it("trocar a porta vale no cmd, na url e no PORT; a porta original desfaz", async () => {
     const home = tempHome();
     const dir = projeto([{ id: "svc", cmd: `${node} ${JSON.stringify(fixture)} --port 8004`, url: "http://127.0.0.1:8004/docs" }]);

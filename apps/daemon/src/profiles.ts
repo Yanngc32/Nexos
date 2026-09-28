@@ -376,6 +376,33 @@ export function oauthLive(block: OauthBlock, now = Date.now()): boolean {
 
 type CredScan = { live: boolean; dead: boolean; unknown: boolean; newest: number };
 
+/**
+ * Pastas de estado do CLI (`claude`/`codex`) que nunca guardam credencial e crescem com o uso —
+ * transcrições, histórico de arquivo, plugins. `scanCreds` roda a cada poll do app (4 s) por conta:
+ * descer nelas era ~3 mil entradas por poll só pra achar o `.credentials.json` da raiz.
+ */
+const SEM_CREDENCIAL = new Set([
+  "node_modules",
+  "projects",
+  "file-history",
+  "shell-snapshots",
+  "session-env",
+  "sessions",
+  "todos",
+  "plugins",
+  "cache",
+  "backups",
+  "paste-cache",
+  "downloads",
+  "jobs",
+  "plans",
+  "skills",
+  "statsig",
+  "logs",
+  "ide",
+  "chrome",
+]);
+
 function scanCreds(dir: string, depth = 0): CredScan {
   const scan: CredScan = { live: false, dead: false, unknown: false, newest: 0 };
   if (!dir || !existsSync(dir) || depth > 2) return scan;
@@ -395,7 +422,7 @@ function scanCreds(dir: string, depth = 0): CredScan {
         else scan.dead = true;
         continue;
       }
-      if (ent.isDirectory() && ent.name !== "node_modules") {
+      if (ent.isDirectory() && !SEM_CREDENCIAL.has(ent.name)) {
         const sub = scanCreds(full, depth + 1);
         scan.live ||= sub.live;
         scan.dead ||= sub.dead;

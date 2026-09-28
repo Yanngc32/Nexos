@@ -37,6 +37,13 @@ export function createServicesPanel({
   storage = globalThis.localStorage,
 }) {
   let list = [];
+  /**
+   * Projetos em que o autostart já rodou nesta sessão. `load()` roda a cada poll (4 s): com a porta
+   * ocupada (Docker segurando a 8000) o serviço nunca subia, o autostart repetia a cada poll e o
+   * motor travava 1–3 s em netstat/tasklist síncronos, o dia todo. Uma vez por projeto basta; o
+   * resto (porta ocupada, parou) é a pessoa quem decide.
+   */
+  const autostartFeito = new Set();
   /** Seção recolhida (lembrado entre sessões): conflito de porta ocupa meia barra. */
   let recolhido = storage?.getItem(CHAVE_RECOLHIDO) === "1";
   let error = "";
@@ -261,7 +268,10 @@ export function createServicesPanel({
    */
   async function autostart() {
     if (!trusted) return;
+    const projeto = getProjectPath();
+    if (autostartFeito.has(projeto)) return;
     if (!list.some((s) => s.autostart && s.proc !== "running")) return;
+    autostartFeito.add(projeto);
     try {
       await req("/v1/services/autostart", {
         method: "POST",
@@ -313,6 +323,8 @@ export function createServicesPanel({
       aoErro(e.message || "não deu pra confiar no projeto");
       return;
     }
+    // confiar agora libera o autostart: vale tentar de novo mesmo que já tenha rodado (sem efeito) antes
+    autostartFeito.delete(getProjectPath());
     await load();
   }
 

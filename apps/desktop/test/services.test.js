@@ -444,3 +444,35 @@ describe("recolher a seção", () => {
     expect(resumoDe([], "falhou")).toBe("⚠ erro");
   });
 });
+
+describe("autostart", () => {
+  /** req de mentira: conta os POSTs de autostart; os serviços ficam parados (porta ocupada). */
+  function reqContando() {
+    const chamadas = [];
+    const req = async (rota, opts) => {
+      if (opts?.method === "POST") chamadas.push(rota);
+      return { services: [svc({ autostart: true, proc: "off", conflito: { porta: 8000, processos: [] } })], trusted: true };
+    };
+    return { req, chamadas };
+  }
+
+  it("roda uma vez por projeto, não a cada load (o poll de 4 s travava o motor com a porta ocupada)", async () => {
+    const { req, chamadas } = reqContando();
+    const { panel } = montar({ req });
+    for (let i = 0; i < 5; i++) {
+      await panel.load();
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    expect(chamadas.filter((r) => r === "/v1/services/autostart")).toHaveLength(1);
+  });
+
+  it("confiar no projeto libera uma nova tentativa", async () => {
+    const { req, chamadas } = reqContando();
+    const { panel } = montar({ req });
+    await panel.load();
+    await new Promise((r) => setTimeout(r, 0));
+    await panel.confiar();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(chamadas.filter((r) => r === "/v1/services/autostart")).toHaveLength(2);
+  });
+});

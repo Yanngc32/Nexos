@@ -8,7 +8,7 @@ import type { ProbeResult, ServiceConflito, ServiceDef, ServiceStatus, ServicesR
 import { loadConfig, saveConfig } from "./config.ts";
 import { ensureHome, projectKey } from "./home.ts";
 import { assertSlug } from "./ids.ts";
-import { killByPort, killTree, nomeDoProcesso, portasEscutando } from "./kill-tree.ts";
+import { killByPort, killTree, nomesDosProcessos, portasEscutando } from "./kill-tree.ts";
 
 /** Nome do arquivo que declara os serviços, na raiz do projeto. */
 export const SERVICES_FILE = "nexos.json";
@@ -333,9 +333,10 @@ export function startService(projectPath: string, id: string, home: string, opts
         : `[nexo] porta ${porta} liberada: matei ${r.pids.join(", ") || "nada"}\n`;
     } else if (pids.length) {
       const livre = proximaLivre(porta, portas);
+      const nomes = nomesDosProcessos(pids);
       conflitos.set(k, {
         porta,
-        processos: pids.map((pid) => ({ pid, nome: nomeDoProcesso(pid) })),
+        processos: pids.map((pid) => ({ pid, nome: nomes.get(pid) ?? "" })),
         ...(livre !== undefined ? { livre } : {}),
       });
       emitStatus(projectPath, id, home);
@@ -483,6 +484,9 @@ export function autostartServices(projectPath: string, home: string): ServiceSta
   const out: ServiceStatus[] = [];
   for (const def of readServiceDefs(projectPath)) {
     if (def.autostart !== true) continue;
+    // porta ocupada esperando a pessoa decidir: tentar de novo sozinho só repete netstat/tasklist
+    // (síncronos, 1–3 s de motor parado) pra chegar no mesmo conflito
+    if (conflitos.has(key(projectPath, def.id))) continue;
     out.push(startService(projectPath, def.id, home));
   }
   return out;

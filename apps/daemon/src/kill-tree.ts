@@ -108,13 +108,21 @@ export function portasEscutando(): { suportado: boolean; portas: Map<number, num
   return { suportado: true, portas };
 }
 
-/** Nome da imagem do processo (`python.exe`), pra dizer QUEM segura a porta. Vazio se não achar. */
-export function nomeDoProcesso(pid: number): string {
-  if (process.platform !== "win32" || !Number.isInteger(pid) || pid <= 0) return "";
-  const r = spawnSync("tasklist", ["/fi", `PID eq ${pid}`, "/fo", "csv", "/nh"], { windowsHide: true, encoding: "utf8" });
-  if (r.status !== 0 || !r.stdout) return "";
-  const m = /^"([^"]+)"/.exec(r.stdout.trim());
-  return m?.[1] ?? "";
+/**
+ * Nome da imagem (`python.exe`) de cada PID, pra dizer QUEM segura a porta. PID que não aparece
+ * fica fora do mapa. Um `tasklist` filtrado por PID (~0,25 s): listar tudo numa chamada só custa
+ * ~0,8 s, pior pro caso comum de 1–2 PIDs numa porta.
+ */
+export function nomesDosProcessos(pids: number[]): Map<number, string> {
+  const out = new Map<number, string>();
+  if (process.platform !== "win32") return out;
+  for (const pid of new Set(pids)) {
+    if (!Number.isInteger(pid) || pid <= 0) continue;
+    const r = spawnSync("tasklist", ["/fi", `PID eq ${pid}`, "/fo", "csv", "/nh"], { windowsHide: true, encoding: "utf8" });
+    const m = r.status === 0 && r.stdout ? /^"([^"]+)"/.exec(r.stdout.trim()) : null;
+    if (m) out.set(pid, m[1]!);
+  }
+  return out;
 }
 
 export function killByPort(port: number): KillByPortResult {
