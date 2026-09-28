@@ -258,6 +258,8 @@ export function createVideoPanel({
     if (!ativoId) return;
     try {
       const v = await req(`/v1/videos/${encodeURIComponent(ativoId)}?${qs()}`);
+      // o SSE avisa também das mudanças que o próprio painel acabou de aplicar: igual, não repinta
+      if (video && video.id === v.id && JSON.stringify(v) === JSON.stringify(video)) return;
       aplicar(v);
     } catch (e) {
       if (e.status === 404) {
@@ -498,7 +500,11 @@ export function createVideoPanel({
   }
 
   function limparCards() {
-    for (const c of cardsDom.values()) c.raiz.remove();
+    for (const c of cardsDom.values()) {
+      observador?.unobserve(c.tela);
+      visibilidade?.unobserve(c.tela);
+      c.raiz.remove();
+    }
     cardsDom.clear();
   }
 
@@ -517,6 +523,8 @@ export function createVideoPanel({
     const vivas = new Set(video.cenas.map((c) => c.id));
     for (const [id, c] of cardsDom) {
       if (!vivas.has(id)) {
+        observador?.unobserve(c.tela);
+        visibilidade?.unobserve(c.tela);
         c.raiz.remove();
         cardsDom.delete(id);
       }
@@ -544,7 +552,7 @@ export function createVideoPanel({
       if (c.url !== url) {
         c.url = url;
         c.pronto = false;
-        c.frame.src = url;
+        if (c.visivel) c.frame.src = url;
       }
       escalar(c);
     });
@@ -562,6 +570,18 @@ export function createVideoPanel({
       if (c) escalar(c);
     }
   }) : null;
+
+  // iframe da cena (documento 1920×1080 com GSAP) só carrega quando o card chega perto da tela
+  const visibilidade = typeof IntersectionObserver !== "undefined" ? new IntersectionObserver((ents) => {
+    for (const e of ents) {
+      if (!e.isIntersecting) continue;
+      const c = [...cardsDom.values()].find((x) => x.tela === e.target);
+      if (!c) continue;
+      c.visivel = true;
+      visibilidade.unobserve(e.target);
+      if (c.url) c.frame.src = c.url;
+    }
+  }, { rootMargin: "400px" }) : null;
 
   function criarCard(cena) {
     const raizCard = doc.createElement("article");
@@ -585,8 +605,10 @@ export function createVideoPanel({
       tocando: false,
       pronto: false,
       url: "",
+      visivel: !visibilidade,
     };
     observador?.observe(c.tela);
+    visibilidade?.observe(c.tela);
     c.range.addEventListener("input", () => {
       c.mexeu = true;
       const t = Number(c.range.value);

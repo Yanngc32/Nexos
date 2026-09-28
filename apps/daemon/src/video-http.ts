@@ -88,7 +88,7 @@ function dentroDe(raiz: string, rel: string): string | null {
   return alvo.startsWith(base) ? alvo : null;
 }
 
-function servirArquivo(c: Context, caminho: string): Response {
+function servirArquivo(c: Context, caminho: string, cachear = false): Response {
   const st = statSync(caminho);
   const tipo = TIPOS[extname(caminho).toLowerCase()] ?? "application/octet-stream";
   const range = c.req.header("range");
@@ -104,8 +104,17 @@ function servirArquivo(c: Context, caminho: string): Response {
       });
     }
   }
+  if (!cachear) {
+    return new Response(Readable.toWeb(createReadStream(caminho)) as ReadableStream, {
+      headers: { "content-type": tipo, "content-length": String(st.size), "accept-ranges": "bytes", "cache-control": "no-store" },
+    });
+  }
+  // prévia: cada card de cena é um iframe que pede gsap/base.css/fontes — revalida (304) em vez de baixar de novo
+  const etag = `"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+  const cab = { etag, "cache-control": "no-cache", "accept-ranges": "bytes" };
+  if (c.req.header("if-none-match") === etag) return new Response(null, { status: 304, headers: cab });
   return new Response(Readable.toWeb(createReadStream(caminho)) as ReadableStream, {
-    headers: { "content-type": tipo, "content-length": String(st.size), "accept-ranges": "bytes", "cache-control": "no-store" },
+    headers: { ...cab, "content-type": tipo, "content-length": String(st.size) },
   });
 }
 
@@ -454,12 +463,12 @@ export function registrarRotasDeVideo(app: Hono, home: string): void {
       // composição some quando o render/ é limpo à mão: monta de novo
       if (!existsSync(join(comp, "index.html"))) comporVideo(p.projectPath, home, p.videoId);
       const arq = dentroDe(comp, rel);
-      if (arq && existsSync(arq) && statSync(arq).isFile()) return servirArquivo(c, arq);
+      if (arq && existsSync(arq) && statSync(arq).isFile()) return servirArquivo(c, arq, true);
       // efeito que ainda não foi copiado (ouvir no seletor antes de pôr no vídeo)
       if (rel.startsWith("assets/efeitos/") || rel.startsWith("assets/musica-nexos/")) {
         const sub = rel.startsWith("assets/efeitos/") ? join("efeitos", rel.slice(15)) : join("musicas", rel.slice(20));
         const alvo = dentroDe(pastaDeAssets(), sub);
-        if (alvo && existsSync(alvo)) return servirArquivo(c, alvo);
+        if (alvo && existsSync(alvo)) return servirArquivo(c, alvo, true);
       }
       return c.text("não achei", 404);
     } catch (e) {
