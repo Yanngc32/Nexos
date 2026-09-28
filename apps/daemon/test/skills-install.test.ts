@@ -223,6 +223,36 @@ describe("instalar do GitHub", () => {
     await expect(instalarSkills({ tipo: "github", alvo: "dono/repo" }, "global", home)).rejects.toThrow(/SKILL\.md/);
   });
 
+  it("falha da API numa subpasta aparece como falha do GitHub, não como 'não achei SKILL.md'", async () => {
+    const home = tempHome();
+    vi.stubGlobal("fetch", async (input: string | URL) => {
+      const url = String(input);
+      if (/\/contents\/(\?|$)/.test(url)) {
+        return new Response(JSON.stringify([{ name: "um", path: "um", type: "dir", download_url: null }]), { status: 200 });
+      }
+      return new Response("erro", { status: 500 });
+    });
+    await expect(instalarSkills({ tipo: "github", alvo: "dono/repo" }, "global", home)).rejects.toThrow(/GitHub respondeu 500/);
+  });
+
+  it("limite do GitHub numa subpasta para na hora com a mensagem do limite", async () => {
+    const home = tempHome();
+    vi.stubGlobal("fetch", async (input: string | URL) => {
+      const url = String(input);
+      if (/\/contents\/(\?|$)/.test(url)) {
+        return new Response(
+          JSON.stringify([
+            { name: "um", path: "um", type: "dir", download_url: null },
+            { name: "dois", path: "dois", type: "dir", download_url: null },
+          ]),
+          { status: 200 },
+        );
+      }
+      return new Response("rate", { status: 403 });
+    });
+    await expect(instalarSkills({ tipo: "github", alvo: "dono/repo" }, "global", home)).rejects.toThrow(/limite/);
+  });
+
   it("arquivo que tenta escrever fora da pasta da skill é recusado", async () => {
     const home = tempHome();
     // a API do GitHub não devolveria isto, mas quem responde aqui é a rede, e ela é de terceiro

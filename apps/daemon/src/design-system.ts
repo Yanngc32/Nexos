@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { codigoDoErro, log } from "./log.ts";
 import { projectDir, projectDirSemCriar, projetosRoot } from "./projeto-dir.ts";
 import {
   ALINHAMENTOS,
@@ -114,8 +115,9 @@ function ponteiroPath(projectPath: string, home: string, criar: boolean): string
 }
 
 function lerPonteiro(projectPath: string, home: string): Ponteiro {
+  const arquivo = ponteiroPath(projectPath, home, false);
   try {
-    const bruto = JSON.parse(readFileSync(ponteiroPath(projectPath, home, false), "utf8")) as Partial<Ponteiro>;
+    const bruto = JSON.parse(readFileSync(arquivo, "utf8")) as Partial<Ponteiro>;
     // id é nome de pasta: o que não passa no formato (arquivo editado à mão) some da lista, e o
     // que não tem pasta no disco também (apagada à mão, ou ponteiro de um layout antigo)
     const raiz = join(raizDoProjetoNexos(projectPath, home, false), "design-system");
@@ -132,7 +134,17 @@ function lerPonteiro(projectPath: string, home: string): Ponteiro {
     const ativo = sistemas.some((s) => s.id === bruto.ativo) ? (bruto.ativo as string) : (sistemas[0]?.id ?? null);
     const oficial = sistemas.some((s) => s.id === bruto.oficial && !s.mocksDe) ? (bruto.oficial as string) : null;
     return { sistemas, ativo, oficial };
-  } catch {
+  } catch (e) {
+    /*
+     * Sem arquivo = projeto sem DS ainda, calado. Permissão, disco ou JSON corrompido também davam
+     * lista vazia: todos os DS sumiam do painel com as pastas intactas em disco, sem pista.
+     */
+    if (codigoDoErro(e) !== "ENOENT") {
+      log.avisoUmaVez(`ds-ponteiro:${arquivo}:${(e as Error).message}`, "ds", `não consegui ler ${arquivo} — os design systems do projeto não aparecem`, {
+        erro: (e as Error).message,
+        codigo: codigoDoErro(e),
+      });
+    }
     return { sistemas: [], ativo: null, oficial: null };
   }
 }
@@ -157,7 +169,29 @@ function comOficialFixo(p: Ponteiro): Ponteiro {
 }
 
 function salvarPonteiro(projectPath: string, home: string, p: Ponteiro): void {
-  escreverAtomico(ponteiroPath(projectPath, home, true), JSON.stringify(p, null, 2));
+  const arquivo = ponteiroPath(projectPath, home, true);
+  guardarPonteiroIlegivel(arquivo);
+  escreverAtomico(arquivo, JSON.stringify(p, null, 2));
+}
+
+/**
+ * Ponteiro que existe mas não é JSON: `lerPonteiro` devolveu lista vazia, e gravar por cima apagaria
+ * de vez a lista de DS. Guarda uma cópia ao lado antes (as pastas dos DS seguem no disco).
+ */
+function guardarPonteiroIlegivel(arquivo: string): void {
+  let texto: string;
+  try {
+    texto = readFileSync(arquivo, "utf8");
+  } catch {
+    return; // não existe (ou nem dá pra ler): nada a guardar
+  }
+  try {
+    JSON.parse(texto);
+  } catch {
+    const copia = `${arquivo}.ilegivel-${Date.now()}`;
+    writeFileSync(copia, texto, "utf8");
+    log.aviso("ds", `${arquivo} não era JSON válido — cópia guardada em ${copia} antes de gravar`, { copia });
+  }
 }
 
 /** Grava por arquivo temporário + rename: o observador nunca vê um arquivo pela metade. */
@@ -547,7 +581,14 @@ export function lerSistema(projectPath: string, home: string, sistema: DsSistema
   let arquivos: string[] = [];
   try {
     arquivos = readdirSync(join(pastaAbs, "cards")).filter((f) => f.endsWith(".html") && ID_RE.test(f.slice(0, -5)));
-  } catch {
+  } catch (e) {
+    // pasta nova sem cards/ é o comum; outra falha tirava todos os cards da tela sem aviso
+    if (codigoDoErro(e) !== "ENOENT") {
+      log.avisoUmaVez(`ds-cards:${pastaAbs}:${(e as Error).message}`, "ds", `não consegui listar os cards de ${join(pastaAbs, "cards")}`, {
+        erro: (e as Error).message,
+        codigo: codigoDoErro(e),
+      });
+    }
     arquivos = [];
   }
   const ids = new Set(arquivos.map((f) => f.slice(0, -5)));

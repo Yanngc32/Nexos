@@ -38,6 +38,7 @@ import {
 import { loadConfig, saveConfig } from "./config.ts";
 import { githubToken } from "./github-auth.ts";
 import { assertSlug } from "./ids.ts";
+import { log } from "./log.ts";
 import { ensureHome, profileDir } from "./home.ts";
 
 export type AddProfileInput = {
@@ -61,10 +62,23 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function which(bin: string): boolean {
+/**
+ * `achou` | `nao-achou` | `falhou` (a busca em si: where/which ausente, erro de spawn, código
+ * estranho). Antes só olhava `status === 0` e "where.exe não rodou" virava "claude não tá no PATH",
+ * com o Claude Code instalado — e a tela oferecia instalar de novo.
+ */
+function which(bin: string): "achou" | "nao-achou" | "falhou" {
   const cmd = process.platform === "win32" ? "where" : "which";
   const r = spawnSync(cmd, [bin], { encoding: "utf8" });
-  return r.status === 0;
+  if (r.status === 0) return "achou";
+  // where/which saem 1 quando só não acharam
+  if (!r.error && r.status === 1) return "nao-achou";
+  log.aviso("motor", `"${cmd} ${bin}" falhou procurando o motor`, {
+    erro: r.error?.message ?? "",
+    status: r.status,
+    stderr: (r.stderr ?? "").trim().slice(0, 300),
+  });
+  return "falhou";
 }
 
 function profileJsonPath(id: string, home: string): string {
@@ -79,8 +93,11 @@ export function addProfile(input: AddProfileInput, home: string, opts: AddProfil
     throw new Error(`perfil já existe: ${id}`);
   }
   if (!opts.skipBinCheck && (input.engine === "claude" || input.engine === "codex")) {
-    if (!which(input.engine)) {
-      throw new Error(`${input.engine} não tá no PATH`);
+    const busca = which(input.engine);
+    // texto exato do "nao-achou" é o que a tela reconhece pra oferecer instalar (BIN_NAO_ACHADO_RE)
+    if (busca === "nao-achou") throw new Error(`${input.engine} não tá no PATH`);
+    if (busca === "falhou") {
+      throw new Error(`não consegui procurar o ${input.engine} no PATH (o comando de busca falhou — detalhes no daemon.log)`);
     }
   }
 

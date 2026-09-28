@@ -1,3 +1,4 @@
+import { log } from "./log.ts";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative, sep } from "node:path";
 import { dsDoProjeto, estadoDs, salvarTokens, type DsCompleto, type DsVar } from "./design-system.ts";
@@ -51,7 +52,12 @@ export function blocoDoDsParaPack(projectPath: string, home: string): string | n
     const est = estadoDs(projectPath, home);
     const painel = est.sistemas.find((s) => ds && s.mocksDe === ds.id);
     if (painel) mocks = `Painel de mocks deste DS: "${painel.nome}" (sistema ${painel.id}) — telas novas entram lá via \`nexo_mock_salvar\`.`;
-  } catch {
+  } catch (e) {
+    // o bloco de regras/tokens some do prompt e o agente para de seguir o DS: não pode ser calado.
+    // Roda a cada turno — uma linha por projeto e motivo.
+    log.avisoUmaVez(`ds-pack:${projectPath}:${(e as Error).message}`, "ds", `DS do projeto fora do prompt: não consegui ler o design system de ${projectPath}`, {
+      erro: (e as Error).message,
+    });
     return null;
   }
   if (!ds) return null;

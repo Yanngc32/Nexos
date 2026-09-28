@@ -328,7 +328,9 @@ export function startService(projectPath: string, id: string, home: string, opts
     const pids = portas.get(porta) ?? [];
     if (pids.length && opts.matar) {
       const r = killByPort(porta);
-      aviso = `[nexo] porta ${porta} liberada: matei ${r.pids.join(", ") || "nada"}\n`;
+      aviso = r.erro
+        ? `[nexo] porta ${porta}: não consegui matar tudo (${r.erro})\n`
+        : `[nexo] porta ${porta} liberada: matei ${r.pids.join(", ") || "nada"}\n`;
     } else if (pids.length) {
       const livre = proximaLivre(porta, portas);
       conflitos.set(k, {

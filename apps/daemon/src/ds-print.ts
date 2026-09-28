@@ -1,3 +1,4 @@
+import { log } from "./log.ts";
 import { sessionBus } from "./bus.ts";
 import { ativarDs, criarDs, estadoDs, painelDeMocks, salvarCardDaFerramenta, type DsCompleto } from "./design-system.ts";
 import { canalGeracao, geracaoBus } from "./ds-gerar.ts";
@@ -85,7 +86,11 @@ export function ferramentaDePrintDoDs(threadId: string, projectPath: string, hom
     let ds;
     try {
       ds = estadoDs(projectPath, home).ds;
-    } catch {
+    } catch (e) {
+      // as ferramentas nexo_ds_* somem do menu do agente: fica no log (uma vez por projeto e motivo)
+      log.avisoUmaVez(`ds-ferramentas:${projectPath}:${(e as Error).message}`, "ds", `ferramentas do design system fora da conversa: não consegui ler o DS de ${projectPath}`, {
+        erro: (e as Error).message,
+      });
       return [];
     }
     const gestao = [

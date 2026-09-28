@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "./config.ts";
+import { log } from "./log.ts";
 import { projectKey } from "./home.ts";
 import { projectDir, projectDirSemCriar } from "./projeto-dir.ts";
 
@@ -78,15 +79,29 @@ export function listarArquivos(projectPath: string): string[] {
       encoding: "utf8",
       timeout: 30_000,
       shell: process.platform === "win32",
-      // projeto sem git é caso previsto (lista vazia): o "fatal: not a git repository" não vai pro log
-      stdio: ["ignore", "pipe", "ignore"],
+      // stderr capturado (não herdado): o "fatal: not a git repository" de projeto sem git não suja o log
+      stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
     return saida
       .split(/\r?\n/)
       .map((l) => l.trim())
       .filter(Boolean);
-  } catch {
+  } catch (e) {
+    /*
+     * Projeto sem `.git` é o caso previsto e fica calado. Qualquer outra falha (git fora do PATH,
+     * timeout, repo corrompido) também dava lista vazia e o repo map sumia do turno sem pista:
+     * essa vai pro log, uma vez por projeto por subida (roda a cada índice).
+     */
+    const err = e as Error & { stderr?: string | Buffer; code?: string };
+    const stderr = String(err.stderr ?? "").trim();
+    if (!/not a git repository/i.test(stderr)) {
+      log.avisoUmaVez(`repomap-ls-files:${projectPath}`, "repomap", `"git ls-files" falhou — repo map vazio pra ${projectPath}`, {
+        erro: err.message.split(/\r?\n/)[0],
+        codigo: err.code ?? "",
+        stderr: stderr.slice(0, 300),
+      });
+    }
     return [];
   }
 }

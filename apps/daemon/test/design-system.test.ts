@@ -129,6 +129,18 @@ describe("criar / ler / salvar", () => {
     expect(estadoDs(p, home)).toEqual({ sistemas: [], ativo: null, oficial: null, ds: null });
   });
 
+  it("ponteiro corrompido: gravar por cima guarda uma cópia antes (a lista de DS não se perde de vez)", () => {
+    const home = tempHome();
+    const p = projeto();
+    const dir = projectDir(p, home);
+    writeFileSync(join(dir, "design-system.json"), "{ sistemas: [ quebrado");
+    expect(estadoDs(p, home).sistemas).toEqual([]);
+    criarDs(p, home, { nome: "Novo" });
+    const copias = readdirSync(dir).filter((f) => f.startsWith("design-system.json.ilegivel-"));
+    expect(copias).toHaveLength(1);
+    expect(readFileSync(join(dir, copias[0]!), "utf8")).toBe("{ sistemas: [ quebrado");
+  });
+
   it("card em disco que o meta.json não conhece aparece em 'outros'", () => {
     const home = tempHome();
     const p = projeto();

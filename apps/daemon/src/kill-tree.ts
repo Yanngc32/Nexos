@@ -28,18 +28,40 @@ function descendentesWin(pid: number): number[] {
     windowsHide: true,
     encoding: "utf8",
   });
-  if (r.status !== 0 || !r.stdout) return [];
+  if (r.error || r.status !== 0) {
+    // sem a lista, só o PID raiz morre: descendente que escuta a porta pode sobrar
+    log.aviso("processo", `não consegui listar os filhos do PID ${pid} — só ele vai ser encerrado`, {
+      erro: r.error?.message ?? "",
+      status: r.status,
+      stderr: (r.stderr ?? "").trim().slice(0, 300),
+    });
+    return [];
+  }
+  if (!r.stdout) return [];
   return r.stdout
     .split(/\r?\n/)
     .map((l) => Number(l.trim()))
     .filter((n) => Number.isInteger(n) && n > 0);
 }
 
+/**
+ * `taskkill /f` num PID; devolve o motivo da falha ou `""`. Status 128 = processo já não existe
+ * (filho que morreu junto com o pai): é o fim desejado, não falha. O resto (taskkill ausente,
+ * acesso negado) deixava o processo vivo segurando a porta sem ninguém saber — vai pro log.
+ */
+function taskkill(pid: number): string {
+  const r = spawnSync("taskkill", ["/pid", String(pid), "/f"], { windowsHide: true, encoding: "utf8" });
+  if (!r.error && (r.status === 0 || r.status === 128)) return "";
+  const motivo = r.error?.message ?? ((r.stderr ?? "").trim() || `taskkill saiu com status ${r.status}`);
+  log.aviso("processo", `não consegui encerrar o PID ${pid}`, { pid, status: r.status, motivo: motivo.slice(0, 300) });
+  return motivo;
+}
+
 export function killTree(pid: number): void {
   if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return;
   if (process.platform === "win32") {
     const todos = [pid, ...descendentesWin(pid)];
-    for (const p of todos) spawnSync("taskkill", ["/pid", String(p), "/f"], { windowsHide: true, stdio: "ignore" });
+    for (const p of todos) taskkill(p);
     return;
   }
   try {
@@ -101,7 +123,10 @@ export function killByPort(port: number): KillByPortResult {
   if (!suportado) return { tentou: false, pids: [] };
   if (erro) return { tentou: true, pids: [], erro };
   const pids = portas.get(port) ?? [];
-  for (const pid of pids) spawnSync("taskkill", ["/pid", String(pid), "/f"], { windowsHide: true, stdio: "ignore" });
+  const falhas = pids.map((pid) => ({ pid, motivo: taskkill(pid) })).filter((f) => f.motivo);
+  if (falhas.length) {
+    return { tentou: true, pids: [...pids], erro: falhas.map((f) => `PID ${f.pid}: ${f.motivo}`).join("; ") };
+  }
   return { tentou: true, pids: [...pids] };
 }
 

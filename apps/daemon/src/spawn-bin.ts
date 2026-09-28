@@ -1,6 +1,7 @@
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { log } from "./log.ts";
 
 export function isNodeScript(bin: string): boolean {
   const base = bin.split(/[\\/]/).pop() ?? bin;
@@ -49,10 +50,24 @@ export function resolveShimEntry(cmdPath: string): string | undefined {
 
 /** `where <bin>` lista todo hit do PATH; o shim executável é o `.cmd`/`.bat`, não o script POSIX homônimo. */
 function findCmdShim(bin: string): string | undefined {
+  /*
+   * Falhar aqui cai no `shell: true` do `spawnBin` — o caminho do bug do `&` no argv (ver
+   * `resolveShimEntry`). `where` sai 1 quando só não achou; o resto (where.exe ausente, erro de
+   * spawn, outro código) é falha da busca e fica no log, senão o motor quebra sem pista.
+   */
   let r: import("node:child_process").SpawnSyncReturns<string>;
   try {
     r = spawnSync("where", [bin], { encoding: "utf8" });
-  } catch {
+  } catch (e) {
+    log.aviso("processo", `não consegui rodar "where ${bin}" — ${bin} vai pelo shell`, { erro: (e as Error).message });
+    return undefined;
+  }
+  if (r.error || (r.status !== 0 && r.status !== 1)) {
+    log.aviso("processo", `"where ${bin}" falhou — ${bin} vai pelo shell`, {
+      erro: r.error?.message ?? "",
+      status: r.status,
+      stderr: (r.stderr ?? "").trim().slice(0, 300),
+    });
     return undefined;
   }
   if (r.status !== 0 || !r.stdout) return undefined;
@@ -72,6 +87,8 @@ function windowsDirectEntry(bin: string): string | undefined {
   if (cached !== undefined) return cached ?? undefined;
   const shim = findCmdShim(bin);
   const entry = (shim && resolveShimEntry(shim)) || null;
+  // shim achado mas sem o .js dentro: formato de shim novo ou leitura falhou — cai no shell
+  if (shim && !entry) log.aviso("processo", `não achei o .js dentro de ${shim} — ${bin} vai pelo shell`, { shim });
   entryCache.set(bin, entry);
   return entry ?? undefined;
 }

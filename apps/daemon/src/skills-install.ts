@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { globalSkillsDir } from "./home.ts";
+import { log } from "./log.ts";
 import { parseFrontmatter } from "./skills.ts";
 
 /**
@@ -237,12 +238,23 @@ async function acharSkillsNoGitHub(alvo: AlvoGitHub): Promise<SkillBaixada[]> {
     : entradas.filter((e) => e.type === "dir" && !e.name.startsWith("."));
 
   const achadas: SkillBaixada[] = [];
+  /*
+   * Subpasta que some (404) só não é skill. O resto — limite do GitHub, rede, 5xx — é falha da
+   * API: antes caía no mesmo `continue` e a pessoa lia "não achei nenhum SKILL.md" quando o
+   * problema era o GitHub. Limite estoura pra todas as pastas seguintes, então sai na hora.
+   */
+  let falhaDaApi: unknown = null;
   for (const dir of candidatas) {
     if (achadas.length >= MAX_SKILLS_POR_INSTALACAO) break;
     let filhos: EntradaGitHub[];
     try {
       filhos = await listarPasta(alvo, dir.path);
-    } catch {
+    } catch (e) {
+      const status = e instanceof ErroDeSkill ? e.status : 0;
+      if (status === 404) continue;
+      log.aviso("skill", `GitHub falhou listando ${alvo.owner}/${alvo.repo}/${dir.path}`, { erro: (e as Error).message, status });
+      if (status === 429) throw e;
+      falhaDaApi = e;
       continue;
     }
     if (!filhos.some((f) => f.type === "file" && f.name.toLowerCase() === "skill.md")) continue;
@@ -250,6 +262,7 @@ async function acharSkillsNoGitHub(alvo: AlvoGitHub): Promise<SkillBaixada[]> {
   }
 
   if (!achadas.length) {
+    if (falhaDaApi) throw falhaDaApi;
     throw new ErroDeSkill("não achei nenhum SKILL.md aí — aponte a pasta da skill ou um repositório de skills");
   }
   return achadas;

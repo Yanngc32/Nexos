@@ -10,6 +10,8 @@ const HOST_TUNEL = vi.hoisted(() => "127.0.0.9");
 vi.mock("../src/tls-tailscale.ts", () => ({
   hostnameTailscale: hostnameTailscaleMock,
   pedirCertTailscale: pedirCertTailscaleMock,
+  motivoHttps: () => {},
+  httpsSubiu: () => {},
 }));
 
 /*

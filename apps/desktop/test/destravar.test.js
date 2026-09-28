@@ -101,6 +101,14 @@ describe("confirmarPid", () => {
   }, 20_000);
 });
 
+describe("confirmarPid com a consulta do processo quebrada", () => {
+  it("não conclui 'processo não existe': mostra o motivo da consulta", () => {
+    const r = d.confirmarPid(1, Date.now(), { erro: "powershell: acesso negado" });
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toBe("não consegui conferir o processo (powershell: acesso negado)");
+  });
+});
+
 describe("saudeDoMotor: os três estados", () => {
   it("ok, fechado e sem_resposta", async () => {
     const http = createHttp((_q, r) => r.end("{}"));

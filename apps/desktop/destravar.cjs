@@ -53,12 +53,24 @@ function vivo(pid) {
   }
 }
 
-/** Linha de comando e hora de criação (epoch ms) do processo; `null` se não existe. Só Windows. */
+/** Motivo curto de um `spawnSync` que falhou (erro de spawn, stderr ou código de saída). */
+function motivoDoSpawn(r, comando) {
+  if (r.error) return `${comando} não rodou: ${r.error.message}`;
+  const stderr = String(r.stderr || "").trim().split(/\r?\n/)[0];
+  return stderr ? `${comando}: ${stderr.slice(0, 200)}` : `${comando} saiu com status ${r.status}`;
+}
+
+/**
+ * Linha de comando e hora de criação (epoch ms) do processo; `null` se não existe; `{ erro }` se
+ * não deu pra consultar (PowerShell falhou, Get-CimInstance sem permissão). Antes a falha virava
+ * `null` e o log dizia "processo não existe" — conclusão errada sobre a causa.
+ */
 function infoProcesso(pid) {
   if (process.platform !== "win32") {
     if (!vivo(pid)) return null;
     const r = spawnSync("ps", ["-o", "args=", "-p", String(pid)], { encoding: "utf8" });
-    return r.status === 0 && r.stdout.trim() ? { comando: r.stdout.trim(), criado: undefined } : null;
+    if (r.status === 0 && r.stdout.trim()) return { comando: r.stdout.trim(), criado: undefined };
+    return { erro: motivoDoSpawn(r, "ps") };
   }
   const script = [
     `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${Number(pid)}'`,
@@ -68,12 +80,14 @@ function infoProcesso(pid) {
     windowsHide: true,
     encoding: "utf8",
   });
-  if (r.status !== 0 || !r.stdout.trim()) return null;
+  if (r.error || r.status !== 0) return { erro: motivoDoSpawn(r, "powershell") };
+  // consulta rodou e não achou nada: aí sim o processo não existe
+  if (!r.stdout.trim()) return null;
   try {
     const j = JSON.parse(r.stdout);
     return { comando: String(j.c ?? ""), criado: Number(j.t) || undefined };
-  } catch {
-    return null;
+  } catch (e) {
+    return { erro: `resposta do powershell não é JSON: ${e.message}` };
   }
 }
 
@@ -93,6 +107,7 @@ const ENTRADAS = [/[\\/]dist[\\/]nexos\.mjs\b/i, /[\\/]scripts[\\/]nexo\.mjs\b/i
  */
 function confirmarPid(pid, gravado, info) {
   if (!info) return { ok: false, motivo: "processo não existe" };
+  if (info.erro) return { ok: false, motivo: `não consegui conferir o processo (${info.erro})` };
   const cmd = info.comando || "";
   if (!ENTRADAS.some((re) => re.test(cmd))) return { ok: false, motivo: "não é o motor do Nexos" };
   if (!/\sup(\s|"|$)/.test(cmd)) return { ok: false, motivo: "linha de comando sem `up`" };

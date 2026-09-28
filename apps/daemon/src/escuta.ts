@@ -3,7 +3,7 @@ import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { DEFAULT_CONFIG } from "@nexos/shared";
 import { classificar, enderecosDaMaquina, escolherHostDoCelular, ondeEscutar } from "./enderecos.ts";
-import { hostnameTailscale, pedirCertTailscale } from "./tls-tailscale.ts";
+import { hostnameTailscale, httpsSubiu, motivoHttps, pedirCertTailscale } from "./tls-tailscale.ts";
 
 /**
  * Em quais endereços o daemon está escutando — e mantê-los em dia sem reiniciar.
@@ -211,7 +211,10 @@ export async function tentarHttps(fetchHandler: Fetch, port: number, home: strin
     // atender quem se conectar nele — certificado sem ninguém escutando atrás
     // não ajuda ninguém
     const tunel = ligados.find((l) => classificar(l.host) === "tunel");
-    if (!tunel) return fecharHttps();
+    if (!tunel) {
+      motivoHttps("nenhum endereço do Tailscale escutando neste motor (100.x)", { hostname }, "debug");
+      return fecharHttps();
+    }
 
     // já está de pé com o hostname certo: nada a fazer (evita religar o
     // socket, e derrubar conexão em voo, sem necessidade)
@@ -228,7 +231,10 @@ export async function tentarHttps(fetchHandler: Fetch, port: number, home: strin
     httpsPort = aberto.port;
     ligadoHttps = { host: tunel.host, server: aberto.server };
     httpsInfo = { host: tunel.host, hostname, port: httpsPort };
-  } catch {
+    httpsSubiu(hostname, httpsPort);
+  } catch (e) {
+    // bind da porta (443 ocupada, sem permissão) ou cert inválido pro servidor
+    motivoHttps("não consegui abrir o servidor HTTPS", { erro: (e as Error).message, codigo: (e as NodeJS.ErrnoException).code ?? "" });
     fecharHttps();
   } finally {
     tentandoHttps = false;

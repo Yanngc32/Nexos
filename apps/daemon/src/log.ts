@@ -30,7 +30,14 @@ export type Origem =
   | "servico"
   | "hook"
   | "app"
-  | "congelamento";
+  | "congelamento"
+  | "skill"
+  | "ds"
+  | "https"
+  | "repomap"
+  | "processo"
+  | "login"
+  | "projeto";
 
 const PESO: Record<LogNivel, number> = { debug: 0, info: 1, aviso: 2, erro: 3 };
 const ROTULO: Record<LogNivel, string> = { debug: "DEBUG", info: "INFO ", aviso: "AVISO", erro: "ERRO " };
@@ -214,12 +221,34 @@ function escrever(nivel: LogNivel, origem: Origem, msg: string, dados?: unknown)
   }
 }
 
+/** Chaves que já avisaram nesta subida (ver `log.avisoUmaVez`). */
+const avisados = new Set<string>();
+
 export const log = {
   debug: (origem: Origem, msg: string, dados?: unknown) => escrever("debug", origem, msg, dados),
   info: (origem: Origem, msg: string, dados?: unknown) => escrever("info", origem, msg, dados),
   aviso: (origem: Origem, msg: string, dados?: unknown) => escrever("aviso", origem, msg, dados),
   erro: (origem: Origem, msg: string, dados?: unknown) => escrever("erro", origem, msg, dados),
+  /**
+   * Aviso de falha que se repete a cada turno/repintura (skill que não lê, DS que não abre): uma
+   * linha por `chave` por subida, senão o log vira ruído e o motivo real se perde no meio.
+   */
+  avisoUmaVez: (chave: string, origem: Origem, msg: string, dados?: unknown) => {
+    if (avisados.has(chave)) return;
+    avisados.add(chave);
+    escrever("aviso", origem, msg, dados);
+  },
 };
+
+/** Só pra teste: esquece os `avisoUmaVez` já dados. */
+export function resetAvisosForTest(): void {
+  avisados.clear();
+}
+
+/** Código de erro do Node (`ENOENT`, `EACCES`…) ou `""`. */
+export function codigoDoErro(e: unknown): string {
+  return (e as NodeJS.ErrnoException | null)?.code ?? "";
+}
 
 let errosLigados = false;
 

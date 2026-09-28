@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { loadConfig, saveConfig } from "./config.ts";
 import { globalSkillsDir, profileDir, projectKey } from "./home.ts";
 import { assertSlug } from "./ids.ts";
+import { codigoDoErro, log } from "./log.ts";
 import { getProfile } from "./profiles.ts";
 
 export type SkillDef = {
@@ -58,7 +59,11 @@ function scanSkillsDir(dir: string, scope: SkillDef["scope"], seen: Set<string>,
   let entradas: string[];
   try {
     entradas = readdirSync(dir);
-  } catch {
+  } catch (e) {
+    // roda a cada abertura do menu "/": uma linha por pasta e motivo
+    log.avisoUmaVez(`skills-dir:${dir}:${codigoDoErro(e)}`, "skill", `não consegui listar as skills de ${dir} — elas somem do menu "/"`, {
+      erro: (e as Error).message,
+    });
     return;
   }
   for (const entrada of entradas) {
@@ -67,7 +72,10 @@ function scanSkillsDir(dir: string, scope: SkillDef["scope"], seen: Set<string>,
     let raw: string;
     try {
       raw = readFileSync(md, "utf8");
-    } catch {
+    } catch (e) {
+      log.avisoUmaVez(`skills-md:${md}:${codigoDoErro(e)}`, "skill", `não consegui ler ${md} — a skill some do menu "/"`, {
+        erro: (e as Error).message,
+      });
       continue;
     }
     const fm = parseFrontmatter(raw);
@@ -92,7 +100,10 @@ export function syncGlobalSkills(destSkillsDir: string, globalDir: string): void
   let entradas: string[];
   try {
     entradas = readdirSync(globalDir);
-  } catch {
+  } catch (e) {
+    log.avisoUmaVez(`skills-global:${globalDir}:${codigoDoErro(e)}`, "skill", `não consegui listar as skills globais em ${globalDir} — o motor não vê nenhuma`, {
+      erro: (e as Error).message,
+    });
     return;
   }
   for (const entrada of entradas) {
@@ -101,8 +112,13 @@ export function syncGlobalSkills(destSkillsDir: string, globalDir: string): void
     try {
       mkdirSync(destSkillsDir, { recursive: true });
       cpSync(src, join(destSkillsDir, entrada), { recursive: true, force: true });
-    } catch {
-      // pasta do perfil pode estar ocupada com o motor de pé; não vale travar o turno por isso.
+    } catch (e) {
+      // pasta do perfil pode estar ocupada com o motor de pé; não vale travar o turno por isso. Mas
+      // roda todo turno: se nunca copia, a skill global nunca chega no motor — uma linha por motivo.
+      log.avisoUmaVez(`skills-sync:${destSkillsDir}:${entrada}:${codigoDoErro(e)}`, "skill", `não consegui copiar a skill global "${entrada}" pro perfil — o motor pode não enxergá-la`, {
+        destino: destSkillsDir,
+        erro: (e as Error).message,
+      });
     }
   }
 }
@@ -192,7 +208,9 @@ export function expandirSkill(
   let corpo: string;
   try {
     corpo = corpoDaSkill(readFileSync(join(skill.dir, "SKILL.md"), "utf8"));
-  } catch {
+  } catch (e) {
+    // a skill estava no menu e não carregou: o turno segue com o texto cru, mas não calado
+    log.aviso("skill", `não consegui ler ${join(skill.dir, "SKILL.md")} — /${skill.name} vai sem expandir`, { erro: (e as Error).message });
     return texto;
   }
   if (!corpo) return texto;

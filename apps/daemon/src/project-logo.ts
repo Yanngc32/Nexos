@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { projectKey } from "./home.ts";
+import { codigoDoErro, log } from "./log.ts";
 import { projectDir, projectDirSemCriar, raizIndisponivel, RaizIndisponivelError } from "./projeto-dir.ts";
 
 /**
@@ -59,7 +60,15 @@ export function acharLogo(projectPath: string): LogoDoProjeto | null {
     let entradas;
     try {
       entradas = readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (e) {
+      // subpasta ilegível só sai da busca; a raiz ilegível deixa o projeto com o ícone de pasta
+      // sem pista — essa vai pro log (uma vez por projeto e motivo: a barra pede a cada repintura)
+      if (nivel === 0) {
+        log.avisoUmaVez(`logo-raiz:${dir}:${codigoDoErro(e)}`, "projeto", `não consegui ler ${dir} pra achar o ícone do projeto`, {
+          erro: (e as Error).message,
+          codigo: codigoDoErro(e),
+        });
+      }
       return;
     }
     for (const e of entradas) {

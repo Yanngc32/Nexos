@@ -2,7 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import type { Profile } from "@nexos/shared";
-import { cliAuthStatus } from "./auth-status.ts";
+import { cliAuthStatusDetalhado } from "./auth-status.ts";
 import { killTree } from "./kill-tree.ts";
 import { applyLoginResult, engineEnv, engineSpawnEnv, getProfile } from "./profiles.ts";
 import { spawnBin } from "./spawn-bin.ts";
@@ -228,12 +228,15 @@ export async function submitCode(
 
   if (profile.status === "ready") return { ok: true, profile };
 
-  const status = cliAuthStatus(profile, home);
+  const { status, falha } = cliAuthStatusDetalhado(profile, home);
+  // sem resposta do `auth status` não dá pra dizer que o código foi recusado: mostra o motivo real
   const message =
     exit === null
       ? "o CLI não respondeu no tempo — tenta de novo"
       : status?.loggedIn
         ? "o CLI logou mas a credencial não apareceu na pasta do perfil"
-        : "o código não foi aceito";
+        : falha
+          ? `não consegui conferir o login com o CLI (${falha})`
+          : "o código não foi aceito";
   return { ok: false, profile, message };
 }
