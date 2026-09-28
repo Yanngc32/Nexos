@@ -6,9 +6,17 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- `pnpm medir [--dias 7]`: mostra onde a quota foi gasta, por origem (chat, passo de time, supervisor, hook, DS, planejamento, ping de uso, resumo da compactação) e por modelo, lendo só o disco, sem chamar modelo. Os pings e os resumos não têm thread; o script os acha nas transcrições do próprio CLI `claude` de cada conta. Também conta as compactações de conta `codex` e quanto o teto da memória corta. Rodar antes e depois de atualizar mostra o ganho real.
+
 ### Corrigido
 
+- Conta `codex` não gasta mais um turno extra de resumo a cada mensagem em conversa longa. A compactação só pulava o `claude` com sessão retomada, mas o `codex` também retoma (`exec resume`) e nesse caso o resumo nunca chegava ao modelo. Sem janela reportada, o teto caía em 8k tokens e o resumo disparava quase todo turno depois da 20ª mensagem.
+- Motor não falha mais ao subir com histórico grande (acima de ~32k tokens) no Linux: o pack inteiro ia numa variável de ambiente que ninguém lia e estourava o limite do sistema (`E2BIG`).
+
 ### Alterado
+
+- O ping de uso do painel "Uso de todas as contas" gasta bem menos da assinatura: roda no haiku com esforço baixo, e não no modelo da conta (o limite de 5h/7d é da conta, então o dado é o mesmo). Também pula a conta cujo uso chegou há menos de 25 min e para enquanto ninguém manda mensagem há mais de 2 h. Clicar no anel continua atualizando na hora.
+- A memória do projeto (`MEMORIA.md`) entra nas conversas com teto de 8.000 caracteres, cortada num fim de parágrafo. Antes o arquivo entrava inteiro em toda sessão nova, em cada passo de time e em cada hook, e só crescia. O agente de memória criado a partir de agora é instruído a consolidar abaixo desse tamanho.
 
 ## [0.10.1] - 2026-09-27
 

@@ -385,7 +385,9 @@ numa linha \`<!-- commit: <hash> -->\` no fim do MEMORIA.md atual, se existir).
 Escreva ou atualize o MEMORIA.md só com fatos NOVOS ou DIFERENTES do que já
 está lá: arquitetura, convenção do projeto, decisão não-óbvia, causa-raiz de
 bug corrigido. Não resuma o diff linha a linha — isso é o que \`git log\` já
-mostra. Termine o arquivo com uma linha \`<!-- commit: <hash> -->\` marcando até
+mostra. Mantenha o arquivo abaixo de ~7000 caracteres: consolide e apague o que ficou
+obsoleto em vez de só acrescentar — o que passar disso não chega nas conversas.
+Termine o arquivo com uma linha \`<!-- commit: <hash> -->\` marcando até
 onde você leu.`;
 
 /** Chave de coalescência: por projeto+evento, não por regra — várias regras do mesmo par disparam juntas. */

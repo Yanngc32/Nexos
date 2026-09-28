@@ -1,10 +1,10 @@
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { resetTypesafeCircuitoForTest, saveTypesafeApiKey } from "../src/typesafe.ts";
 import { addProfile, engineEnv, getProfile, markReady, rememberContextWindow, updateProfile } from "../src/profiles.ts";
-import { activeAgentId, createThread, readThread, threadUsage } from "../src/threads.ts";
+import { activeAgentId, appendEvent, createThread, readThread, threadUsage } from "../src/threads.ts";
 import { lerSessaoClaude } from "../src/claude-session.ts";
 import {
   abortThread,
@@ -22,7 +22,7 @@ import {
   sessionBus,
   switchThread,
 } from "../src/session.ts";
-import { janelaDaConta, modeloDoMotor } from "../src/session.ts";
+import { janelaDaConta, MEMORIA_NO_PACK_MAX, memoriaDoPack, modeloDoMotor } from "../src/session.ts";
 import { StubEngine } from "../src/engines/stub.ts";
 import type { Profile, ThreadEvent } from "@nexos/shared";
 
@@ -617,6 +617,30 @@ describe("session", () => {
     expect(engine.lastStart?.contextPack).toContain("# Memória do projeto\nusa RTK pra CLI");
   });
 
+  it("MEMORIA.md grande entra cortado no pack, num fim de parágrafo e com aviso", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const paragrafo = "fato ".repeat(100).trim();
+    const grande = Array.from({ length: 40 }, (_, i) => `${i}: ${paragrafo}`).join("\n\n") + "\n\nFIM-DA-MEMORIA";
+    writeFileSync(memoriaPath("/proj-memoria-grande", home), grande, "utf8");
+    const t = createThread({ projectPath: "/proj-memoria-grande", profileId: "p1" }, home);
+    await postMessage(t.id, "oi", home);
+    const pack = (getLive(t.id)?.engine as StubEngine).lastStart?.contextPack ?? "";
+    expect(pack).toContain("# Memória do projeto\n0: fato");
+    expect(pack).not.toContain("FIM-DA-MEMORIA");
+    expect(pack).toContain(`de ${grande.length} caracteres]`);
+  });
+
+  it("memoriaDoPack: pequena passa inteira; grande fica abaixo do teto sem cortar parágrafo", () => {
+    expect(memoriaDoPack("curta")).toBe("curta");
+    const bloco = "x".repeat(900);
+    const grande = Array.from({ length: 20 }, () => bloco).join("\n\n");
+    const cortada = memoriaDoPack(grande);
+    const corpo = cortada.slice(0, cortada.lastIndexOf("\n\n["));
+    expect(corpo.length).toBeLessThanOrEqual(MEMORIA_NO_PACK_MAX);
+    expect(corpo.split("\n\n").every((b) => b === bloco)).toBe(true);
+  });
+
   it("agente E memória juntos: instrução do agente vem primeiro, memória depois", async () => {
     const home = tempHome();
     addProfile({ id: "p1", engine: "stub" }, home);
@@ -866,6 +890,36 @@ describe("pingUsoDeTodasAsContas", () => {
     }
   }, 10_000);
 
+  it("ping roda no haiku (limits é da conta, não do modelo) e o periódico para com a pessoa ausente", async () => {
+    const home = tempHome();
+    addProfile({ id: "c-ping-barato", engine: "claude" }, home, { skipBinCheck: true });
+    updateProfile("c-ping-barato", home, { model: "opus", effort: "max" });
+    const dir = engineEnv(getProfile("c-ping-barato", home)!, home).CLAUDE_CONFIG_DIR!;
+    writeFileSync(join(dir, ".credentials.json"), liveCred(), "utf8");
+    const marca = join(home, "argv-do-ping");
+    const sentinela = join(home, "sentinela-claude.mjs");
+    writeFileSync(
+      sentinela,
+      `#!/usr/bin/env node\nimport { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marca)}, JSON.stringify(process.argv.slice(2)));\n`,
+      { encoding: "utf8", mode: 0o755 },
+    );
+    process.env.NEXOS_CLAUDE_BIN = sentinela;
+    const agora = Date.now();
+    const relogio = vi.spyOn(Date, "now").mockReturnValue(agora + 3 * 60 * 60_000);
+    try {
+      await pingUsoDeTodasAsContas(home, { periodico: true });
+      expect(existsSync(marca), "ninguém mandou mensagem há 3h: o periódico não pinga").toBe(false);
+      relogio.mockRestore();
+      await pingUsoDeTodasAsContas(home);
+      const argv = JSON.parse(readFileSync(marca, "utf8")) as string[];
+      expect(argv[argv.indexOf("--model") + 1]).toBe("haiku");
+      expect(argv[argv.indexOf("--effort") + 1]).toBe("low");
+    } finally {
+      relogio.mockRestore();
+      delete process.env.NEXOS_CLAUDE_BIN;
+    }
+  }, 10_000);
+
   it("conta claude com credencial válida é pingada num motor descartável (sem gravar thread)", async () => {
     const home = tempHome();
     addProfile({ id: "c-ping", engine: "claude" }, home, { skipBinCheck: true });
@@ -879,6 +933,41 @@ describe("pingUsoDeTodasAsContas", () => {
       expect(getProfile("c-ping", home)?.status).toBe("ready");
     } finally {
       delete process.env.NEXOS_CLAUDE_BIN;
+    }
+  }, 10_000);
+});
+
+describe("compactação com sessão retomada", () => {
+  it("codex com sessão NÃO gasta turno de resumo: o pack não vai no `exec resume`, o resumo nunca chegaria", async () => {
+    /*
+     * O codex não reporta janela, então o teto cai no piso (8k) e histórico longo passa sempre do
+     * limiar — antes disto, todo turno depois da 20ª mensagem subia um `codex exec` só pra resumir.
+     */
+    const home = tempHome();
+    addProfile({ id: "cx-compacta", engine: "codex" }, home, { skipBinCheck: true });
+    const codexHome = engineEnv(getProfile("cx-compacta", home)!, home).CODEX_HOME!;
+    writeFileSync(join(codexHome, "auth.json"), liveCred(), "utf8");
+    markReady("cx-compacta", home);
+    // pasta que existe de verdade: é o cwd do `codex exec`
+    const projeto = join(home, "proj-cx-compacta");
+    mkdirSync(projeto);
+    const t = createThread({ projectPath: projeto, profileId: "cx-compacta" }, home);
+    const longo = "histórico ".repeat(200);
+    for (let i = 0; i < 24; i++) {
+      appendEvent({ ts: ts0, type: i % 2 ? "assistant" : "user", threadId: t.id, text: `${i} ${longo}` } as ThreadEvent, home);
+    }
+    const vistos: string[] = [];
+    const onEv = (ev: { type: string }) => vistos.push(ev.type);
+    sessionBus.on(t.id, onEv);
+    process.env.NEXOS_CODEX_BIN = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-codex.mjs");
+    try {
+      await postMessage(t.id, "oi", home);
+      expect(getLive(t.id)?.session?.sessionId, "o fixture abre sessão (thread.started)").toBeTruthy();
+      await new Promise((r) => setTimeout(r, 300));
+      expect(vistos).not.toContain("compacting");
+    } finally {
+      sessionBus.off(t.id, onEv);
+      delete process.env.NEXOS_CODEX_BIN;
     }
   }, 10_000);
 });

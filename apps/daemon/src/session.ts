@@ -194,6 +194,19 @@ type Live = {
 
 /** Último limite visto por conta: serve pro painel mesmo sem thread ativa. */
 const limitsByProfile = new Map<string, EngineEvent & { type: "limits" }>();
+/** Quando o `limits` de cada conta chegou — o ping periódico pula quem já tem dado fresco. */
+const limitsVistoEm = new Map<string, number>();
+
+function registrarLimits(profileId: string, ev: EngineEvent & { type: "limits" }): void {
+  limitsByProfile.set(profileId, ev);
+  limitsVistoEm.set(profileId, Date.now());
+}
+
+/**
+ * Última mensagem que a PESSOA mandou (não run, hook ou DS — esses vêm com `automatico`).
+ * Começa "agora" porque o daemon acabou de subir: alguém abriu o app.
+ */
+let ultimaMensagemHumanaEm = Date.now();
 
 /**
  * Janela que cada conta REPORTOU, por conta.
@@ -419,6 +432,21 @@ function packDaConversa(
   return { contextPack: juntarPack(instrucoes, historico), partesDoPack: { instrucoes, historico } };
 }
 
+/**
+ * Teto da memória no pack. O agente de memória só acrescenta a cada commit, e o arquivo inteiro
+ * entrava em toda sessão nova — cada passo de time e cada hook pagavam tudo de novo, e cada
+ * reescrita ia junto do próximo turno de toda conversa retomada (regras-da-sessao.ts).
+ */
+export const MEMORIA_NO_PACK_MAX = 8000;
+
+export function memoriaDoPack(memoria: string): string {
+  if (memoria.length <= MEMORIA_NO_PACK_MAX) return memoria;
+  // corta num fim de parágrafo pra não deixar fato pela metade
+  const corte = memoria.lastIndexOf("\n\n", MEMORIA_NO_PACK_MAX);
+  const inicio = memoria.slice(0, corte > MEMORIA_NO_PACK_MAX / 2 ? corte : MEMORIA_NO_PACK_MAX).trimEnd();
+  return `${inicio}\n\n[o resto da memória não entrou aqui: ${inicio.length} de ${memoria.length} caracteres]`;
+}
+
 /** As regras fixas do pack (módulos, DS, agente, memória, repo map), sem o histórico. */
 function instrucoesDoPack(
   agentId: string | undefined,
@@ -428,7 +456,7 @@ function instrucoesDoPack(
 ): string {
   const def = agentId ? getAgent(agentId, home) : undefined;
   const instrucoes = def?.instructions?.trim();
-  const memoria = (projectPath ? readMemoria(projectPath, home) : readMemoriaGlobal(home)).trim();
+  const memoria = memoriaDoPack((projectPath ? readMemoria(projectPath, home) : readMemoriaGlobal(home)).trim());
   const modulos = loadConfig(home).modulos;
   const blocos: string[] = [];
   // Módulo, não agente: vale pra TODA conversa (agente ou conta pura), por isso entra antes —
@@ -822,13 +850,15 @@ async function talvezCompactar(threadId: string, home: string): Promise<void> {
   if (compactando.has(threadId) || desistiu.has(threadId)) return;
 
   /*
-   * Com `--resume`, o CLI `claude` tem sessão longa de verdade — o autocompact
-   * dele passa a valer. Um turno extra nosso de resumo só queima quota.
+   * Com sessão retomada (`--resume` no `claude`, `exec resume` no `codex`), o pack NÃO vai no
+   * turno (cli.ts `send`), então o resumo nunca chegaria no modelo — e o CLI já cuida do próprio
+   * contexto. Um turno extra nosso de resumo só queimaria quota. No `codex` isso disparava quase
+   * todo turno: sem janela reportada, o teto cai no piso de 8k e o contexto real passa sempre.
    */
   const live = lives.get(threadId);
   if (live?.session?.sessionId) {
     const perfil = getProfile(live.profileId, home);
-    if (perfil?.engine === "claude") return;
+    if (perfil?.engine === "claude" || perfil?.engine === "codex") return;
   }
 
   const events = readThread(threadId, home);
@@ -919,6 +949,12 @@ function turnoDeResumo(p: Profile, projectPath: string | undefined, home: string
 async function pingUso(p: Profile, home: string): Promise<void> {
   return new Promise((resolve) => {
     const engine = createEngine(p, home, home);
+    /*
+     * `limits` é da conta inteira (`five_hour`/`seven_day`, parse-claude.ts), não do modelo:
+     * o modelo mais barato devolve o mesmo dado. Sem isto o "oi" rodava no modelo/esforço da
+     * conta (opus/max, às vezes) e gastava a quota da assinatura que ele mesmo mede.
+     */
+    engine.updateOverrides(MODELO_DO_PING);
     let fechou = false;
     const fim = () => {
       if (fechou) return;
@@ -931,7 +967,7 @@ async function pingUso(p: Profile, home: string): Promise<void> {
     const relogio = setTimeout(fim, 60_000);
     void engine
       .start({ threadId: `ping-uso-${p.id}-${Date.now()}`, projectPath: home, profileId: p.id, contextPack: "" }, (ev) => {
-        if (ev.type === "limits") limitsByProfile.set(p.id, ev);
+        if (ev.type === "limits") registrarLimits(p.id, ev);
         else if (ev.type === "done" || ev.type === "error" || ev.type === "quota" || ev.type === "auth") fim();
       })
       .then(() => engine.send("oi"))
@@ -948,7 +984,16 @@ async function pingUso(p: Profile, home: string): Promise<void> {
  * recebe `limits` de verdade no próprio turno (ver `onEngineEvent`), então o ping descartável
  * aqui seria gasto duplicado sem ganhar nada.
  */
-export async function pingUsoDeTodasAsContas(home: string): Promise<void> {
+const MODELO_DO_PING = { model: "haiku", effort: "low" } as const;
+/** `limits` mais novo que isto já vale pro painel: pingar de novo seria gasto sem dado novo. */
+const LIMITS_FRESCO_MS = 25 * 60_000;
+/** Sem mensagem da pessoa há mais que isto, o ping periódico para (ninguém está olhando o painel). */
+const OCIOSO_MS = 2 * 60 * 60_000;
+
+export async function pingUsoDeTodasAsContas(home: string, opts: { periodico?: boolean } = {}): Promise<void> {
+  // de madrugada, com o app parado, cada ping era quota gasta pra um painel que ninguém via;
+  // o clique no anel (`pingUsoDaConta`) continua atualizando na hora
+  if (opts.periodico && Date.now() - ultimaMensagemHumanaEm > OCIOSO_MS) return;
   /*
    * Só `claude`. O ping existe pra capturar `limits`, e `parse-codex.ts` não
    * emite esse evento — o `codex exec --json` não reporta janela de uso em
@@ -959,8 +1004,13 @@ export async function pingUsoDeTodasAsContas(home: string): Promise<void> {
   const candidatos = listProfiles(home).filter((p) => p.engine === "claude");
   const alvos = candidatos
     .map((p) => (p.status === "ready" ? p : applyLoginResult(p.id, home)))
-    .filter((p) => p.status === "ready" && !perfilEmUso(p.id));
+    .filter((p) => p.status === "ready" && !perfilEmUso(p.id) && !limitsFrescos(p.id));
   await Promise.allSettled(alvos.map((p) => pingUso(p, home)));
+}
+
+function limitsFrescos(profileId: string): boolean {
+  const em = limitsVistoEm.get(profileId);
+  return em !== undefined && Date.now() - em < LIMITS_FRESCO_MS;
 }
 
 /**
@@ -1077,7 +1127,7 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
   // limite é da conta, não da thread: memória viva, sem ir pro JSONL.
   if (ev.type === "limits") {
     live.limits = ev;
-    limitsByProfile.set(live.profileId, ev);
+    registrarLimits(live.profileId, ev);
     emit(threadId, { ...ev, threadId });
     return;
   }
@@ -1540,6 +1590,7 @@ export async function postMessage(
   images: IncomingImage[] = [],
   opts: { automatico?: boolean; elementos?: ElementoDoPreview[] } = {},
 ): Promise<void> {
+  if (!opts.automatico) ultimaMensagemHumanaEm = Date.now();
   await withLocked(threadId, async () => {
     // Teto de `nexo_delegar` é POR TURNO: mensagem nova reabre a cota.
     resetContadorDeDelegacao(threadId);

@@ -509,7 +509,6 @@ export class CliEngine implements Engine {
       cwd: this.cwd,
       env: {
         ...this.spawnEnv,
-        NEXOS_CONTEXT_PACK: this.pack,
         // só o codex usa: o nome da variável está no `-c` que ele recebeu
         ...(this.mcpHttp ? { [ENV_TOKEN_MCP]: this.mcpHttp.token } : {}),
       },

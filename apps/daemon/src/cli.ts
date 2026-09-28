@@ -92,12 +92,13 @@ async function cmdUp(): Promise<void> {
    * de graça. Pinga toda conta claude/codex logada QUE NÃO ESTÁ EM USO agora (ver `perfilEmUso`
    * em `pingUsoDeTodasAsContas`) a cada 30min (e uma vez já na subida) pra o painel "Uso de
    * todas as contas" não ficar preso em "sem dado ainda" pra quem não está conversando agora.
-   * Gasto real, pequeno, por conta — decisão explícita do usuário.
+   * Gasto real, pequeno, por conta — decisão explícita do usuário. Pra ficar pequeno de fato: roda
+   * no haiku, pula conta com `limits` fresco e o periódico para com a pessoa ausente (session.ts).
    */
   const PING_USO_MS = 30 * 60_000;
   void pingUsoDeTodasAsContas(home).catch((e) => log.aviso("turno", "ping de uso falhou", { erro: (e as Error).message }));
   const pingUso = setInterval(() => {
-    void pingUsoDeTodasAsContas(home).catch((e) => log.aviso("turno", "ping de uso falhou", { erro: (e as Error).message }));
+    void pingUsoDeTodasAsContas(home, { periodico: true }).catch((e) => log.aviso("turno", "ping de uso falhou", { erro: (e as Error).message }));
   }, PING_USO_MS);
   /*
    * Sync com o Drive (só se a conta está conectada; a pasta "Nexos" é criada/achada sozinha) e,
