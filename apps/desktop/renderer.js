@@ -5256,6 +5256,18 @@ async function abrirChatAoLado(threadId, path, { alvo = null, lado = null } = {}
   else if (chats.length >= MAX_CHATS) chat = alvo ?? quemSaiPraAbrir(chats, areaDeChats.foco);
   else chat = criarChatNaTela(alvo ? chats.indexOf(alvo) + (lado === "direita" ? 1 : 0) : chats.length);
   chat.minimizado = false;
+  /*
+   * Conversa que chega AO LADO de outra vem só como conversa: o foco (e com ele a área de
+   * trabalho — preview, arquivos, terminal, que é por conversa) fica com o chat que já estava.
+   * Antes ela tomava o foco e abria o preview que tinha, trocando o que a pessoa estava vendo.
+   * Clicar nela depois dá o foco normalmente. Chat em foco vazio ou substituído: abre nele.
+   */
+  const focado = areaDeChats.foco;
+  if (chat !== focado && focado.threadId && !focado.minimizado) {
+    desenharArea();
+    await openThread(threadId, { chat });
+    return;
+  }
   await focarChat(chat);
   desenharArea();
   if (areaDeChats.foco !== chat) return;
