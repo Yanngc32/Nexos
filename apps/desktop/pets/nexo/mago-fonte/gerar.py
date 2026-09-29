@@ -1,4 +1,4 @@
-"""Gera os quadros parados do maguinho (idle*, think*, done*) a partir de mago.txt.
+"""Gera os quadros parados do maguinho (idle*, think*, done*, wait*) a partir de mago.txt.
 
 Trabalhar (work*) e dormir (off*) ainda saem do bake.py, a partir da arte original.
 Uso: python gerar.py  (grava em apps/desktop/pets/nexo/mago e apps/mobile/pets/nexo/mago)
@@ -23,8 +23,8 @@ OLHO_X = (22, 40)
 OLHO_Y = 79
 # Onde o pé começa a sumir quando ele entra no chapéu (linhas mantidas).
 ENTRA = {"idle-in1": 92, "idle-in2": 85, "idle-hide": 79}
-# O celular não tem "entrar no chapéu".
-SO_DESKTOP = set(ENTRA)
+# O celular não tem "entrar no chapéu" nem a espera (ainda não trata `em_espera`).
+SO_DESKTOP = set(ENTRA) | {"wait-0", "wait-1", "wait-2", "wait-3", "wait-blink", "wait-flip"}
 
 # "x" = buraco (transparente), "." = mantém o rosto
 OLHOS = {
@@ -96,6 +96,47 @@ def brilho(g, grande):
     return g
 
 
+# Ampulheta da espera (turno respondido, tarefa em background rodando), em células de 2x2 px:
+# em 50% cada célula vira 1px inteiro. S = vidro/moldura, a = areia.
+AMPULHETA = [
+    "SSSSSSS",
+    ".S...S.",
+    ".S...S.",
+    "..S.S..",
+    "...S...",
+    "..S.S..",
+    ".S...S.",
+    ".S...S.",
+    "SSSSSSS",
+]
+# Areia por quadro: células (coluna, linha) cheias. Cima esvazia de cima pra baixo, embaixo enche.
+CIMA = [(2, 1), (3, 1), (4, 1), (2, 2), (3, 2), (4, 2), (3, 3)]
+BAIXO = [(3, 5), (2, 6), (3, 6), (4, 6), (2, 7), (3, 7), (4, 7)]
+AREIA = {
+    0: CIMA,
+    1: CIMA[3:] + BAIXO[4:],
+    2: CIMA[6:] + BAIXO[1:],
+    3: BAIXO,
+}
+AMP_X, AMP_Y = 52, 0
+
+
+def ampulheta(g, areia, deitada=False):
+    """Desenha a ampulheta no canto de cima à direita (deitada = girando pra virar)."""
+    celulas = {(x, y): ch for y, r in enumerate(AMPULHETA) for x, ch in enumerate(r) if ch == "S"}
+    celulas.update({c: "a" for c in areia})
+    x0, y0 = AMP_X, AMP_Y
+    if deitada:
+        celulas = {(y, x): ch for (x, y), ch in celulas.items()}
+        x0, y0 = AMP_X - 2, AMP_Y + 2
+    for (cx, cy), ch in celulas.items():
+        cor = "s" if ch == "S" else "c"
+        for dy in (0, 1):
+            for dx in (0, 1):
+                g[y0 + cy * 2 + dy][x0 + cx * 2 + dx] = cor
+    return g
+
+
 def quadros():
     b = ler_base()
     alto = len(b) + 8
@@ -117,6 +158,12 @@ def quadros():
     q["done-jump"] = brilho(sobe(olhos(copia(b), "contente"), 7, alto), False)
     q["done-high"] = brilho(sobe(olhos(copia(b), "contente"), 7, alto), True)
     q["done-land"] = sobe(olhos(desce(b, 1, 88), "contente"), 0, alto)
+    # espera: olha pra ampulheta (cima, à direita) e respira devagar enquanto a areia cai
+    for n, areia in AREIA.items():
+        base = desce(b, 1, 88) if n % 2 else copia(b)
+        q[f"wait-{n}"] = ampulheta(olhos(base, "cima", 2), areia)
+    q["wait-blink"] = ampulheta(olhos(copia(b), "fechado", 2), AREIA[3])
+    q["wait-flip"] = ampulheta(olhos(copia(b), "cima", 2), [], deitada=True)
     return q
 
 

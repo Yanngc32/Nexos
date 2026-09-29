@@ -1045,11 +1045,12 @@ function stopThink() {
 
 /* ---------- pet ----------
  * Maguinho no canto do composer. Troca da pedra.
- * Estados: off / wake / idle / think / work / done. Pisca, logo do notebook, Zzz.
+ * Estados: off / wake / idle / think / work / done / espera. Pisca, logo do notebook, Zzz.
  * Pé (ou aba, no off) cola no topo da box. Tamanho 50%. Gema = --accent.
  * Idle: respira, olha pros lados, entra no chapéu. Think: pontinhos até a 1ª resposta.
  * Work: braçinho tecla. Done: pulinho no fim do turno, depois idle.
- * Quadros idle/think/done: pets/nexo/mago-fonte/gerar.py. work/off: mago-preview/bake.py.
+ * Espera: turno respondido mas tarefa em background rodando (`em_espera`): olha a ampulheta.
+ * Quadros idle/think/done/wait: pets/nexo/mago-fonte/gerar.py. work/off: mago-preview/bake.py.
  */
 const PET_BASE = "./pets/nexo/mago/";
 const PET_REST = "idle";
@@ -1083,12 +1084,13 @@ const PET_FRAMES = {
   think: ["think-0", "think-1", "think-2", "think-3", "think-3"],
   work: PET_WORK_SPICE[0],
   done: ["done-rest", "done-squat", "done-jump", "done-high", "done-high", "done-land", "done-rest"],
+  espera: ["wait-0", "wait-1", "wait-2", "wait-3", "wait-blink", "wait-3", "wait-flip"],
   // Configurações abertas: entra no chapéu aqui (o chapéu fica) e sai dele lá (ver ligarPetDasConfigs).
   sai: [PET_REST, "idle-in1", "idle-in2", "idle-hide"],
   fora: ["idle-hide"],
 };
 const PET_NEXT = { wake: "idle", done: "idle", sai: "fora" };
-const PET_FRAME_MS = { off: 700, wake: 220, idle: 400, think: 380, work: 120, done: 120, sai: 140 };
+const PET_FRAME_MS = { off: 700, wake: 220, idle: 400, think: 380, work: 120, done: 120, sai: 140, espera: 650 };
 
 const petState = {
   name: "",
@@ -1103,6 +1105,8 @@ const petState = {
   fora: false,
   depois: "",
   aposWake: "",
+  // `em_espera` chegou no meio do pulinho do done: termina o pulo e cai na espera, não no idle
+  aposDone: "",
 };
 
 /** Estado de verdade do pet, mesmo com ele escondido nas Configurações. */
@@ -1114,6 +1118,11 @@ function proximoPet(name) {
   if (name === "wake" && petState.aposWake) {
     const next = petState.aposWake;
     petState.aposWake = "";
+    return next;
+  }
+  if (name === "done" && petState.aposDone) {
+    const next = petState.aposDone;
+    petState.aposDone = "";
     return next;
   }
   return PET_NEXT[name];
@@ -1129,6 +1138,7 @@ function petTitle(name) {
   if (name === "sai" || name === "fora") return petTitle(petState.depois || "idle");
   if (name === "work") return "Motor trabalhando";
   if (name === "think") return "Pensando";
+  if (name === "espera") return "Tarefa em background rodando";
   if (name === "idle" || name === "wake" || name === "done") return "Motor ligado";
   return "Motor desligado";
 }
@@ -1173,6 +1183,12 @@ function frameWait(name, shown) {
     return 180;
   }
   if (name === "sai") return f === PET_REST ? 120 : 140;
+  if (name === "espera") {
+    if (f === "wait-blink") return 110;
+    if (f === "wait-flip") return 260;
+    if (f === "wait-0") return 900;
+    return 650;
+  }
   if (name === "done") {
     if (f === "done-squat") return 120;
     if (f === "done-jump") return 90;
@@ -1356,7 +1372,8 @@ function syncPet(on, live) {
   }
   // think não sai daqui: o poll (a cada 4 s) chama isto com live=false até o 1º texto chegar.
   // Sai por evento: texto/ferramenta (work), done, erro, parar ou trocar de conversa (petParou).
-  if (atual === "wake" || atual === "done" || atual === "think") return;
+  // espera idem: a conversa já não aparece ocupada; sai por petSaiuDaEspera, mensagem nova ou petParou.
+  if (atual === "wake" || atual === "done" || atual === "think" || atual === "espera") return;
   if (atual === "off" || atual === "") setPet("wake");
   else if (atual === "work") setPet("idle");
 }
@@ -1370,13 +1387,31 @@ function petPensando() {
 
 function petComecouAResponder() {
   if (!areaDeChats.ehFoco()) return;
-  if (petAtual() === "think") setPet("work");
+  // espera: a tarefa em background acabou e o modelo voltou a falar no mesmo turno
+  if (petAtual() === "think" || petAtual() === "espera") setPet("work");
 }
 
 /** Turno acabou sem comemorar (erro, parado, outra conversa). */
 function petParou() {
   if (!areaDeChats.ehFoco()) return;
-  if (petAtual() === "think" || petAtual() === "work") setPet("idle");
+  petState.aposDone = "";
+  if (petAtual() === "think" || petAtual() === "work" || petAtual() === "espera") setPet("idle");
+}
+
+/** `em_espera`: resposta pronta, tarefa em background segue. Depois do pulinho (se houver), olha a ampulheta. */
+function petEmEspera() {
+  if (!areaDeChats.ehFoco()) return;
+  const atual = petAtual();
+  if (atual === "off" || atual === "") return;
+  if (atual === "done") petState.aposDone = "espera";
+  else setPet("espera");
+}
+
+/** Tarefas em background acabaram (turno fechou de vez): volta ao repouso. */
+function petSaiuDaEspera() {
+  if (!areaDeChats.ehFoco()) return;
+  petState.aposDone = "";
+  if (petAtual() === "espera") setPet("idle");
 }
 
 function initPet() {
@@ -5748,6 +5783,9 @@ function onLive(ev) {
     flushStreamRender();
     setMotor(true, false);
     if (trabalhava) setPet("done");
+    // depois do pulinho: espera olha a ampulheta; done de verdade (background acabou) tira dela
+    if (ev.type === "em_espera") petEmEspera();
+    else petSaiuDaEspera();
     // terminou aberta na frente da pessoa: já foi vista, o painel de borda não deve acusar
     if (noFoco && document.hasFocus()) void window.nexo.threadVista?.(state.threadId);
     // chat sem foco: o cabeçalho diz "Terminou" até ele ganhar foco
