@@ -3,6 +3,7 @@ const { BORDAS, bordaMaisProxima, retanguloNaBorda } = require("./painel-borda.c
 const atualizador = require("./atualizador.cjs");
 const extensaoChrome = require("./extensao-chrome.cjs");
 const { criarLog } = require("./log.cjs");
+const { criarGpu, ehQuedaDeGpu } = require("./gpu.cjs");
 const { HEALTH_TIMEOUT_MS, agentesVivos, criarVigia, destravar, lerPidDoMotor, saudeDoMotor } = require("./destravar.cjs");
 const { autoUpdater } = require("electron-updater");
 const { execFile, spawn } = require("node:child_process");
@@ -494,6 +495,20 @@ if (process.platform === "win32") {
   app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
 }
 
+/** GPU que cai seguido desliga a aceleração no próximo boot (regra em gpu.cjs). Depois do userData. */
+const gpu = criarGpu({ dir: () => app.getPath("userData") });
+const SEM_GPU = gpu.semAceleracao();
+if (SEM_GPU) {
+  app.disableHardwareAcceleration();
+  logApp.aviso("app", "subindo sem aceleração de GPU: o processo GPU caiu seguido");
+}
+app.on("child-process-gone", (_e, details) => {
+  if (!ehQuedaDeGpu(details)) return;
+  const { quedas, desligou } = gpu.registrarQueda();
+  logApp.aviso("app", "processo GPU caiu", { motivo: details.reason, codigo: details.exitCode, quedas });
+  if (desligou) logApp.aviso("app", "próximo boot sobe sem aceleração de GPU");
+});
+
 /** Espera um processo filho sair, com teto — `nexo down` que trava não pode travar a recarga. */
 function esperarSair(child, ms) {
   return new Promise((resolve) => {
@@ -823,7 +838,24 @@ function createWindow() {
     webPreferences.contextIsolation = true;
     webPreferences.sandbox = false;
   });
-  const query = { tema, ...(HEX.test(accent) ? { accent } : {}) };
+  /*
+   * Janela congelada (renderer preso esperando o GPU, ou JS em laço) não deixava rastro nenhum:
+   * sem isto, "travou na abertura" não aparecia no daemon.log.
+   */
+  let congeladaDesde = 0;
+  win.on("unresponsive", () => {
+    congeladaDesde = Date.now();
+    logApp.aviso("app", "janela parou de responder");
+  });
+  win.on("responsive", () => {
+    if (!congeladaDesde) return;
+    logApp.info("app", `janela voltou a responder depois de ${Math.round((Date.now() - congeladaDesde) / 1000)} s`);
+    congeladaDesde = 0;
+  });
+  win.webContents.on("render-process-gone", (_e, details) => {
+    logApp.erro("app", "renderer da janela caiu", { motivo: details.reason, codigo: details.exitCode });
+  });
+  const query = { tema, ...(HEX.test(accent) ? { accent } : {}), ...(SEM_GPU ? { semgpu: "1" } : {}) };
   // NEXOS_SHOT_URL (dev): captura uma página local em vez do app — serve pra
   // revisar mockup de UI com o CSS de verdade.
   const shotUrl = process.env.NEXOS_SHOT_URL ?? "";
@@ -1360,6 +1392,12 @@ app.whenReady().then(async () => {
   // dela (o menu de verdade é a UI própria), então só sobra como ruído acima da janela.
   Menu.setApplicationMenu(null);
   handle("daemon:info", () => daemonInfo());
+  handle("gpu:reativar", () => {
+    logApp.info("app", "pessoa religou a aceleração de GPU");
+    gpu.reativar();
+    app.relaunch();
+    app.exit(0);
+  });
   // Com `deps`: no botão vale o `pnpm install` (conserta dependência nova sem install); no boot, não.
   handle("daemon:start", async () => {
     const r = await subirMotor({ deps: true });

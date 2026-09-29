@@ -431,6 +431,15 @@ body[data-side-mini="1"] .side .ico-only {
 .aviso-raiz-ico {
   color: var(--warn);
 }
+.aviso-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
 
 .word {
   font-weight: 600;

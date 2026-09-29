@@ -31,6 +31,14 @@
         <span class="aviso-raiz-ico" aria-hidden="true">⚠</span>
         <span id="aviso-raiz-txt"></span>
       </div>
+      <!-- app subiu sem aceleração de GPU porque o GPU caiu seguido (gpu.cjs) -->
+      <div id="aviso-gpu" class="aviso-raiz hidden" role="status">
+        <span class="aviso-raiz-ico" aria-hidden="true">⚠</span>
+        <span>
+          Aceleração de GPU desligada: o GPU travou seguido. Atualizar o driver de vídeo costuma resolver.
+          <button type="button" id="aviso-gpu-religar" class="aviso-link">Religar e reabrir</button>
+        </span>
+      </div>
       <nav class="side-nav" aria-label="Ações">
         <button type="button" id="btn-new" class="nav-item" title="Nova conversa">
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">

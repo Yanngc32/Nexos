@@ -11307,6 +11307,13 @@ const bootQuery = new URLSearchParams(location.search);
 const bootAccent = bootQuery.get("accent");
 applyTema(bootQuery.get("tema") || localStorage.getItem("nexo.tema") || DEFAULT_TEMA);
 applyAccent(HEX.test(bootAccent || "") ? bootAccent : localStorage.getItem("nexo.accent") || DEFAULT_ACCENT);
+if (bootQuery.get("semgpu") === "1") {
+  $("aviso-gpu").classList.remove("hidden");
+  $("aviso-gpu-religar").addEventListener("click", (e) => {
+    e.currentTarget.disabled = true;
+    void window.nexo.reativarGpu();
+  });
+}
 hydrateRepos();
 syncApiFields();
 setProjectLabel();

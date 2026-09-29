@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld("nexo", {
   stopDaemon: (opts) => ipcRenderer.invoke("daemon:stop", opts),
   // motor travado: reinicia (PID confirmado) ou, com `forcar`, mata o PID na mão
   destravarMotor: (opts) => ipcRenderer.invoke("daemon:destravar", opts),
+  // app subiu sem GPU (caiu seguido): religa e reabre o app
+  reativarGpu: () => ipcRenderer.invoke("gpu:reativar"),
   openLogin: (id) => ipcRenderer.invoke("profile:login", id),
   toggleWidget: () => ipcRenderer.invoke("widget:toggle"),
   // painel de borda (painel.js) e as Configurações dele (renderer.js)
