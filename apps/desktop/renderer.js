@@ -64,6 +64,7 @@ import { celAlcance, celAviso } from "./celular.js";
 import { extrairMencoes } from "./mention.js";
 import { montarMensagem, rotuloDoElemento } from "./inspector-mensagem.js";
 import { rotuloDaFerramenta } from "./rotulos-ferramenta.js";
+import { alvoDaFerramenta, rotuloDoAlvo } from "./alvo-ferramenta.js";
 import { criarInspectorHost } from "./inspector-host.js";
 import { FASE } from "./inspector-estado.js";
 import { editarNome } from "./editar-nome.js";
@@ -4617,6 +4618,11 @@ function appendEvent(ev, scroll = true) {
       `<div class="tool-detail-sec tool-detail-result hidden"><h4>Resultado</h4><pre></pre></div>` +
       `</div>`;
     if (diff) renderDiff(li.querySelector(".tool-detail-diff"), diff);
+    // pro "Ir até" que entra no tool_result: o alvo às vezes está no input (tarefaId), e o plano é o desta conversa
+    li.dataset.toolName = ev.name || "";
+    inputDaFerramenta.set(li, ev.input);
+    const slugDoPlano = state.metaAtual?.planejamento?.slug;
+    if (slugDoPlano) li.dataset.planoSlug = slugDoPlano;
     if (subchat) {
       // O `delegacao_run` (session.ts) pode chegar antes ou depois desta bolha — se já chegou
       // (fica em `state.subchatsPendentes`, por threadId), abre agora em vez de esperar de novo.
@@ -4649,7 +4655,7 @@ function appendEvent(ev, scroll = true) {
       if (ev.isError) {
         badge.textContent = "✕";
         badge.dataset.err = "1";
-      }
+      } else botaoIrAte(alvo, badge, ev.result);
     }
     return;
   } else if (ev.type === "pergunta") {
@@ -4831,6 +4837,70 @@ porChat(() => {
   });
 });
 
+/* ---------- "Ir até": da linha da ferramenta pro que o agente criou/alterou (alvo-ferramenta.js decide) ---------- */
+
+/** Input da chamada por bolha `li.tool`: o `tool_result` não traz ele, e às vezes o alvo está só ali (tarefaId). */
+const inputDaFerramenta = new WeakMap();
+
+const ICO_IR_ATE =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
+
+/** Ferramenta que criou/alterou tarefa, tela ou plano ganha o botão ao lado do selo do resultado. */
+function botaoIrAte(li, badge, resultado) {
+  const alvo = alvoDaFerramenta(li.dataset.toolName, inputDaFerramenta.get(li), resultado);
+  if (!alvo || li.querySelector(".tool-ir")) return;
+  // plano_ligado chega antes do resultado de nexo_plano_iniciar: a ponte já sabe o slug
+  if (alvo.tipo === "plano" && state.ponte?.slug) alvo.slug = state.ponte.slug;
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "tool-ir";
+  b.title = rotuloDoAlvo(alvo);
+  b.setAttribute("aria-label", b.title);
+  b.dataset.alvo = JSON.stringify(alvo);
+  b.innerHTML = ICO_IR_ATE;
+  badge.before(b);
+}
+
+/** Glow temporário (cor de acento) no alvo; `rolar: false` pra canvas, que já centraliza pela vista. */
+function destacarAlvo(el, { rolar = true } = {}) {
+  if (!el) return;
+  if (rolar) {
+    const reduzir = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ block: "center", inline: "nearest", behavior: reduzir ? "auto" : "smooth" });
+  }
+  el.classList.remove("alvo-destaque");
+  void el.offsetWidth;
+  el.classList.add("alvo-destaque");
+  clearTimeout(el._alvoDestaque);
+  el._alvoDestaque = setTimeout(() => el.classList.remove("alvo-destaque"), 2000);
+}
+
+async function irAteAlvo(botao) {
+  let alvo;
+  try {
+    alvo = JSON.parse(botao.dataset.alvo || "");
+  } catch {
+    return;
+  }
+  if (alvo.tipo === "tarefa") {
+    if (await abrirTarefaNoQuadro(alvo.id)) destacarAlvo(document.querySelector("#tarefa-modal .settings-card"));
+    return;
+  }
+  // focarCard do Canvas já centraliza e acende o card (.ds-card-foco)
+  if (alvo.tipo === "tela") return void (await abrirTelaDoDs(alvo.sistema, alvo.card));
+  // reaberta do histórico, a ponte só chega depois das bolhas: aí o slug vem dela na hora do clique
+  const slug =
+    alvo.slug || botao.closest("li.tool")?.dataset.planoSlug || (alvo.tipo === "plano" ? state.ponte?.slug : "") || planoAberto?.slug;
+  if (!slug) return void dialogo.avisar("Não achei o plano disso — ele pode ter sido apagado.");
+  if (planoAberto?.slug !== slug) await abrirPlanoDaConversa(slug);
+  if (planoAberto?.slug !== slug) return; // abrirPlanoExistente já avisou
+  if (alvo.tipo === "plano") return void destacarAlvo(document.getElementById("pl-viewport"), { rolar: false });
+  const no = await planejamentoBoard.focarCard(alvo.id);
+  if (no) destacarAlvo(no, { rolar: false });
+  else void dialogo.avisar("Esse card não existe mais no plano.");
+}
+
 /** Delegado (não por bolha): pega tanto as ferramentas que chegam ao vivo quanto as de uma conversa reaberta. */
 porChat(() => {
   $("log").addEventListener("click", (e) => {
@@ -4866,6 +4936,11 @@ porChat(() => {
     const abrirPlano = e.target.closest(".plano-ligado-abrir");
     if (abrirPlano) {
       void abrirPlanoDaConversa(abrirPlano.dataset.slug);
+      return;
+    }
+    const irAte = e.target.closest(".tool-ir");
+    if (irAte) {
+      void irAteAlvo(irAte);
       return;
     }
     const linha = e.target.closest(".tool-line");
@@ -6886,12 +6961,15 @@ async function abrirTelaDoDs(sistema, card) {
   setView("ds");
   const achou = await dsCanvas.focarCard(sistema, card);
   if (achou === false && sistema) void dialogo.avisar("Não achei essa tela no Canvas — ela pode ter sido apagada.");
+  return achou !== false;
 }
 
 /** Anexo/etapa do plano → Quadro com a tarefa aberta. */
 async function abrirTarefaNoQuadro(id) {
   setView("tarefas");
-  if (!(await tarefasBoard.abrirTarefa(id))) void dialogo.avisar("Essa tarefa não existe mais no Quadro.");
+  const achou = await tarefasBoard.abrirTarefa(id);
+  if (!achou) void dialogo.avisar("Essa tarefa não existe mais no Quadro.");
+  return achou;
 }
 
 /**

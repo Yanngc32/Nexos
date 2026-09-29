@@ -734,6 +734,24 @@ export function createPlanejamentoBoard({
     for (const p of el("pl-arestas").querySelectorAll(".pl-aresta")) p.classList.toggle("selecionada", sel?.tipo === "aresta" && p.dataset.id === sel.id);
   }
 
+  /**
+   * "Ir até" do chat: centraliza a vista no card e seleciona ele. Espera o canvas pintar (o plano
+   * pode ter acabado de abrir). Devolve o nó do card, ou null se ele não existe mais.
+   */
+  async function focarCard(id) {
+    const achar = () => el("pl-nos")?.querySelector(`.pl-card[data-id="${CSS.escape(id)}"]`);
+    for (let i = 0; i < 40 && !achar(); i++) await new Promise((r) => win.setTimeout(r, 50));
+    const n = achar();
+    const r = n && retanguloDoNo(id);
+    if (!n || !r) return null;
+    const vp = el("pl-viewport");
+    vista = { ...vista, x: vp.clientWidth / 2 - (r.x + r.w / 2) * vista.escala, y: vp.clientHeight / 2 - (r.y + r.h / 2) * vista.escala };
+    vistaDoUsuario = true;
+    aplicarVista();
+    selecionar({ tipo: "card", id });
+    return n;
+  }
+
   /* ---------- animação (F5b): o que veio de fora se desenha ---------- */
 
   function animacaoLigada() {
@@ -1641,6 +1659,7 @@ export function createPlanejamentoBoard({
     ligar,
     abrir,
     recarregar,
+    focarCard,
     fechar: () => {
       pararSse();
       void fecharEditor();

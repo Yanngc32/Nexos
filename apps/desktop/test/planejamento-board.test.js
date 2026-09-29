@@ -194,6 +194,22 @@ describe("tela", () => {
     expect(chamadas.find((c) => c.metodo === "DELETE").path).toContain("/cards/s1?projectPath=%2Fproj&rev=2");
   });
 
+  it("focarCard (Ir até do chat) seleciona o card e devolve o nó; card que sumiu devolve null", async () => {
+    const { board } = montar();
+    await board.abrir();
+    const n = await board.focarCard("s1");
+    expect(n?.dataset.id).toBe("s1");
+    expect(n.classList.contains("selecionado")).toBe(true);
+    vi.useFakeTimers();
+    try {
+      const sumiu = board.focarCard("nao-existe");
+      await vi.advanceTimersByTimeAsync(2100);
+      expect(await sumiu).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("+ Card cria na coluna e abre o editor", async () => {
     const { board, chamadas } = montar({
       respostas: {
