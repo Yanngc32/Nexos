@@ -76,9 +76,11 @@ import {
   projectsFromThreads,
   projetosConhecidos,
   readThread,
+  marcarLixeira,
   renomearThread,
   threadHead,
 } from "./threads.ts";
+import { listarLixeira } from "./lixeira.ts";
 import {
   abortThread,
   agentSnapshots,
@@ -1072,6 +1074,22 @@ export function createApp(home: string, token: string): Hono {
     if (typeof body.title !== "string" || !body.title.trim()) return c.json({ error: "title obrigatório" }, 400);
     try {
       renomearThread(id, body.title, "manual", home);
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 404);
+    }
+    return c.json({ ok: true, thread: threadHead(id, home) });
+  });
+
+  /** Conversas na lixeira (de todos os projetos), com `apagaEm` = quando somem de vez. */
+  app.get("/v1/lixeira", (c) => c.json(listarLixeira(home)));
+
+  /** Manda pra lixeira ou restaura. Body: { naLixeira: boolean }. */
+  app.post("/v1/threads/:id/lixeira", async (c) => {
+    const id = c.req.param("id");
+    const body = (await c.req.json().catch(() => ({}))) as { naLixeira?: unknown };
+    if (typeof body.naLixeira !== "boolean") return c.json({ error: "naLixeira obrigatório" }, 400);
+    try {
+      marcarLixeira(id, body.naLixeira, "manual", home);
     } catch (e) {
       return c.json({ error: (e as Error).message }, 404);
     }

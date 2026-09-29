@@ -454,7 +454,17 @@ export type NexoConfig = {
    * — é o jeito de ligar `debug` numa subida só, sem mexer no config.
    */
   logNivel?: LogNivel;
+  /**
+   * Conversa sem atividade há mais que isso (dias) vai pra lixeira sozinha; na lixeira fica
+   * `LIXEIRA_DIAS` e depois é apagada de vez. `0` = desligado. Ver `lixeira.ts`.
+   */
+  lixeiraAposDias: number;
 };
+
+/** Dias que uma conversa fica na lixeira (dá pra restaurar) antes de ser apagada de vez. */
+export const LIXEIRA_DIAS = 7;
+/** Opções do seletor em Configurações; `0` = nunca. */
+export const LIXEIRA_APOS_DIAS = [0, 7, 14, 30, 60, 90] as const;
 
 export const PAINEIS_DO_AGENTE = ["navegador", "design", "planejamento", "tarefas", "arquivo", "terminal"] as const;
 export type PainelDoAgente = (typeof PAINEIS_DO_AGENTE)[number];
@@ -504,6 +514,7 @@ export const DEFAULT_CONFIG: NexoConfig = {
   windowsControlEnabled: false,
   paineisDoAgente: { modo: "sempre", paineis: [...PAINEIS_DO_AGENTE], trazerPraFrente: true },
   typesafe: { modo: "desligado" },
+  lixeiraAposDias: 7,
 };
 
 export type ThreadEvent =
@@ -619,6 +630,12 @@ export type ThreadEvent =
   | { ts: string; type: "plano_ligado"; threadId: string; slug: string; managerThreadId: string; titulo: string }
   /** Liga/desliga a ponte com o Manager (desligada, o chat volta a falar com o próprio agente). */
   | { ts: string; type: "plano_ponte"; threadId: string; ligada: boolean }
+  /**
+   * Conversa foi pra lixeira (`naLixeira: true`, some da lista) ou voltou dela. `auto` = a
+   * varredura de conversas paradas; `manual` = a pessoa. Ir não conta como atividade
+   * (`updatedAt`); voltar conta, pra restaurada ganhar o prazo inteiro de novo.
+   */
+  | { ts: string; type: "thread_lixeira"; threadId: string; naLixeira: boolean; origem: "auto" | "manual" }
   /** Mensagem que passou pela ponte: `ida` = a pessoa pro Manager; `volta` = fala do Manager. */
   | { ts: string; type: "ponte"; threadId: string; direcao: "ida" | "volta"; texto: string; managerThreadId: string }
   | {

@@ -9869,6 +9869,95 @@ $("sk-arquivo").addEventListener("change", async (e) => {
   e.target.value = "";
 });
 
+/* ---------- Configurações → Conversas: limpeza automática e lixeira ---------- */
+
+async function renderLixeira() {
+  if (!state.ok) return;
+  try {
+    const cfg = await req("/v1/config");
+    $("lx-apos-dias").value = String(cfg.lixeiraAposDias ?? 7);
+    $("lx-cfg-err").textContent = "";
+  } catch (e) {
+    $("lx-cfg-err").textContent = e.message || "não deu pra ler a configuração";
+  }
+  let lista = [];
+  try {
+    lista = await req("/v1/lixeira");
+    $("lx-err").textContent = "";
+  } catch (e) {
+    $("lx-err").textContent = e.message || "não deu pra listar a lixeira";
+  }
+  $("lx-lista").replaceChildren(...lista.map(itemDaLixeira));
+  $("lx-vazio").classList.toggle("hidden", lista.length > 0);
+}
+
+function itemDaLixeira(t) {
+  const li = document.createElement("li");
+  li.className = "sk-item";
+
+  const nome = document.createElement("strong");
+  nome.className = "sk-nome";
+  nome.textContent = t.preview;
+  nome.title = t.preview;
+
+  const onde = document.createElement("span");
+  onde.className = "sk-escopo";
+  onde.textContent = t.projectPath ? folderName(t.projectPath) : "chat geral";
+
+  const cab = document.createElement("div");
+  cab.className = "sk-cab";
+  cab.append(nome, onde);
+
+  const desc = document.createElement("p");
+  desc.className = "sk-desc";
+  const dias = Math.max(0, Math.ceil((Date.parse(t.apagaEm) - Date.now()) / 86_400_000));
+  desc.textContent = `Última mensagem há ${ago(t.updatedAt)} · apagada de vez ${dias ? `em ${dias} dia${dias > 1 ? "s" : ""}` : "na próxima limpeza"}`;
+
+  const restaurar = document.createElement("button");
+  restaurar.type = "button";
+  restaurar.className = "ghost";
+  restaurar.textContent = "Restaurar";
+  restaurar.addEventListener("click", async () => {
+    try {
+      await req(`/v1/threads/${t.id}/lixeira`, { method: "POST", body: JSON.stringify({ naLixeira: false }) });
+    } catch (e) {
+      $("lx-err").textContent = e.message || "não restaurou";
+      return;
+    }
+    state.fpThreads = "";
+    await Promise.all([renderLixeira(), loadThreads()]);
+  });
+  const apagar = document.createElement("button");
+  apagar.type = "button";
+  apagar.className = "ghost danger";
+  apagar.textContent = "Apagar agora";
+  apagar.addEventListener("click", async () => {
+    if (!(await dialogo.confirmar("Apagar esta conversa de vez? Não volta."))) return;
+    try {
+      await req(`/v1/threads/${t.id}`, { method: "DELETE" });
+    } catch (e) {
+      $("lx-err").textContent = e.message || "não apagou";
+      return;
+    }
+    await renderLixeira();
+  });
+  const acts = document.createElement("div");
+  acts.className = "sk-acts";
+  acts.append(restaurar, apagar);
+
+  li.append(cab, desc, acts);
+  return li;
+}
+
+$("lx-apos-dias").addEventListener("change", async (e) => {
+  try {
+    await req("/v1/config", { method: "PUT", body: JSON.stringify({ lixeiraAposDias: Number(e.target.value) }) });
+    $("lx-cfg-err").textContent = "";
+  } catch (err) {
+    $("lx-cfg-err").textContent = err.message || "não salvou";
+  }
+});
+
 async function renderModulos() {
   if (!state.ok) return;
   let cfg;
@@ -10554,6 +10643,7 @@ function abrirConfiguracoes(painel = "aparencia") {
   void renderFallback();
   void renderMemoria();
   void renderModulos();
+  void renderLixeira();
   void renderSkillsConfig();
   void renderSkills();
   void renderRoteamento();

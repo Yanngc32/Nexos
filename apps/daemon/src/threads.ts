@@ -450,7 +450,10 @@ export async function removeThread(id: string, home: string): Promise<void> {
     apagarEspelhos(id, head.projectPath, home);
   }
   if (head?.projectPath && head.worktreeDir) {
-    const aindaUsada = listThreads(head.projectPath, home).some((t) => t.worktreeDir === head.worktreeDir);
+    // conta a da lixeira também: restaurada, ela volta pra mesma árvore
+    const aindaUsada = todasAsConversas(home).some(
+      (t) => t.projectPath === head.projectPath && daPessoa(t) && t.worktreeDir === head.worktreeDir,
+    );
     // só a árvore que ESTA instalação criou (dentro de `<home>/worktrees`): a de fora é de outro dono
     const nossa = resolve(head.worktreeDir).toLowerCase().startsWith(resolve(home, "worktrees").toLowerCase() + sep);
     if (!aindaUsada && nossa) await removerWorktree(head.projectPath, head.worktreeDir).catch(() => {});
@@ -493,6 +496,8 @@ export type ThreadHead = {
   handoff?: { slug: string };
   /** Esta conversa abriu o plano `<slug>`; `ligada` = a ponte com o Manager está ativa. Ver `ponte-plano.ts`. */
   planoLigado?: { slug: string; managerThreadId: string; titulo: string; ligada: boolean };
+  /** Quando foi pra lixeira (último `thread_lixeira` com `naLixeira`). Presente = some da lista. */
+  lixeiraEm?: string;
 };
 
 /** Último `plano_ligado` da conversa + o estado da ponte depois dele. */
@@ -539,9 +544,16 @@ function lerCabecalho(id: string, home: string): ThreadHead | undefined {
   const meta = events.find((e) => e.type === "thread_meta");
   if (!meta || meta.type !== "thread_meta") return undefined;
   const firstUser = events.find((e) => e.type === "user");
-  const last = events.at(-1);
+  // ir pra lixeira não é atividade (senão a data da lista mentiria); VOLTAR é: a restaurada
+  // ganha o prazo inteiro de novo, senão a próxima varredura a mandava de volta na hora
+  let last: ThreadEvent | undefined;
   let titulo: Extract<ThreadEvent, { type: "thread_title" }> | undefined;
-  for (const e of events) if (e.type === "thread_title") titulo = e;
+  let lixeira: Extract<ThreadEvent, { type: "thread_lixeira" }> | undefined;
+  for (const e of events) {
+    if (e.type === "thread_title") titulo = e;
+    if (e.type === "thread_lixeira") lixeira = e;
+    if (e.type !== "thread_lixeira" || !e.naLixeira) last = e;
+  }
   return {
     id,
     projectPath: meta.projectPath,
@@ -572,6 +584,7 @@ function lerCabecalho(id: string, home: string): ThreadHead | undefined {
     ...(meta.planejamento ? { planejamento: meta.planejamento } : {}),
     ...(meta.handoff ? { handoff: meta.handoff } : {}),
     ...(planoLigadoDe(events) ? { planoLigado: planoLigadoDe(events) } : {}),
+    ...(lixeira?.naLixeira ? { lixeiraEm: lixeira.ts } : {}),
   };
 }
 
@@ -604,11 +617,39 @@ export function listThreads(projectPath: string | undefined, home: string): Thre
     // passo de time chamado de um chat pertence àquele chat; conversa de trabalho do Nexos
     // (geração do DS) pertence à tela dela — nenhuma das duas é conversa da pessoa
     // exceção: o Manager de um plano nascido de conversa É conversa da pessoa (ela fala com ele)
-    if ((head.origemThreadId && !head.planejamento) || head.oculta) continue;
+    if (!daPessoa(head) || head.lixeiraEm) continue;
     out.push(head);
   }
   out.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
   return out;
+}
+
+/** Conversa que aparece na lista pra pessoa (não é passo de time nem trabalho interno do Nexos). */
+export function daPessoa(head: ThreadHead): boolean {
+  return !((head.origemThreadId && !head.planejamento) || head.oculta);
+}
+
+/** Cabeçalho de TODAS as conversas do disco, de qualquer projeto (inclusive as da lixeira). */
+export function todasAsConversas(home: string): ThreadHead[] {
+  ensureHome(home);
+  const threadsDir = dirname(threadPath("placeholder", home));
+  if (!existsSync(threadsDir)) return [];
+  const out: ThreadHead[] = [];
+  for (const file of readdirSync(threadsDir)) {
+    if (!file.endsWith(".jsonl")) continue;
+    const head = threadHead(file.slice(0, -".jsonl".length), home);
+    if (head) out.push(head);
+  }
+  return out;
+}
+
+/** Manda pra lixeira (`naLixeira`) ou tira dela. Devolve se mudou algo. */
+export function marcarLixeira(id: string, naLixeira: boolean, origem: "auto" | "manual", home: string): boolean {
+  const head = threadHead(id, home);
+  if (!head) throw new Error(`thread não existe: ${id}`);
+  if (Boolean(head.lixeiraEm) === naLixeira) return false;
+  appendEvent({ ts: nowIso(), type: "thread_lixeira", threadId: id, naLixeira, origem }, home);
+  return true;
 }
 
 export type ThreadUsage = {

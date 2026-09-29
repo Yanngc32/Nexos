@@ -22,6 +22,7 @@ import { sincronizarRepoMapResumos } from "./repo-map-auto.ts";
 import { createThread, importarConversas, listThreads, projetosConhecidos, readThread, retentarEspelhosApagados } from "./threads.ts";
 import { pingUsoDeTodasAsContas, postMessage, sessionBus, switchThread } from "./session.ts";
 import { loginProfile } from "./login.ts";
+import { varrerLixeira } from "./lixeira.ts";
 import { CODIGO_TRAVADO, pidPath, startDaemon, waitClosed } from "./server.ts";
 import { iniciarLog, log, registrarErrosSemDono } from "./log.ts";
 import { vigiarCongelamento } from "./congelamento.ts";
@@ -133,6 +134,12 @@ async function cmdUp(): Promise<void> {
   void avisarLixoNoDrive(home);
   syncDrive();
   const timerDrive = setInterval(syncDrive, SYNC_DRIVE_MS);
+  // conversas paradas → lixeira → apagadas de vez (ver lixeira.ts): na subida e de hora em hora
+  const varrer = (): void => {
+    void varrerLixeira(home).catch((e) => log.aviso("lixeira", "varredura falhou", { erro: (e as Error).message }));
+  };
+  varrer();
+  const timerLixeira = setInterval(varrer, 60 * 60_000);
   for (const f of started.falhas) {
     // túnel fora do ar é normal e ele volta sozinho; dizer o motivo evita que
     // "o celular não conecta" vire caça ao tesouro
@@ -149,6 +156,7 @@ async function cmdUp(): Promise<void> {
     pararVigia();
     clearInterval(pingUso);
     clearInterval(timerDrive);
+    clearInterval(timerLixeira);
     stopAllServices();
     // os sockets extras seguram o event loop vivo: fechar só o principal
     // deixaria o processo pendurado pra sempre

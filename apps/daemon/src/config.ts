@@ -86,7 +86,13 @@ export function loadConfig(home: string): NexoConfig {
     paineisDoAgente: limparPaineis(raw.paineisDoAgente, DEFAULT_CONFIG.paineisDoAgente),
     typesafe: { modo: isTypesafeModo(raw.typesafe?.modo) ? raw.typesafe.modo : DEFAULT_CONFIG.typesafe.modo },
     ...(isLogNivel(raw.logNivel) ? { logNivel: raw.logNivel } : {}),
+    lixeiraAposDias: isDiasLixeira(raw.lixeiraAposDias) ? raw.lixeiraAposDias : DEFAULT_CONFIG.lixeiraAposDias,
   };
+}
+
+/** Inteiro de 0 (desligado) a 3650 dias. */
+function isDiasLixeira(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 3650;
 }
 
 export function isLogNivel(value: unknown): value is LogNivel {
@@ -271,6 +277,7 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
       : current.logNivel !== undefined
         ? { logNivel: current.logNivel }
         : {}),
+    lixeiraAposDias: isDiasLixeira(patch.lixeiraAposDias) ? patch.lixeiraAposDias : current.lixeiraAposDias,
   };
   writeJsonAtomico(configPath(home), next);
   return next;
