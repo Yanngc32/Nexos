@@ -10,6 +10,24 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Alterado
 
+## [0.13.0] - 2026-09-29
+
+### Adicionado
+
+- Lixeira de conversas: conversa sem mensagem nova há 7 dias sai da lista e vai pra lixeira, onde fica mais 7 dias (dá pra restaurar) antes de ser apagada de vez. Conversa aberta, trabalhando ou esperando resposta nunca vai, e mensagem nova numa conversa da lixeira a traz de volta. O prazo (nunca, 7, 14, 30, 60 ou 90 dias) e a lista com "Restaurar" e "Apagar agora" ficam em Configurações › Conversas. A lixeira sincroniza entre máquinas junto com a conversa.
+- Botão "Ir até" na linha da ferramenta: leva direto à tarefa do Quadro, à tela ou card do DS no Canvas e ao card ou plano da Tela de Planejamento que o agente criou, com um brilho de ~2 s no alvo. Se o alvo sumiu, avisa.
+- Maguinho em espera: com o turno respondido e tarefa em background rodando (dev server, Monitor), ele olha uma ampulheta até a tarefa acabar ou chegar mensagem nova.
+
+### Corrigido
+
+- Turno que só esperava tarefa em background (dev server, Monitor) deixava o chat em "Falando" por até 2 h depois de o modelo responder, e a mensagem nova ia pra fila. Agora a resposta aparece na hora, o chat avisa quantas tarefas seguem rodando e a mensagem nova entra no mesmo turno. A proteção contra reiniciar o motor no meio continua valendo.
+- Conta `api` ficava presa em "trabalhando" a partir da 2ª mensagem da conversa.
+- App congelando na tela de abertura com driver de vídeo ruim: queda do GPU, janela sem resposta e queda do renderer agora vão pro log, e 2 quedas do GPU em 24 h fazem o próximo boot subir sem aceleração, com aviso na barra lateral e botão pra religar.
+
+### Alterado
+
+- Quem atualizar vai ver as conversas paradas há mais de 7 dias irem pra lixeira na primeira subida do motor. Elas ficam 7 dias restauráveis em Configurações › Conversas; pra desligar, escolha "Nunca" ali.
+
 ## [0.12.1] - 2026-09-29
 
 ### Corrigido
