@@ -50,7 +50,11 @@ export class ApiEngine implements Engine {
   }
 
   async send(text: string): Promise<void> {
-    if (this.aborted || !this.handler) return;
+    // A sessão reaproveita o engine e só chama `send` a partir da 2ª mensagem: sem zerar aqui, o
+    // `finished` do turno anterior fazia este sair sem `done` e a conversa ficava presa em "trabalhando".
+    this.aborted = false;
+    this.finished = false;
+    if (!this.handler) return;
     const profile = getProfile(this.profileId, this.home);
     if (!profile?.api) {
       this.handler({ type: "error", message: "perfil api sem provider" });

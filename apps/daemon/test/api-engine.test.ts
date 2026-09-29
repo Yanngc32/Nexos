@@ -123,4 +123,30 @@ data: ${JSON.stringify(o)}
     const events = await collect(new ApiEngine({ home, profileId: "api-1" }));
     expect(events).toEqual([{ type: "error", message: "api: Overloaded" }]);
   });
+  // A sessão reaproveita o engine da conversa e só chama `send` de novo: o 2º turno também precisa fechar.
+  it("segundo send no mesmo engine também fecha com done", async () => {
+    const home = tempHome();
+    addProfile({ id: "api-1", engine: "api", api: { provider: "anthropic", model: "x" } }, home, { apiKey: "k" });
+    let n = 0;
+    await listen((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ content: [{ type: "text", text: `r${++n}` }] }));
+    });
+    const engine = new ApiEngine({ home, profileId: "api-1" });
+    const eventos: EngineEvent[] = [];
+    let fechou: () => void = () => {};
+    await engine.start({ threadId: "t-1", projectPath: "/p", profileId: "api-1", contextPack: "" }, (ev) => {
+      eventos.push(ev);
+      if (ev.type === "done") fechou();
+    });
+    await new Promise<void>((r) => ((fechou = r), void engine.send("oi")));
+    // sem novo start: é assim que session.ts manda a 2ª mensagem
+    await new Promise<void>((r) => ((fechou = r), void engine.send("de novo")));
+    expect(eventos).toEqual([
+      { type: "text", text: "r1" },
+      { type: "done" },
+      { type: "text", text: "r2" },
+      { type: "done" },
+    ]);
+  });
 });
