@@ -10,6 +10,12 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Alterado
 
+## [0.13.1] - 2026-09-29
+
+### Adicionado
+
+- Atualização pronta com agente trabalhando: o banner mostra quantos estão rodando e oferece "Reiniciar quando pararem" (reinicia e instala sozinho assim que o último agente parar, com "Cancelar") ou "Parar agentes e reiniciar" (confirma, para conversas e times e reinicia). Antes, "Reiniciar agora" com agente trabalhando só fechava o app sem instalar.
+
 ## [0.13.0] - 2026-09-29
 
 ### Adicionado
