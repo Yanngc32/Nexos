@@ -82,6 +82,10 @@ describe("CliEngine", () => {
       expect(texts).toContain("tarefa-terminou");
       expect(texts).not.toContain("tarefa-morta");
       expect(engine.ocupacao().tarefasEmBackground).toBe(0);
+      // o "armado" já era a resposta: avisa a espera uma vez, antes da volta do modelo e do done
+      const tipos = events.map((e) => e.type);
+      expect(events.filter((e) => e.type === "em_espera")).toEqual([{ type: "em_espera", tarefas: 1 }]);
+      expect(tipos.indexOf("em_espera")).toBeLessThan(tipos.indexOf("done"));
     } finally {
       delete process.env.NEXOS_CLAUDE_BIN;
     }

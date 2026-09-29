@@ -86,6 +86,7 @@ import {
   pingUsoDaConta,
   busyThreads,
   turnoEmCurso,
+  tarefasEmEspera,
   clearThread,
   dropThread,
   injetarMensagem,
@@ -664,8 +665,8 @@ export function createApp(home: string, token: string): Hono {
   app.get("/v1/threads", (c) => {
     const projectPath = c.req.query("projectPath") || undefined;
     // `busy` é estado vivo (memória), não vem do JSONL: por isso é carimbado aqui.
-    const busy = new Set(busyThreads());
-    return c.json(listThreads(projectPath, home).map((t) => ({ ...t, busy: busy.has(t.id) || turnoEmCurso(t.id) })));
+    // `turnoEmCurso` já cobre o turno em voo; turno só esperando background não acende a lista
+    return c.json(listThreads(projectPath, home).map((t) => ({ ...t, busy: turnoEmCurso(t.id) })));
   });
 
   /**
@@ -934,7 +935,7 @@ export function createApp(home: string, token: string): Hono {
   });
 
   /** Turno em curso nesta conversa (inclui o que acabou de ser pedido e ainda sobe o motor). */
-  app.get("/v1/threads/:id/em-curso", (c) => c.json({ emCurso: turnoEmCurso(c.req.param("id")) }));
+  app.get("/v1/threads/:id/em-curso", (c) => c.json({ emCurso: turnoEmCurso(c.req.param("id")), emEspera: tarefasEmEspera(c.req.param("id")) }));
 
   /** Liga/desliga a ponte do chat de origem com o Manager do plano que ele abriu (ver ponte-plano.ts). */
   app.post("/v1/threads/:id/ponte", async (c) => {
@@ -985,6 +986,11 @@ export function createApp(home: string, token: string): Hono {
       if (ponteLigada(c.req.param("id"), home)) {
         mandarPelaPonte(c.req.param("id"), text, images, home);
         return c.json({ ok: true, ponte: true });
+      }
+      // turno já respondido, só esperando tarefa em background: a trava da thread seguraria a
+      // mensagem até a tarefa acabar (horas, com dev server). Entra no turno aberto.
+      if (!elementos.length && tarefasEmEspera(c.req.param("id")) > 0 && injetarMensagem(c.req.param("id"), text, home, images)) {
+        return c.json({ ok: true, injetada: true });
       }
       await postMessage(c.req.param("id"), text, home, images, elementos.length ? { elementos } : {});
       return c.json({ ok: true });

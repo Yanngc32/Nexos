@@ -5659,7 +5659,12 @@ function onLive(ev) {
     paintFacts();
     return;
   }
-  if (ev.type === "done") {
+  /*
+   * Respondeu, mas o turno segue aberto esperando tarefa em background (dev server, Monitor): pra
+   * quem usa, terminou. Sem isto o chat ficava "Falando" e a mensagem nova ia pra fila até o teto
+   * do turno (2 h). O daemon manda a mensagem nova pra dentro do turno aberto.
+   */
+  if (ev.type === "em_espera" || ev.type === "done") {
     // antes do setMotor, que já devolve o pet pro idle; erro/quota chegam antes e desligam isso
     const noFoco = areaDeChats.ehFoco();
     const trabalhava = noFoco && (petAtual() === "work" || petAtual() === "think");
@@ -5672,6 +5677,9 @@ function onLive(ev) {
     if (noFoco && document.hasFocus()) void window.nexo.threadVista?.(state.threadId);
     // chat sem foco: o cabeçalho diz "Terminou" até ele ganhar foco
     if (!noFoco) chat.terminouNaoVisto = true;
+    if (ev.type === "em_espera") {
+      appendEvent({ type: "sys", message: `${ev.tarefas} tarefa(s) em background seguem rodando. Pode mandar mensagem: ela entra no mesmo turno.` });
+    }
     pintarEstadosDosChats();
     void enviarProximoDaFila();
     return;

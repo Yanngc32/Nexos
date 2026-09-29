@@ -194,6 +194,12 @@ type Live = {
   session?: EngineEvent & { type: "session" };
   /** Contexto do ÚLTIMO request individual da conversa (não o somado do turno inteiro). */
   contextTokens?: number;
+  /**
+   * Tarefas em background que seguram o turno depois de o modelo já ter respondido (`em_espera`).
+   * > 0 = turno aberto, mas ninguém trabalhando: fora do "ocupado" da tela, e mensagem nova vai por
+   * inject. Zera quando o modelo volta a falar ou o turno fecha.
+   */
+  emEspera?: number;
 };
 
 /** Último limite visto por conta: serve pro painel mesmo sem thread ativa. */
@@ -254,10 +260,28 @@ function emVoo(l: Live): boolean {
  */
 const turnosComecando = new Map<string, number>();
 
-/** Esta conversa tem turno em curso (ou prestes a começar)? */
+/** Turno aberto só esperando tarefa em background: o modelo já respondeu (ver `Live.emEspera`). */
+function soEsperando(l: Live): boolean {
+  return emVoo(l) && (l.emEspera ?? 0) > 0;
+}
+
+/**
+ * Esta conversa tem turno em curso (ou prestes a começar)? Turno só esperando background não
+ * conta: é o "Falando" da tela, e a tela ficava acesa até o teto de 2 h com um dev server de pé.
+ * Quem protege processo (atualização, `turno-ativo`) usa `busyThreads`, que segue contando.
+ */
 export function turnoEmCurso(threadId: string): boolean {
   const l = lives.get(threadId);
-  return (turnosComecando.get(threadId) ?? 0) > 0 || Boolean(l && emVoo(l));
+  const comecando = turnosComecando.get(threadId) ?? 0;
+  // o `postMessage` do próprio turno em espera segue contado em `turnosComecando`: só outro na fila da trava vale
+  if (l && soEsperando(l)) return comecando > 1;
+  return comecando > 0 || Boolean(l && emVoo(l));
+}
+
+/** Tarefas em background segurando o turno já respondido; 0 = não está só esperando. */
+export function tarefasEmEspera(threadId: string): number {
+  const l = lives.get(threadId);
+  return l && soEsperando(l) ? (l.emEspera ?? 0) : 0;
 }
 
 /** Threads com turno em voo agora: alimenta o indicador de atividade na lista. */
@@ -299,6 +323,8 @@ export type AgentSnapshot = {
   lastTerminal: Live["lastTerminal"];
   /** Turno parado em `nexo_perguntar`, esperando a resposta de quem usa (o painel pinta âmbar). */
   aguardando: boolean;
+  /** Tarefas em background segurando o turno já respondido (`busy` é false nesse caso). */
+  emEspera: number;
 };
 
 /**
@@ -316,7 +342,7 @@ export function agentSnapshots(): AgentSnapshot[] {
     threadId,
     profileId: l.profileId,
     ...(l.agentId ? { agentId: l.agentId } : {}),
-    busy: emVoo(l),
+    busy: emVoo(l) && !soEsperando(l),
     ...(l.session?.model ? { model: l.session.model } : {}),
     startedAt: l.startedAt,
     tail: ((l.textoDoTurno ?? "") + l.assistantBuf).slice(-TAIL_CHARS),
@@ -324,6 +350,7 @@ export function agentSnapshots(): AgentSnapshot[] {
     pendingQuota: l.pendingQuota,
     lastTerminal: l.lastTerminal,
     aguardando: temPerguntaPendente(threadId),
+    emEspera: soEsperando(l) ? (l.emEspera ?? 0) : 0,
   }));
 }
 
@@ -373,6 +400,7 @@ function nowIso(): string {
  */
 function setTerminal(live: Live, kind: Terminal): void {
   live.lastTerminal = kind;
+  live.emEspera = 0;
   const waiters = live.terminalWaiters;
   live.terminalWaiters = [];
   for (const acorda of waiters) acorda();
@@ -1126,6 +1154,14 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     sessionBus.emit(`parcial:${threadId}`, { ...ev, threadId });
     return;
   }
+  if (ev.type === "em_espera") {
+    // o texto da resposta só ia pro JSONL no `done`, que aqui pode levar horas
+    gravarTextoDoTurno(live, threadId, home);
+    live.emEspera = ev.tarefas;
+    emit(threadId, { ...ev, threadId });
+    return;
+  }
+  if (ev.type === "text" || ev.type === "thinking" || ev.type === "tool") live.emEspera = 0;
   if (ev.type === "text") {
     const text = live.blocoNovo && live.assistantBuf && !/\s$/.test(live.assistantBuf) ? `\n\n${ev.text}` : ev.text;
     live.blocoNovo = false;
@@ -1821,6 +1857,7 @@ async function sendTurn(live: Live, text: string, partial = false): Promise<void
   live.pendingTurn = { text, partial };
   if (!partial) live.textoDoTurno = "";
   live.lastTerminal = null;
+  live.emEspera = 0;
   live.startedAt = Date.now();
   await live.engine.send(partial ? CONTINUE : text);
 }

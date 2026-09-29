@@ -826,6 +826,13 @@ export type EngineEvent =
    * vez de campo dele — assim a ordem de chegada não decide qual valor vale.
    */
   | { type: "window"; contextWindow: number }
+  /**
+   * O modelo respondeu, mas o turno segue aberto só esperando `tarefas` em background (Bash
+   * `run_in_background`, Monitor — dev server que nunca sai, por exemplo). Pra quem usa, o agente
+   * terminou: a tela sai do "Falando" e mensagem nova entra no turno aberto (inject) em vez de fila.
+   * Quando a tarefa acaba, o CLI volta a falar sozinho no mesmo turno.
+   */
+  | { type: "em_espera"; tarefas: number }
   | { type: "done" }
   | { type: "quota"; detail?: string }
   | ({ type: "usage" } & TokenUsage)

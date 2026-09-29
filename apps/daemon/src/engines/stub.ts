@@ -151,6 +151,13 @@ export class StubEngine implements Engine {
       this.handler({ type: "text", text: "antes" });
       return;
     }
+    // como o CLI com dev server em background: respondeu, turno segue aberto até chegar `inject`
+    if (text === "BACKGROUND") {
+      this.esperandoInjecao = true;
+      this.handler({ type: "text", text: "pronto" });
+      this.handler({ type: "em_espera", tarefas: 1 });
+      return;
+    }
     // Texto, ferramenta, texto: dois blocos do modelo que não podem sair colados no histórico.
     if (text === "TEXTTOOLTEXT") {
       this.handler({ type: "text", text: "Vejo o arquivo." });

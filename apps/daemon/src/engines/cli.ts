@@ -528,8 +528,19 @@ export class CliEngine implements Engine {
      * (`completed`), o CLI avisa o modelo sozinho e abre outro turno — que é o que o modelo
      * prometeu ("aviso quando terminar").
      */
+    let esperaAvisada = 0;
     const talvezFecharEntrada = (): void => {
-      if (resultVisto && this.atividade.tarefasEmBackground === 0) fecharEntrada(child);
+      if (!resultVisto) return;
+      const tarefas = this.atividade.tarefasEmBackground;
+      if (tarefas === 0) {
+        fecharEntrada(child);
+        return;
+      }
+      // modelo já respondeu e só sobrou background: avisa (uma vez por contagem) que o turno está só esperando
+      if (tarefas !== esperaAvisada) {
+        esperaAvisada = tarefas;
+        emit({ type: "em_espera", tarefas });
+      }
     };
     const flush = (chunk: string, rest: string, stderr: boolean): string => {
       const parts = (rest + chunk).split(/\r?\n/);
@@ -543,6 +554,8 @@ export class CliEngine implements Engine {
         }
         for (const ev of this.parse(line)) {
           if (stderr && ev.type === "text") continue;
+          // voltou a trabalhar (tarefa acabou ou mensagem injetada): o próximo `result` avisa a espera de novo
+          if (ev.type === "text" || ev.type === "thinking" || ev.type === "tool") esperaAvisada = 0;
           emit(ev);
         }
       }

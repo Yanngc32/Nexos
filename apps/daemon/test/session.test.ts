@@ -21,6 +21,7 @@ import {
   retomarTurnoPendente,
   sessionBus,
   switchThread,
+  tarefasEmEspera,
   turnoEmCurso,
 } from "../src/session.ts";
 import { janelaDaConta, MEMORIA_NO_PACK_MAX, memoriaDoPack, modeloDoMotor } from "../src/session.ts";
@@ -563,6 +564,24 @@ describe("session", () => {
       .map((e) => `${e.type}:${e.type === "user" || e.type === "assistant" ? e.text : ""}`);
     expect(trilha).toEqual(["user:ESPERA", "assistant:antes", "user:e mais isto", "assistant:depois"]);
     expect(injetarMensagem(t.id, "tarde demais", home)).toBe(false);
+  });
+
+  it("turno só esperando tarefa em background sai do ocupado da tela, mas segue protegido", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    const turno = postMessage(t.id, "BACKGROUND", home);
+    await vi.waitFor(() => expect(tarefasEmEspera(t.id)).toBe(1));
+    expect(turnoEmCurso(t.id)).toBe(false); // é o que a tela usa pro "Falando"
+    expect(agentSnapshots().find((a) => a.threadId === t.id)).toMatchObject({ busy: false, emEspera: 1 });
+    // atualização/processos não podem matar a tarefa: segue em voo pra eles
+    expect(busyThreads()).toContain(t.id);
+    // a resposta já está no disco, sem esperar o done
+    expect(readThread(t.id, home).some((e) => e.type === "assistant" && e.text === "pronto")).toBe(true);
+    expect(injetarMensagem(t.id, "e agora?", home)).toBe(true);
+    await turno;
+    expect(tarefasEmEspera(t.id)).toBe(0);
+    expect(turnoEmCurso(t.id)).toBe(false);
   });
 
   it("perfilEmVoo só com turno rodando; conversa aberta e parada não segura o clique no anel", async () => {
