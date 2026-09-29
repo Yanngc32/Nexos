@@ -1,14 +1,68 @@
+<div align="center">
+
+<img src="docs/media/mago.gif" width="236" alt="Maguinho do Nexos: se esconde no chapéu, digita no notebook e comemora">
+
 # Nexos
 
-Orquestrador local de agentes de código. Um daemon roda na sua máquina, fala com CLIs de
-agente já instaladas nela (Claude Code, Codex) ou com API, e um app Electron serve de
-interface: chat, árvore de arquivos, terminal, preview, gestão de serviços do projeto,
-criação de agentes com bancada de teste e times que rodam esses agentes em sequência, em
-paralelo ou sob um supervisor que decide quem trabalha. Também dá pra acompanhar e
+**Orquestrador local de agentes de código.**
+Chat, times de agentes, planejamento, design system e vídeo, tudo rodando na sua máquina
+com as CLIs que você já usa (Claude Code, Codex) ou por API.
+
+[![Release](https://img.shields.io/github/v/release/Yanngc32/Nexos?label=release&color=7c5cbf)](https://github.com/Yanngc32/Nexos/releases/latest)
+[![CI](https://github.com/Yanngc32/Nexos/actions/workflows/ci.yml/badge.svg)](https://github.com/Yanngc32/Nexos/actions/workflows/ci.yml)
+[![Licença MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-4d9cd6)](LICENSE)
+![Windows](https://img.shields.io/badge/Windows-instalador-5fae74)
+
+[Veja funcionando](#veja-funcionando) · [O que ele faz](#o-que-ele-faz) · [Instalar](#instalar-windows) · [Rodar do código](#rodar-do-c%C3%B3digo) · [Times de agentes](#times-de-agentes) · [Celular](#do-celular) · [Segurança](#seguran%C3%A7a) · [Changelog](CHANGELOG.md)
+
+</div>
+
+---
+
+Um daemon roda na sua máquina, fala com CLIs de agente já instaladas nela (Claude Code,
+Codex) ou com API, e um app Electron serve de interface. Também dá pra acompanhar e
 conversar do celular, pela interface web que o próprio daemon serve.
 
 Tudo é local: nenhum dado sai da máquina além do que a própria CLI do agente já manda pro
 provedor dela.
+
+## Veja funcionando
+
+Gravações do app de verdade, num projeto de exemplo (o cardápio de um café).
+
+### Planejamento
+Você conversa com o Manager e o plano muda na hora: etapa nova no roteiro, requisitos nos cards e a dúvida em aberto vira decisão.
+
+<p align="center"><img src="docs/media/planejamento.gif" alt="A pessoa pede ao Manager que o cliente escolha o horário de retirada; surge a etapa 'Horário de retirada' com dois requisitos e a ambiguidade 'Aceita pedido fora do horário?' vira decisão" width="820"></p>
+
+### Mock de tela antes do código
+Card de tela no plano espera sua aprovação. Você abre o mock, aprova, e a implementação recebe o aviso pra codar.
+
+<p align="center"><img src="docs/media/aprovacao-de-tela.gif" alt="Card 'Tela do carrinho' aguardando aprovação: a prévia do mock abre com os tokens do DS, a pessoa aprova e a conversa de implementação responde que vai implementar a tela" width="820"></p>
+
+### Design system
+Tokens, fundamentos e cards do DS do projeto no Canvas. O agente cria um card pelo chat, ele aparece no board, e o tema claro espelha tudo.
+
+<p align="center"><img src="docs/media/design-system.gif" alt="Canvas do DS 'Café do Bairro': a pessoa pede o card do item do cardápio, o card aparece na seção Cardápio e o tema muda para claro" width="820"></p>
+
+### Chat
+Você pede, o agente propõe, aplica nos arquivos e você confere no preview sem sair do app.
+
+<p align="center"><img src="docs/media/chat.gif" alt="Pedido de selo vegano no cardápio: o agente propõe a mudança, aplica em dois arquivos, o serviço sobe e o preview mostra os selos" width="820"></p>
+
+## O que ele faz
+
+| | |
+| --- | --- |
+| **Chat com o agente** | Até 3 conversas lado a lado, cada uma com árvore de arquivos, terminal e preview do projeto. No Claude Code, mensagem nova entra no turno em andamento, sem esperar ele acabar. |
+| **Agentes e times** | Crie agentes com bancada de teste e junte em times: em sequência, em paralelo (cada um no seu `git worktree`) ou sob um supervisor que decide quem trabalha. |
+| **Planejamento** | Um Agent Manager quebra o trabalho em etapas, liga cada uma a uma tarefa do quadro e acompanha a implementação. |
+| **Canvas e design system** | Tokens, regras e cards do DS do projeto; todo mock de tela vai pro painel de mocks e só vira código depois de aprovado. |
+| **Vídeo** | Monte um vídeo curto de release com a cara do DS, cena a cena, com trilha e efeitos, e renderize em MP4. |
+| **Navegador e Chrome** | O agente usa um navegador embutido ou, pela extensão, abas do seu Chrome, só as do grupo "Nexos". |
+| **Serviços do projeto** | Sobe, para e mostra o log dos serviços locais; porta ocupada mostra quem está nela. |
+| **Celular** | PWA servida pelo daemon, pareada por QR, pelo Tailscale ou WireGuard. |
+| **Painel flutuante** | Janela pequena sempre por cima com o que está rodando, quota e custo. |
 
 ## Instalar (Windows)
 
@@ -24,23 +78,25 @@ Depois de instalado, o app se atualiza sozinho: baixa a versão nova em segundo 
 avisa quando estiver pronta (Configurações → Sistema → Sobre mostra a versão atual). Nunca
 instala no meio de um agente trabalhando.
 
-Quem quer rodar a partir do código (outra plataforma, ou pra desenvolver) segue as seções
-abaixo.
+Quem quer rodar a partir do código (outra plataforma, ou pra desenvolver) segue
+[Rodar do código](#rodar-do-c%C3%B3digo).
 
-## Requisitos
+## Rodar do código
+
+### Requisitos
 
 - Node.js 20+
 - pnpm 9 (`corepack enable`)
 - Para o motor `claude`/`codex`: a CLI correspondente instalada e logada
 - Para o motor `api`: uma chave do provedor (guardada em `~/.nexos/profiles/<id>/`)
 
-## Instalação
+### Instalação
 
 ```bash
 pnpm install
 ```
 
-## Uso
+### Uso
 
 ```bash
 pnpm up          # sobe o daemon (http://127.0.0.1:7432)
@@ -53,52 +109,23 @@ pnpm check       # typecheck + testes (é o que o CI roda)
 No Windows, `run.bat` instala as dependências se faltarem e abre o app.
 `make-shortcut.ps1 -Desktop` cria um atalho que abre o app sem console.
 
-### CLI
+#### CLI
 
 ```
-nexo up | down
-nexo skill install
-nexo profile add <id> --engine stub|claude|codex|api
-nexo profile ls | rm <id>
-nexo profile set <id> [--model ...] [--effort ...] [--mode ...]
-nexo login <id>
-nexo svc ls | up <id>|--all | down <id>|--all | restart <id> | logs <id> | trust
-nexo thread new <perfil> | ls [pasta] | show <id>
-nexo branch ls | rm [pasta] [--run <id>]
-nexo chat <perfil>
-nexo switch <perfil> --thread <id>
+nexos up | down
+nexos skill install
+nexos profile add <id> --engine stub|claude|codex|api
+nexos profile ls | rm <id>
+nexos profile set <id> [--model ...] [--effort ...] [--mode ...]
+nexos login <id>
+nexos svc ls | up <id>|--all | down <id>|--all | restart <id> | logs <id> | trust
+nexos thread new <perfil> | ls [pasta] | show <id>
+nexos branch ls | rm [pasta] [--run <id>]
+nexos chat <perfil>
+nexos switch <perfil> --thread <id>
 ```
 
-## Estrutura
-
-```
-apps/daemon      servidor HTTP (Hono) + CLI + motores
-apps/desktop     app Electron (main/preload/renderer + módulos do renderer)
-apps/mobile      interface de celular (PWA), servida pelo próprio daemon
-packages/shared  tipos e constantes compartilhados
-docs/            specs e plano de implementação
-```
-
-Nenhum pacote compila: o daemon roda via `tsx` e o `@nexos/shared` é consumido como fonte
-(`exports` aponta para o `.ts`). O `tsc` existe só como checador (`pnpm typecheck`).
-
-## Estado no disco
-
-Tudo fica em `~/.nexos` (ou `NEXOS_HOME`):
-
-| caminho | conteúdo |
-| --- | --- |
-| `config.json` | porta, perfis de fallback, tema, projetos |
-| `profiles/<id>/` | credenciais e config por perfil |
-| `threads/<id>.jsonl` | histórico das conversas |
-| `attachments/<thread>/` | imagens anexadas |
-| `agents.json` | agentes personalizados |
-| `teams.json` | times de agentes |
-| `runs/<id>/` | execução de time: `run.json` e o artefato de cada passo |
-| `daemon.token` | token bearer da API local (modo `0600`) |
-| `run/` | PIDs do daemon e dos motores |
-
-Nada disso está no repositório — e não deve ser commitado.
+## Times de agentes
 
 ### Como um time trabalha
 
@@ -119,33 +146,6 @@ O supervisor manda por um de dois canais:
 Nos dois casos quem executa o membro é o daemon, e quantas rodadas vão acontecer é o supervisor
 quem escolhe — use `maxSteps` no orçamento do run pra fechar a conta.
 
-### Compactação automática de contexto
-
-Quando o histórico encosta em 80% do que cabe no turno, o Nexos **resume** o
-trecho antigo em vez de cortá-lo, e passa a mandar o resumo no lugar dele. As
-últimas mensagens seguem verbatim: recência é o que mais importa pro turno
-seguinte.
-
-Antes disso o corte era o único caminho, e ele guardava os primeiros 2000
-CARACTERES do que jogava fora, cortados no meio da palavra — o meio da conversa
-desaparecia inteiro. O corte continua existindo como último recurso, pra quando
-o resumo ainda não couber ou o motor falhar em produzi-lo.
-
-O `claude` tem autocompact próprio, mas ele nunca dispara aqui: o Nexos faz um
-spawn por turno com `--print`, então não existe sessão longa pra ele compactar.
-A memória da conversa é do Nexos, e a compactação também.
-
-**Custa um turno da sua conta**, com o trecho antigo como entrada — e se paga nos
-turnos seguintes, que passam a mandar o resumo. Desligue com
-`pack.compactar: false` no `config.json` se preferir o corte. A entrada do resumo
-é limitada ao mesmo teto do turno: conversa muito longa é compactada em pedaços,
-do mais antigo pra frente, e o resumo anterior entra na entrada do seguinte pra
-que o resultado continue sendo um resumo só.
-
-Nada é perdido do disco: o `threads/<id>.jsonl` guarda tudo pra sempre, e o
-resumo é um evento a mais. A tela mostra a compactação acontecendo (o anel do
-contexto pulsa) e deixa o resumo aberto pra leitura na linha do tempo.
-
 ### O modelo montando o time
 
 Numa conversa com conta `claude` ou `codex`, o modelo recebe três ferramentas pra
@@ -159,7 +159,7 @@ quota e escreve branch no seu repositório — isso continua sendo seu clique. Q
 quer o run pede o run.
 
 As regras moram nas descrições das ferramentas, então isso funciona sem instalar
-nada. `nexo skill install` acrescenta a camada de julgamento — quando vale montar
+nada. `nexos skill install` acrescenta a camada de julgamento — quando vale montar
 um time em vez de fazer o trabalho, qual topologia serve pra quê, o que faz um
 `instructions` prestar — em `~/.claude/skills/`, valendo em todos os projetos. É
 comando explícito porque `~/.claude` é configuração de outra ferramenta.
@@ -183,16 +183,16 @@ fazer com o trabalho é você:
 
 ```bash
 git branch --list 'nexo/*'          # o que os agentes produziram
-git diff master..nexo/<run>/1-<ag>  # o que um membro mudou
+git diff main..nexo/<run>/1-<ag>  # o que um membro mudou
 git branch -D nexo/<run>/1-<ag>     # descartar
 ```
 
 Como o branch fica, eles acumulam — um por membro por run. A limpeza:
 
 ```bash
-nexo branch ls                # o que existe, e o que já está no HEAD
-nexo branch rm                # apaga SÓ o que já está no HEAD
-nexo branch rm --run <id>     # o mesmo, restrito a um run
+nexos branch ls               # o que existe, e o que já está no HEAD
+nexos branch rm               # apaga SÓ o que já está no HEAD
+nexos branch rm --run <id>    # o mesmo, restrito a um run
 ```
 
 O `rm` nunca apaga branch com commit fora do HEAD: seria jogar fora trabalho que
@@ -252,6 +252,67 @@ enquanto você está no editor. Arraste pela faixa do título; ela reabre onde e
 
 O que ela mostra é do **projeto aberto** (o cabeçalho diz qual). A quota é exceção: é da conta, não
 do projeto. Sem projeto aberto, ela mostra tudo que o daemon está fazendo.
+
+## Por dentro
+
+### Compactação automática de contexto
+
+Quando o histórico encosta em 80% do que cabe no turno, o Nexos **resume** o
+trecho antigo em vez de cortá-lo, e passa a mandar o resumo no lugar dele. As
+últimas mensagens seguem verbatim: recência é o que mais importa pro turno
+seguinte.
+
+Antes disso o corte era o único caminho, e ele guardava os primeiros 2000
+CARACTERES do que jogava fora, cortados no meio da palavra — o meio da conversa
+desaparecia inteiro. O corte continua existindo como último recurso, pra quando
+o resumo ainda não couber ou o motor falhar em produzi-lo.
+
+O `claude` tem autocompact próprio, mas ele nunca dispara aqui: o Nexos faz um
+spawn por turno com `--print`, então não existe sessão longa pra ele compactar.
+A memória da conversa é do Nexos, e a compactação também.
+
+**Custa um turno da sua conta**, com o trecho antigo como entrada — e se paga nos
+turnos seguintes, que passam a mandar o resumo. Desligue com
+`pack.compactar: false` no `config.json` se preferir o corte. A entrada do resumo
+é limitada ao mesmo teto do turno: conversa muito longa é compactada em pedaços,
+do mais antigo pra frente, e o resumo anterior entra na entrada do seguinte pra
+que o resultado continue sendo um resumo só.
+
+Nada é perdido do disco: o `threads/<id>.jsonl` guarda tudo pra sempre, e o
+resumo é um evento a mais. A tela mostra a compactação acontecendo (o anel do
+contexto pulsa) e deixa o resumo aberto pra leitura na linha do tempo.
+
+### Estrutura
+
+```
+apps/daemon      servidor HTTP (Hono) + CLI + motores
+apps/desktop     app Electron (main/preload/renderer + módulos do renderer)
+apps/mobile      interface de celular (PWA), servida pelo próprio daemon
+apps/chrome-extension  extensão MV3 que dá ao agente as abas do grupo "Nexos" (`pnpm chrome`)
+packages/shared  tipos e constantes compartilhados
+docs/            specs e plano de implementação
+```
+
+Nenhum pacote compila: o daemon roda via `tsx` e o `@nexos/shared` é consumido como fonte
+(`exports` aponta para o `.ts`). O `tsc` existe só como checador (`pnpm typecheck`).
+
+### Estado no disco
+
+Tudo fica em `~/.nexos` (ou `NEXOS_HOME`):
+
+| caminho | conteúdo |
+| --- | --- |
+| `config.json` | porta, perfis de fallback, tema, projetos |
+| `profiles/<id>/` | credenciais e config por perfil |
+| `threads/<id>.jsonl` | histórico das conversas |
+| `attachments/<thread>/` | imagens anexadas |
+| `agents.json` | agentes personalizados |
+| `teams.json` | times de agentes |
+| `runs/<id>/` | execução de time: `run.json` e o artefato de cada passo |
+| `daemon.token` | token bearer da API local (modo `0600`) |
+| `run/` | PIDs do daemon e dos motores |
+
+Nada disso está no repositório — e não deve ser commitado.
 
 ## Segurança
 
