@@ -1212,6 +1212,13 @@ export async function abortarRun(id: string): Promise<boolean> {
   return true;
 }
 
+/** Para todo run vivo ou na fila (atualização do app pedida com agentes trabalhando). Devolve quantos. */
+export async function abortarTodosOsRuns(): Promise<number> {
+  const ids = [...new Set([...vivos.keys(), ...naFila.keys()])];
+  const parados = await Promise.all(ids.map((id) => abortarRun(id)));
+  return parados.filter(Boolean).length;
+}
+
 /** Só pra teste: zera o estado em memória entre casos. */
 export function resetRunsForTest(): void {
   vivos.clear();

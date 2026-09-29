@@ -617,7 +617,7 @@ describe("GET /v1/status/turno-ativo", () => {
     const home = tempHome();
     const app = createApp(home, token);
     const res = await app.request("/v1/status/turno-ativo", { headers: { authorization: `Bearer ${token}` } });
-    expect(await res.json()).toEqual({ ativo: false });
+    expect(await res.json()).toEqual({ ativo: false, agentes: 0 });
   });
 
   it("com turno em voo em qualquer conversa: ativo true", async () => {
@@ -628,8 +628,25 @@ describe("GET /v1/status/turno-ativo", () => {
     const envio = postMessage(t.id, "SLOW", home); // StubEngine.SLOW demora ~400ms, dá tempo do turno ficar em voo
     await new Promise((r) => setTimeout(r, 50));
     const res = await app.request("/v1/status/turno-ativo", { headers: { authorization: `Bearer ${token}` } });
-    expect(await res.json()).toEqual({ ativo: true });
+    expect(await res.json()).toEqual({ ativo: true, agentes: 1 });
     await envio;
+  });
+});
+
+describe("POST /v1/status/parar-tudo", () => {
+  it("derruba o turno em voo e o turno-ativo volta a false", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const app = createApp(home, token);
+    const t = createThread({ profileId: "p1" }, home);
+    const envio = postMessage(t.id, "SLOW", home);
+    await new Promise((r) => setTimeout(r, 50));
+    const auth = { authorization: `Bearer ${token}` };
+    const res = await app.request("/v1/status/parar-tudo", { method: "POST", headers: auth });
+    expect(await res.json()).toMatchObject({ ok: true, conversas: 1 });
+    await envio;
+    const depois = await app.request("/v1/status/turno-ativo", { headers: auth });
+    expect(await depois.json()).toEqual({ ativo: false, agentes: 0 });
   });
 });
 

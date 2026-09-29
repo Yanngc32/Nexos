@@ -11209,11 +11209,21 @@ function pintarUpdateStatus(payload) {
     btnBanner.classList.add("hidden");
   } else if (payload.state === "downloaded") {
     banner.classList.remove("hidden");
-    txt.textContent = `Atualização${payload.version ? ` v${payload.version}` : ""} pronta.`;
     bar.classList.add("hidden");
-    btnBanner.classList.remove("hidden");
+    updReinicio.versao = payload.version || "";
+    if (!updReinicio.pronta) {
+      updReinicio.pronta = true;
+      void vigiarAgentesDoUpdate();
+    }
+    pintarReinicioDoUpdate();
   } else {
     banner.classList.add("hidden");
+  }
+  if (payload.state !== "downloaded") {
+    updReinicio.pronta = false;
+    updReinicio.agendado = false;
+    clearTimeout(updReinicio.timer);
+    for (const id of ["btn-update-quando", "btn-update-parar", "btn-update-cancelar"]) $(id).classList.add("hidden");
   }
 
   // Linha da tela "Sobre" — só existe se a tela de Configurações já montou o DOM.
@@ -11232,9 +11242,109 @@ function pintarUpdateStatus(payload) {
   btnSobreRestart?.classList.toggle("hidden", payload.state !== "downloaded");
 }
 
+/*
+ * Atualização pronta com agente trabalhando: reiniciar agora fecharia sem instalar (o gate do
+ * main.cjs protege o turno). Então o banner oferece esperar os agentes pararem ou pará-los.
+ * `agentes` vem do `turno-ativo` (conta também turno que só segura tarefa em background).
+ */
+const updReinicio = { pronta: false, versao: "", agentes: 0, agendado: false, parando: false, erro: "", timer: 0 };
+const UPD_VIGIA_MS = 4000;
+
+async function agentesTrabalhando() {
+  try {
+    const r = await req("/v1/status/turno-ativo");
+    return r.agentes ?? (r.ativo ? 1 : 0);
+  } catch {
+    // motor fora do ar: não tem turno pra proteger (mesma regra do gate em main.cjs)
+    return 0;
+  }
+}
+
+function pintarReinicioDoUpdate() {
+  const u = updReinicio;
+  if (!u.pronta) return;
+  const v = u.versao ? ` v${u.versao}` : "";
+  const n = u.agentes;
+  const quantos = `${n} agente${n > 1 ? "s" : ""} trabalhando`;
+  let txt = `Atualização${v} pronta.`;
+  if (u.parando) txt = "Parando os agentes pra reiniciar…";
+  else if (u.agendado) txt = `Atualização${v} pronta. Reinicia sozinho quando os agentes pararem (${quantos}).`;
+  else if (n > 0) txt = `Atualização${v} pronta. ${quantos}.`;
+  if (u.erro && !u.parando) txt = `${txt} ${u.erro}`;
+  $("update-banner-txt").textContent = txt;
+  const mostra = (id, sim) => $(id).classList.toggle("hidden", !sim);
+  mostra("btn-update-restart", !u.parando && !u.agendado && n === 0);
+  mostra("btn-update-quando", !u.parando && !u.agendado && n > 0);
+  mostra("btn-update-parar", !u.parando && n > 0);
+  mostra("btn-update-cancelar", !u.parando && u.agendado);
+}
+
+async function vigiarAgentesDoUpdate() {
+  clearTimeout(updReinicio.timer);
+  if (!updReinicio.pronta) return;
+  if (!updReinicio.parando) {
+    updReinicio.agentes = await agentesTrabalhando();
+    if (updReinicio.agendado && updReinicio.agentes === 0) {
+      void window.nexo.quitApp?.();
+      return;
+    }
+    pintarReinicioDoUpdate();
+  }
+  updReinicio.timer = setTimeout(() => void vigiarAgentesDoUpdate(), UPD_VIGIA_MS);
+}
+
+/** "Reiniciar agora" (banner e Sobre): com agente trabalhando, vira "reiniciar quando pararem". */
+async function reiniciarPraAtualizar() {
+  updReinicio.agentes = await agentesTrabalhando();
+  if (updReinicio.agentes === 0) {
+    void window.nexo.quitApp?.();
+    return;
+  }
+  updReinicio.agendado = true;
+  updReinicio.erro = "";
+  pintarReinicioDoUpdate();
+}
+
+async function pararAgentesEReiniciar() {
+  const n = await agentesTrabalhando();
+  if (n > 0) {
+    const ok = await dialogo.confirmar(
+      `Parar ${n === 1 ? "o agente que está" : `os ${n} agentes que estão`} trabalhando e reiniciar pra atualizar? O que ${n === 1 ? "ele estava" : "eles estavam"} fazendo fica pela metade.`,
+      "Parar e reiniciar",
+    );
+    if (!ok) return;
+  }
+  updReinicio.parando = true;
+  updReinicio.erro = "";
+  pintarReinicioDoUpdate();
+  try {
+    await req("/v1/status/parar-tudo", { method: "POST" });
+  } catch {
+    // sem motor não há o que parar: a espera abaixo confirma
+  }
+  // o gate do main.cjs confere o turno de novo: só fecha quando ninguém mais está em voo
+  const prazo = Date.now() + 20_000;
+  while (Date.now() < prazo) {
+    if ((await agentesTrabalhando()) === 0) {
+      void window.nexo.quitApp?.();
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  updReinicio.parando = false;
+  updReinicio.erro = "Não consegui parar todos os agentes; tente de novo.";
+  void vigiarAgentesDoUpdate();
+}
+
 window.nexo.onUpdateStatus?.((payload) => pintarUpdateStatus(payload));
-$("btn-update-restart").addEventListener("click", () => void window.nexo.quitApp?.());
-$("btn-sobre-restart").addEventListener("click", () => void window.nexo.quitApp?.());
+$("btn-update-restart").addEventListener("click", () => void reiniciarPraAtualizar());
+$("btn-update-quando").addEventListener("click", () => void reiniciarPraAtualizar());
+$("btn-update-parar").addEventListener("click", () => void pararAgentesEReiniciar());
+$("btn-update-cancelar").addEventListener("click", () => {
+  updReinicio.agendado = false;
+  pintarReinicioDoUpdate();
+});
+$("btn-sobre-restart").addEventListener("click", () => void reiniciarPraAtualizar());
 $("btn-sobre-check").addEventListener("click", () => void window.nexo.checkForUpdate?.());
 
 /** Versão instalada + último status do updater — perguntado de novo ao abrir a tela, pra

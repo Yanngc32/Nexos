@@ -125,6 +125,7 @@ import {
   executarNoChat,
   runsDoChat,
   pararPasso,
+  abortarTodosOsRuns,
   ferramentasDoRun,
   getRun,
   listRuns,
@@ -676,7 +677,19 @@ export function createApp(home: string, token: string): Hono {
    * pra não aplicar update (`quitAndInstall`) no meio de um turno — nunca soube antes que
    * update existia, então basta ser "tem gente trabalhando", sem importar em qual thread.
    */
-  app.get("/v1/status/turno-ativo", (c) => c.json({ ativo: busyThreads().length > 0 }));
+  app.get("/v1/status/turno-ativo", (c) => c.json({ ativo: busyThreads().length > 0, agentes: busyThreads().length }));
+
+  /**
+   * "Parar agentes e reiniciar" do banner de atualização: para os times (senão o próximo passo
+   * começaria) e derruba todo turno em voo, inclusive o que só segura tarefa em background.
+   */
+  app.post("/v1/status/parar-tudo", async (c) => {
+    const times = await abortarTodosOsRuns();
+    const conversas = busyThreads();
+    await Promise.all(conversas.map((id) => abortThread(id)));
+    log.info("motor", "agentes parados pra atualizar o app", { conversas: conversas.length, times });
+    return c.json({ ok: true, conversas: conversas.length, times });
+  });
 
   /**
    * Uma linha por conversa com motor de pé — conta, modelo, o que está escrevendo

@@ -1885,8 +1885,17 @@ body[data-focus="1"] .work #pane-chat {
   background: var(--accent);
   transition: width .2s;
 }
-.banner-update .primary {
+.banner-update .primary,
+.banner-update .ghost {
   flex: 0 0 auto;
+}
+
+.banner-update .danger {
+  color: var(--danger);
+}
+
+.banner-update .danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
 }
 
 .sobre-versao {
