@@ -10,6 +10,13 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Alterado
 
+## [0.12.1] - 2026-09-29
+
+### Corrigido
+
+- Painel de vídeo mais leve: a cena só carrega quando o card chega perto da tela, um clique não repinta o painel duas vezes e a prévia reaproveita GSAP, CSS e fontes em vez de baixar de novo pra cada cena.
+- O agente do vídeo não importa mais uma tela do painel de mocks como se fosse do app: a lista separa as telas do DS oficial (preferidas) das do painel de mocks, que só entram se o vídeo for sobre aquela mudança.
+
 ## [0.12.0] - 2026-09-28
 
 ### Adicionado
