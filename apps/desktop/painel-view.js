@@ -1,4 +1,5 @@
 import { fmtReset, folderName } from "./format.js";
+import { rotuloDaFerramenta } from "./rotulos-ferramenta.js";
 
 /**
  * O que o painel de borda mostra, calculado a partir do que o daemon responde.
@@ -106,14 +107,76 @@ export function linhasDeAtividade(agentes, terminadas = new Map(), agora = Date.
       nome: a.agentName || a.preview || a.profileId || "conversa",
       estado,
       ms: a.startedAt ? Math.max(0, agora - a.startedAt) : 0,
+      passos: estado === "trabalhando" ? passosLegiveis(a.passos) : [],
+      ...(estado === "esperando" && a.pergunta ? { pergunta: a.pergunta } : {}),
     });
   }
   for (const [threadId, t] of terminadas) {
     if (vistos.has(threadId)) continue;
-    linhas.push({ ...t, threadId, estado: "terminou", ms: 0 });
+    linhas.push({ ...t, threadId, estado: "terminou", ms: 0, passos: [] });
   }
   const ordem = { esperando: 0, trabalhando: 1, terminou: 2 };
   return linhas.sort((a, b) => ordem[a.estado] - ordem[b.estado]);
+}
+
+const VERBOS = {
+  Bash: "Roda",
+  PowerShell: "Roda",
+  Read: "Lê",
+  Write: "Escreve",
+  Edit: "Edita",
+  MultiEdit: "Edita",
+  NotebookEdit: "Edita",
+  Glob: "Procura",
+  Grep: "Busca",
+  WebSearch: "Pesquisa",
+  WebFetch: "Abre",
+  Task: "Delega",
+  Agent: "Delega",
+  TodoWrite: "Tarefas",
+};
+/** Ferramentas cujo alvo é um caminho: na ilha compacta cabe só o nome do arquivo. */
+const DE_ARQUIVO = new Set(["Read", "Write", "Edit", "MultiEdit", "NotebookEdit"]);
+
+/**
+ * Passo do turno em palavras: `{ verbo, alvo, curto }`. "Edita · apps/desktop/painel.js" no card,
+ * "Edita · painel.js" na ilha compacta. Ferramenta do próprio Nexos usa o rótulo do chat
+ * ("Quadro de tarefas · atualizando card"); o resto fica com o nome cru.
+ */
+export function passoLegivel(passo) {
+  const nome = String(passo?.nome ?? "");
+  const alvo = String(passo?.resumo ?? "").replace(/\s+/g, " ").trim();
+  const doNexos = rotuloDaFerramenta(nome);
+  if (doNexos) return { verbo: doNexos.texto, alvo: "", curto: "" };
+  const verbo = VERBOS[nome] ?? (nome.replace(/^mcp__/, "").replace(/__/g, " · ") || "Ferramenta");
+  const curto = DE_ARQUIVO.has(nome) ? alvo.replace(/[\\/]+$/, "").replace(/^.*[\\/]/, "") : alvo;
+  return { verbo, alvo, curto };
+}
+
+/** Há quanto tempo o turno roda, em minutos: a ilha não precisa de segundos piscando. */
+export function tempoCurto(ms) {
+  const min = Math.floor(Math.max(0, Number(ms) || 0) / 60_000);
+  if (min < 1) return "agora";
+  if (min < 60) return `${min} min`;
+  return `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")}`;
+}
+
+/** Os passos do retrato do daemon, do mais novo pro mais antigo. */
+export function passosLegiveis(passos) {
+  return (Array.isArray(passos) ? passos : []).map(passoLegivel).reverse();
+}
+
+/**
+ * Uma linha do que o agente disse por último, pro "terminou" da ilha. O `tail` do daemon é o rabo
+ * cru da resposta (markdown, cortado em 400 caracteres): fica o último parágrafo, sem marcação.
+ */
+export function resumoDoFim(tail, max = 150) {
+  const paragrafos = String(tail ?? "")
+    .split(/\n\s*\n/)
+    .map((p) => p.replace(/```[\s\S]*?(```|$)/g, " ").replace(/[*_`#>|]/g, "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const ultimo = paragrafos[paragrafos.length - 1] ?? "";
+  return ultimo.length > max ? `${ultimo.slice(0, max - 1).trimEnd()}…` : ultimo;
 }
 
 /** Quanto tempo um "vista" da janela principal vale pra barrar um "terminou" que chega depois. */
@@ -133,16 +196,20 @@ export function naoVistas(terminou, vistas, agora = Date.now(), valeMs = VISTA_V
 
 /**
  * O que mudou entre dois retratos das conversas: quem terminou (estava em voo e não está mais) e
- * quem passou a esperar resposta. É isso que abre o painel sozinho e toca o som.
+ * quem passou a esperar resposta. É isso que abre o painel sozinho e toca o som. `comecou`: quem
+ * estava parado e entrou em voo (a ilha espia o compacto).
  */
 export function transicoes(antes, agora) {
   const eram = new Map((Array.isArray(antes) ? antes : []).map((a) => [a.threadId, estadoDoAgente(a)]));
   const terminou = [];
   const esperando = [];
+  const comecou = [];
   for (const a of Array.isArray(agora) ? agora : []) {
     const era = eram.get(a.threadId);
     const e = estadoDoAgente(a);
     if (e === "esperando" && era !== "esperando") esperando.push(a);
+    // voltar de uma pergunta respondida não é "começou": a conversa já estava em voo
+    if (e === "trabalhando" && era !== "trabalhando" && era !== "esperando") comecou.push(a);
     if (e === "parado" && (era === "trabalhando" || era === "esperando") && a.lastTerminal !== "error") terminou.push(a);
   }
   // conversa em voo que sumiu da lista (motor fechou) também terminou
@@ -150,7 +217,7 @@ export function transicoes(antes, agora) {
   for (const a of Array.isArray(antes) ? antes : []) {
     if (!ids.has(a.threadId) && estadoDoAgente(a) === "trabalhando") terminou.push(a);
   }
-  return { terminou, esperando };
+  return { terminou, esperando, comecou };
 }
 
 /**

@@ -1,9 +1,19 @@
 import { createApiClient } from "./api.js";
-import { fmtDuracao } from "./agent-trace.js";
-import { celulasDeConta, linhasDeAtividade, mudancasDeLimite, naoVistas, transicoes, VISTA_VALE_MS } from "./painel-view.js";
+import { Ilha, caixaDaIlha, faixaDeDespertar, tamanhoDaIlha, ILHA } from "./painel-ilha.js";
+import {
+  celulasDeConta,
+  linhasDeAtividade,
+  mudancasDeLimite,
+  naoVistas,
+  resumoDoFim,
+  tempoCurto,
+  transicoes,
+  VISTA_VALE_MS,
+} from "./painel-view.js";
 
 /**
- * Painel de borda: a pílula que mora numa borda da tela (desenho do codenotch).
+ * Painel de borda no estilo ilha: recolhida é um traço na borda da tela, compacta mostra o mago e
+ * o passo atual, aberta traz os cards — e a pergunta do agente se responde daqui mesmo.
  *
  * Quem sabe se o cursor está em cima é o processo principal (main.cjs, `vigiarPainel`), que manda
  * `painel:hover`; aqui só se decide o que abre, o que aparece e onde. Em troca a página informa
@@ -15,39 +25,43 @@ import { celulasDeConta, linhasDeAtividade, mudancasDeLimite, naoVistas, transic
 
 const PERIODO_MS = 2000;
 const PERIODO_OFF_MS = 8000;
-/** Depois que o cursor sai: espera um tico antes de recolher (atravessar o vão até o card). */
-const RECOLHER_MS = 450;
-/** Profundidade da faixa que só desperta a pílula recolhida (o clique ali ainda atravessa). */
-const DESPERTAR = 24;
 const MAX_TERMINADAS = 8;
+/** Conversas que cabem na lista da visão geral; o resto vira "+N". */
+const MAX_LINHAS = 4;
+/** Anéis que cabem na ilha compacta. */
+const MAX_ANEIS_COMPACTO = 3;
 
 const el = (id) => document.getElementById(id);
 const body = document.body;
 const api = createApiClient({ daemonInfo: () => window.nexo.daemonInfo() });
+const semMovimento = matchMedia("(prefers-reduced-motion: reduce)");
 
 let prefs = { mostrar: "dinamico", aneis: "dois", opacidade: 1, espiar: 5, somAoTerminar: true, somAoPedir: true, avisarLimite: true, avisarRenovou: true, atencao: 0.5, critico: 0.8 };
-let borda = "direita";
-let centro = 300;
-let hover = false;
-let fixo = false;
-let espiarAte = 0;
-/** O que o card mostra: "atividade", "conta:<id>", "menu" ou null. */
-let alvo = null;
+let borda = "topo";
+let centro = 360;
+/** O que a ilha aberta mostra: "geral", "conta", "pergunta" ou "fim" (+ `alvo`: conta ou conversa). */
+let visao = "geral";
+let alvo = "";
+/** Conversa em destaque no card da esquerda da visão geral ("" = a primeira da lista). */
+let foco = "";
 let ligado = false;
 let dados = { contas: [], agentes: [] };
 let agentesAntes = null;
 let limitesAntes = null;
-/** threadId → { projectPath, projeto, nome }: terminou e ninguém abriu ainda. */
+/** threadId → { projectPath, projeto, nome, resumo }: terminou e ninguém abriu ainda. */
 const terminadas = new Map();
 /** threadId → quando a janela principal disse que a pessoa viu (ver `naoVistas`). */
 const vistas = new Map();
+/** Perguntas que a pessoa recolheu sem responder: não reabrem a ilha sozinhas. */
+const dispensadas = new Set();
 const atualizando = new Set();
+/** Pergunta sendo respondida agora (threadId) e o erro da última tentativa. */
+let enviando = "";
+let erroDaResposta = "";
 let timer = 0;
-let recolher = 0;
-let arrastou = false;
 
-const vertical = () => borda === "direita" || borda === "esquerda";
-const aberto = () => prefs.mostrar === "fixo" || hover || fixo || Date.now() < espiarAte;
+const ilha = new Ilha();
+ilha.aoMudar = () => pintar();
 
 /* ---------------- tema ---------------- */
 
@@ -85,64 +99,136 @@ function tocar(tipo) {
   }
 }
 
-/* ---------------- pintura ---------------- */
+/* ---------------- mago ---------------- */
 
 /**
- * Anel da conta. "dois": o de fora é a semana (7 dias), o de dentro a sessão (5 h). "um": só o de
- * fora, com a janela mais apertada.
+ * Os mesmos quadros do maguinho da janela principal (pets/nexo/mago), em clipes curtos: aqui ele
+ * é só indicador de estado. Só anima com a ilha à vista — recolhida, não roda timer nenhum.
  */
-function svgAnel(dois) {
-  const c = (cls, r) => `<circle class="${cls}" cx="18" cy="18" r="${r}" pathLength="100" />`;
-  const fora = c("trilho fora", 16) + c("uso fora", 16);
-  const dentro = dois ? c("trilho dentro", 12.5) + c("uso dentro", 12.5) : "";
-  return `<svg viewBox="0 0 36 36" aria-hidden="true">${fora}${dentro}</svg>`;
+const MAGO = {
+  off: [["off", 0]],
+  parado: [["idle", 2600], ["idle-breath", 700], ["idle", 1800], ["idle-blink-half", 70], ["idle-blink", 110], ["idle-blink-half", 70]],
+  trabalhando: [["work", 240], ["work-tap-a", 90], ["work-on", 110], ["work-tap-b", 90], ["work-dim", 70], ["work-tap-a-on", 90], ["work", 200], ["work-tap-b", 90], ["work-blink", 120]],
+  esperando: [["wait-0", 900], ["wait-1", 650], ["wait-2", 650], ["wait-3", 650], ["wait-blink", 110], ["wait-3", 650], ["wait-flip", 260]],
+  // o pulinho acontece uma vez; depois ele fica parado
+  terminou: [["done-rest", 200], ["done-squat", 120], ["done-jump", 90], ["done-high", 140], ["done-high", 140], ["done-land", 110], ["idle", 0]],
+};
+const mago = { estado: "", quadro: "", i: 0, timer: 0 };
+
+function quadroDoMago(nome) {
+  const src = `pets/nexo/mago/${nome}.png`;
+  for (const img of document.querySelectorAll("[data-mago]")) if (img.getAttribute("src") !== src) img.src = src;
+}
+
+function passoDoMago() {
+  const clipe = MAGO[mago.estado] ?? MAGO.parado;
+  const [nome, ms] = clipe[mago.i % clipe.length];
+  mago.quadro = nome;
+  quadroDoMago(nome);
+  mago.i += 1;
+  // duração 0 = quadro final do clipe (ou estado de um quadro só): para aqui
+  if (!ms || semMovimento.matches) return;
+  mago.timer = setTimeout(passoDoMago, ms);
+}
+
+function animarMago(estado) {
+  if (ilha.modo === "recolhido") {
+    clearTimeout(mago.timer);
+    mago.estado = "";
+    return;
+  }
+  if (estado !== mago.estado) {
+    clearTimeout(mago.timer);
+    mago.estado = estado;
+    mago.i = 0;
+    passoDoMago();
+  } else if (mago.quadro) {
+    // a visão foi repintada: a imagem nova precisa do quadro que já estava na tela
+    quadroDoMago(mago.quadro);
+  }
+}
+
+/* ---------------- montagem ---------------- */
+
+/** `h("button", { class: "btn", data: { acao: "x" } }, "texto", filho)` */
+function h(tag, props = {}, ...filhos) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (v === undefined || v === null || v === false) continue;
+    if (k === "class") n.className = v;
+    else if (k === "data") for (const [dk, dv] of Object.entries(v)) n.dataset[dk] = dv;
+    else n.setAttribute(k, v === true ? "" : String(v));
+  }
+  n.append(...filhos.filter((f) => f !== null && f !== undefined && f !== false));
+  return n;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svg(viewBox, ...formas) {
+  const s = document.createElementNS(SVG_NS, "svg");
+  s.setAttribute("viewBox", viewBox);
+  s.setAttribute("aria-hidden", "true");
+  for (const [tag, attrs] of formas) {
+    const f = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) f.setAttribute(k, String(v));
+    s.append(f);
+  }
+  return s;
 }
 
 const COR = { ok: "var(--ok)", medio: "var(--medio)", alto: "var(--alto)", cheio: "var(--cheio)" };
 
-function pintarContas(celulas) {
-  const box = el("contas");
-  const porId = new Map([...box.children].map((n) => [n.dataset.conta, n]));
-  const ordem = [];
-  celulas.forEach((c, i) => {
-    const dois = prefs.aneis !== "um";
-    let b = porId.get(c.id);
-    // trocou "um"/"dois" nas Configurações: o anel é refeito
-    if (b && b.dataset.aneis !== (dois ? "dois" : "um")) b = null;
-    if (!b) {
-      b = document.createElement("button");
-      b.type = "button";
-      b.className = "celula conta";
-      b.dataset.conta = c.id;
-      b.dataset.alvo = `conta:${c.id}`;
-      b.dataset.aneis = dois ? "dois" : "um";
-      b.innerHTML = `<span class="anel">${svgAnel(dois)}<span class="letra"></span></span><span class="nome"></span>`;
-    }
-    b.style.setProperty("--i", String(i + 1));
-    const cinco = c.janelas.find((j) => j.chave === "fiveHour");
-    const semana = c.janelas.find((j) => j.chave === "sevenDay");
-    const fora = dois ? semana : { pct: c.pct, nivel: c.nivel };
-    const dentro = dois ? cinco : null;
-    b.dataset.semFora = fora ? "0" : "1";
-    b.dataset.semDentro = dentro ? "0" : "1";
-    if (fora) {
-      b.style.setProperty("--pct-fora", String(fora.pct));
-      b.style.setProperty("--cor-fora", COR[c.bloqueada ? "cheio" : fora.nivel]);
-    }
-    if (dentro) {
-      b.style.setProperty("--pct-dentro", String(dentro.pct));
-      b.style.setProperty("--cor-dentro", COR[c.bloqueada ? "cheio" : dentro.nivel]);
-    }
-    b.dataset.nivel = c.nivel;
-    b.dataset.velha = c.velha ? "1" : "0";
-    b.dataset.atualizando = atualizando.has(c.id) ? "1" : "0";
-    b.querySelector(".letra").textContent = c.bloqueada ? "!" : `${c.velha ? "~" : ""}${c.pct}`;
-    b.querySelector(".nome").textContent = c.nome;
-    b.title = `${c.nome} — ${c.bloqueada ? "bloqueada" : `${c.pct}% usado`} · clique pra atualizar`;
-    ordem.push(b);
-  });
-  box.replaceChildren(...ordem);
+/**
+ * Anel da conta. "dois": o de fora é a semana (7 dias), o de dentro a sessão (5 h). "um": só o de
+ * fora, com a janela mais apertada. `pequeno` = o da ilha compacta, sem número.
+ */
+function anelDaConta(c, pequeno) {
+  const dois = prefs.aneis !== "um";
+  const circ = (cls, r) => ["circle", { class: cls, cx: 18, cy: 18, r, pathLength: 100 }];
+  const formas = [circ("trilho fora", 16), circ("uso fora", 16)];
+  if (dois) formas.push(circ("trilho dentro", 11), circ("uso dentro", 11));
+  const cinco = c.janelas.find((j) => j.chave === "fiveHour");
+  const semana = c.janelas.find((j) => j.chave === "sevenDay");
+  const fora = dois ? semana : { pct: c.pct, nivel: c.nivel };
+  const dentro = dois ? cinco : null;
+  const a = h(
+    "span",
+    {
+      class: pequeno ? "anel p" : "anel",
+      data: {
+        semFora: fora ? "0" : "1",
+        semDentro: dentro ? "0" : "1",
+        velha: c.velha ? "1" : "0",
+        atualizando: atualizando.has(c.id) ? "1" : "0",
+      },
+    },
+    svg("0 0 36 36", ...formas),
+    pequeno ? null : c.bloqueada ? "!" : `${c.velha ? "~" : ""}${c.pct}`,
+  );
+  if (fora) {
+    a.style.setProperty("--pct-fora", String(fora.pct));
+    a.style.setProperty("--cor-fora", COR[c.bloqueada ? "cheio" : fora.nivel]);
+  }
+  if (dentro) {
+    a.style.setProperty("--pct-dentro", String(dentro.pct));
+    a.style.setProperty("--cor-dentro", COR[c.bloqueada ? "cheio" : dentro.nivel]);
+  }
+  a.title = `${c.nome} — ${c.bloqueada ? "bloqueada" : `${c.pct}% usado`}`;
+  return a;
 }
+
+const SELO = {
+  esperando: ["esperando você", [["circle", { cx: 12, cy: 12, r: 9 }], ["path", { d: "M12 7v6M12 16.5v.5" }]]],
+  terminou: ["terminou", [["path", { d: "M5 12.5l4.5 4.5L19 7.5" }]]],
+};
+/** Estado com ícone E texto: a cor sozinha não pode ser o único sinal. */
+function selo(estado) {
+  const [texto, formas] = SELO[estado];
+  return h("span", { class: "selo", data: { estado } }, svg("0 0 24 24", ...formas), texto);
+}
+
+const magoImg = (pequeno) => h("img", { class: pequeno ? "mago p" : "mago", "data-mago": true, alt: "" });
+const botao = (texto, acao, extra = {}, cls = "btn") => h("button", { type: "button", class: cls, data: { acao, ...extra } }, texto);
 
 function estadoGeral(linhas) {
   if (linhas.some((l) => l.estado === "esperando")) return "esperando";
@@ -151,246 +237,267 @@ function estadoGeral(linhas) {
   return "";
 }
 
-function cardAtividade(linhas) {
-  const frag = document.createDocumentFragment();
-  const h = document.createElement("h2");
-  h.textContent = "Conversas";
-  const n = linhas.filter((l) => l.estado !== "terminou").length;
-  if (n) {
-    const s = document.createElement("small");
-    s.textContent = `${n} rodando`;
-    h.append(s);
-  }
-  frag.append(h);
-  if (!linhas.length) {
-    const p = document.createElement("p");
-    p.className = "vazio";
-    p.textContent = ligado ? "Nada rodando agora." : "Motor desligado.";
-    frag.append(p);
-    return frag;
-  }
-  const rotulo = { esperando: "esperando você", trabalhando: "", terminou: "terminou" };
-  for (const l of linhas) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "conversa";
-    b.dataset.thread = l.threadId;
-    b.dataset.projeto = l.projectPath;
-    const ponto = document.createElement("span");
-    ponto.className = "ponto";
-    ponto.dataset.estado = l.estado;
-    const nome = document.createElement("span");
-    nome.className = "conversa-nome";
-    nome.textContent = l.nome;
-    const tempo = document.createElement("span");
-    tempo.className = "conversa-tempo";
-    tempo.textContent = l.estado === "trabalhando" && l.ms ? fmtDuracao(l.ms) : rotulo[l.estado];
-    const proj = document.createElement("span");
-    proj.className = "conversa-proj";
-    proj.textContent = l.projeto;
-    b.append(ponto, nome, tempo, proj);
-    b.title = "Abrir no Nexos";
-    frag.append(b);
-  }
-  return frag;
+/* ---------------- compacta ---------------- */
+
+function pintarCompacto(linhas, celulas) {
+  const txt = el("c-txt");
+  const l = linhas[0];
+  const dois = (a, b) => txt.replaceChildren(a, b ? h("i", {}, ` · ${b}`) : "");
+  if (!ligado) dois("Motor desligado");
+  else if (!l) dois("Nada rodando");
+  else if (l.estado === "esperando") dois("Esperando você", l.nome);
+  else if (l.estado === "terminou") dois("Terminou", l.nome);
+  else if (l.passos[0]) dois(l.passos[0].verbo, l.passos[0].curto);
+  else dois("Pensando", l.nome);
+  const rodando = linhas.filter((x) => x.estado !== "terminou").length;
+  el("c-mais").classList.toggle("hidden", rodando < 2);
+  el("c-mais").textContent = `+${rodando - 1}`;
+  el("c-mais").title = `${rodando} conversas rodando`;
+  el("c-aneis").replaceChildren(...celulas.slice(0, MAX_ANEIS_COMPACTO).map((c) => anelDaConta(c, true)));
 }
 
-function cardConta(c) {
-  const frag = document.createDocumentFragment();
-  const h = document.createElement("h2");
-  h.textContent = c.nome;
-  if (c.engine) {
-    const s = document.createElement("small");
-    s.textContent = c.engine;
-    h.append(s);
+/* ---------------- visões da ilha aberta ---------------- */
+
+function cartaoDoFoco(l) {
+  if (!l) {
+    return h(
+      "div",
+      { class: "cartao foco" },
+      magoImg(),
+      h("div", { class: "inf" }, h("div", { class: "tit" }, ligado ? "Nada rodando agora" : "Motor desligado"), h("div", { class: "acoes" }, botao("Abrir o Nexos", "nexos", {}, "btn lnk"))),
+    );
   }
-  frag.append(h);
-  if (c.bloqueada) {
-    const p = document.createElement("p");
-    p.className = "aviso";
-    p.textContent = "Conta bloqueada ou sem login.";
-    frag.append(p);
+  const inf = h("div", { class: "inf" });
+  const meta = l.estado === "trabalhando" ? `${l.projeto} · ${tempoCurto(l.ms)}` : l.projeto;
+  inf.append(h("div", { class: "tit" }, h("span", { class: "n" }, l.nome), h("small", {}, meta), l.estado === "trabalhando" ? null : selo(l.estado)));
+  const abrir = { thread: l.threadId, projeto: l.projectPath };
+  if (l.estado === "trabalhando") {
+    if (!l.passos.length) inf.append(h("div", { class: "passo" }, h("span", { class: "ponto", data: { estado: "trabalhando" } }), "Pensando…"));
+    l.passos.forEach((p, i) =>
+      inf.append(
+        h("div", { class: i ? "passo antigo" : "passo" }, h("span", { class: "ponto", data: { estado: i ? "" : "trabalhando" } }), p.verbo, p.alvo ? h("code", {}, p.alvo) : null),
+      ),
+    );
+    inf.append(h("div", { class: "acoes" }, botao("Abrir no Nexos", "abrir", abrir, "btn lnk")));
+  } else if (l.estado === "esperando") {
+    inf.append(h("p", { class: "texto sec" }, l.pergunta?.texto ?? "Pediu sua resposta pra continuar."));
+    inf.append(h("div", { class: "acoes" }, botao("Responder", "ver-pergunta", { thread: l.threadId }, "btn pri"), botao("Abrir no Nexos", "abrir", abrir, "btn lnk")));
+  } else {
+    if (l.resumo) inf.append(h("p", { class: "texto sec" }, l.resumo));
+    inf.append(h("div", { class: "acoes" }, botao("Abrir conversa", "abrir", abrir, "btn pri"), botao("Dispensar", "dispensar", { thread: l.threadId })));
   }
+  return h("div", { class: "cartao foco" }, magoImg(), inf);
+}
+
+function visaoGeral(linhas, celulas) {
+  const emFoco = linhas.find((l) => l.threadId === foco) ?? linhas[0];
+  const rodando = linhas.filter((l) => l.estado !== "terminou").length;
+  const lista = h("div", { class: "cartao col" }, h("span", { class: "rot" }, rodando ? `Conversas · ${rodando} rodando` : "Conversas"));
+  const rotulo = { esperando: "esperando você", terminou: "terminou" };
+  for (const l of linhas.slice(0, MAX_LINHAS)) {
+    lista.append(
+      h(
+        "button",
+        { type: "button", class: "lin", title: l.projeto, data: { acao: "foco", thread: l.threadId, sel: l === emFoco ? "1" : "0" } },
+        h("span", { class: "ponto", data: { estado: l.estado } }),
+        h("span", { class: "n" }, l.nome),
+        h("span", { class: "t" }, rotulo[l.estado] ?? tempoCurto(l.ms)),
+      ),
+    );
+  }
+  if (linhas.length > MAX_LINHAS) lista.append(h("p", { class: "vazio" }, `+${linhas.length - MAX_LINHAS} no Nexos`));
+  if (!linhas.length) lista.append(h("p", { class: "vazio" }, ligado ? "Nenhuma conversa ativa." : "Ligue o motor pra ver as conversas."));
+  if (celulas.length) {
+    lista.append(
+      h(
+        "div",
+        { class: "contas" },
+        ...celulas.map((c) =>
+          h("button", { type: "button", class: "conta", title: `${c.nome} — ver o uso`, data: { acao: "conta", conta: c.id } }, anelDaConta(c, false), h("span", { class: "n" }, c.nome)),
+        ),
+      ),
+    );
+  }
+  return [cartaoDoFoco(emFoco), lista];
+}
+
+function visaoDaConta(c) {
+  const janelas = h("div", { class: "janelas" });
   for (const j of c.janelas) {
-    const d = document.createElement("div");
-    d.className = "janela";
-    d.dataset.velha = j.velha ? "1" : "0";
+    const barra = h("i");
+    barra.style.width = `${j.pct}%`;
+    const d = h(
+      "div",
+      { class: "janela", data: { velha: j.velha ? "1" : "0" } },
+      h("div", { class: "janela-topo" }, h("span", { class: "janela-rotulo" }, `${j.rotulo} · ${j.duracao}`), h("span", { class: "janela-pct" }, `${j.velha ? "~" : ""}${j.pct}% usado`)),
+      h("span", { class: "janela-reset" }, j.reset),
+      h("div", { class: "barra" }, barra),
+    );
     d.style.setProperty("--cor", COR[j.nivel]);
-    d.innerHTML = `<div class="janela-topo"><span class="janela-rotulo"></span><span class="janela-pct"></span></div><span class="janela-reset"></span><div class="barra"><i></i></div>`;
-    d.querySelector(".janela-rotulo").textContent = `${j.rotulo} · ${j.duracao}`;
-    d.querySelector(".janela-pct").textContent = `${j.velha ? "~" : ""}${j.pct}% usado`;
-    d.querySelector(".janela-reset").textContent = j.reset;
-    d.querySelector(".barra i").style.width = `${j.pct}%`;
-    frag.append(d);
+    janelas.append(d);
   }
-  const dica = document.createElement("p");
-  dica.className = "aviso rodape";
-  dica.textContent = atualizando.has(c.id) ? "Atualizando…" : "Clique no anel pra atualizar agora.";
-  frag.append(dica);
-  return frag;
+  const ocupada = atualizando.has(c.id);
+  return [
+    h(
+      "div",
+      { class: "cartao col" },
+      h("div", { class: "tit" }, h("span", { class: "n" }, c.nome), c.engine ? h("small", {}, c.engine) : null),
+      c.bloqueada ? h("p", { class: "erro" }, "Conta bloqueada ou sem login.") : null,
+      janelas,
+      h("div", { class: "acoes" }, botao(ocupada ? "Atualizando…" : "Atualizar agora", "atualizar-conta", { conta: c.id }, "btn"), botao("Voltar", "geral", {}, "btn lnk")),
+    ),
+  ];
 }
 
-function cardMenu() {
-  const frag = document.createDocumentFragment();
-  const itens = [
-    ["atualizar", "Atualizar uso das contas"],
-    ["fixar", fixo ? "✓ Manter aberto" : "Manter aberto"],
-    ["abrir", "Abrir o Nexos"],
-    ["config", "Configurações do painel…"],
-    ["esconder", "Esconder o painel"],
-  ];
-  for (const [acao, texto] of itens) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "item-menu";
-    b.dataset.acao = acao;
-    b.textContent = texto;
-    frag.append(b);
+function visaoDaPergunta(l) {
+  const p = l.pergunta;
+  const abrir = { thread: l.threadId, projeto: l.projectPath };
+  const inf = h("div", { class: "inf" });
+  const lote = p?.total > 1 ? `Pergunta ${p.numero}/${p.total}` : "";
+  inf.append(h("div", { class: "tit" }, h("span", { class: "n" }, l.nome), h("small", {}, [l.projeto, lote].filter(Boolean).join(" · ")), selo("esperando")));
+  inf.append(h("p", { class: "texto" }, p?.texto ?? "Pediu sua resposta pra continuar."));
+  const acoes = h("div", { class: "acoes" });
+  // resposta por botão só quando é escolher UMA opção; texto livre e múltipla escolha ficam no chat
+  const porBotao = p?.opcoes?.length && !p.multiSelect;
+  if (porBotao) {
+    p.opcoes.forEach((o, i) => {
+      const b = botao(o, "responder", { thread: l.threadId, i: String(i) });
+      b.title = o;
+      if (enviando === l.threadId) b.setAttribute("disabled", "");
+      acoes.append(b);
+    });
+    acoes.append(botao("Responder no Nexos", "abrir", abrir, "btn lnk"));
+  } else {
+    acoes.append(botao("Responder no Nexos", "abrir", abrir, "btn pri"));
   }
-  return frag;
+  inf.append(acoes);
+  if (erroDaResposta) inf.append(h("p", { class: "erro" }, erroDaResposta));
+  return [h("div", { class: "cartao" }, magoImg(), inf)];
 }
+
+function visaoDoFim(l) {
+  const abrir = { thread: l.threadId, projeto: l.projectPath };
+  return [
+    h(
+      "div",
+      { class: "cartao" },
+      magoImg(),
+      h(
+        "div",
+        { class: "inf" },
+        h("div", { class: "tit" }, h("span", { class: "n" }, l.nome), h("small", {}, l.projeto), selo("terminou")),
+        l.resumo ? h("p", { class: "texto sec" }, l.resumo) : null,
+        h("div", { class: "acoes" }, botao("Abrir conversa", "abrir", abrir, "btn pri"), botao("Dispensar", "dispensar", { thread: l.threadId })),
+      ),
+    ),
+  ];
+}
+
+/** A visão pedida ainda existe? Pergunta respondida em outro lugar, conversa vista: volta pro geral. */
+function conferirVisao(linhas, celulas) {
+  const some = () => {
+    visao = "geral";
+    alvo = "";
+  };
+  if (visao === "pergunta") {
+    if (!linhas.some((l) => l.threadId === alvo && l.estado === "esperando")) {
+      // outra pergunta na fila toma o lugar; sem nenhuma, a ilha solta o pino e recolhe
+      const proxima = linhas.find((l) => l.estado === "esperando" && !dispensadas.has(l.threadId));
+      if (proxima && ilha.pinado) alvo = proxima.threadId;
+      else {
+        const estavaPinada = ilha.pinado;
+        some();
+        if (estavaPinada) ilha.recolher();
+      }
+    }
+  } else if (visao === "fim") {
+    if (!linhas.some((l) => l.threadId === alvo && l.estado === "terminou")) some();
+  } else if (visao === "conta") {
+    if (!celulas.some((c) => c.id === alvo)) some();
+  }
+}
+
+let ultimaVisao = "";
+function pintarVisao(linhas, celulas) {
+  let nos;
+  if (visao === "pergunta") nos = visaoDaPergunta(linhas.find((l) => l.threadId === alvo));
+  else if (visao === "fim") nos = visaoDoFim(linhas.find((l) => l.threadId === alvo));
+  else if (visao === "conta") nos = visaoDaConta(celulas.find((c) => c.id === alvo));
+  else nos = visaoGeral(linhas, celulas);
+  // só troca o DOM quando algo mudou: o poll roda a cada 2 s e não pode piscar nem perder o hover
+  const caixa = h("div", {}, ...nos);
+  const chave = `${visao}:${alvo}:${caixa.innerHTML}`;
+  if (chave !== ultimaVisao) {
+    ultimaVisao = chave;
+    el("visao").replaceChildren(...caixa.childNodes);
+  }
+  el("b-geral").dataset.ativa = visao === "geral" ? "1" : "0";
+  el("b-fixar").setAttribute("aria-pressed", ilha.fixado ? "true" : "false");
+  el("off").classList.toggle("hidden", ligado);
+}
+
+/** Barrinha que encolhe enquanto a ilha aberta espera pra recolher sozinha. */
+let contagemDe = 0;
+function pintarContagem() {
+  const c = el("contagem");
+  if (ilha.modo !== "aberto" || !ilha.recolheEm) {
+    contagemDe = 0;
+    c.style.transition = "none";
+    c.style.width = "0px";
+    return;
+  }
+  if (contagemDe === ilha.recolheEm) return;
+  contagemDe = ilha.recolheEm;
+  c.style.transition = "none";
+  c.style.width = "160px";
+  void c.offsetWidth;
+  c.style.transition = `width ${Math.max(0, ilha.recolheEm - Date.now())}ms linear`;
+  c.style.width = "0px";
+}
+
+/* ---------------- pintura ---------------- */
 
 function pintar() {
   const agora = Date.now();
   // fundo translúcido: a cor é a do tema (styles de :root), a opacidade vem das Configurações
   const opac = Number(prefs.opacidade);
   document.documentElement.style.setProperty("--opac", `${Math.round((opac >= 0.3 && opac <= 1 ? opac : 1) * 100)}%`);
-  const celulas = celulasDeConta(dados.contas, agora, prefs);
-  const linhas = linhasDeAtividade(dados.agentes, terminadas, agora);
+  const celulas = ligado ? celulasDeConta(dados.contas, agora, prefs) : [];
+  const linhas = ligado ? linhasDeAtividade(dados.agentes, terminadas, agora) : [];
+  conferirVisao(linhas, celulas);
+
   body.dataset.borda = borda;
-  body.dataset.aberto = aberto() ? "1" : "0";
+  body.dataset.modo = ilha.modo;
+  body.dataset.visao = visao;
   body.dataset.atividade = estadoGeral(linhas);
   body.dataset.ligado = ligado ? "1" : "0";
-  el("off").classList.toggle("hidden", ligado);
-  pintarContas(ligado ? celulas : []);
 
-  const rodando = linhas.filter((l) => l.estado !== "terminou").length;
-  const badge = el("badge-atividade");
-  badge.classList.toggle("hidden", rodando < 2);
-  badge.textContent = String(rodando);
-  el("cel-atividade").title = rodando ? `${rodando} ${rodando === 1 ? "conversa rodando" : "conversas rodando"} · clique pra abrir o Nexos` : "Abrir o Nexos";
+  pintarCompacto(linhas, celulas);
+  if (ilha.modo === "aberto") pintarVisao(linhas, celulas);
+  pintarContagem();
 
-  // comprimento da pílula aberta = o que as células ocupam
-  const cel = el("celulas");
-  const comp = (vertical() ? cel.offsetHeight : cel.offsetWidth) || 120;
-  body.style.setProperty("--comprimento", `${comp}px`);
-  posicionarPilula(comp);
-
-  for (const b of document.querySelectorAll(".celula")) b.dataset.ativa = b.dataset.alvo === alvo ? "1" : "0";
-  pintarCard(celulas, linhas);
-  reportarAreas();
+  const estadoDoMago = !ligado ? "off" : ilha.modo === "aberto" && visao === "pergunta" ? "esperando" : ilha.modo === "aberto" && visao === "fim" ? "terminou" : estadoGeral(linhas) || "parado";
+  animarMago(estadoDoMago);
+  posicionar();
 }
 
-/** A pílula fica no ponto da borda que a pessoa escolheu, sem sair da janela. */
-function posicionarPilula(comp) {
-  const tam = vertical() ? window.innerHeight : window.innerWidth;
-  const meio = aberto() ? comp / 2 : 28;
-  const c = Math.min(Math.max(centro, meio + 6), tam - meio - 6);
-  body.style.setProperty("--centro", `${c}px`);
-}
-
-function pintarCard(celulas, linhas) {
-  const card = el("card");
-  const visivel = aberto() && alvo !== null;
-  card.classList.toggle("hidden", !visivel);
-  if (!visivel) return;
-  const corpo = el("card-corpo");
-  if (alvo === "atividade") corpo.replaceChildren(cardAtividade(linhas));
-  else if (alvo === "menu") corpo.replaceChildren(cardMenu());
-  else {
-    const c = celulas.find((x) => `conta:${x.id}` === alvo);
-    if (!c) {
-      alvo = null;
-      card.classList.add("hidden");
-      return;
-    }
-    corpo.replaceChildren(cardConta(c));
-  }
-  posicionarCard();
-}
-
-/** Card do lado de dentro da pílula, alinhado com a célula (ou o meio da pílula, no menu). */
-function posicionarCard() {
-  const card = el("card");
-  const pil = el("pilula").getBoundingClientRect();
-  const ref = document.querySelector(`.celula[data-alvo="${CSS.escape(alvo ?? "")}"]`)?.getBoundingClientRect() ?? pil;
-  const W = window.innerWidth;
-  const H = window.innerHeight;
-  const cw = card.offsetWidth;
-  const ch = card.offsetHeight;
-  const GAP = 10;
-  const clamp = (v, a, b) => Math.min(Math.max(v, a), Math.max(a, b));
-  let x;
-  let y;
-  if (vertical()) {
-    // a pílula anima de largura: usa a largura final, não a do quadro atual
-    const prof = el("celulas").offsetWidth + 12;
-    x = borda === "direita" ? W - prof - GAP - cw : prof + GAP;
-    y = clamp(ref.top + ref.height / 2 - ch / 2, 6, H - ch - 6);
-    el("rabo").style.top = `${clamp(ref.top + ref.height / 2 - y - 5, 10, ch - 20)}px`;
-    el("rabo").style.left = "";
-  } else {
-    const prof = el("celulas").offsetHeight + 12;
-    y = borda === "topo" ? prof + GAP : H - prof - GAP - ch;
-    x = clamp(ref.left + ref.width / 2 - cw / 2, 6, W - cw - 6);
-    el("rabo").style.left = `${clamp(ref.left + ref.width / 2 - x - 5, 10, cw - 20)}px`;
-    el("rabo").style.top = "";
-  }
-  card.style.left = `${Math.round(x)}px`;
-  card.style.top = `${Math.round(y)}px`;
-}
-
-/* ---------------- áreas pro processo principal ---------------- */
-
+/** Tamanho e lugar da ilha dentro da janela, e os retângulos que o processo principal vigia. */
 let ultimasAreas = "";
-function reportarAreas() {
-  const ret = (r) => ({ x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) });
-  const W = window.innerWidth;
-  const H = window.innerHeight;
-  const c = parseFloat(body.style.getPropertyValue("--centro")) || centro;
-  const quentes = [];
-  let despertar = null;
-  if (aberto()) {
-    // tamanho FINAL da pílula (a transição ainda pode estar no meio)
-    const cel = el("celulas");
-    const prof = (vertical() ? cel.offsetWidth : cel.offsetHeight) + 12;
-    const comp = vertical() ? cel.offsetHeight + 12 : cel.offsetWidth + 12;
-    const r =
-      borda === "direita"
-        ? { x: W - prof, y: c - comp / 2, w: prof, h: comp }
-        : borda === "esquerda"
-          ? { x: 0, y: c - comp / 2, w: prof, h: comp }
-          : borda === "topo"
-            ? { x: c - comp / 2, y: 0, w: comp, h: prof }
-            : { x: c - comp / 2, y: H - prof, w: comp, h: prof };
-    quentes.push(Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Math.round(v)])));
-    if (!el("card").classList.contains("hidden")) quentes.push(ret(el("card").getBoundingClientRect()));
-  } else {
-    // tamanho FINAL do traço (a pílula ainda pode estar encolhendo): medir o DOM aqui pegava o
-    // tamanho aberto, o cursor ainda perto caía "dentro" e o painel reabria sem fechar direito
-    const css = getComputedStyle(document.documentElement);
-    const esp = parseFloat(css.getPropertyValue("--traco-esp")) || 5;
-    const tc = parseFloat(css.getPropertyValue("--traco-comp")) || 56;
-    const r =
-      borda === "direita"
-        ? { x: W - esp, y: c - tc / 2, w: esp, h: tc }
-        : borda === "esquerda"
-          ? { x: 0, y: c - tc / 2, w: esp, h: tc }
-          : borda === "topo"
-            ? { x: c - tc / 2, y: 0, w: tc, h: esp }
-            : { x: c - tc / 2, y: H - esp, w: tc, h: esp };
-    quentes.push(Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Math.round(v)])));
-    const L = 100;
-    despertar =
-      borda === "direita"
-        ? { x: W - DESPERTAR, y: c - L / 2, w: DESPERTAR, h: L }
-        : borda === "esquerda"
-          ? { x: 0, y: c - L / 2, w: DESPERTAR, h: L }
-          : borda === "topo"
-            ? { x: c - L / 2, y: 0, w: L, h: DESPERTAR }
-            : { x: c - L / 2, y: H - DESPERTAR, w: L, h: DESPERTAR };
-    despertar = Object.fromEntries(Object.entries(despertar).map(([k, v]) => [k, Math.round(v)]));
-  }
+function posicionar() {
+  const janela = { w: window.innerWidth, h: window.innerHeight };
+  const teto = janela.h - ILHA.margem * 2;
+  const alt = Math.min(el("aberto").offsetHeight, teto);
+  const tam = tamanhoDaIlha(ilha.modo, borda, alt);
+  const caixa = caixaDaIlha(borda, centro, janela, tam);
+  const ilhaEl = el("ilha");
+  ilhaEl.style.setProperty("--w", `${tam.w}px`);
+  ilhaEl.style.setProperty("--h", `${tam.h}px`);
+  ilhaEl.style.setProperty("--centro", `${caixa.centro}px`);
+
+  // a ilha anima; as áreas já valem pelo tamanho FINAL (medir o DOM no meio da transição pegava
+  // o tamanho antigo e o cursor ainda perto caía "dentro", reabrindo o painel)
+  const quentes = [{ x: caixa.x, y: caixa.y, w: caixa.w, h: caixa.h }];
+  const despertar = ilha.modo === "recolhido" ? faixaDeDespertar(borda, centro, janela) : null;
   const json = JSON.stringify({ quentes, despertar });
   if (json === ultimasAreas) return;
   ultimasAreas = json;
@@ -399,23 +506,44 @@ function reportarAreas() {
 
 /* ---------------- dados ---------------- */
 
-function notar(transicao) {
-  const { esperando } = transicao;
+function abrirPergunta(threadId, pinado = true) {
+  visao = "pergunta";
+  alvo = threadId;
+  erroDaResposta = "";
+  ilha.abrir({ pinado });
+}
+
+async function notar(transicao) {
   const terminou = naoVistas(transicao.terminou, vistas);
+  const esperando = transicao.esperando.filter((a) => !dispensadas.has(a.threadId));
   for (const a of terminou) {
+    const antes = agentesAntes?.find((x) => x.threadId === a.threadId);
     terminadas.set(a.threadId, {
       projectPath: a.projectPath ?? "",
       projeto: a.projectPath ? a.projectPath.replace(/[\\/]+$/, "").replace(/^.*[\\/]/, "") : "sem projeto",
       nome: a.agentName || a.preview || a.profileId || "conversa",
+      resumo: resumoDoFim(antes?.tail),
     });
   }
   while (terminadas.size > MAX_TERMINADAS) terminadas.delete(terminadas.keys().next().value);
-  if (!terminou.length && !esperando.length) return;
-  if (esperando.length ? prefs.somAoPedir : prefs.somAoTerminar) tocar(esperando.length ? "pedir" : "fim");
-  if (prefs.espiar > 0 && prefs.mostrar !== "desligado") {
-    espiarAte = Date.now() + prefs.espiar * 1000;
-    alvo = "atividade";
-    setTimeout(pintar, prefs.espiar * 1000 + 50);
+
+  if (terminou.length || esperando.length) {
+    if (esperando.length ? prefs.somAoPedir : prefs.somAoTerminar) tocar(esperando.length ? "pedir" : "fim");
+    if (prefs.espiar > 0 && prefs.mostrar !== "desligado") {
+      // pergunta pede ação: abre e fica. "Terminou" só espia — e nunca por cima de uma pergunta aberta
+      if (esperando.length) abrirPergunta(esperando[0].threadId);
+      else if (!ilha.pinado) {
+        visao = "fim";
+        alvo = terminou[0].threadId;
+        ilha.abrir({ ms: prefs.espiar * 1000 });
+      }
+    }
+    return;
+  }
+  // conversa começou a trabalhar: só mostra o compacto, e só se a pessoa não está olhando o Nexos
+  if (transicao.comecou.length && prefs.espiar > 0 && ilha.modo === "recolhido") {
+    const emFoco = await window.nexo.painelEmFoco?.().catch(() => false);
+    if (!emFoco) ilha.espiar(prefs.espiar * 1000);
   }
 }
 
@@ -460,8 +588,12 @@ async function atualizar() {
       api.req("/v1/config").catch(() => null),
     ]);
     aplicarAparencia(cfg);
+    const antes = agentesAntes;
     dados = { contas: Array.isArray(contas) ? contas : [], agentes: Array.isArray(agentes) ? agentes : [] };
-    if (agentesAntes) notar(transicoes(agentesAntes, dados.agentes));
+    // pergunta que saiu de cena deixa de estar dispensada: a próxima da mesma conversa volta a abrir
+    const esperando = new Set(dados.agentes.filter((a) => a.aguardando).map((a) => a.threadId));
+    for (const id of dispensadas) if (!esperando.has(id)) dispensadas.delete(id);
+    if (antes) await notar(transicoes(antes, dados.agentes));
     agentesAntes = dados.agentes;
     avisarLimites(celulasDeConta(dados.contas, Date.now(), prefs));
   } catch {
@@ -494,16 +626,31 @@ async function atualizarTodas() {
   await Promise.all(ids.map(atualizarConta));
 }
 
+/** Manda a resposta da pergunta pro daemon; quem tira a pergunta da tela é o poll seguinte. */
+async function responder(threadId, indice) {
+  if (enviando) return;
+  const a = dados.agentes.find((x) => x.threadId === threadId);
+  const resposta = a?.pergunta?.opcoes?.[indice];
+  if (typeof resposta !== "string") return;
+  enviando = threadId;
+  erroDaResposta = "";
+  pintar();
+  try {
+    await api.req(`/v1/perguntas/${encodeURIComponent(threadId)}/responder`, { method: "POST", body: JSON.stringify({ resposta }) });
+  } catch (e) {
+    // 404 = já responderam em outro lugar (o poll tira a pergunta daqui); o resto a pessoa precisa saber
+    if (e?.status !== 404) erroDaResposta = "Não deu pra responder daqui. Responda no Nexos.";
+  }
+  enviando = "";
+  await atualizar();
+}
+
 /* ---------------- interação ---------------- */
 
 window.nexo.onPainel("painel:hover", (dentro) => {
-  hover = Boolean(dentro);
-  clearTimeout(recolher);
-  if (hover) return pintar();
-  recolher = setTimeout(() => {
-    if (!hover && !fixo) alvo = null;
-    pintar();
-  }, RECOLHER_MS);
+  if (dentro) ilha.entrou();
+  else ilha.saiu();
+  pintar();
 });
 window.nexo.onPainel("painel:lugar", (l) => {
   if (l?.borda) borda = l.borda;
@@ -512,6 +659,7 @@ window.nexo.onPainel("painel:lugar", (l) => {
 });
 window.nexo.onPainel("painel:prefs", (p) => {
   if (p && typeof p === "object") prefs = { ...prefs, ...p };
+  ilha.definirPiso(prefs.mostrar === "fixo" ? "compacto" : "recolhido");
   pintar();
 });
 window.nexo.onPainel("painel:vista", (threadId) => {
@@ -521,94 +669,100 @@ window.nexo.onPainel("painel:vista", (threadId) => {
   if (terminadas.delete(threadId)) pintar();
 });
 
-el("palco").addEventListener("mouseover", (e) => {
-  const c = e.target.closest(".celula");
-  if (c && alvo !== c.dataset.alvo && alvo !== "menu") {
-    alvo = c.dataset.alvo;
-    pintar();
-  }
-});
+const ACOES = {
+  geral: () => {
+    visao = "geral";
+    alvo = "";
+  },
+  atualizar: () => void atualizarTodas(),
+  fixar: () => ilha.fixar(!ilha.fixado),
+  nexos: () => void window.nexo.painelAbrir({}),
+  config: () => void window.nexo.painelConfig(),
+  esconder: () => void window.nexo.setPainelPrefs({ mostrar: "desligado" }),
+  recolher: () => {
+    // recolher com a pergunta na tela = "agora não": ela não reabre a ilha sozinha
+    if (visao === "pergunta" && alvo) dispensadas.add(alvo);
+    ACOES.geral();
+    ilha.recolher();
+  },
+  foco: (d) => {
+    const l = linhasDeAtividade(dados.agentes, terminadas).find((x) => x.threadId === d.thread);
+    foco = d.thread;
+    if (l?.estado === "esperando") abrirPergunta(d.thread, false);
+  },
+  "ver-pergunta": (d) => abrirPergunta(d.thread, false),
+  conta: (d) => {
+    visao = "conta";
+    alvo = d.conta;
+  },
+  "atualizar-conta": (d) => void atualizarConta(d.conta),
+  abrir: (d) => {
+    terminadas.delete(d.thread);
+    void window.nexo.painelAbrir({ threadId: d.thread, projectPath: d.projeto ?? "" });
+  },
+  dispensar: (d) => {
+    terminadas.delete(d.thread);
+    if (visao === "fim") ilha.recolher();
+  },
+  responder: (d) => void responder(d.thread, Number(d.i)),
+};
 
-el("pilula").addEventListener("click", (e) => {
-  if (arrastou) return;
-  const conta = e.target.closest(".celula.conta");
-  if (conta) return void atualizarConta(conta.dataset.conta);
-  if (e.target.closest("#cel-atividade")) return void window.nexo.painelAbrir({});
-  // clique no fundo da pílula não faz nada: antes ele fixava o painel aberto sem aviso nenhum, e
-  // parecia que "não fechava". "Manter aberto" fica no menu (botão direito), com o ✓.
-});
+const CABECALHO = { "b-geral": "geral", "b-atualizar": "atualizar", "b-fixar": "fixar", "b-nexos": "nexos", "b-config": "config", "b-esconder": "esconder", "b-recolher": "recolher" };
+for (const [id, acao] of Object.entries(CABECALHO)) el(id).dataset.acao = acao;
 
-el("pilula").addEventListener("contextmenu", (e) => {
-  e.preventDefault();
-  alvo = alvo === "menu" ? null : "menu";
-  pintar();
-});
+/** O botão de ação debaixo do ponteiro. Pelo ponto, e não pelo `target`: a visão pode ter sido repintada entre apertar e soltar. */
+const acaoEm = (e) => document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-acao]") ?? null;
+const chaveDe = (b) => (b ? JSON.stringify(b.dataset) : "");
 
-el("card").addEventListener("click", (e) => {
-  const conversa = e.target.closest(".conversa");
-  if (conversa) {
-    const threadId = conversa.dataset.thread;
-    terminadas.delete(threadId);
-    void window.nexo.painelAbrir({ threadId, projectPath: conversa.dataset.projeto });
-    pintar();
-    return;
-  }
-  const item = e.target.closest(".item-menu");
-  if (!item) return;
-  const acao = item.dataset.acao;
-  alvo = null;
-  if (acao === "atualizar") void atualizarTodas();
-  else if (acao === "fixar") fixo = !fixo;
-  else if (acao === "abrir") void window.nexo.painelAbrir({});
-  else if (acao === "config") void window.nexo.painelConfig();
-  else if (acao === "esconder") void window.nexo.setPainelPrefs({ mostrar: "desligado" });
-  pintar();
-});
-
-/* arrastar: segura a pílula e solta perto de qualquer borda (de qualquer monitor) */
-el("pilula").addEventListener("pointerdown", (e) => {
+/*
+ * Um gesto só decide tudo: apertou e soltou no mesmo botão = ação; no compacto = abre; arrastou
+ * mais de 6px = muda a ilha de borda (de qualquer monitor) — quem move a janela é o processo principal.
+ */
+let soltarGesto = null;
+el("ilha").addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
+  // o botão pode ter sido solto fora da janela (o clique atravessa): o gesto antigo não pode sobrar
+  soltarGesto?.();
+  const ilhaEl = el("ilha");
   const x0 = e.screenX;
   const y0 = e.screenY;
+  const apertou = chaveDe(acaoEm(e));
   let arrastando = false;
-  arrastou = false;
-  const pilula = el("pilula");
-  pilula.setPointerCapture(e.pointerId);
   const mover = (ev) => {
-    if (arrastando || Math.hypot(ev.screenX - x0, ev.screenY - y0) < 6) return;
+    if (arrastando || apertou || Math.hypot(ev.screenX - x0, ev.screenY - y0) < 6) return;
     arrastando = true;
-    arrastou = true;
     body.dataset.arrastando = "1";
-    alvo = null;
+    ilhaEl.setPointerCapture(e.pointerId);
     void window.nexo.painelArrastar(true);
   };
-  const soltar = () => {
-    pilula.removeEventListener("pointermove", mover);
-    pilula.removeEventListener("pointerup", soltar);
-    pilula.removeEventListener("pointercancel", soltar);
-    if (!arrastando) return;
-    delete body.dataset.arrastando;
-    void window.nexo.painelArrastar(false);
-    // o click que vem logo depois do pointerup não é um clique
-    setTimeout(() => (arrastou = false), 0);
+  const soltar = (ev) => {
+    window.removeEventListener("pointermove", mover);
+    window.removeEventListener("pointerup", soltar);
+    window.removeEventListener("pointercancel", soltar);
+    soltarGesto = null;
+    if (arrastando) {
+      delete body.dataset.arrastando;
+      void window.nexo.painelArrastar(false);
+      return;
+    }
+    if (ev?.type !== "pointerup") return;
+    const b = acaoEm(ev);
+    if (b && chaveDe(b) === apertou && !b.hasAttribute("disabled")) ACOES[b.dataset.acao]?.(b.dataset);
+    else if (!b && !apertou) ilha.clicar();
+    pintar();
   };
-  pilula.addEventListener("pointermove", mover);
-  pilula.addEventListener("pointerup", soltar);
-  pilula.addEventListener("pointercancel", soltar);
+  soltarGesto = soltar;
+  window.addEventListener("pointermove", mover);
+  window.addEventListener("pointerup", soltar);
+  window.addEventListener("pointercancel", soltar);
 });
 
-// a pílula anima; as áreas acompanham o fim da animação
-el("pilula").addEventListener("transitionend", reportarAreas);
-// relógio das conversas em voo e fim do "espiar"
+// o tempo das conversas em voo anda sozinho (em minutos: basta conferir de vez em quando)
 setInterval(() => {
-  if (aberto() && alvo === "atividade") pintar();
-  else if (espiarAte && Date.now() >= espiarAte) {
-    espiarAte = 0;
-    // o espiar escolheu o card de atividade; acabou, e o mouse não está em cima: solta
-    if (!hover && !fixo) alvo = null;
-    pintar();
-  }
-}, 1000);
+  if (ilha.modo === "aberto") pintar();
+}, 20_000);
+// a altura da ilha aberta depende do conteúdo: fonte carregou, zoom mudou
+window.addEventListener("resize", pintar);
 
 async function iniciar() {
   try {
@@ -617,6 +771,7 @@ async function iniciar() {
   } catch {
     // sem preferências: fica no padrão
   }
+  ilha.definirPiso(prefs.mostrar === "fixo" ? "compacto" : "recolhido");
   pintar();
   await atualizar();
 }

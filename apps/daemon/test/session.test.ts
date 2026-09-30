@@ -396,6 +396,17 @@ describe("session", () => {
     expect(agentSnapshots().find((a) => a.threadId === t.id)?.busy).toBe(false);
   });
 
+  it("agentSnapshots leva as últimas ferramentas do turno (o passo atual do painel de borda)", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    await postMessage(t.id, "TOOLLOOP", home);
+    expect(agentSnapshots().find((a) => a.threadId === t.id)?.passos).toEqual([{ nome: "Read", resumo: "a.ts" }]);
+    // turno novo começa sem os passos do anterior
+    await postMessage(t.id, "oi", home);
+    expect(agentSnapshots().find((a) => a.threadId === t.id)?.passos).toEqual([]);
+  });
+
   it("turno que fecha em auth para de contar como ocupado, mas segue retomável", async () => {
     const home = tempHome();
     addProfile({ id: "p1", engine: "stub" }, home);

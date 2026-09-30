@@ -12,7 +12,7 @@ import { configDeMcpAutoria, MCP_TOOLS_AUTORIA, urlDeMcpAutoria, urlDeMcpDeRun }
 import { indiceDisponivel, lerIndice } from "./repo-map-indice.ts";
 import { MCP_TOOLS_REPO_MAP } from "./repo-map-simbolos.ts";
 import { MCP_TOOLS_VEREDITO } from "./veredito.ts";
-import { MCP_TOOLS_PERGUNTAR, temPerguntaPendente } from "./perguntas.ts";
+import { MCP_TOOLS_PERGUNTAR, perguntaPendente, temPerguntaPendente, type PerguntaPendente } from "./perguntas.ts";
 import { MCP_TOOLS_DELEGAR, resetContadorDeDelegacao } from "./delegar.ts";
 import { MCP_TOOLS_NAVEGADOR } from "./navegador.ts";
 import { extensaoRecente, MCP_TOOLS_CHROME } from "./chrome.ts";
@@ -179,6 +179,8 @@ type Live = {
    * decide se o turno é parcial (retomar com "continue") e alimenta o `tail` do agente.
    */
   textoDoTurno?: string;
+  /** Últimas ferramentas deste turno (a mais nova no fim) — o "o que está fazendo agora" do painel de borda. */
+  passos?: PassoDoTurno[];
   pendingTurn: PendingTurn | null;
   retryCount: number;
   pendingQuota: boolean;
@@ -306,6 +308,12 @@ export function perfilEmVoo(profileId: string): boolean {
 /** Rabo do que o agente está escrevendo agora: o painel mostra o fim, não o começo. */
 const TAIL_CHARS = 400;
 
+/** Uma ferramenta do turno em voo, como o painel de borda mostra: nome e o alvo resumido. */
+export type PassoDoTurno = { nome: string; resumo: string };
+/** Quantos passos o retrato carrega: o atual e o anterior. */
+const PASSOS_MAX = 2;
+const PASSO_RESUMO_CHARS = 160;
+
 /**
  * Retrato de cada conversa com motor de pé. É tudo memória — o JSONL não sabe o
  * que está em voo — então é aqui que o painel de agentes se abastece.
@@ -323,6 +331,10 @@ export type AgentSnapshot = {
   lastTerminal: Live["lastTerminal"];
   /** Turno parado em `nexo_perguntar`, esperando a resposta de quem usa (o painel pinta âmbar). */
   aguardando: boolean;
+  /** A pergunta em si (texto e opções), pra responder direto do painel de borda. */
+  pergunta?: PerguntaPendente;
+  /** Últimas ferramentas do turno (a mais nova no fim). */
+  passos: PassoDoTurno[];
   /** Tarefas em background segurando o turno já respondido (`busy` é false nesse caso). */
   emEspera: number;
 };
@@ -350,6 +362,8 @@ export function agentSnapshots(): AgentSnapshot[] {
     pendingQuota: l.pendingQuota,
     lastTerminal: l.lastTerminal,
     aguardando: temPerguntaPendente(threadId),
+    ...(temPerguntaPendente(threadId) ? { pergunta: perguntaPendente(threadId) } : {}),
+    passos: l.passos ?? [],
     emEspera: soEsperando(l) ? (l.emEspera ?? 0) : 0,
   }));
 }
@@ -1251,6 +1265,7 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
   if (ev.type === "tool") {
     live.blocoNovo = true;
     gravarTextoDoTurno(live, threadId, home);
+    live.passos = [...(live.passos ?? []), { nome: ev.name, resumo: String(ev.summary ?? "").slice(0, PASSO_RESUMO_CHARS) }].slice(-PASSOS_MAX);
     const input = capInputPraPersistir(ev.input);
     appendEvent(
       { ts: nowIso(), type: "tool", threadId, name: ev.name, summary: ev.summary, ...(ev.id ? { id: ev.id } : {}), ...(input !== undefined ? { input } : {}) },
@@ -1856,6 +1871,7 @@ function waitTerminal(live: Live, ms = TURNO_TETO_MS): Promise<void> {
 async function sendTurn(live: Live, text: string, partial = false): Promise<void> {
   live.pendingTurn = { text, partial };
   if (!partial) live.textoDoTurno = "";
+  live.passos = [];
   live.lastTerminal = null;
   live.emEspera = 0;
   live.startedAt = Date.now();

@@ -941,20 +941,21 @@ function createWindow() {
 }
 
 /**
- * Painel de borda (substitui o antigo painel flutuante; desenho vem do codenotch): uma pílula
- * grudada numa borda da tela que abre ao passar o mouse e mostra a atividade das conversas e o
- * uso das contas.
+ * Painel de borda (substitui o antigo painel flutuante; estilo ilha, ideia do Coucou): uma ilha
+ * grudada numa borda da tela que acorda ao passar o mouse e mostra o que cada conversa está
+ * fazendo, o uso das contas e a pergunta do agente pra responder dali.
  *
- * A janela é transparente e maior que a pílula (cabe o card aberto) e fica parada: animar o
- * tamanho de uma janela transparente pisca. O que não é pílula/card deixa o clique passar
+ * A janela é transparente e maior que a ilha (cabe ela aberta) e fica parada: animar o
+ * tamanho de uma janela transparente pisca. O que não é ilha deixa o clique passar
  * (`setIgnoreMouseEvents` com `forward`) — e quem decide é ESTE processo, olhando o cursor a cada
  * 40ms contra os retângulos que a página informa. `mouseleave` numa janela que ignora o mouse não
  * é confiável (o codenotch no Windows chegou na mesma conclusão).
  *
  * `focusable: false`: clicar no painel não tira o foco do editor de quem está digitando.
  */
-const PAINEL_W = 340;
-const PAINEL_H = 600;
+/** Cabe a ilha aberta (660 de largura, altura do conteúdo) com folga pra sombra, em qualquer borda. */
+const PAINEL_W = 720;
+const PAINEL_H = 420;
 const PAINEL_VIGIA_MS = 40;
 /**
  * De quanto em quanto tempo o painel reafirma que fica por cima de tudo. O Windows às vezes tira a
@@ -967,10 +968,10 @@ const PAINEL_FOLGA = 10;
 const PAINEL_PADRAO = {
   /**
    * "dinamico": recolhido é só um traço; aparece ao aproximar o mouse e some ao afastar.
-   * "fixo": sempre aberto. "desligado": não aparece.
+   * "fixo": a ilha compacta fica sempre à vista. "desligado": não aparece.
    */
   mostrar: "dinamico",
-  borda: "direita",
+  borda: "topo",
   /** Posição ao longo de CADA borda (0..1); 0,5 = meio. */
   aoLongo: {},
   /** id do monitor; "" = o principal. */
@@ -1069,9 +1070,11 @@ function posicionarPainel(p = lerPainel(), lugar) {
   const pos = lugar?.pos ?? p.aoLongo[borda] ?? 0.5;
   const area = d.workArea;
   const vertical = borda === "direita" || borda === "esquerda";
-  const w = Math.round(PAINEL_W * p.tamanho);
-  const h = Math.min(Math.round(PAINEL_H * p.tamanho), vertical ? area.height : area.width);
-  const r = retanguloNaBorda(borda, pos, area, w, h);
+  // a ilha é deitada em qualquer borda: a janela não gira (o `retanguloNaBorda` gira `w`×`h` no
+  // topo/baixo, então ali os dois entram trocados)
+  const w = Math.min(Math.round(PAINEL_W * p.tamanho), area.width);
+  const h = Math.min(Math.round(PAINEL_H * p.tamanho), area.height);
+  const r = vertical ? retanguloNaBorda(borda, pos, area, w, h) : retanguloNaBorda(borda, pos, area, h, w);
   painel.setBounds(r);
   // onde, dentro da janela, fica o ponto da borda: perto do canto da tela a janela encosta no
   // limite, mas a pílula continua onde a pessoa soltou
@@ -1475,6 +1478,8 @@ app.whenReady().then(async () => {
     }
     return { ok: true };
   });
+  /** A pessoa está com o Nexos na frente? Aí o painel não precisa espiar toda vez que um turno começa. */
+  handle("painel:em-foco", (event) => doPainel(event) && Boolean(win && !win.isDestroyed() && win.isFocused()));
   handle("painel:config", (event) => {
     if (!doPainel(event)) return { ok: false };
     mostrarNexos();

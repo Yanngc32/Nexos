@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld("nexo", {
   painelArrastar: (on) => ipcRenderer.invoke("painel:arrastar", on),
   painelAbrir: (alvo) => ipcRenderer.invoke("painel:abrir", alvo),
   painelConfig: () => ipcRenderer.invoke("painel:config"),
+  painelEmFoco: () => ipcRenderer.invoke("painel:em-foco"),
   painelNotificar: (n) => ipcRenderer.invoke("painel:notificar", n),
   threadVista: (threadId) => ipcRenderer.invoke("thread:vista", threadId),
   /** Eventos do main pro painel/janela: painel:hover, painel:lugar, painel:prefs, painel:vista, painel:abrir, nexo:config. */

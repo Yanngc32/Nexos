@@ -1,6 +1,19 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import { celulasDeConta, janelasDaConta, linhasDeAtividade, mudancasDeLimite, nivelDoUso, transicoes, naoVistas, VISTA_VALE_MS } from "../painel-view.js";
+import {
+  celulasDeConta,
+  janelasDaConta,
+  linhasDeAtividade,
+  mudancasDeLimite,
+  nivelDoUso,
+  passoLegivel,
+  passosLegiveis,
+  resumoDoFim,
+  tempoCurto,
+  transicoes,
+  naoVistas,
+  VISTA_VALE_MS,
+} from "../painel-view.js";
 
 const { bordaMaisProxima, retanguloNaBorda } = createRequire(import.meta.url)("../painel-borda.cjs");
 
@@ -155,5 +168,79 @@ describe("naoVistas", () => {
     const terminou = [{ threadId: "t-vista" }, { threadId: "t-velha" }, { threadId: "t-nova" }];
     expect(naoVistas(terminou, vistas, agora).map((a) => a.threadId)).toEqual(["t-velha", "t-nova"]);
     expect(naoVistas(undefined, vistas, agora)).toEqual([]);
+  });
+});
+
+describe("passos do turno (ilha)", () => {
+  it("vira verbo + alvo; arquivo encurta pro nome na ilha compacta", () => {
+    expect(passoLegivel({ nome: "Edit", resumo: "apps/desktop/painel.js" })).toEqual({ verbo: "Edita", alvo: "apps/desktop/painel.js", curto: "painel.js" });
+    expect(passoLegivel({ nome: "Read", resumo: "C:\\proj\\a.ts" }).curto).toBe("a.ts");
+    // comando não é caminho: fica inteiro
+    expect(passoLegivel({ nome: "Bash", resumo: "pnpm test  painel-view" })).toEqual({ verbo: "Roda", alvo: "pnpm test painel-view", curto: "pnpm test painel-view" });
+  });
+
+  it("ferramenta do Nexos usa o rótulo do chat; desconhecida fica com o nome", () => {
+    expect(passoLegivel({ nome: "mcp__nexo__nexo_tarefa_salvar", resumo: "x" })).toEqual({ verbo: "Quadro de tarefas · atualizando card", alvo: "", curto: "" });
+    expect(passoLegivel({ nome: "mcp__github__create_issue", resumo: "" }).verbo).toBe("github · create_issue");
+    expect(passoLegivel(undefined).verbo).toBe("Ferramenta");
+  });
+
+  it("o mais novo vem primeiro", () => {
+    const ps = passosLegiveis([{ nome: "Read", resumo: "a.ts" }, { nome: "Edit", resumo: "b.ts" }]);
+    expect(ps.map((p) => p.curto)).toEqual(["b.ts", "a.ts"]);
+    expect(passosLegiveis(undefined)).toEqual([]);
+  });
+
+  it("só quem trabalha leva passos; só quem espera leva a pergunta", () => {
+    const pergunta = { texto: "qual?", opcoes: ["a", "b"], multiSelect: false };
+    const linhas = linhasDeAtividade(
+      [
+        { threadId: "1", busy: true, passos: [{ nome: "Read", resumo: "a.ts" }] },
+        { threadId: "2", busy: true, aguardando: true, pergunta, passos: [{ nome: "Read", resumo: "a.ts" }] },
+      ],
+      new Map([["3", { nome: "fim", projeto: "p", projectPath: "", resumo: "pronto" }]]),
+      AGORA,
+    );
+    expect(linhas.map((l) => [l.threadId, l.estado, l.passos.length, l.pergunta?.texto, l.resumo])).toEqual([
+      ["2", "esperando", 0, "qual?", undefined],
+      ["1", "trabalhando", 1, undefined, undefined],
+      ["3", "terminou", 0, undefined, "pronto"],
+    ]);
+  });
+});
+
+describe("transicoes: começou", () => {
+  const a = (threadId, busy, aguardando = false) => ({ threadId, busy, aguardando });
+
+  it("parado que entra em voo começou; conversa nova na lista também", () => {
+    const r = transicoes([a("1", false)], [a("1", true), a("2", true)]);
+    expect(r.comecou.map((x) => x.threadId)).toEqual(["1", "2"]);
+  });
+
+  it("voltar de uma pergunta respondida não é começar", () => {
+    expect(transicoes([a("1", true, true)], [a("1", true)]).comecou).toEqual([]);
+    expect(transicoes([a("1", true)], [a("1", true)]).comecou).toEqual([]);
+  });
+});
+
+describe("resumoDoFim", () => {
+  it("fica o último parágrafo, sem marcação", () => {
+    expect(resumoDoFim("Mexi em **três** arquivos.\n\nTestes `passando`; falta só o _changelog_.")).toBe("Testes passando; falta só o changelog.");
+  });
+
+  it("corta texto longo e ignora bloco de código", () => {
+    const r = resumoDoFim(`${"palavra ".repeat(60)}`, 40);
+    expect(r.length).toBeLessThanOrEqual(40);
+    expect(r.endsWith("…")).toBe(true);
+    expect(resumoDoFim("Pronto.\n\n```js\nconst a = 1;\n```")).toBe("Pronto.");
+    expect(resumoDoFim(undefined)).toBe("");
+  });
+});
+
+describe("tempoCurto", () => {
+  it("em minutos, sem segundos piscando", () => {
+    expect(tempoCurto(59_000)).toBe("agora");
+    expect(tempoCurto(4 * 60_000 + 30_000)).toBe("4 min");
+    expect(tempoCurto(125 * 60_000)).toBe("2 h 05");
   });
 });

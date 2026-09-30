@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createThread, readThread } from "../src/threads.ts";
 import { addProfile } from "../src/profiles.ts";
-import { ferramentaDePerguntar, responderPergunta, temPerguntaPendente, resetPerguntasForTest } from "../src/perguntas.ts";
+import { ferramentaDePerguntar, perguntaPendente, responderPergunta, temPerguntaPendente, resetPerguntasForTest } from "../src/perguntas.ts";
 import { tempHome } from "./helpers.ts";
 
 describe("nexo_perguntar", () => {
@@ -17,6 +17,8 @@ describe("nexo_perguntar", () => {
     // dá um tick pro `executar` chegar até o `await` da resposta
     await new Promise((r) => setTimeout(r, 10));
     expect(temPerguntaPendente(t.id)).toBe(true);
+    // o painel de borda responde dali mesmo: precisa do texto e das opções, não só do "tem pergunta"
+    expect(perguntaPendente(t.id)).toEqual({ texto: "qual conta usar?", opcoes: ["a", "b"], multiSelect: false });
     const pergunta = readThread(t.id, home).find((e) => e.type === "pergunta");
     expect(pergunta && pergunta.type === "pergunta" ? pergunta.texto : "").toBe("qual conta usar?");
     expect(pergunta && pergunta.type === "pergunta" ? pergunta.opcoes : []).toEqual(["a", "b"]);
@@ -24,6 +26,7 @@ describe("nexo_perguntar", () => {
     const resolvida = responderPergunta(t.id, "a");
     expect(resolvida).toBe(true);
     expect(temPerguntaPendente(t.id)).toBe(false);
+    expect(perguntaPendente(t.id)).toBeUndefined();
 
     const saida = await chamada;
     expect(saida).toEqual({ ok: true, texto: "a" });

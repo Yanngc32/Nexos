@@ -24,7 +24,16 @@ function newPerguntaId(): string {
   return `pg-${Date.now().toString(36)}-${seq}`;
 }
 
-type Pendente = { resolve: (resposta: string) => void };
+/** O que a pergunta em voo pede — é o que o painel de borda mostra pra responder dali mesmo. */
+export type PerguntaPendente = {
+  texto: string;
+  opcoes: string[];
+  multiSelect: boolean;
+  numero?: number;
+  total?: number;
+};
+
+type Pendente = { resolve: (resposta: string) => void; pergunta: PerguntaPendente };
 
 /** Pergunta em voo, por thread. */
 const pendentes = new Map<string, Pendente>();
@@ -158,7 +167,15 @@ export async function perguntar(
   }
 
   const resposta = await new Promise<string>((resolve) => {
-    pendentes.set(threadId, { resolve });
+    pendentes.set(threadId, {
+      resolve,
+      pergunta: {
+        texto: pergunta,
+        opcoes: opcoes.slice(0, OPCOES_MAX),
+        multiSelect: opcoes.length > 0 && multiSelect,
+        ...(lote ? { numero: lote.numero, total: lote.total } : {}),
+      },
+    });
   });
 
   const respostaEv = { ts: nowIso(), type: "pergunta_resposta" as const, threadId, id, resposta };
@@ -186,6 +203,11 @@ export function responderPergunta(threadId: string, resposta: string): boolean {
 /** Se esta thread tem pergunta esperando resposta agora. */
 export function temPerguntaPendente(threadId: string): boolean {
   return pendentes.has(threadId);
+}
+
+/** A pergunta que esta thread está esperando agora (texto e opções), ou `undefined`. */
+export function perguntaPendente(threadId: string): PerguntaPendente | undefined {
+  return pendentes.get(threadId)?.pergunta;
 }
 
 /** Só pra teste: o estado é de módulo e vaza entre casos. */
