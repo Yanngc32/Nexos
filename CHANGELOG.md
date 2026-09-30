@@ -10,6 +10,16 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Alterado
 
+## [0.14.0] - 2026-09-30
+
+### Adicionado
+
+- Painel de borda no estilo ilha (ideia do Coucou): o traço na borda vira uma ilha compacta com o maguinho, o passo atual da conversa ("Edita · painel.js") e um anel por conta; aberta, mostra a conversa em foco, a lista e o uso das contas. Pergunta do agente com opções se responde direto na ilha, que abre sozinha e fica aberta até a resposta (ou até você recolher). "Terminou" traz uma linha do que foi feito. Quando uma conversa começa a trabalhar e o Nexos não está na frente, a ilha compacta espia por alguns segundos.
+
+### Alterado
+
+- Painel de borda: a borda padrão passa a ser o topo (quem já escolheu uma borda continua nela) e o modo "Fixo" mantém a ilha compacta sempre à vista, em vez do painel inteiro aberto. O menu do botão direito deu lugar aos ícones do cabeçalho da ilha.
+
 ## [0.13.1] - 2026-09-29
 
 ### Adicionado
