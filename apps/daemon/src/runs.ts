@@ -348,6 +348,18 @@ function reabrirSupervisor(run: Run): void {
  * Vai carimbado em cada conversa do run porque a lista não conhece runs — sem
  * isso ela teria que abrir todo `run.json` do disco pra montar um cabeçalho.
  */
+/**
+ * Marcas da conversa de um passo: chamado de um chat, ela pertence àquele chat; disparado por
+ * Nexos Hook (commit, push, tarefa), é manutenção em segundo plano e fica fora da lista de
+ * conversas — antes, um projeto com commit frequente enchia a barra lateral de "Hook: …".
+ */
+function marcasDoPasso(run: Run, home: string): { origemThreadId?: string; oculta?: true } {
+  return {
+    ...(run.origemThreadId ? { origemThreadId: run.origemThreadId } : {}),
+    ...(getTeam(run.teamId, home)?.origem === "hook" ? { oculta: true as const } : {}),
+  };
+}
+
 function rotuloDoRun(run: Run, home: string): string {
   const time = getTeam(run.teamId, home);
   const objetivo = run.goal.replace(/\s+/g, " ").slice(0, 60);
@@ -484,7 +496,7 @@ async function executarPasso(
       // sem título, a lista mostraria o pedido inteiro do passo — várias linhas
       // idênticas começando em "# Objetivo do time"
       title: `${agente.name} · passo ${step.index + 1}`,
-      ...(run.origemThreadId ? { origemThreadId: run.origemThreadId } : {}),
+      ...marcasDoPasso(run, home),
     },
     home,
   );
@@ -765,7 +777,7 @@ async function rodarSupervisor(run: Run, teto: number, home: string): Promise<vo
           runStep: 0,
           runTitle: rotuloDoRun(run, home),
           title: `${agente.name} · supervisor`,
-          ...(run.origemThreadId ? { origemThreadId: run.origemThreadId } : {}),
+          ...marcasDoPasso(run, home),
         },
         home,
       ).id;
@@ -936,7 +948,7 @@ async function rodarSupervisorMcp(run: Run, teto: number, home: string, chefe: R
       runStep: 0,
       runTitle: rotuloDoRun(run, home),
       title: `${agente.name} · supervisor`,
-      ...(run.origemThreadId ? { origemThreadId: run.origemThreadId } : {}),
+      ...marcasDoPasso(run, home),
       mcpRunId: run.id,
       ...(arquivo ? { mcpConfig: arquivo, mcpTools: [...MCP_TOOLS] } : {}),
     },

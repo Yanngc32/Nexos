@@ -52,9 +52,12 @@ export function sincronizarRepoMapResumos(home: string): { ok: boolean; motivo?:
   saveAgent({ id: AGENT_ID, name: AGENT_NAME, profileId: repoMapProfileId, instructions: INSTRUCOES }, home);
   const existentes = regrasGerenciadas(home);
   for (const evento of EVENTOS) {
-    if (!existentes.some((r) => r.evento === evento)) {
+    const desse = existentes.filter((r) => r.evento === evento);
+    if (!desse.length) {
       saveRegra({ nome: "Resumos do repo map", escopo: { tipo: "global" }, evento, agentId: AGENT_ID }, home);
     }
+    // cópia a mais (sync entre máquinas, módulo ligado duas vezes) virava uma run a mais por commit
+    for (const extra of desse.slice(1)) apagarRegra(extra.id, home);
   }
   return { ok: true };
 }

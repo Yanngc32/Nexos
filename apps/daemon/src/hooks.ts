@@ -280,9 +280,26 @@ function regrasCasando(
   branch: string,
   colunaId: string,
 ): RegraHook[] {
-  return regrasDoEscopo(regras, projectPath).filter(
-    (r) => r.evento === event && (!r.branch || r.branch === branch) && (!r.colunaId || r.colunaId === colunaId),
+  return semRepetidas(
+    regrasDoEscopo(regras, projectPath).filter(
+      (r) => r.evento === event && (!r.branch || r.branch === branch) && (!r.colunaId || r.colunaId === colunaId),
+    ),
   );
+}
+
+/**
+ * Regra repetida (mesmo agente/time, evento, filtro e escopo) dispara uma vez só. O hooks.json
+ * chegou a ter três cópias da regra do repo map — cada commit subia três runs iguais.
+ */
+function semRepetidas(regras: RegraHook[]): RegraHook[] {
+  const vistas = new Set<string>();
+  return regras.filter((r) => {
+    const onde = r.escopo.tipo === "global" ? "" : projectKey(r.escopo.projectPath);
+    const chave = JSON.stringify([r.agentId ?? "", r.teamId ?? "", r.evento, r.branch ?? "", r.colunaId ?? "", Boolean(r.bloqueante), onde]);
+    if (vistas.has(chave)) return false;
+    vistas.add(chave);
+    return true;
+  });
 }
 
 /**

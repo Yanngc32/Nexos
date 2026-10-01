@@ -32,6 +32,17 @@ const modulos = (patch: Partial<{ repoMapResumos: boolean; repoMapProfileId: str
 });
 
 describe("sincronizarRepoMapResumos", () => {
+  it("cópia repetida da regra (sync entre máquinas) é apagada, fica uma só", () => {
+    const home = base();
+    saveConfig(home, { modulos: modulos({ repoMapResumos: true, repoMapProfileId: "p1" }) });
+    sincronizarRepoMapResumos(home);
+    saveRegra({ nome: "Resumos do repo map", escopo: { tipo: "global" }, evento: "git.post-commit", agentId: AGENT_ID }, home);
+    saveRegra({ nome: "Resumos do repo map", escopo: { tipo: "global" }, evento: "git.post-commit", agentId: AGENT_ID }, home);
+    expect(listarRegras(home).filter((x) => x.agentId === AGENT_ID)).toHaveLength(3);
+    sincronizarRepoMapResumos(home);
+    expect(listarRegras(home).filter((x) => x.agentId === AGENT_ID)).toHaveLength(1);
+  });
+
   it("módulo desligado: no-op, não cria agente nem regra", () => {
     const home = base();
     const r = sincronizarRepoMapResumos(home);

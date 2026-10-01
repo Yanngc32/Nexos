@@ -579,8 +579,9 @@ function lerCabecalho(id: string, home: string): ThreadHead | undefined {
     ...(meta.worktreeDir ? { worktreeDir: meta.worktreeDir } : {}),
     ...(meta.origemThreadId ? { origemThreadId: meta.origemThreadId } : {}),
     // `semRoteamento` também: só a geração do DS cria conversa assim, e as criadas antes do
-    // `oculta` existir não têm a marca nova
-    ...(meta.oculta || meta.semRoteamento ? { oculta: true } : {}),
+    // `oculta` existir não têm a marca nova. Passo de Nexos Hook criado antes de ganhar a marca
+    // se reconhece pelo nome do time ("Hook: …", ver `upsertTimeDeHook`)
+    ...(meta.oculta || meta.semRoteamento || /^Hook: /.test(meta.runTitle ?? "") ? { oculta: true } : {}),
     ...(meta.planejamento ? { planejamento: meta.planejamento } : {}),
     ...(meta.handoff ? { handoff: meta.handoff } : {}),
     ...(planoLigadoDe(events) ? { planoLigado: planoLigadoDe(events) } : {}),

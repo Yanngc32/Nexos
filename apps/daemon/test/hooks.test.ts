@@ -15,6 +15,7 @@ import {
 import { consumirVeredito, registrarVeredito, resetVereditoForTest } from "../src/veredito.ts";
 import { getTeam, saveTeam } from "../src/teams.ts";
 import { listRuns, resetRunsForTest } from "../src/runs.ts";
+import { createThread, listThreads } from "../src/threads.ts";
 import { tempHome } from "./helpers.ts";
 
 function base(): string {
@@ -239,6 +240,28 @@ describe("fireHook", () => {
     await tick();
     const [run] = listRuns(home, "/proj");
     expect(run!.goal).toContain("Tarefa tk-xyz — título aqui");
+  });
+
+  it("regra repetida (sync entre máquinas) dispara um run só por evento", async () => {
+    const home = base();
+    for (let i = 0; i < 3; i++) saveRegra({ escopo: { tipo: "global" }, evento: "git.post-commit", agentId: "memoria" }, home);
+    expect(listarRegras(home)).toHaveLength(3);
+    fireHook("git.post-commit", "/proj-dup", home);
+    await tick(30);
+    expect(listRuns(home, "/proj-dup")).toHaveLength(1);
+  });
+
+  it("conversa do passo de hook fica fora da lista de conversas (manutenção em segundo plano)", async () => {
+    const home = base();
+    saveRegra({ escopo: { tipo: "global" }, evento: "git.post-commit", agentId: "memoria" }, home);
+    fireHook("git.post-commit", "/proj-lista", home);
+    await tick(30);
+    const [run] = listRuns(home, "/proj-lista");
+    expect(run?.steps[0]?.threadId).toBeTruthy();
+    expect(listThreads("/proj-lista", home)).toEqual([]);
+    // conversa de hook gravada antes da marca `oculta`: reconhecida pelo nome do time
+    createThread({ projectPath: "/proj-lista", profileId: "p1", runId: "run-velho", runTitle: "Hook: Memória · Evento" }, home);
+    expect(listThreads("/proj-lista", home)).toEqual([]);
   });
 
   it("coalesce: fire em cima de fire em voo não dispara dois runs, só agenda um re-run", async () => {
