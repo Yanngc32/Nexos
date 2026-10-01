@@ -10,6 +10,12 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Alterado
 
+## [0.14.1] - 2026-10-01
+
+### Corrigido
+
+- Barra lateral enchendo de conversas "Hook: Resumos do repo map": a regra do repo map podia ficar repetida (três cópias faziam cada commit subir três runs). Agora regra repetida dispara uma vez só e as cópias extras são apagadas ao ligar o motor. Conversa de run disparado por hook (commit, push, tarefa) não aparece mais na lista de conversas — inclusive as antigas; o run segue rodando normalmente.
+
 ## [0.14.0] - 2026-09-30
 
 ### Adicionado
