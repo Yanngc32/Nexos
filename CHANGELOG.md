@@ -6,6 +6,14 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+### Corrigido
+
+### Alterado
+
+## [0.15.0] - 2026-10-05
+
+### Adicionado
+
 - Chat aceita qualquer arquivo (PDF, planilha, zip, código…), não só imagem: clipe, Ctrl+V ou arrastar, até 25 MB cada — no desktop e no celular.
 - Agente entrega arquivo na conversa (`nexo_arquivo_entregar`): aparece como cartão com **Abrir no preview** (aba do painel Browser: PDF, imagem, vídeo, texto, página) e **Baixar**. No celular, Abrir e Baixar pelo navegador.
 - Visualizador de arquivo no "Abrir no preview": markdown formatado (com alternância pro texto), CSV/TSV/Excel (xlsx/xlsm, com abas) e JSON de registros como tabela no estilo do DataFrame do pandas no Colab — índice, tipo da coluna (int64, float64…), NaN, float com até 6 casas, ordenar pelo cabeçalho, filtrar e paginar — e código/texto com numeração de linha. Cartão de arquivo mostra o ícone do Windows do tipo (Excel, PDF, Word…).
@@ -13,8 +21,6 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 ### Corrigido
 
 - "Abrir no preview" (e o painel aberto pelo agente com URL) dava erro "The WebView must be attached to the DOM…" quando a aba do Browser era criada na hora.
-
-### Alterado
 
 ## [0.14.1] - 2026-10-01
 
