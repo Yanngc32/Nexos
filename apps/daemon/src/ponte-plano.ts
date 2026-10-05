@@ -1,5 +1,5 @@
 import type { ThreadEvent } from "@nexos/shared";
-import type { IncomingImage } from "./attachments.ts";
+import type { IncomingFile } from "./attachments.ts";
 import { sessionBus } from "./bus.ts";
 import { log } from "./log.ts";
 import { responderPergunta, temPerguntaPendente } from "./perguntas.ts";
@@ -45,7 +45,7 @@ export function alternarPonte(origem: string, ligada: boolean, home: string): bo
  * Mensagem da pessoa no chat de origem com a ponte ligada: grava a `ida` aqui e entrega ao Manager.
  * Não espera o turno do Manager — a fala dele volta sozinha pelo ouvinte abaixo.
  */
-export function mandarPelaPonte(origem: string, texto: string, images: IncomingImage[], home: string): void {
+export function mandarPelaPonte(origem: string, texto: string, images: IncomingFile[], home: string): void {
   const p = ponteLigada(origem, home);
   if (!p) throw new Error("esta conversa não tem ponte ligada com o Manager");
   gravar({ ts: nowIso(), type: "ponte", threadId: origem, direcao: "ida", texto, managerThreadId: p.managerThreadId }, home);

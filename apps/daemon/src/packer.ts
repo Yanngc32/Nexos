@@ -19,12 +19,14 @@ function render(event: ThreadEvent): string | undefined {
     case "usage":
       return undefined;
     case "user": {
-      // O caminho da imagem entra no pack: nos turnos seguintes o motor ainda sabe abrir.
+      // O caminho do anexo entra no pack: nos turnos seguintes o motor ainda sabe abrir.
       const texto = textoComElementos(event.text, event.elementos);
       return event.attachments?.length
-        ? [`User: ${texto}`, ...event.attachments.map((a) => `[imagem anexada: ${a.path}]`)].join("\n")
+        ? [`User: ${texto}`, ...event.attachments.map((a) => `[anexo ${a.name}: ${a.path}]`)].join("\n")
         : `User: ${texto}`;
     }
+    case "arquivo_entregue":
+      return `System: o agente entregou na conversa o arquivo ${event.arquivo.name} (cópia em ${event.arquivo.path})`;
     case "assistant":
       return `Assistant: ${event.text}`;
     case "tool":

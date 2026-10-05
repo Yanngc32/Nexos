@@ -41,6 +41,7 @@ const COMUM = new Set([
   "agent-trace.js",
   "widget-view.js",
   "thread-groups.js",
+  "anexo-arquivo.js",
 ]);
 
 const TIPOS: Record<string, string> = {

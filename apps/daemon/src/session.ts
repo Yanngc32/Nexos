@@ -5,7 +5,7 @@ import type { ElementoDoPreview, EngineEvent, EngineKind, EngineOverrides, Parte
 import { ESFORCO_AUTO, MODELO_AUTO, MODELO_AUTO_FALLBACK, TURNO_TETO_MS } from "@nexos/shared";
 import { agentOverrides, getAgent } from "./agents.ts";
 import { readMemoria, readMemoriaGlobal } from "./memoria.ts";
-import { promptWithAttachments, removeThreadAttachments, saveImages, textoComElementos, type IncomingImage } from "./attachments.ts";
+import { promptWithAttachments, removeThreadAttachments, saveAttachments, textoComElementos, type IncomingFile } from "./attachments.ts";
 import { loadConfig } from "./config.ts";
 import { globalChatDir, projectKey, tokenPath } from "./home.ts";
 import { configDeMcpAutoria, MCP_TOOLS_AUTORIA, urlDeMcpAutoria, urlDeMcpDeRun } from "./mcp.ts";
@@ -19,6 +19,7 @@ import { extensaoRecente, MCP_TOOLS_CHROME } from "./chrome.ts";
 import { MCP_TOOLS_DS_PRINT } from "./ds-print.ts";
 import { MCP_TOOLS_VIDEO } from "./video-ferramentas.ts";
 import { MCP_TOOLS_PAINEL, MCP_TOOLS_PLANEJAR } from "./paineis.ts";
+import { MCP_TOOLS_ENTREGAR } from "./entregar-arquivo.ts";
 import { MCP_TOOLS_WINDOWS_CONTROL } from "./windows-control.ts";
 import { MCP_TOOLS_TAREFA } from "./tarefas.ts";
 import { expandirSkill } from "./skills.ts";
@@ -830,6 +831,8 @@ function mcpDaConversa(
     // abrir o painel certo na área de trabalho (navegador, design, quadro…): conversa normal
     ...(!meta.runId && loadConfig(home).paineisDoAgente.modo !== "nunca" ? MCP_TOOLS_PAINEL : []),
     ...(!meta.runId && meta.projectPath && !meta.handoff ? MCP_TOOLS_PLANEJAR : []),
+    // arquivo no chat pra pessoa baixar/abrir no preview (entregar-arquivo.ts): conversa normal
+    ...(!meta.runId ? MCP_TOOLS_ENTREGAR : []),
     // Gate GLOBAL, não por conta (ver windows-control.ts): mexe em QUALQUER app da máquina, não
     // só o Nexos. `profileFlags` em engines/cli.ts filtra de novo, incondicional — esta linha só
     // evita listar a ferramenta quando já se sabe de antemão que a chamada vai ser barrada.
@@ -1708,7 +1711,7 @@ export async function postMessage(
   threadId: string,
   text: string,
   home: string,
-  images: IncomingImage[] = [],
+  images: IncomingFile[] = [],
   opts: { automatico?: boolean; elementos?: ElementoDoPreview[] } = {},
 ): Promise<void> {
   if (!opts.automatico) ultimaMensagemHumanaEm = Date.now();
@@ -1726,7 +1729,7 @@ async function turnoDaMensagem(
   threadId: string,
   text: string,
   home: string,
-  images: IncomingImage[],
+  images: IncomingFile[],
   opts: { automatico?: boolean; elementos?: ElementoDoPreview[] },
 ): Promise<void> {
   await withLocked(threadId, async () => {
@@ -1751,8 +1754,8 @@ async function turnoDaMensagem(
       ? await talvezRotear(threadId, text, eventosAtuais, home)
       : { pendente: false };
     avisarPausaDoTypesafe(threadId, home);
-    // Grava antes do turno: se o motor falhar, a imagem não se perde do histórico.
-    const attachments = images.length > 0 ? saveImages(threadId, images, home) : [];
+    // Grava antes do turno: se o motor falhar, o anexo não se perde do histórico.
+    const attachments = images.length > 0 ? saveAttachments(threadId, images, home) : [];
     const resultados = resultadosPendentes(eventosAtuais);
     appendEvent(
       {
@@ -1790,10 +1793,10 @@ async function turnoDaMensagem(
  * O texto que o modelo já escreveu vai pro histórico ANTES da mensagem nova: sem isso o JSONL
  * ficava "pedido 1, pedido 2, resposta inteira", e a resposta ao pedido 1 parecia vir depois do 2.
  */
-export function injetarMensagem(threadId: string, text: string, home: string, images: IncomingImage[] = []): boolean {
+export function injetarMensagem(threadId: string, text: string, home: string, images: IncomingFile[] = []): boolean {
   const live = lives.get(threadId);
   if (!live || !emVoo(live) || !live.engine.inject) return false;
-  const attachments = images.length > 0 ? saveImages(threadId, images, home) : [];
+  const attachments = images.length > 0 ? saveAttachments(threadId, images, home) : [];
   if (!live.engine.inject(promptWithAttachments(text, attachments))) return false;
   if (live.assistantBuf) {
     appendEvent({ ts: nowIso(), type: "assistant", threadId, text: live.assistantBuf }, home);

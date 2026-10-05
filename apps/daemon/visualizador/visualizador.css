@@ -1,0 +1,699 @@
+/*
+ * Visualizador de arquivo (src/visualizador.ts). Tokens do DS Nexos copiados como variável:
+ * a página é autocontida (origem opaca, sem acesso ao CSS do app). `--accent` vem da cor que a
+ * pessoa escolheu, quando o app manda.
+ */
+:root {
+  --bg: #141417;
+  --surface: #1a1a1f;
+  --surface-2: #202026;
+  --surface-3: #26262d;
+  --line: #26262c;
+  --line-2: #31313a;
+  --text: #ececef;
+  --muted: #9b9ba4;
+  --faint: #71717b;
+  --accent: #7c5cbf;
+  --accent-text: color-mix(in srgb, var(--accent) 65%, #ffffff);
+  --accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
+  --info: #56b6c2;
+  --ok: #5fae74;
+  --warn: #d8a657;
+  --font-ui: Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-display: "Inter Tight", Inter, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, Consolas, monospace;
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --dur: 120ms;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px / 1.45 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+button,
+select,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+/* ---------- topo: o que é o arquivo e Baixar ---------- */
+
+.vz-topo {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.vz-selo {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 4px;
+  border-radius: var(--r-md);
+  background: var(--surface-3);
+  color: var(--muted);
+  font: 600 10px / 1 var(--font-mono);
+}
+
+.vz-id {
+  flex: 1;
+  min-width: 0;
+}
+
+.vz-nome {
+  margin: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vz-meta {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.vz-acoes {
+  display: flex;
+  gap: 8px;
+}
+
+.vz-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background-color var(--dur) var(--ease);
+}
+
+.vz-btn:hover {
+  background: var(--surface-3);
+}
+
+.vz-btn:active {
+  scale: 0.96;
+}
+
+/* ---------- corpo ---------- */
+
+.vz-corpo {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* tabela ocupa a altura e rola por dentro (cabeçalho e índice grudados) */
+.vz-corpo-tabela {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.vz-corpo-tabela > .vz-palco {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.vz-sub {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  padding: 8px 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+.vz-seg {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.vz-seg-btn {
+  height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.vz-seg-btn:hover {
+  color: var(--text);
+}
+
+.vz-seg-btn[aria-selected="true"] {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+/* ---------- markdown ---------- */
+
+.vz-md {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+  font-size: 14px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.vz-md > :first-child {
+  margin-top: 0;
+}
+
+.vz-md h1,
+.vz-md h2,
+.vz-md h3,
+.vz-md h4,
+.vz-md h5,
+.vz-md h6 {
+  margin: 1.6em 0 0.5em;
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.vz-md h1 {
+  font-size: 24px;
+}
+
+.vz-md h2 {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  font-size: 19px;
+}
+
+.vz-md h3 {
+  font-size: 15px;
+}
+
+.vz-md h4,
+.vz-md h5,
+.vz-md h6 {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.vz-md p,
+.vz-md ul,
+.vz-md ol,
+.vz-md blockquote,
+.vz-md pre,
+.vz-md table {
+  margin: 0 0 1em;
+}
+
+.vz-md ul,
+.vz-md ol {
+  padding-left: 1.4em;
+}
+
+.vz-md li + li {
+  margin-top: 0.25em;
+}
+
+.vz-md a {
+  color: var(--accent-text);
+  text-underline-offset: 2px;
+}
+
+.vz-md code {
+  padding: 1px 5px;
+  border-radius: var(--r-xs);
+  background: var(--surface-3);
+  font: 0.88em var(--font-mono);
+}
+
+.vz-md pre {
+  overflow-x: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  line-height: 1.5;
+}
+
+.vz-md pre code {
+  padding: 0;
+  background: none;
+  font-size: 12px;
+}
+
+.vz-md blockquote {
+  padding: 2px 0 2px 14px;
+  border-left: 3px solid var(--line-2);
+  color: var(--muted);
+}
+
+.vz-md hr {
+  margin: 2em 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.vz-md table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.vz-md th,
+.vz-md td {
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+
+.vz-md th {
+  background: var(--surface);
+  font-weight: 600;
+}
+
+.vz-md tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+}
+
+/* ---------- código / texto ---------- */
+
+.vz-codigo {
+  display: flex;
+  min-height: 100%;
+  font: 12px / 1.6 var(--font-mono);
+}
+
+.vz-codigo pre {
+  margin: 0;
+  padding: 12px 0;
+  font: inherit;
+}
+
+.vz-calha {
+  position: sticky;
+  left: 0;
+  flex: 0 0 auto;
+  padding-right: 12px !important;
+  padding-left: 16px !important;
+  border-right: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--faint);
+  text-align: right;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.vz-texto {
+  flex: 1;
+  padding-left: 16px !important;
+  padding-right: 24px !important;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.vz-j-chave {
+  color: var(--accent-text);
+}
+
+.vz-j-texto {
+  color: var(--ok);
+}
+
+.vz-j-num {
+  color: var(--info);
+}
+
+.vz-j-lit {
+  color: var(--warn);
+}
+
+/* ---------- tabela (DataFrame) ---------- */
+
+.vz-tab {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.vz-tab-barra {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.vz-abas {
+  display: flex;
+  gap: 2px;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.vz-aba {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.vz-aba:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.vz-aba[aria-selected="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.vz-filtro {
+  flex: 0 1 260px;
+  min-width: 140px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  outline: none;
+}
+
+.vz-filtro::placeholder {
+  color: var(--faint);
+}
+
+.vz-filtro:focus {
+  border-color: var(--accent-text);
+}
+
+.vz-forma {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.vz-grade-rolagem {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.vz-grade {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.vz-grade th,
+.vz-grade td {
+  max-width: 28em;
+  padding: 5px 12px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vz-grade .vz-num {
+  text-align: right;
+}
+
+.vz-grade thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0;
+  background: var(--surface);
+  border-bottom-color: var(--line-2);
+  vertical-align: bottom;
+}
+
+/* o nome da coluna empurra a largura dela (até o teto); não some em "ven…" */
+.vz-col {
+  display: grid;
+  grid-template-columns: max-content auto;
+  justify-content: start;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 10px 6px 12px;
+  border: 0;
+  background: none;
+  text-align: inherit;
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease);
+}
+
+.vz-col:hover {
+  background: var(--surface-2);
+}
+
+.vz-col-nome {
+  max-width: 24em;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.vz-dtype {
+  grid-row: 2;
+  color: var(--faint);
+  font: 10px / 1.4 var(--font-mono);
+}
+
+.vz-seta {
+  grid-row: 1 / 3;
+  grid-column: 2;
+  align-self: center;
+  color: var(--faint);
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.vz-col:hover .vz-seta,
+.vz-seta[data-on="1"] {
+  opacity: 1;
+}
+
+.vz-seta[data-on="1"] {
+  color: var(--accent-text);
+}
+
+.vz-num .vz-col {
+  justify-content: end;
+  text-align: right;
+}
+
+/* índice do DataFrame: grudado à esquerda, apagado */
+.vz-grade .vz-idx {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 48px;
+  padding-right: 12px;
+  border-right: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--faint);
+  font-weight: 500;
+  text-align: right;
+}
+
+.vz-grade thead .vz-idx {
+  z-index: 3;
+  background: var(--surface);
+}
+
+.vz-grade tbody tr:nth-child(even) td,
+.vz-grade tbody tr:nth-child(even) .vz-idx {
+  background-color: color-mix(in srgb, var(--surface) 70%, var(--bg));
+}
+
+.vz-grade tbody tr:hover td,
+.vz-grade tbody tr:hover .vz-idx {
+  background-color: var(--surface-2);
+}
+
+.vz-nan {
+  color: var(--faint);
+  font-style: italic;
+}
+
+.vz-sem {
+  padding: 24px 16px !important;
+  color: var(--muted);
+  text-align: left !important;
+}
+
+.vz-paginacao {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 12px;
+  padding: 6px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.vz-aviso {
+  margin-right: auto;
+  color: var(--warn);
+}
+
+.vz-aviso:empty {
+  display: none;
+}
+
+.vz-por {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vz-por select {
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+
+.vz-pag {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease);
+}
+
+.vz-pag:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.vz-pag:active:not(:disabled) {
+  scale: 0.96;
+}
+
+.vz-pag:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ---------- celular ---------- */
+
+@media (max-width: 600px) {
+  .vz-topo {
+    padding: 8px 12px;
+  }
+
+  .vz-btn {
+    height: 40px;
+  }
+
+  .vz-md {
+    padding: 20px 16px 48px;
+    font-size: 15px;
+  }
+
+  .vz-tab-barra {
+    padding: 8px 12px;
+  }
+
+  .vz-filtro {
+    flex: 1 1 100%;
+    height: 40px;
+    font-size: 16px;
+  }
+
+  .vz-forma {
+    margin-left: 0;
+  }
+
+  .vz-pag {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}

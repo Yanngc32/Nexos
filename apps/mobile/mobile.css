@@ -352,6 +352,28 @@ button:disabled { opacity: .45; }
 .msg pre { overflow-x: auto; padding: var(--s-4); border-radius: var(--r-sm); background: #0d0d10; font-size: var(--fs-sm); }
 .msg code { font-family: var(--font-mono); font-size: var(--fs-sm); }
 
+/* arquivo na conversa: anexo da pessoa ou entregue pelo agente (Abrir/Baixar são links) */
+.msg.arq { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-4); }
+.msg.arq[data-de="user"] { background: var(--surface); border: 1px solid var(--line); }
+.arq-selo { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--r-sm); background: var(--surface-3); color: var(--muted); font: 600 var(--fs-2xs) / 1 var(--font-mono); }
+.arq-txt { flex: 1; min-width: 0; }
+.arq-nome { overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.arq-meta { color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.arq-meta:empty { display: none; }
+.arq-acoes { display: flex; flex: 1 0 100%; gap: var(--s-3); }
+.arq-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; min-height: 44px; border: 1px solid var(--line-2); border-radius: var(--r-md); background: var(--surface-2); color: var(--text); font-size: var(--fs-sm); font-weight: 500; text-decoration: none; }
+.arq-btn[aria-disabled="true"] { opacity: .45; pointer-events: none; }
+
+/* anexos escolhidos, acima do texto do compositor */
+.anexos-pendentes { display: flex; gap: var(--s-2); overflow-x: auto; scrollbar-width: none; }
+.anexos-pendentes[hidden] { display: none; }
+.anexo-chip { flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--s-2); max-width: 60vw; padding: 3px 0 3px 3px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); }
+.anexo-chip .arq-selo { width: 28px; height: 28px; border-radius: 6px; }
+.anexo-nome { overflow: hidden; color: var(--muted); font-size: var(--fs-xs); text-overflow: ellipsis; white-space: nowrap; }
+.anexo-x { min-width: 36px; min-height: 36px; padding: 0; font-size: var(--fs-lg); }
+#btn-anexar { flex: 0 0 40px; width: 40px; height: 40px; min-height: 40px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+#btn-anexar svg { width: 20px; height: 20px; }
+
 /* ---------- compositor: um cartão só (caixa + barra), igual à referência ----------
  * Textarea e a barra de baixo (conta/modelo/esforço + enviar) moram dentro da
  * MESMA borda arredondada — não são duas formas soltas lado a lado. Acima do

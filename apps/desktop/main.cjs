@@ -1668,6 +1668,26 @@ app.whenReady().then(async () => {
     return { ok: true, path: projectRoot };
   });
   handle("project:cwd", () => projectRoot || "");
+  /**
+   * Ícone do Windows pro tipo de arquivo (o verde do Excel, o do PDF…) no cartão de arquivo do chat.
+   * Só a extensão entra: o caminho é inventado na pasta temporária e o arquivo não precisa existir
+   * (o shell responde pelo tipo). Um por extensão, guardado.
+   */
+  const iconesPorExt = new Map();
+  handle("arquivo:icone", async (_e, raw) => {
+    const ext = String(raw ?? "").toLowerCase();
+    if (!/^[a-z0-9]{1,10}$/.test(ext)) return null;
+    if (!iconesPorExt.has(ext)) {
+      iconesPorExt.set(
+        ext,
+        app
+          .getFileIcon(join(app.getPath("temp"), `nexos-icone.${ext}`), { size: "normal" })
+          .then((img) => (img.isEmpty() ? null : img.toDataURL()))
+          .catch(() => null),
+      );
+    }
+    return iconesPorExt.get(ext);
+  });
   handle("file:save", async (_e, { name, content }) => {
     const r = await dialog.showSaveDialog(win, { defaultPath: name });
     if (r.canceled || !r.filePath) return { ok: false };

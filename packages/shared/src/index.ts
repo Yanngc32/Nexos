@@ -104,13 +104,16 @@ export const TYPESAFE_MODOS: TypesafeModo[] = ["desligado", "automatico", "pergu
 export type Tema = "grafite" | "preto";
 export const TEMAS: Tema[] = ["grafite", "preto"];
 
-/** Imagem colada ou arrastada no chat. Vive no home do nexo, nunca na pasta do projeto. */
 /**
  * Elemento que a pessoa apontou no preview (picker do browser). O chat mostra só o `rotulo` como
  * chip ("div1", "svg2"); seletor, texto e HTML vão pro motor junto da mensagem.
  */
 export type ElementoDoPreview = { rotulo: string; seletor: string; texto?: string; html: string };
 
+/**
+ * Arquivo da conversa: o que a pessoa anexou (imagem, PDF, planilha…) ou o que o agente entregou
+ * (`arquivo_entregue`). Vive no home do nexo, nunca na pasta do projeto.
+ */
 export type Attachment = {
   /** Nome do arquivo no disco; identidade dentro da thread. */
   file: string;
@@ -118,13 +121,16 @@ export type Attachment = {
   name: string;
   mime: string;
   bytes: number;
-  /** Caminho absoluto: é por ele que o motor de CLI abre a imagem. */
+  /** Caminho absoluto: é por ele que o motor de CLI abre o arquivo. */
   path: string;
 };
 
 export const IMAGE_MIMES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
-export const ATTACH_MAX_BYTES = 10 * 1024 * 1024;
+/** Teto por arquivo anexado: o upload vai em base64 dentro do JSON da mensagem. */
+export const ATTACH_MAX_BYTES = 25 * 1024 * 1024;
 export const ATTACH_MAX_PER_MESSAGE = 6;
+/** Teto do arquivo que o agente entrega (`nexo_arquivo_entregar`): cópia local, sem base64. */
+export const ENTREGA_MAX_BYTES = 100 * 1024 * 1024;
 
 export type Profile = {
   id: string;
@@ -617,6 +623,11 @@ export type ThreadEvent =
       arquivo?: string;
     }
   | { ts: string; type: "assistant"; threadId: string; text: string }
+  /**
+   * O agente pôs um arquivo na conversa (`nexo_arquivo_entregar`): a cópia mora nos anexos da
+   * thread e o chat mostra um cartão com Baixar e Abrir no preview.
+   */
+  | { ts: string; type: "arquivo_entregue"; threadId: string; arquivo: Attachment; descricao?: string }
   /**
    * Nome da conversa depois de criada (o último vale, por cima do `thread_meta.title`).
    * `manual` = a pessoa renomeou; `auto` = título gerado depois da 1ª resposta, que nunca passa

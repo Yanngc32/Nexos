@@ -116,6 +116,17 @@ describe("pool", () => {
     expect(pool.daThread("t-c")).toBeTruthy();
   });
 
+  it("guest antes do dom-ready: loadURL lança e a navegação vai pelo src", () => {
+    const { pool } = montar();
+    const el = pool.obter("t1", "tab-a");
+    el.loadURL = () => {
+      throw new Error("The WebView must be attached to the DOM and the dom-ready event emitted");
+    };
+    const r = pool.navegar("t1", "tab-a", "http://127.0.0.1:7433/anexo/t1/arq-a-b.pdf?k=x");
+    expect(r.mudou).toBe(true);
+    expect(el.src).toBe("http://127.0.0.1:7433/anexo/t1/arq-a-b.pdf?k=x");
+  });
+
   it("guest novo ganha useragent Chrome sem Electron, antes do src", () => {
     const { pool } = montar();
     const el = pool.obter("t1", "tab-a");

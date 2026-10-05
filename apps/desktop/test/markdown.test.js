@@ -81,6 +81,12 @@ describe("mdInline: formatação", () => {
 });
 
 describe("mdToHtml: blocos", () => {
+  it("título: no chat desce de nível; no documento (visualizador) fica o do #", () => {
+    const md = ["# A", "## B", "### C"].join("\n");
+    expect(mdToHtml(md)).toBe("<h3>A</h3><h3>B</h3><h4>C</h4>");
+    expect(mdToHtml(md, { titulos: "documento" })).toBe("<h1>A</h1><h2>B</h2><h3>C</h3>");
+  });
+
   it("bloco de código é escapado e guarda a linguagem", () => {
     const out = mdToHtml("```js\nconst a = '<b>';\n```");
     expect(out).toBe(`<pre class="lang-js"><code>const a = &#39;&lt;b&gt;&#39;;</code></pre>`);

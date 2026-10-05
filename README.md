@@ -305,7 +305,7 @@ Tudo fica em `~/.nexos` (ou `NEXOS_HOME`):
 | `config.json` | porta, perfis de fallback, tema, projetos |
 | `profiles/<id>/` | credenciais e config por perfil |
 | `threads/<id>.jsonl` | histórico das conversas |
-| `attachments/<thread>/` | imagens anexadas |
+| `attachments/<thread>/` | arquivos anexados e entregues pelo agente |
 | `agents.json` | agentes personalizados |
 | `teams.json` | times de agentes |
 | `runs/<id>/` | execução de time: `run.json` e o artefato de cada passo |

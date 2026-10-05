@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld("nexo", {
   readFile: (rel) => ipcRenderer.invoke("fs:read", rel),
   runCommand: (command) => ipcRenderer.invoke("shell:run", command),
   saveFile: (name, content) => ipcRenderer.invoke("file:save", { name, content }),
+  iconeDoArquivo: (ext) => ipcRenderer.invoke("arquivo:icone", ext),
   pickZipBase64: () => ipcRenderer.invoke("file:pickZipBase64"),
   pickImageBase64: () => ipcRenderer.invoke("file:pickImageBase64"),
   printDoDs: (args) => ipcRenderer.invoke("ds:print", args),

@@ -47,8 +47,12 @@ function isTableSep(line) {
   return /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(line);
 }
 
-/** Blocos: código, tabela, título, lista, citação, régua, parágrafo. */
-export function mdToHtml(src) {
+/**
+ * Blocos: código, tabela, título, lista, citação, régua, parágrafo.
+ * `titulos: "documento"` (visualizador de arquivo) mantém o nível do `#`; no chat o título desce
+ * (`#`/`##` viram h3) pra não gritar mais que a conversa.
+ */
+export function mdToHtml(src, { titulos = "chat" } = {}) {
   const lines = String(src ?? "").replace(/\r\n/g, "\n").split("\n");
   const out = [];
   let i = 0;
@@ -82,7 +86,8 @@ export function mdToHtml(src) {
 
     const head = /^\s*(#{1,6})\s+(.*)$/.exec(line);
     if (head) {
-      const level = head[1].length <= 2 ? 3 : head[1].length === 3 ? 4 : 5;
+      const n = head[1].length;
+      const level = titulos === "documento" ? n : n <= 2 ? 3 : n === 3 ? 4 : 5;
       out.push(`<h${level}>${mdInline(head[2])}</h${level}>`);
       i += 1;
       continue;

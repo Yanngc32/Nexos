@@ -5431,6 +5431,118 @@ button:disabled {
   cursor: zoom-out;
 }
 
+/* Arquivo no chat: anexo que não é imagem e o que o agente entrega (anexo-arquivo.js).
+   Selo neutro com a extensão: o tipo se lê pelo texto, não pela cor. */
+.arq-selo {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-md);
+  background: var(--surface-3);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+}
+
+.attach-chip .arq-selo {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-xs);
+}
+
+/* com o ícone do Windows o fundo sai: o ícone já é a forma */
+.arq-selo.tem-icone {
+  background: none;
+}
+
+.arq-ico {
+  width: 32px;
+  height: 32px;
+}
+
+.attach-chip .arq-ico {
+  width: 24px;
+  height: 24px;
+}
+
+.arq-lista {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+
+/* chat estreito (lado a lado): as ações descem pra linha de baixo em vez de espremer o nome */
+.arq-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3) var(--s-4);
+  max-width: 560px;
+  padding: var(--s-3);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+
+/* dentro da bolha da pessoa (que já é surface) o cartão desce um degrau */
+.log .you .arq-card {
+  background: var(--bg);
+}
+
+.arq-txt {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.arq-nome {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arq-meta {
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.arq-meta:empty {
+  display: none;
+}
+
+.arq-acoes {
+  flex: 0 0 auto;
+  display: flex;
+  gap: var(--s-2);
+  margin-left: auto;
+}
+
+.arq-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 4px var(--s-4);
+  font-size: var(--fs-sm);
+}
+
+.arq-btn .ctx-svg {
+  width: 14px;
+  height: 14px;
+}
+
+.log .arquivo-entregue {
+  list-style: none;
+}
+
 /* ---------- serviços locais do projeto ---------- */
 
 .svc-strip {

@@ -46,7 +46,7 @@ Tudo em `~/.nexos` (ou `NEXOS_HOME`). Nada disso vai pro repositório.
 | `agents/<id>.json` | agentes personalizados | — |
 | `teams.json` | times de agentes (inclui os ocultos criados por `@menção`, ver Times) | — |
 | `threads/<id>.jsonl` | histórico da conversa, um evento por linha | — |
-| `attachments/<thread>/` | imagens coladas no chat | — |
+| `attachments/<thread>/` | arquivos da conversa: anexados pela pessoa (qualquer tipo, até 25 MB) e entregues pelo agente (`nexo_arquivo_entregar`, até 100 MB) | — |
 | `skills/` | skills globais do Nexos (`SKILL.md` por pasta) — valem em toda conta, não só uma | — |
 | `runs/<id>/` | artefato de cada passo de um run (`passo-N-<agente>.md`) | — |
 | `daemon.token` | token bearer da API local | `0600` |
@@ -347,7 +347,7 @@ credencial nenhuma).
 | login interativo | `POST /v1/profiles/:id/login/start` \| `/code` \| `/cancel`, `GET .../login/status` |
 | contas | `GET /v1/accounts`, `GET /v1/accounts/limits`, `GET /v1/accounts/:id?live=1` |
 | threads | `GET/POST /v1/threads`, `GET/DELETE /v1/threads/:id`, `GET /v1/threads/:id/usage`, `POST .../messages` \| `/switch` \| `/abort` \| `/clear` |
-| anexos | `GET /v1/threads/:id/attachments/:file` |
+| anexos | `GET /v1/threads/:id/attachments/:file`, `GET .../attachments/:file/link` (link assinado) e `GET /anexo/:thread/:file?k=` (sem bearer: preview e celular; página/SVG em CSP `sandbox`; md, CSV/xlsx, JSON e código abrem no visualizador — `src/visualizador.ts` + `visualizador/`, `&bruto=1` pula) |
 | projetos | `GET /v1/projects` |
 | agentes | `GET /v1/agents`, `GET/POST /v1/agents/defs`, `PUT/DELETE /v1/agents/defs/:id` |
 | times | `GET/POST /v1/teams`, `GET/PUT/DELETE /v1/teams/:id`, `POST /v1/teams/mencao/:agentId` |

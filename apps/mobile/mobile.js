@@ -14,6 +14,7 @@ import { fmtDuracao } from "./comum/agent-trace.js";
 import { lerEventos } from "./comum/sse.js";
 import { aneisDeConta, emVoo, faixaDoRun } from "./comum/widget-view.js";
 import { agruparConversas } from "./comum/thread-groups.js";
+import { abreNoPreview, fmtTamanho, seloDoArquivo, triarAnexos } from "./comum/anexo-arquivo.js";
 import { extrairMencoes } from "./comum/mention.js";
 
 /**
@@ -735,6 +736,69 @@ function rolarPraBaixo() {
   $("msgs").scrollTop = $("msgs").scrollHeight;
 }
 
+/**
+ * Arquivo na conversa (anexo da pessoa ou entregue pelo agente). Abrir e Baixar são links de
+ * verdade pro link assinado do daemon: o navegador do celular mostra ou baixa sozinho, e um
+ * <a> tocado não cai no bloqueio de pop-up que um window.open depois de await cairia.
+ */
+function cartaoArquivo(arquivo, de, descricao = "") {
+  const div = document.createElement("div");
+  div.className = "msg arq";
+  div.dataset.de = de;
+  const selo = document.createElement("span");
+  selo.className = "arq-selo";
+  selo.textContent = seloDoArquivo(arquivo.name, arquivo.mime);
+  const txt = document.createElement("div");
+  txt.className = "arq-txt";
+  const nome = document.createElement("div");
+  nome.className = "arq-nome";
+  nome.textContent = arquivo.name || "arquivo";
+  const meta = document.createElement("div");
+  meta.className = "arq-meta";
+  meta.textContent = [arquivo.bytes ? fmtTamanho(arquivo.bytes) : "", descricao].filter(Boolean).join(" · ");
+  txt.append(nome, meta);
+  div.append(selo, txt);
+  if (arquivo.file && threadId) {
+    const acoes = document.createElement("div");
+    acoes.className = "arq-acoes";
+    const link = (rotulo) => {
+      const a = document.createElement("a");
+      a.className = "arq-btn";
+      a.textContent = rotulo;
+      a.setAttribute("aria-disabled", "true");
+      acoes.append(a);
+      return a;
+    };
+    const abrir = abreNoPreview(arquivo.mime, arquivo.name) ? link("Abrir") : null;
+    const baixar = link("Baixar");
+    div.append(acoes);
+    const id = threadId;
+    void req(`/v1/threads/${id}/attachments/${encodeURIComponent(arquivo.file)}/link`)
+      .then(({ url }) => {
+        const href = `${api(url)}&n=${encodeURIComponent(arquivo.name || "")}`;
+        const cor = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+        if (abrir) {
+          abrir.href = /^#[0-9a-f]{6}$/i.test(cor) ? `${href}&cor=${encodeURIComponent(cor)}` : href;
+          abrir.target = "_blank";
+          abrir.rel = "noopener";
+          abrir.removeAttribute("aria-disabled");
+        }
+        baixar.href = `${href}&baixar=1`;
+        baixar.download = arquivo.name || "";
+        baixar.removeAttribute("aria-disabled");
+      })
+      .catch(() => {
+        meta.textContent = "não está neste computador";
+      });
+  }
+  $("msgs").append(div);
+  return div;
+}
+
+function anexosDaMensagem(ev) {
+  for (const a of ev.attachments ?? []) cartaoArquivo(a, "user");
+}
+
 async function abrirChat(id, titulo, profileId = "") {
   threadId = id;
   threadProfileId = profileId;
@@ -753,7 +817,10 @@ async function abrirChat(id, titulo, profileId = "") {
     return;
   }
   for (const ev of eventos) {
-    if (ev.type === "user" || ev.type === "assistant") bolha(ev.type, ev.text);
+    if (ev.type === "user" || ev.type === "assistant") {
+      if (ev.text || ev.type === "assistant") bolha(ev.type, ev.text);
+      if (ev.type === "user") anexosDaMensagem(ev);
+    } else if (ev.type === "arquivo_entregue") cartaoArquivo(ev.arquivo ?? {}, "assistant", ev.descricao || "");
     else if (ev.type === "error") bolha("erro", ev.message);
     else if (ev.type === "cleared") bolha("sys", "— contexto cortado —");
     else if (ev.type === "switched") {
@@ -826,6 +893,13 @@ function ouvirChat() {
           bolha("erro", "A quota da conta acabou. Toque no chip da conta pra trocar.");
           rolarPraBaixo();
         }
+        if (ev.type === "arquivo_entregue") {
+          // o texto que vier depois abre bolha nova, abaixo do cartão
+          atual = null;
+          buf = "";
+          cartaoArquivo(ev.arquivo ?? {}, "assistant", ev.descricao || "");
+          rolarPraBaixo();
+        }
       }),
     )
     .catch((e) => {
@@ -834,20 +908,80 @@ function ouvirChat() {
     });
 }
 
+/* ---------- anexos do compositor ---------- */
+
+/** Arquivos escolhidos e ainda não enviados. */
+let pendentes = [];
+
+function pintarPendentes() {
+  const faixa = $("anexos-pendentes");
+  faixa.hidden = pendentes.length === 0;
+  faixa.replaceChildren();
+  pendentes.forEach((file, i) => {
+    const chip = document.createElement("span");
+    chip.className = "anexo-chip";
+    const selo = document.createElement("span");
+    selo.className = "arq-selo";
+    selo.textContent = seloDoArquivo(file.name, file.type);
+    const nome = document.createElement("span");
+    nome.className = "anexo-nome";
+    nome.textContent = file.name || "arquivo";
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "ghost anexo-x";
+    x.setAttribute("aria-label", `Tirar ${file.name || "arquivo"}`);
+    x.textContent = "×";
+    x.addEventListener("click", () => {
+      pendentes.splice(i, 1);
+      pintarPendentes();
+    });
+    chip.append(selo, nome, x);
+    faixa.append(chip);
+  });
+}
+
+$("btn-anexar").addEventListener("click", () => $("input-anexo").click());
+$("input-anexo").addEventListener("change", (e) => {
+  const { aceitos, erros } = triarAnexos([...e.target.files], pendentes.length);
+  pendentes = [...pendentes, ...aceitos];
+  e.target.value = "";
+  pintarPendentes();
+  if (erros.length) {
+    bolha("erro", erros.join(" · "));
+    rolarPraBaixo();
+  }
+});
+
+async function paraBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
 $("form-msg").addEventListener("submit", async (e) => {
   e.preventDefault();
   const texto = $("txt").value.trim();
-  if (!texto || !threadId) return;
+  if ((!texto && pendentes.length === 0) || !threadId) return;
   fecharSlash();
   $("txt").value = "";
   ajustarAltura();
-  bolha("user", texto);
+  const arquivos = pendentes;
+  pendentes = [];
+  pintarPendentes();
+  if (texto) bolha("user", texto);
+  // sem id do daemon ainda: cartão só com nome e tamanho (ações aparecem ao reabrir)
+  for (const f of arquivos) cartaoArquivo({ name: f.name, mime: f.type, bytes: f.size }, "user");
   rolarPraBaixo();
-  void dispararMencoes(texto);
+  if (texto) void dispararMencoes(texto);
   if (petState.name !== "off") setPet("think");
   else syncPet(true, true);
   try {
-    await req(`/v1/threads/${threadId}/messages`, { method: "POST", body: JSON.stringify({ text: texto }) });
+    const images = await Promise.all(arquivos.map(async (f) => ({ name: f.name, mime: f.type, data: await paraBase64(f) })));
+    await req(`/v1/threads/${threadId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ text: texto, ...(images.length ? { images } : {}) }),
+    });
   } catch (err) {
     bolha("erro", err.message);
     rolarPraBaixo();

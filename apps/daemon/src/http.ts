@@ -44,7 +44,17 @@ import {
   updateProfile,
   type AddProfileInput,
 } from "./profiles.ts";
-import { lerElementos, readAttachment, type IncomingImage } from "./attachments.ts";
+import {
+  ATTACH_FILE_RE,
+  cabecalhosDoLink,
+  chaveConfere,
+  chaveDoAnexo,
+  extensao,
+  lerElementos,
+  readAttachment,
+  type IncomingFile,
+} from "./attachments.ts";
+import { CSP_DO_VISUALIZADOR, dadosDoVisualizador, paginaDoVisualizador } from "./visualizador.ts";
 import { installEngine } from "./install-engine.ts";
 import {
   alvoDePullRequest,
@@ -246,6 +256,7 @@ import {
 } from "./planejamento.ts";
 import { ferramentasDePlanejamento } from "./planejamento-ferramentas.ts";
 import { ferramentaDePainel, ferramentaDePlanejar, responderPainel } from "./paineis.ts";
+import { ferramentaDeEntregar } from "./entregar-arquivo.ts";
 import {
   alvosDeAnexo,
   blocoDeTarefas,
@@ -406,6 +417,41 @@ export function createApp(home: string, token: string): Hono {
    */
   app.get("/app", (c) => c.redirect("/app/", 302));
   app.get("/app/*", (c) => responderWeb(c, c.req.path));
+
+  /*
+   * Link de um arquivo da conversa pra quem não manda o bearer: o painel Browser (preview) e o
+   * navegador do celular. Fora do `/v1/*` DE PROPÓSITO, e a trava é a chave `k` (HMAC do token
+   * sobre thread/arquivo, ver `chaveDoAnexo`): só abre aquele arquivo, e cai com o token.
+   * Quem pede o link é `GET /v1/threads/:id/attachments/:file/link`, autenticada.
+   */
+  app.get("/anexo/:id/:file", (c) => {
+    const id = c.req.param("id");
+    const file = c.req.param("file");
+    if (!chaveConfere(atual, id, file, c.req.query("k") ?? "")) return c.json({ error: "link inválido" }, 403);
+    let lido: { buf: Buffer; mime: string };
+    try {
+      lido = readAttachment(id, file, home);
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 404);
+    }
+    const nome = (c.req.query("n") ?? "").slice(0, 120) || file;
+    const baixar = c.req.query("baixar") === "1";
+    // markdown, tabela (CSV/xlsx), JSON e código abrem no visualizador; o resto vai como é
+    const dados = baixar || c.req.query("bruto") === "1" ? null : dadosDoVisualizador(lido.buf, extensao(file));
+    if (dados) {
+      const q = new URL(c.req.url).searchParams;
+      q.set("baixar", "1");
+      const html = paginaDoVisualizador(dados, { nome, bytes: lido.buf.length, hrefBaixar: `?${q}`, cor: c.req.query("cor") });
+      return c.body(html, 200, {
+        "content-type": "text/html; charset=utf-8",
+        "content-security-policy": CSP_DO_VISUALIZADOR,
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "no-referrer",
+        "cache-control": "private, no-store",
+      });
+    }
+    return c.body(new Uint8Array(lido.buf), 200, cabecalhosDoLink(lido.mime, nome, baixar));
+  });
 
   /*
    * A partir daqui, `/v1/*` exige o bearer.
@@ -988,11 +1034,11 @@ export function createApp(home: string, token: string): Hono {
   });
 
   app.post("/v1/threads/:id/messages", async (c) => {
-    const body = (await c.req.json()) as { text?: string; images?: IncomingImage[]; elementos?: unknown };
+    const body = (await c.req.json()) as { text?: string; images?: IncomingFile[]; elementos?: unknown };
     const text = typeof body.text === "string" ? body.text : "";
     const images = Array.isArray(body.images) ? body.images : [];
     const elementos = lerElementos(body.elementos);
-    // Mensagem só de imagem (ou só de elementos do preview) vale; vazia de tudo, não.
+    // Mensagem só de anexo (ou só de elementos do preview) vale; vazia de tudo, não.
     if (!text.trim() && images.length === 0 && elementos.length === 0) return c.json({ error: "mensagem vazia" }, 400);
     try {
       // agente parado numa pergunta: o que a pessoa digitou É a resposta (senão ficava na fila do turno que espera ela)
@@ -1017,7 +1063,7 @@ export function createApp(home: string, token: string): Hono {
 
   /** Mensagem pro turno EM VOO (ver `injetarMensagem`). `injetada: false` = manda pela fila. */
   app.post("/v1/threads/:id/inject", async (c) => {
-    const body = (await c.req.json()) as { text?: string; images?: IncomingImage[] };
+    const body = (await c.req.json()) as { text?: string; images?: IncomingFile[] };
     const text = typeof body.text === "string" ? body.text : "";
     const images = Array.isArray(body.images) ? body.images : [];
     if (!text.trim() && images.length === 0) return c.json({ error: "mensagem vazia" }, 400);
@@ -1033,15 +1079,24 @@ export function createApp(home: string, token: string): Hono {
     }
   });
 
-  /** Serve a imagem colada pro chat renderizar o histórico depois de recarregar. */
+  /** Serve o anexo pro chat (miniatura, Baixar) — o app pede com o bearer e monta o blob. */
   app.get("/v1/threads/:id/attachments/:file", (c) => {
     try {
       const { buf, mime } = readAttachment(c.req.param("id"), c.req.param("file"), home);
       // Uint8Array novo: o Buffer do node não casa com o tipo de corpo do Hono.
-      return c.body(new Uint8Array(buf), 200, { "content-type": mime, "cache-control": "no-store" });
+      return c.body(new Uint8Array(buf), 200, { "content-type": mime, "cache-control": "no-store", "x-content-type-options": "nosniff" });
     } catch (e) {
       return c.json({ error: (e as Error).message }, 404);
     }
+  });
+
+  /** Link sem bearer pro anexo (`/anexo/...`): abrir no preview, baixar pelo celular. */
+  app.get("/v1/threads/:id/attachments/:file/link", (c) => {
+    const id = c.req.param("id");
+    const file = c.req.param("file");
+    if (!ATTACH_FILE_RE.test(file)) return c.json({ error: `anexo inválido: ${file}` }, 400);
+    const k = chaveDoAnexo(atual, id, file);
+    return c.json({ url: `/anexo/${encodeURIComponent(id)}/${encodeURIComponent(file)}?k=${k}` });
   });
 
   app.post("/v1/threads/:id/switch", async (c) => {
@@ -2519,6 +2574,8 @@ export function createApp(home: string, token: string): Hono {
       // painel de vídeo do Canvas (video-ferramentas.ts): mesma regra do DS, conversa normal de projeto
       ...(threadId && projectPath && !runId ? ferramentasDeVideo(projectPath, home)() : []),
       ...(threadId && !runId ? ferramentaDePainel(threadId, modoNavegador, home)() : []),
+      // arquivo pra pessoa baixar/abrir no preview: só onde há chat pra mostrar o cartão
+      ...(threadId && !runId ? ferramentaDeEntregar(threadId, home)() : []),
       // conversa de implementação já nasceu de um plano: não abre outro
       ...(threadId && projectPath && !runId && !impl?.handoff ? ferramentaDePlanejar(threadId, home)() : []),
       // Gate mestre: `--allowed-tools` (engines/cli.ts::profileFlags) já barra a CHAMADA

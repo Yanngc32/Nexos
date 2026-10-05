@@ -59,6 +59,7 @@ const AVULSAS = {
   nexo_hook_listar: { grupo: "Listando hooks", ico: "◌" },
   nexo_hook_salvar: { grupo: "Salvando hook", ico: "✚" },
   nexo_veredito: { grupo: "Registrando veredito", ico: "✓" },
+  nexo_arquivo_entregar: { grupo: "Entregando arquivo", ico: "↓" },
 };
 
 /** `{ texto, ico }` pra ferramenta do Nexos; `null` pro resto (Bash, Read… seguem com o nome). */

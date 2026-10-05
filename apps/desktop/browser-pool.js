@@ -116,6 +116,8 @@ export function criarBrowserPool({
     }
     el = fabricar();
     aplicarUaChrome(el);
+    // leitor de PDF do Chromium: anexo do chat aberto no preview
+    if (typeof el.setAttribute === "function") el.setAttribute("plugins", "");
     if (threadId) el.setAttribute("partition", `persist:nexo-b-${threadId}`);
     anexar(el, threadId, tabId);
     if (!el.getAttribute("src") && !el.src) {
@@ -162,8 +164,13 @@ export function criarBrowserPool({
       return { mudou: true, el };
     }
     if (typeof el.loadURL === "function") {
-      const p = el.loadURL(href);
-      if (p && typeof p.catch === "function") p.catch(() => {});
+      try {
+        const p = el.loadURL(href);
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      } catch {
+        // guest recém-criado, antes do dom-ready: o loadURL lança na hora; o atributo navega quando ele anexar
+        el.src = href;
+      }
     } else if (el.src !== href) {
       el.src = href;
     }

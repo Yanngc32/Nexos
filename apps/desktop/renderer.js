@@ -64,6 +64,7 @@ import { celAlcance, celAviso } from "./celular.js";
 import { extrairMencoes } from "./mention.js";
 import { montarMensagem, rotuloDoElemento } from "./inspector-mensagem.js";
 import { rotuloDaFerramenta } from "./rotulos-ferramenta.js";
+import { IMAGE_MIMES, abreNoPreview, ehMiniatura, extensaoDoNome, fmtTamanho, seloDoArquivo, tipoDoArquivo, triarAnexos } from "./anexo-arquivo.js";
 import { alvoDaFerramenta, rotuloDoAlvo } from "./alvo-ferramenta.js";
 import { criarInspectorHost } from "./inspector-host.js";
 import { FASE } from "./inspector-estado.js";
@@ -327,10 +328,6 @@ const { api, aplicar: aplicarInfoDoMotor, headers, renovarCredenciais, req, reqB
   },
 });
 
-const IMAGE_MIMES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
-const ATTACH_MAX_BYTES = 10 * 1024 * 1024;
-const ATTACH_MAX_PER_MESSAGE = 6;
-
 function trackLogUrl(blob) {
   const url = URL.createObjectURL(blob);
   state.logShotUrls.push(url);
@@ -346,31 +343,55 @@ function bytesToBase64(bytes) {
   return btoa(bin);
 }
 
-/** Aceita o que vier de Ctrl+V, arrastar ou seletor; recusa o resto com motivo. */
-function addImages(files) {
-  const erros = [];
-  for (const file of files) {
-    if (!file) continue;
-    if (!IMAGE_MIMES.includes(file.type)) {
-      erros.push(`${file.name || "arquivo"}: só PNG, JPG, GIF ou WebP`);
-      continue;
-    }
-    if (file.size > ATTACH_MAX_BYTES) {
-      erros.push(`${file.name || "imagem"}: passa de 10 MB`);
-      continue;
-    }
-    if (state.pendingImages.length >= ATTACH_MAX_PER_MESSAGE) {
-      erros.push(`no máximo ${ATTACH_MAX_PER_MESSAGE} imagens por mensagem`);
-      break;
-    }
+/**
+ * Aceita o que vier de Ctrl+V, arrastar ou seletor — qualquer arquivo (imagem, PDF, planilha,
+ * zip…); recusa só o que passa do teto, com motivo. `pendingImages` é nome histórico.
+ */
+function addAnexos(files) {
+  const { aceitos, erros } = triarAnexos(files, state.pendingImages.length);
+  for (const file of aceitos) {
+    const imagem = IMAGE_MIMES.includes(file.type);
     state.pendingImages.push({
       file,
-      name: file.name || "imagem colada",
-      url: URL.createObjectURL(file),
+      name: file.name || (imagem ? "imagem colada" : "arquivo"),
+      mime: file.type,
+      // só imagem ganha miniatura; o resto mostra o selo do tipo
+      url: imagem ? URL.createObjectURL(file) : "",
     });
   }
   paintPending();
   if (erros.length) appendEvent({ type: "error", message: erros.join(" · ") });
+}
+
+/** Ícone do Windows por extensão (main.cjs, `arquivo:icone`): um pedido por extensão. */
+const iconesDeArquivo = new Map();
+function iconeDoArquivo(nome) {
+  const ext = extensaoDoNome(nome);
+  if (!ext || !window.nexo?.iconeDoArquivo) return Promise.resolve(null);
+  if (!iconesDeArquivo.has(ext)) iconesDeArquivo.set(ext, window.nexo.iconeDoArquivo(ext).catch(() => null));
+  return iconesDeArquivo.get(ext);
+}
+
+/**
+ * Ícone do tipo no lugar da miniatura, pro que não é imagem: o do Windows (Excel, PDF…) quando
+ * vem; até lá, e se não vier, o selo com a extensão ("PDF", "CSV").
+ */
+function seloEl(nome, mime, cls = "arq-selo") {
+  const selo = document.createElement("span");
+  selo.className = cls;
+  selo.dataset.tipo = tipoDoArquivo(mime);
+  selo.textContent = seloDoArquivo(nome, mime);
+  selo.setAttribute("aria-hidden", "true");
+  void iconeDoArquivo(nome).then((url) => {
+    if (!url) return;
+    const img = document.createElement("img");
+    img.className = "arq-ico";
+    img.src = url;
+    img.alt = "";
+    selo.replaceChildren(img);
+    selo.classList.add("tem-icone");
+  });
+  return selo;
 }
 
 function paintPending() {
@@ -381,9 +402,13 @@ function paintPending() {
   state.pendingImages.forEach((item, i) => {
     const chip = document.createElement("span");
     chip.className = "attach-chip";
-    const img = document.createElement("img");
-    img.src = item.url;
-    img.alt = "";
+    chip.title = `${item.name} · ${fmtTamanho(item.file?.size)}`;
+    let img;
+    if (item.url) {
+      img = document.createElement("img");
+      img.src = item.url;
+      img.alt = "";
+    } else img = seloEl(item.name, item.mime);
     const label = document.createElement("span");
     label.className = "attach-name";
     label.textContent = item.name;
@@ -393,7 +418,7 @@ function paintPending() {
     x.title = "Remover";
     x.textContent = "×";
     x.addEventListener("click", () => {
-      URL.revokeObjectURL(item.url);
+      if (item.url) URL.revokeObjectURL(item.url);
       state.pendingImages.splice(i, 1);
       paintPending();
     });
@@ -441,6 +466,98 @@ function shotsRow(items, threadId) {
     else void fillShot(img, item.file, threadId);
   }
   return row;
+}
+
+/** Miniatura no chat: o preview recém-enviado (tem `url` local) ou imagem do histórico. */
+const ehFoto = (a) => Boolean(a?.url) || ehMiniatura(a);
+
+/**
+ * Cartão de arquivo no chat: anexo que não é imagem e tudo que o agente entrega
+ * (`arquivo_entregue`). Sem `file` (recém-enviado, ainda sem id do daemon) fica sem ações.
+ */
+function cartaoDeArquivo(arquivo, threadId, descricao = "") {
+  const card = document.createElement("div");
+  card.className = "arq-card";
+  card.append(seloEl(arquivo.name, arquivo.mime));
+  const txt = document.createElement("div");
+  txt.className = "arq-txt";
+  const nome = document.createElement("div");
+  nome.className = "arq-nome";
+  nome.textContent = arquivo.name || "arquivo";
+  nome.title = arquivo.name || "";
+  const meta = document.createElement("div");
+  meta.className = "arq-meta";
+  meta.textContent = [arquivo.bytes ? fmtTamanho(arquivo.bytes) : "", descricao].filter(Boolean).join(" · ");
+  txt.append(nome, meta);
+  card.append(txt);
+  if (arquivo.file && threadId) {
+    const acoes = document.createElement("div");
+    acoes.className = "arq-acoes";
+    if (abreNoPreview(arquivo.mime, arquivo.name)) {
+      const abrir = document.createElement("button");
+      abrir.type = "button";
+      abrir.className = "subtle arq-btn";
+      abrir.innerHTML = `${ctxIco("fora")}<span>Abrir no preview</span>`;
+      abrir.addEventListener("click", () => void abrirArquivoNoPreview(arquivo, threadId, abrir));
+      acoes.append(abrir);
+    }
+    const baixar = document.createElement("button");
+    baixar.type = "button";
+    baixar.className = "subtle arq-btn";
+    baixar.innerHTML = `${ctxIco("baixar")}<span>Baixar</span>`;
+    baixar.addEventListener("click", () => void baixarArquivo(arquivo, threadId, baixar));
+    acoes.append(baixar);
+    card.append(acoes);
+  }
+  return card;
+}
+
+/** Botão ocupado enquanto a ação roda; erro vira aviso, não exceção solta. */
+async function comBotao(btn, fn) {
+  if (btn.disabled) return;
+  btn.disabled = true;
+  try {
+    await fn();
+  } catch (e) {
+    void dialogo.avisar(e?.message || "Não deu.");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/** Baixar: o blob vem com o bearer e o Electron abre o "Salvar como". */
+function baixarArquivo(arquivo, threadId, btn) {
+  return comBotao(btn, async () => {
+    let blob;
+    try {
+      blob = await reqBlob(`/v1/threads/${threadId}/attachments/${encodeURIComponent(arquivo.file)}`);
+    } catch {
+      throw new Error(`"${arquivo.name}" não está neste computador.`);
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = arquivo.name || arquivo.file;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  });
+}
+
+/**
+ * Abrir no preview: aba do painel Browser da área de trabalho desta conversa, com o link
+ * assinado do daemon (`/anexo/...`) — o <webview> não manda o bearer.
+ */
+function abrirArquivoNoPreview(arquivo, threadId, btn) {
+  return comBotao(btn, async () => {
+    const { url } = await req(`/v1/threads/${threadId}/attachments/${encodeURIComponent(arquivo.file)}/link`);
+    // a cor de destaque da pessoa vai junto: o visualizador (markdown, tabela) não vê o CSS do app
+    const cor = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+    const href = `${api(url)}&n=${encodeURIComponent(arquivo.name || "")}${/^#[0-9a-f]{6}$/i.test(cor) ? `&cor=${encodeURIComponent(cor)}` : ""}`;
+    // aba nova (ou a do mesmo arquivo): não troca o app que a pessoa tem aberto no preview
+    garantirBrowserDaThread(threadId, href);
+  });
 }
 
 async function fillShot(img, file, threadId) {
@@ -2527,7 +2644,8 @@ function garantirBrowserDaThread(threadId, url) {
   const tab = abrirAba(s, "browser", url ? { url } : {});
   if (url) setUrlDaAba(s, tab.id, url);
   persistirWork(threadId);
-  browserPool.obter(chaveSessao(threadId), tab.id);
+  // guest novo já nasce na URL: navegar um recém-criado (antes do dom-ready) é o que dava erro
+  browserPool.obter(chaveSessao(threadId), tab.id, url ? urlDePreview(url) : undefined);
   if (url) browserPool.navegar(chaveSessao(threadId), tab.id, urlDePreview(url));
   if (chaveSessao() === chaveSessao(threadId)) aplicarSessaoWork();
   return tab;
@@ -4596,8 +4714,20 @@ function appendEvent(ev, scroll = true) {
     li.innerHTML = `<div class="who">${ev.viaPonte ? "Você · pelo chat de origem" : "Você"}</div><div class="you-text">${escapeHtml(ev.text)}</div>`;
     if (!ev.text) li.querySelector(".you-text").remove();
     if (ev.elementos?.length) li.append(chipsDeElementos(ev.elementos));
-    const shots = ev.previews ?? ev.attachments ?? [];
-    if (shots.length) li.append(shotsRow(shots, ev.threadId ?? state.threadId));
+    const anexos = ev.previews ?? ev.attachments ?? [];
+    const threadDoAnexo = ev.threadId ?? state.threadId;
+    const fotos = anexos.filter(ehFoto);
+    if (fotos.length) li.append(shotsRow(fotos, threadDoAnexo));
+    const arquivos = anexos.filter((a) => !ehFoto(a));
+    if (arquivos.length) {
+      const lista = document.createElement("div");
+      lista.className = "arq-lista";
+      for (const a of arquivos) lista.append(cartaoDeArquivo(a, threadDoAnexo));
+      li.append(lista);
+    }
+  } else if (ev.type === "arquivo_entregue") {
+    li.className = "arquivo-entregue";
+    li.append(cartaoDeArquivo(ev.arquivo ?? {}, ev.threadId ?? state.threadId, ev.descricao || ""));
   } else if (ev.type === "assistant") {
     li.className = "bot";
     li.innerHTML = `<div class="who">${escapeHtml(autorDaResposta(ev))}</div><div class="md"></div>`;
@@ -5908,7 +6038,7 @@ function onLive(ev) {
     void barraDoChat().aplicar(ev);
     return;
   }
-  if (ev.type === "run_resultado") {
+  if (ev.type === "run_resultado" || ev.type === "arquivo_entregue") {
     appendEvent(ev);
     return;
   }
@@ -9170,7 +9300,7 @@ async function enviarAgora(item) {
   try {
     images = await encodeImages(item.images);
   } catch (err) {
-    devolver(err.message || "Não consegui ler a imagem — ficou na fila.");
+    devolver(err.message || "Não consegui ler o anexo — ficou na fila.");
     return;
   }
   let r = null;
@@ -9187,7 +9317,7 @@ async function enviarAgora(item) {
     return;
   }
   if (chat.threadId === threadId) {
-    areaDeChats.comChat(chat, () => appendEvent({ type: "user", text: item.text, previews: item.images.map((img) => ({ url: img.url, name: img.name })) }));
+    areaDeChats.comChat(chat, () => appendEvent({ type: "user", text: item.text, previews: item.images.map((img) => ({ url: img.url, name: img.name, mime: img.mime, bytes: img.file?.size })) }));
   }
 }
 
@@ -9312,7 +9442,7 @@ async function mandarPelaPonte(text, pendentes) {
   try {
     images = await encodeImages(pendentes ?? takePending());
   } catch (err) {
-    areaDeChats.comChat(chat, () => appendEvent({ type: "error", message: err.message || "Não consegui ler a imagem." }));
+    areaDeChats.comChat(chat, () => appendEvent({ type: "error", message: err.message || "Não consegui ler o anexo." }));
     return;
   }
   try {
@@ -9384,11 +9514,11 @@ async function sendChatMessage(text, pendentes = null, { elementos = [] } = {}) 
   try {
     images = await encodeImages(itens);
   } catch (err) {
-    nele(() => appendEvent({ type: "error", message: err.message || "Não consegui ler a imagem." }));
+    nele(() => appendEvent({ type: "error", message: err.message || "Não consegui ler o anexo." }));
     return;
   }
   if (chat.threadId !== threadId) return;
-  const previews = itens.map((item) => ({ url: item.url, name: item.name }));
+  const previews = itens.map((item) => ({ url: item.url, name: item.name, mime: item.mime, bytes: item.file?.size }));
   nele(() => {
     appendEvent({ type: "user", text, previews, ...(elementos.length ? { elementos } : {}) });
     void dispararMencoes(text);
@@ -9435,7 +9565,8 @@ porChat(() => {
 });
 
 /**
- * Ctrl+V com imagem na área de transferência: anexa em vez de colar caminho nenhum.
+ * Ctrl+V com arquivo na área de transferência (print, ou arquivo copiado no Explorer): anexa em
+ * vez de colar caminho nenhum.
  * Escuta no documento porque o foco raramente está no campo — mas cala a boca
  * enquanto um modal está aberto, senão a paleta rouba a colagem do chat.
  */
@@ -9444,11 +9575,11 @@ document.addEventListener("paste", (e) => {
   if (!$("settings").classList.contains("hidden")) return;
   if (!$("login-modal").classList.contains("hidden")) return;
   const files = [...(e.clipboardData?.items ?? [])]
-    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+    .filter((item) => item.kind === "file")
     .map((item) => item.getAsFile());
   if (files.length === 0) return;
   e.preventDefault();
-  addImages(files);
+  addAnexos(files);
 });
 
 porChat(() => {
@@ -9472,7 +9603,7 @@ porChat(() => {
     const files = [...(e.dataTransfer?.files ?? [])];
     if (files.length === 0) return;
     e.preventDefault();
-    addImages(files);
+    addAnexos(files);
   });
 });
 
@@ -9482,7 +9613,7 @@ porChat(() => {
 
 porChat(() => {
   $("attach-input").addEventListener("change", (e) => {
-    addImages([...e.target.files]);
+    addAnexos([...e.target.files]);
     e.target.value = "";
   });
 });
