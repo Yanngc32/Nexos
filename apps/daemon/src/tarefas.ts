@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { log } from "./log.ts";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "./config.ts";
 import { projectKey, tarefasPath as legadoPath } from "./home.ts";
@@ -442,11 +442,33 @@ export function apagarEtiqueta(projectPath: string, id: string, home: string): v
   escreverQuadro({ ...quadro, etiquetas: quadro.etiquetas.filter((e) => e.id !== id) }, home);
 }
 
+/**
+ * Tarefa lida, por arquivo, revalidada por `stat` (mtime + tamanho): o quadro mora no Drive e a
+ * lista inteira era relida e reinterpretada a cada abertura de plano/quadro (~250 ms com 80
+ * tarefas, muito mais com o Drive ocupado). Gravação do motor apaga a entrada do arquivo.
+ */
+const cacheTarefa = new Map<string, { marca: string; dados: Partial<Tarefa> | null }>();
+
 function lerTarefaDoDisco(projectPath: string, home: string, id: string): Tarefa | null {
-  const path = itemPath(projectPath, home, id);
-  if (!existsSync(path)) return null;
+  return lerTarefaDoArquivo(projectPath, itemPath(projectPath, home, id));
+}
+
+function lerTarefaDoArquivo(projectPath: string, path: string): Tarefa | null {
+  let marca: string;
   try {
-    const dados = lerBloco<Partial<Tarefa>>(readFileSync(path, "utf8"));
+    const st = statSync(path, { bigint: true });
+    marca = `${st.mtimeNs}:${st.size}`;
+  } catch {
+    cacheTarefa.delete(path);
+    return null;
+  }
+  try {
+    let c = cacheTarefa.get(path);
+    if (!c || c.marca !== marca) {
+      c = { marca, dados: lerBloco<Partial<Tarefa>>(readFileSync(path, "utf8")) ?? null };
+      cacheTarefa.set(path, c);
+    }
+    const dados = c.dados ? structuredClone(c.dados) : null;
     if (!dados || typeof dados.id !== "string" || typeof dados.titulo !== "string" || typeof dados.colunaId !== "string") {
       return null;
     }
@@ -472,7 +494,9 @@ function escreverTarefa(t: Tarefa, quadro: Quadro, home: string): void {
   projectTarefasDir(t.projectPath, home);
   mkdirSync(itensDir(t.projectPath, home), { recursive: true });
   const { projectPath: _pp, ...dados } = t;
-  writeFileSync(itemPath(t.projectPath, home, t.id), escreverMd(dados, corpoDaTarefa(t, quadro)), "utf8");
+  const path = itemPath(t.projectPath, home, t.id);
+  writeFileSync(path, escreverMd(dados, corpoDaTarefa(t, quadro)), "utf8");
+  cacheTarefa.delete(path);
 }
 
 export function listarTarefas(projectPath: string, home: string): Tarefa[] {
@@ -482,7 +506,7 @@ export function listarTarefas(projectPath: string, home: string): Tarefa[] {
   const tarefas: Tarefa[] = [];
   for (const arquivo of readdirSync(dir)) {
     if (!arquivo.endsWith(".md")) continue;
-    const t = lerTarefaDoDisco(projectPath, home, arquivo.slice(0, -3));
+    const t = lerTarefaDoArquivo(projectPath, join(dir, arquivo));
     if (t) tarefas.push(t);
   }
   return tarefas;
@@ -690,6 +714,7 @@ export function apagarTarefa(projectPath: string, home: string, id: string): voi
   const path = itemPath(projectPath, home, id);
   if (!existsSync(path)) throw notFound(`tarefa não existe: ${id}`);
   rmSync(path);
+  cacheTarefa.delete(path);
 }
 
 function exigirTarefa(projectPath: string, home: string, id: string): Tarefa {

@@ -5,6 +5,7 @@ import type { ElementoDoPreview, EngineEvent, EngineKind, EngineOverrides, Parte
 import { ESFORCO_AUTO, MODELO_AUTO, MODELO_AUTO_FALLBACK, TURNO_TETO_MS } from "@nexos/shared";
 import { agentOverrides, getAgent } from "./agents.ts";
 import { readMemoria, readMemoriaGlobal } from "./memoria.ts";
+import { blocoDeAprendizados } from "./instintos.ts";
 import { promptWithAttachments, removeThreadAttachments, saveAttachments, textoComElementos, type IncomingFile } from "./attachments.ts";
 import { loadConfig } from "./config.ts";
 import { globalChatDir, projectKey, tokenPath } from "./home.ts";
@@ -46,7 +47,7 @@ import {
 } from "./compactar.ts";
 import { assertSwitch, suggestFallback } from "./router.ts";
 import { spawnCwd } from "./project-cwd.ts";
-import { activeAgentId, activeProfileId, appendEvent, readThread, removeThread, renomearThread, threadUsage } from "./threads.ts";
+import { activeAgentId, activeProfileId, appendEvent, planejamentoDe, readThread, removeThread, renomearThread, threadUsage } from "./threads.ts";
 import { limparTitulo, pedidoDeTitulo, tituloPorRegra } from "./titulo-auto.ts";
 import { log } from "./log.ts";
 import { avisoNovoDePausa, decidirRoteamento, escolherExecucao, type EscolhaDeExecucao, type PausaDoTypesafe } from "./typesafe.ts";
@@ -166,6 +167,8 @@ type Live = {
   profileId: string;
   /** Agente personalizado da conversa; vazio = conta pura. */
   agentId?: string;
+  /** Plano de que esta conversa é o Manager quando o motor subiu (muda o "só leitura"). */
+  planejamento?: string;
   assistantBuf: string;
   /**
    * Teve ferramenta (ou fim de resposta, `usage`) desde o último texto: o próximo `text` é outro
@@ -580,6 +583,12 @@ function instrucoesDoPack(
   if (projectPath && opts.handoff) blocos.push(blocoDoHandoff(opts.handoff, pastaDoPlano(projectPath, home, opts.handoff)));
   if (instrucoes) blocos.push(`# Agente: ${def?.name ?? agentId}\n${instrucoes}`);
   if (memoria) blocos.push(`# Memória ${projectPath ? "do projeto" : "geral"}\n${memoria}`);
+  // Preferências aprendidas (aprovadas pela pessoa): logo depois da memória, com teto próprio e
+  // lidas do cache em memória (instintos.ts) — o pack é refeito a cada turno e a pasta mora no Drive
+  if (projectPath) {
+    const aprendizados = blocoDeAprendizados(projectPath, home);
+    if (aprendizados) blocos.push(aprendizados);
+  }
   // Repo map — Camada 1 (índice, texto fixo, sem custo de LLM) + o nudge da Camada 2 (ferramenta
   // sob demanda). Mesmo bloco/peso que memória: descrição de ferramenta sozinha perde pro hábito
   // de grepar, um lembrete no topo do pack empurra mais forte que só o `tools/list` competindo.
@@ -650,8 +659,11 @@ export function janelaDaConta(profile: Profile, events: ThreadEvent[], agentId: 
 
 async function ensureLive(threadId: string, home: string, profile?: Profile): Promise<Live> {
   const events = readThread(threadId, home);
-  const meta = events.find((e) => e.type === "thread_meta");
-  if (!meta || meta.type !== "thread_meta") throw new Error("thread sem meta");
+  const metaGravado = events.find((e) => e.type === "thread_meta");
+  if (!metaGravado || metaGravado.type !== "thread_meta") throw new Error("thread sem meta");
+  // conversa que virou Manager depois de nascer (`thread_planejamento`) roda como Manager
+  const planejamento = planejamentoDe(events);
+  const meta = { ...metaGravado, ...(planejamento ? { planejamento } : {}) };
   // Agente pode ter sido atribuído DEPOIS da criação (roteamento por typesafe.ai
   // — ver postMessage/agent_assigned): `activeAgentId` olha o evento mais
   // recente, caindo pro `meta.agentId` de sempre quando não há atribuição.
@@ -691,7 +703,12 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
   }
 
   const existing = lives.get(threadId);
-  if (existing && existing.profileId === p.id && existing.agentId === agentId) {
+  // virou Manager: o motor velho subiu sem o "só leitura", precisa de um novo
+  if (existing && existing.planejamento !== planejamento?.slug) {
+    lives.delete(threadId);
+    void existing.engine.abort().catch(() => {});
+  }
+  if (existing && lives.has(threadId) && existing.profileId === p.id && existing.agentId === agentId) {
     const novo = packDaConversa(agentId, meta.projectPath, packed.text, home, opcoesDoPack(meta));
     existing.engine.updatePack(novo.contextPack, novo.partesDoPack);
     // Mesma razão do updatePack: sem isto, mudar `delegacaoModo`/`allowedTools` só valeria depois
@@ -707,6 +724,7 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
     engine,
     profileId: p.id,
     ...(agentId ? { agentId } : {}),
+    ...(planejamento ? { planejamento: planejamento.slug } : {}),
     assistantBuf: "",
     pendingTurn: null,
     retryCount: 0,
@@ -1011,7 +1029,7 @@ async function talvezTitular(threadId: string, home: string): Promise<void> {
 }
 
 /** Um turno só, num motor descartável, devolvendo o texto que ele produziu. */
-function turnoDeResumo(
+export function turnoDeResumo(
   p: Profile,
   projectPath: string | undefined,
   home: string,
@@ -1098,7 +1116,7 @@ async function pingUso(p: Profile, home: string): Promise<void> {
  * recebe `limits` de verdade no próprio turno (ver `onEngineEvent`), então o ping descartável
  * aqui seria gasto duplicado sem ganhar nada.
  */
-const MODELO_DO_PING = { model: "haiku", effort: "low" } as const;
+export const MODELO_DO_PING = { model: "haiku", effort: "low" } as const;
 /** `limits` mais novo que isto já vale pro painel: pingar de novo seria gasto sem dado novo. */
 const LIMITS_FRESCO_MS = 25 * 60_000;
 /** Sem mensagem da pessoa há mais que isto, o ping periódico para (ninguém está olhando o painel). */

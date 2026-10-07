@@ -642,13 +642,21 @@ export type ThreadEvent =
   /** Liga/desliga a ponte com o Manager (desligada, o chat volta a falar com o próprio agente). */
   | { ts: string; type: "plano_ponte"; threadId: string; ligada: boolean }
   /**
+   * Esta conversa passou a ser o Agent Manager do plano `<slug>` (plano criado a partir dela):
+   * vale como `thread_meta.planejamento` daqui pra frente — só lê o projeto e mexe no plano.
+   */
+  | { ts: string; type: "thread_planejamento"; threadId: string; slug: string; titulo?: string }
+  /**
    * Conversa foi pra lixeira (`naLixeira: true`, some da lista) ou voltou dela. `auto` = a
    * varredura de conversas paradas; `manual` = a pessoa. Ir não conta como atividade
    * (`updatedAt`); voltar conta, pra restaurada ganhar o prazo inteiro de novo.
    */
   | { ts: string; type: "thread_lixeira"; threadId: string; naLixeira: boolean; origem: "auto" | "manual" }
-  /** Mensagem que passou pela ponte: `ida` = a pessoa pro Manager; `volta` = fala do Manager. */
-  | { ts: string; type: "ponte"; threadId: string; direcao: "ida" | "volta"; texto: string; managerThreadId: string }
+  /**
+   * Mensagem que passou pela ponte: `ida` = a pessoa pro Manager; `volta` = fala do Manager;
+   * `falhou` = a `ida` não chegou ao Manager (`motivo`), com reenviar no chat de origem.
+   */
+  | { ts: string; type: "ponte"; threadId: string; direcao: "ida" | "volta" | "falhou"; texto: string; managerThreadId: string; motivo?: string }
   | {
       ts: string;
       type: "tool";

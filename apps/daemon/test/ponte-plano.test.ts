@@ -1,7 +1,17 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { addProfile } from "../src/profiles.ts";
 import { perguntar, resetPerguntasForTest, temPerguntaPendente } from "../src/perguntas.ts";
-import { alternarPonte, iniciarPontePlano, ligarPlano, mandarPelaPonte, ponteLigada, resetPontePlanoForTest } from "../src/ponte-plano.ts";
+import {
+  alternarPonte,
+  definirDependenciasDaPonteParaTeste,
+  iniciarPontePlano,
+  ligarPlano,
+  mandarPelaPonte,
+  naFilaDaPonte,
+  ponteLigada,
+  resetPontePlanoForTest,
+} from "../src/ponte-plano.ts";
+import { sessionBus } from "../src/bus.ts";
 import { appendEvent, createThread, listThreads, readThread, threadHead } from "../src/threads.ts";
 import { tempHome } from "./helpers.ts";
 
@@ -54,6 +64,67 @@ describe("ponte chat de origem ↔ Agent Manager", () => {
     appendEvent({ ts: new Date().toISOString(), type: "assistant", threadId: manager, text: "outra fala" }, home);
     expect(pontes(home, origem)).toHaveLength(1);
     expect(() => mandarPelaPonte(origem, "oi", [], home)).toThrow();
+  });
+
+  it("Manager num turno longo com inject recusado: a mensagem chega no turno seguinte, uma vez só", async () => {
+    const { home, origem, manager } = cenario();
+    let ocupado = true;
+    const postadas: string[] = [];
+    definirDependenciasDaPonteParaTeste({
+      injetar: () => false,
+      ocupado: () => ocupado,
+      postar: async (_id, texto) => {
+        postadas.push(texto);
+      },
+      esperaMs: 5,
+    });
+    const mostradas: string[] = [];
+    const ouvir = (ev: { type: string; text?: string }) => ev.type === "user" && mostradas.push(ev.text ?? "");
+    sessionBus.on(manager, ouvir);
+    try {
+      mandarPelaPonte(origem, "troca a etapa 2", [], home);
+      mandarPelaPonte(origem, "troca a etapa 2", [], home); // clique duplo / reenvio
+      await new Promise((r) => setTimeout(r, 30));
+      expect(postadas).toEqual([]);
+      expect(naFilaDaPonte(manager)).toBe(1);
+      // aceita na fila: aparece no chat do Manager uma vez
+      expect(mostradas).toEqual(["troca a etapa 2"]);
+      ocupado = false;
+      await vi.waitFor(() => expect(postadas).toEqual(["troca a etapa 2"]));
+      expect(naFilaDaPonte(manager)).toBe(0);
+    } finally {
+      sessionBus.off(manager, ouvir);
+    }
+  });
+
+  it("trava ocupada (409) volta pra fila; erro definitivo aparece no chat de origem", async () => {
+    const { home, origem, manager } = cenario();
+    let tentativas = 0;
+    definirDependenciasDaPonteParaTeste({
+      injetar: () => false,
+      ocupado: () => false,
+      postar: async (_id, texto) => {
+        tentativas++;
+        if (texto === "primeira" && tentativas === 1) throw Object.assign(new Error("thread locked"), { status: 409 });
+        if (texto === "segunda") throw new Error("conta sem login");
+      },
+      esperaMs: 5,
+    });
+    mandarPelaPonte(origem, "primeira", [], home);
+    mandarPelaPonte(origem, "segunda", [], home);
+    await vi.waitFor(() => expect(pontes(home, origem).some((e) => e.type === "ponte" && e.direcao === "falhou")).toBe(true));
+    expect(naFilaDaPonte(manager)).toBe(0);
+    expect(tentativas).toBe(3);
+    expect(pontes(home, origem).filter((e) => e.type === "ponte" && e.direcao === "falhou")).toMatchObject([
+      { texto: "segunda", motivo: "conta sem login", managerThreadId: manager },
+    ]);
+  });
+
+  it("mensagem injetada aparece no chat do Manager e não entra na fila", () => {
+    const { home, origem, manager } = cenario();
+    definirDependenciasDaPonteParaTeste({ injetar: () => true, ocupado: () => true });
+    mandarPelaPonte(origem, "ajusta", [], home);
+    expect(naFilaDaPonte(manager)).toBe(0);
   });
 
   it("conversa que nunca abriu plano não tem ponte pra alternar", () => {

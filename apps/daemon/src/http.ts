@@ -73,9 +73,22 @@ import {
   type EscopoSkill,
   type OrigemSkill,
 } from "./skills-install.ts";
+import { comecarAtividade, ROTA_LENTA_MS } from "./congelamento.ts";
 import { cliAuthStatus } from "./auth-status.ts";
 import { cancelLogin, loginStatus, startLogin, submitCode } from "./login-session.ts";
 import { alternarPonte, iniciarPontePlano, mandarPelaPonte, ponteLigada } from "./ponte-plano.ts";
+import { marcarSinal, talvezMarcarMensagemSeguinte } from "./aprendizado-sinais.ts";
+import { analisandoNoProjeto } from "./aprendizado-analise.ts";
+import {
+  adiarProposta,
+  agirNoInstinto,
+  candidatosPendentes,
+  criarSkillDaArea,
+  definirAprendizadoLigado,
+  editarInstinto,
+  resumoDoAprendizado,
+  type AcaoNoInstinto,
+} from "./instintos.ts";
 import { conversaDoManager as managerDoPlano, planejarConversa } from "./plano-da-conversa.ts";
 import {
   activeAgentId,
@@ -244,6 +257,7 @@ import {
   criarPlano,
   escreverHandoff,
   listarHandoffs,
+  nomesDeHandoff,
   listarPlanos,
   marcarEtapa,
   planejamentoBus,
@@ -327,6 +341,18 @@ export function createApp(home: string, token: string): Hono {
     }
     log.erro("motor", `rota ${c.req.method} ${c.req.path} falhou`, { erro: e.message });
     return c.json({ error: e.message || "erro interno" }, 500);
+  });
+  // toda rota vira atividade: o aviso de congelamento diz quem segurava o motor, e rota lenta
+  // deixa pista no log mesmo sem congelar (congelamento.ts)
+  app.use("*", async (c, next) => {
+    const fim = comecarAtividade(`${c.req.method} ${c.req.path}`);
+    try {
+      await next();
+    } finally {
+      const ms = fim();
+      const sse = c.res.headers.get("content-type")?.startsWith("text/event-stream");
+      if (ms > ROTA_LENTA_MS && !sse) log.aviso("motor", "rota lenta", { rota: `${c.req.method} ${c.req.path}`, ms: Math.round(ms) });
+    }
   });
   app.use(
     "*",
@@ -1048,6 +1074,8 @@ export function createApp(home: string, token: string): Hono {
         mandarPelaPonte(c.req.param("id"), text, images, home);
         return c.json({ ok: true, ponte: true });
       }
+      // aprendizados: mensagem logo depois da resposta com cara de correção marca o trecho
+      talvezMarcarMensagemSeguinte(home, c.req.param("id"), text);
       // turno já respondido, só esperando tarefa em background: a trava da thread seguraria a
       // mensagem até a tarefa acabar (horas, com dev server). Entra no turno aberto.
       if (!elementos.length && tarefasEmEspera(c.req.param("id")) > 0 && injetarMensagem(c.req.param("id"), text, home, images)) {
@@ -1073,7 +1101,10 @@ export function createApp(home: string, token: string): Hono {
         mandarPelaPonte(c.req.param("id"), text, images, home);
         return c.json({ injetada: true, ponte: true });
       }
-      return c.json({ injetada: injetarMensagem(c.req.param("id"), text, home, images) });
+      const injetada = injetarMensagem(c.req.param("id"), text, home, images);
+      // aprendizados: corrigir o agente no meio do turno é sinal de correção
+      if (injetada) marcarSinal(home, { threadId: c.req.param("id"), tipo: "inject", trecho: text });
+      return c.json({ injetada });
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400);
     }
@@ -1121,7 +1152,10 @@ export function createApp(home: string, token: string): Hono {
   });
 
   app.post("/v1/threads/:id/abort", async (c) => {
+    // aprendizados: a pessoa parou um turno em curso (sinal de correção)
+    const emCurso = turnoEmCurso(c.req.param("id"));
     await abortThread(c.req.param("id"));
+    if (emCurso) marcarSinal(home, { threadId: c.req.param("id"), tipo: "parar" });
     return c.json({ ok: true });
   });
 
@@ -2156,7 +2190,8 @@ export function createApp(home: string, token: string): Hono {
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
     try {
       const plano = abrirPlano(projectPath, home, c.req.param("slug"));
-      return c.json({ ...plano, integracao: resolverIntegracao(projectPath, home, plano) });
+      // conferência do envio junto (cálculo puro): a janela de envio abre sem esperar o motor
+      return c.json({ ...plano, integracao: resolverIntegracao(projectPath, home, plano), prontidao: prontidao(plano) });
     } catch (e) {
       return erroDoPlano(c, e);
     }
@@ -2197,6 +2232,10 @@ export function createApp(home: string, token: string): Hono {
       const body = (await c.req.json().catch(() => ({}))) as { veredito?: unknown; motivo?: unknown; expectedRev?: unknown };
       const r = avaliarDesign(projectPath, home, c.req.param("slug"), { id: c.req.param("id"), veredito: body.veredito, motivo: body.motivo, expectedRev: body.expectedRev });
       let avisou = false;
+      // aprendizados: mock reprovado com motivo marca a conversa de implementação que fez o mock
+      if (body.veredito === "reprovado" && r.implementacaoThreadId) {
+        marcarSinal(home, { threadId: r.implementacaoThreadId, tipo: "mock_reprovado", trecho: String(body.motivo ?? "") });
+      }
       if (r.implementacaoThreadId && threadHead(r.implementacaoThreadId, home)) {
         avisou = true;
         if (!injetarMensagem(r.implementacaoThreadId, r.mensagem, home)) {
@@ -2277,6 +2316,8 @@ export function createApp(home: string, token: string): Hono {
     const projectPath = c.req.query("projectPath") || "";
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
     try {
+      // `?nomes=1`: só os nomes (a espera pelo Manager confere a cada 5 s sem ler o texto do Drive)
+      if (c.req.query("nomes")) return c.json(nomesDeHandoff(projectPath, home, c.req.param("slug")));
       return c.json(listarHandoffs(projectPath, home, c.req.param("slug")));
     } catch (e) {
       return erroDoPlano(c, e);
@@ -2288,8 +2329,10 @@ export function createApp(home: string, token: string): Hono {
     const projectPath = c.req.query("projectPath") || "";
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
     try {
+      const t0 = performance.now();
       const plano = abrirPlano(projectPath, home, c.req.param("slug"));
       const p = prontidao(plano);
+      log.info("planejamento", "rascunho do handoff", { slug: c.req.param("slug"), ms: Math.round(performance.now() - t0) });
       return c.json({ texto: montarHandoff(plano), prontidao: p, pedido: pedidoAoManager(plano, p.bloqueios.length) });
     } catch (e) {
       return erroDoPlano(c, e);
@@ -2366,6 +2409,92 @@ export function createApp(home: string, token: string): Hono {
       hooksCount: regrasDoEscopo(listarRegras(home), projectPath).length,
       ...projectSlug(projectPath, home),
     });
+  });
+
+  /* ---------- Aprendizados (seção da Memória do Projeto; ver instintos.ts) ---------- */
+
+  const erroDoAprendizado = (c: Context, e: unknown) => {
+    if (e instanceof RaizIndisponivelError) throw e;
+    const err = e as Error & { status?: number; atual?: unknown };
+    const status = (err.status ?? 400) as 400;
+    return c.json(err.status === 409 ? { error: err.message, atual: err.atual ?? null } : { error: err.message }, status);
+  };
+
+  app.get("/v1/aprendizados", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      return c.json({ ...resumoDoAprendizado(projectPath, home), analisando: analisandoNoProjeto(projectPath) });
+    } catch (e) {
+      return erroDoAprendizado(c, e);
+    }
+  });
+
+  /** Contador da barra lateral: candidatos pra revisar (0 com o aprendizado desligado). */
+  app.get("/v1/aprendizados/pendentes", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const r = resumoDoAprendizado(projectPath, home);
+      return c.json({ pendentes: r.ligado ? candidatosPendentes(projectPath, home) : 0 });
+    } catch (e) {
+      return erroDoAprendizado(c, e);
+    }
+  });
+
+  app.put("/v1/aprendizados/config", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    const body = (await c.req.json().catch(() => ({}))) as { ligado?: unknown };
+    if (typeof body.ligado !== "boolean") return c.json({ error: "ligado (boolean) obrigatório" }, 400);
+    try {
+      return c.json(definirAprendizadoLigado(projectPath, home, body.ligado));
+    } catch (e) {
+      return erroDoAprendizado(c, e);
+    }
+  });
+
+  app.post("/v1/aprendizados/:id/acao", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    const body = (await c.req.json().catch(() => ({}))) as { acao?: unknown; expected?: unknown; statusAnterior?: unknown };
+    try {
+      return c.json(agirNoInstinto(projectPath, home, c.req.param("id"), body.acao as AcaoNoInstinto, body));
+    } catch (e) {
+      return erroDoAprendizado(c, e);
+    }
+  });
+
+  app.put("/v1/aprendizados/:id", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    const body = (await c.req.json().catch(() => ({}))) as { gatilho?: unknown; acao?: unknown; aprovar?: unknown; expected?: unknown };
+    try {
+      return c.json(editarInstinto(projectPath, home, c.req.param("id"), body));
+    } catch (e) {
+      return erroDoAprendizado(c, e);
+    }
+  });
+
+  app.post("/v1/aprendizados/propostas/:area/skill", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      return c.json(criarSkillDaArea(projectPath, home, c.req.param("area")));
+    } catch (e) {
+      return erroDoAprendizado(c, e);
+    }
+  });
+
+  app.post("/v1/aprendizados/propostas/:area/adiar", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      adiarProposta(projectPath, home, c.req.param("area"));
+      return c.json({ ok: true });
+    } catch (e) {
+      return erroDoAprendizado(c, e);
+    }
   });
 
   /** Espelho de `/v1/projeto/status`, mas pro chat geral (sem projeto) — só memória, sem repo map/hooks de projeto. */
@@ -2608,10 +2737,11 @@ export function createApp(home: string, token: string): Hono {
       ok?: boolean;
       texto?: string;
       imagem?: { dataBase64: string; mimeType: string };
+      id?: string;
     };
     if (typeof body.ok !== "boolean") return c.json({ error: 'faltou "ok"' }, 400);
     const resultado = { ok: body.ok, texto: typeof body.texto === "string" ? body.texto : "", imagem: body.imagem };
-    const resolvido = responderNavegador(threadId, resultado);
+    const resolvido = responderNavegador(threadId, resultado, typeof body.id === "string" ? body.id : undefined);
     if (!resolvido) return c.json({ error: "nenhum comando de navegador pendente nesta conversa" }, 404);
     return c.json({ ok: true });
   });

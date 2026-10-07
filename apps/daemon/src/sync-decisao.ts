@@ -44,7 +44,7 @@ export const PASTA_BIBLIOTECA = "_biblioteca";
 
 /**
  * **Uma fonte só** do que o Nexos grava dentro da pasta de um projeto (`projectDir` e quem o usa:
- * memoria.ts, tarefas.ts, repo-map-indice.ts, threads.ts, planejamento.ts, design-system.ts) —
+ * memoria.ts, tarefas.ts, repo-map-indice.ts, threads.ts, planejamento.ts, design-system.ts, instintos.ts) —
  * mais o ícone escolhido à mão (`icone-manual.<ext>`, project-logo.ts). O `meta.json` fica fora:
  * guarda o caminho do projeto NESTA máquina e não sincroniza. Um teste-guarda falha se o daemon
  * passar a gravar outra coisa ali sem entrar nesta lista.
@@ -58,6 +58,7 @@ export const DADOS_DO_PROJETO: readonly string[] = [
   "design-system",
   "design-system.json",
   "videos",
+  "instintos",
 ];
 
 /**

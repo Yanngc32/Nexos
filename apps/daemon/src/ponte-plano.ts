@@ -3,7 +3,7 @@ import type { IncomingFile } from "./attachments.ts";
 import { sessionBus } from "./bus.ts";
 import { log } from "./log.ts";
 import { responderPergunta, temPerguntaPendente } from "./perguntas.ts";
-import { injetarMensagem, postMessage } from "./session.ts";
+import { injetarMensagem, postMessage, turnoEmCurso } from "./session.ts";
 import { aoGravarEvento, appendEvent, threadHead } from "./threads.ts";
 
 /**
@@ -44,6 +44,11 @@ export function alternarPonte(origem: string, ligada: boolean, home: string): bo
 /**
  * Mensagem da pessoa no chat de origem com a ponte ligada: grava a `ida` aqui e entrega ao Manager.
  * Não espera o turno do Manager — a fala dele volta sozinha pelo ouvinte abaixo.
+ *
+ * Manager ocupado e inject recusado: a mensagem entra na fila da ponte e vai no turno seguinte
+ * (antes ia direto pro `postMessage`, que desistia com "thread locked" depois de 10 s e a mensagem
+ * sumia). O chat do Manager só mostra a mensagem quando ela foi aceita (respondeu, injetou ou
+ * entrou na fila); falha definitiva volta pro chat de origem como `ponte` `falhou`.
  */
 export function mandarPelaPonte(origem: string, texto: string, images: IncomingFile[], home: string): void {
   const p = ponteLigada(origem, home);
@@ -52,12 +57,105 @@ export function mandarPelaPonte(origem: string, texto: string, images: IncomingF
   const manager = p.managerThreadId;
   // Manager parado numa pergunta: a mensagem É a resposta
   if (images.length === 0 && temPerguntaPendente(manager) && responderPergunta(manager, texto)) return;
-  // chat do Manager aberto na tela: o pedido aparece lá na hora (o evento `user` gravado não vai por SSE)
+  if (dep.injetar(manager, texto, home, images)) {
+    mostrarNoManager(manager, texto);
+    return;
+  }
+  enfileirar(manager, { origem, texto, images, desde: Date.now() }, home);
+}
+
+/** Chat do Manager aberto na tela: o pedido aparece lá na hora (o evento `user` gravado não vai por SSE). */
+function mostrarNoManager(manager: string, texto: string): void {
   sessionBus.emit(manager, { ts: nowIso(), type: "user", threadId: manager, text: texto, viaPonte: true });
-  if (injetarMensagem(manager, texto, home, images)) return;
-  void postMessage(manager, texto, home, images).catch((e) =>
-    log.erro("turno", "ponte: mensagem pro Manager falhou", { origem, manager, erro: (e as Error).message }),
+}
+
+interface NaFila {
+  origem: string;
+  texto: string;
+  images: IncomingFile[];
+  desde: number;
+}
+
+/** Mensagens da ponte esperando o Manager terminar o turno, por conversa do Manager (só em memória). */
+const filas = new Map<string, NaFila[]>();
+const drenando = new Set<string>();
+
+/** Teto de espera na fila: turno com tarefa em background dura até 2 h; passou disso, desiste avisando. */
+const FILA_TETO_MS = 2 * 60 * 60 * 1000 + 15 * 60 * 1000;
+
+const depPadrao = {
+  injetar: injetarMensagem,
+  postar: postMessage,
+  ocupado: turnoEmCurso,
+  esperaMs: 1000,
+  tetoMs: FILA_TETO_MS,
+};
+let dep = { ...depPadrao };
+
+function enfileirar(manager: string, item: NaFila, home: string): void {
+  const fila = filas.get(manager) ?? [];
+  // a mesma mensagem (reenvio, clique duplo) não chega duas vezes
+  if (item.images.length === 0 && fila.some((x) => x.origem === item.origem && x.texto === item.texto && x.images.length === 0)) return;
+  fila.push(item);
+  filas.set(manager, fila);
+  mostrarNoManager(manager, item.texto);
+  void drenar(manager, home);
+}
+
+const dormir = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Manda a fila pro Manager, uma mensagem por turno, quando ele fica livre. */
+async function drenar(manager: string, home: string): Promise<void> {
+  if (drenando.has(manager)) return;
+  drenando.add(manager);
+  try {
+    for (;;) {
+      const fila = filas.get(manager);
+      const item = fila?.[0];
+      if (!fila || !item) break;
+      if (Date.now() - item.desde > dep.tetoMs) {
+        fila.shift();
+        falhou(item, manager, "o Manager ficou ocupado tempo demais", home);
+        continue;
+      }
+      if (dep.ocupado(manager)) {
+        await dormir(dep.esperaMs);
+        continue;
+      }
+      fila.shift();
+      try {
+        await dep.postar(manager, item.texto, home, item.images);
+      } catch (e) {
+        // outro turno pegou a trava antes: volta pro começo da fila e espera de novo
+        if ((e as Error & { status?: number }).status === 409) {
+          fila.unshift(item);
+          await dormir(dep.esperaMs);
+          continue;
+        }
+        falhou(item, manager, (e as Error).message, home);
+      }
+    }
+  } finally {
+    drenando.delete(manager);
+    if (!filas.get(manager)?.length) filas.delete(manager);
+  }
+}
+
+function falhou(item: NaFila, manager: string, motivo: string, home: string): void {
+  log.erro("turno", "ponte: mensagem pro Manager falhou", { origem: item.origem, manager, erro: motivo });
+  gravar(
+    { ts: nowIso(), type: "ponte", threadId: item.origem, direcao: "falhou", texto: item.texto, managerThreadId: manager, motivo },
+    home,
   );
+}
+
+/** Quantas mensagens da ponte esperam o Manager (teste e diagnóstico). */
+export function naFilaDaPonte(manager: string): number {
+  return filas.get(manager)?.length ?? 0;
+}
+
+export function definirDependenciasDaPonteParaTeste(d: Partial<typeof depPadrao>): void {
+  dep = { ...depPadrao, ...d };
 }
 
 /** Fala gravada do Manager → `ponte` volta no chat de origem, se a ponte dele estiver ligada. */
@@ -81,4 +179,7 @@ export function iniciarPontePlano(): void {
 export function resetPontePlanoForTest(): void {
   desligar?.();
   desligar = null;
+  filas.clear();
+  drenando.clear();
+  dep = { ...depPadrao };
 }

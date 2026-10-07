@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   abaAtiva,
+  abaDoAgente,
   abrirAba,
   ativarAba,
   chaveWork,
@@ -153,5 +154,49 @@ describe("recents e paleta", () => {
     const items = itensDaPaleta({ modules: MODULES, recents: [{ url: "http://x/" }], filtro: "arquivo" });
     expect(items.every((i) => i.tipo === "mod")).toBe(true);
     expect(items[0].id).toBe("file");
+  });
+});
+
+describe("abaDoAgente: o agente nunca empilha abas do Browser", () => {
+  function sessao() {
+    return { tabs: [], activeId: "" };
+  }
+
+  it("abrir várias vezes (mesma URL com redirect, ou URL nova) reaproveita a única aba", () => {
+    const s = sessao();
+    const a = abaDoAgente(s, "localhost:3000");
+    a.url = "http://localhost:3000/login"; // redirect mudou a URL da aba
+    for (let i = 0; i < 50; i++) abaDoAgente(s, "localhost:3000");
+    abaDoAgente(s, "https://exemplo.com");
+    expect(s.tabs.filter((t) => t.kind === "browser")).toHaveLength(1);
+  });
+
+  it("foca a aba que já está na URL (normalizada) em vez de navegar outra", () => {
+    const s = sessao();
+    const app = abrirAba(s, "browser", { url: "http://localhost:3000/" });
+    abrirAba(s, "browser", { url: "https://docs.exemplo.com", nova: true });
+    expect(abaDoAgente(s, "http://localhost:3000").id).toBe(app.id);
+    expect(s.activeId).toBe(app.id);
+  });
+
+  it("sem url: a aba do Browser em foco; sem Browser na conversa, null e não cria nada", () => {
+    const s = sessao();
+    expect(abaDoAgente(s)).toBeNull();
+    expect(s.tabs).toHaveLength(0);
+    abrirAba(s, "browser", { url: "http://localhost:3000" });
+    const b = abrirAba(s, "browser", { url: "http://localhost:4000", nova: true });
+    abrirAba(s, "terminal");
+    expect(abaDoAgente(s).kind).toBe("browser");
+    ativarAba(s, b.id);
+    expect(abaDoAgente(s).id).toBe(b.id);
+  });
+});
+
+describe("abrirAba: URL igual com barra/normalização não abre outra aba", () => {
+  it("http://localhost:3000 e http://localhost:3000/ são a mesma aba", () => {
+    const s = { tabs: [], activeId: "" };
+    const a = abrirAba(s, "browser", { url: "http://localhost:3000/" });
+    const b = abrirAba(s, "browser", { url: "http://localhost:3000" });
+    expect(b.id).toBe(a.id);
   });
 });

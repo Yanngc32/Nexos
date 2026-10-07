@@ -26,6 +26,8 @@ const QUEM_GRAVA: Record<string, string[]> = {
   "project-logo.ts": ['MANUAL = "icone-manual"'],
   // painel de vídeo: cenas/meta/áudio sincronizam; `render/` é barrado no `sincronizavel`
   "video.ts": ['"videos"'],
+  // aprendizados (um .md por instinto + _config.json da chave): sincronizam entre aparelhos
+  "instintos.ts": ['"instintos"'],
   // `GET /v1/projects/dados-dir` ("Ver pasta de dados do Nexos"): só cria a pasta (+ meta.json) pra
   // abrir no explorer, não grava dado nenhum
   "http.ts": [],

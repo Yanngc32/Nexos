@@ -39,11 +39,14 @@ export function quemSaiPraAbrir(chats, foco) {
  * na largura (`LARGURA_MIN_CHAT` cada) também, a partir do fim — o em foco sempre fica aberto
  * se não estiver minimizado. Abaixo de `LARGURA_UM_CHAT`, só um aberto. `maximizado` = só ele aberto.
  */
-export function distribuir({ chats, foco, largura, maximizado = null }) {
+export function distribuir({ chats, foco, largura, maximizado = null, cabem: cabemFixo = null }) {
   // maximizado ocupa a área toda; os outros viram chip sem perder o "minimizado" de cada um
   const candidatos = maximizado && chats.includes(maximizado) && !maximizado.minimizado ? [maximizado] : chats.filter((c) => !c.minimizado);
   let cabem = largura > 0 ? Math.max(1, Math.floor(largura / LARGURA_MIN_CHAT)) : candidatos.length;
   if (largura > 0 && largura < LARGURA_UM_CHAT) cabem = 1;
+  // `cabem` de fora: a janela flutuante do plano cresce com os chats abertos, então a largura
+  // dela agora não diz quantos cabem (medida assim, ficava presa em 1 e os chats se revezavam)
+  if (cabemFixo > 0) cabem = cabemFixo;
   let abertos = candidatos;
   if (candidatos.length > cabem) {
     const primeiro = candidatos.includes(foco) ? [foco] : [];

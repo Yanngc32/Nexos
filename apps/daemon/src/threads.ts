@@ -500,6 +500,19 @@ export type ThreadHead = {
   lixeiraEm?: string;
 };
 
+/**
+ * De que plano esta conversa é o Manager: o `thread_meta` (nasceu Manager) ou o último
+ * `thread_planejamento` (virou Manager quando o plano foi criado a partir dela).
+ */
+export function planejamentoDe(events: ThreadEvent[]): { slug: string } | undefined {
+  let atual: { slug: string } | undefined;
+  for (const e of events) {
+    if (e.type === "thread_meta" && e.planejamento) atual = { slug: e.planejamento.slug };
+    else if (e.type === "thread_planejamento") atual = { slug: e.slug };
+  }
+  return atual;
+}
+
 /** Último `plano_ligado` da conversa + o estado da ponte depois dele. */
 function planoLigadoDe(events: ThreadEvent[]): ThreadHead["planoLigado"] {
   let atual: ThreadHead["planoLigado"];
@@ -582,7 +595,7 @@ function lerCabecalho(id: string, home: string): ThreadHead | undefined {
     // `oculta` existir não têm a marca nova. Passo de Nexos Hook criado antes de ganhar a marca
     // se reconhece pelo nome do time ("Hook: …", ver `upsertTimeDeHook`)
     ...(meta.oculta || meta.semRoteamento || /^Hook: /.test(meta.runTitle ?? "") ? { oculta: true } : {}),
-    ...(meta.planejamento ? { planejamento: meta.planejamento } : {}),
+    ...(planejamentoDe(events) ? { planejamento: planejamentoDe(events) } : {}),
     ...(meta.handoff ? { handoff: meta.handoff } : {}),
     ...(planoLigadoDe(events) ? { planoLigado: planoLigadoDe(events) } : {}),
     ...(lixeira?.naLixeira ? { lixeiraEm: lixeira.ts } : {}),

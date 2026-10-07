@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { esquecerTexto, lerTextoEmCache } from "./texto-em-cache.ts";
 import { dirname, join } from "node:path";
 import { projectKey } from "./home.ts";
 import { projectDir, projectDirSemCriar } from "./projeto-dir.ts";
@@ -407,6 +408,7 @@ function escreverAtomico(caminho: string, conteudo: string): void {
   const tmp = `${caminho}.${randomBytes(4).toString("hex")}.tmp`;
   writeFileSync(tmp, conteudo, "utf8");
   renameSync(tmp, caminho);
+  esquecerTexto(caminho);
 }
 
 function raiz(projectPath: string, home: string, criar: boolean): string {
@@ -448,8 +450,9 @@ function corpoDoCard(c: Card, etapas: Etapa[]): string {
 }
 
 function lerRoteiro(dir: string): Roteiro | null {
-  if (!existsSync(roteiroPath(dir))) return null;
-  const d = lerBloco<Partial<Roteiro>>(readFileSync(roteiroPath(dir), "utf8"));
+  const lido = lerTextoEmCache(roteiroPath(dir));
+  if (!lido) return null;
+  const d = lerBloco<Partial<Roteiro>>(lido.texto);
   if (!d) return null;
   let etapas: Etapa[] = [];
   try {
@@ -486,7 +489,7 @@ function lerCards(dir: string, etapas: Etapa[]): { cards: Card[]; invalidos: Car
   const brutos: { arquivo: string; dados: CardInput & { rev?: unknown } }[] = [];
   for (const arquivo of readdirSync(pasta).sort()) {
     if (!arquivo.endsWith(".md")) continue;
-    const dados = lerBloco<CardInput & { rev?: unknown }>(readFileSync(join(pasta, arquivo), "utf8"));
+    const dados = lerBloco<CardInput & { rev?: unknown }>(lerTextoEmCache(join(pasta, arquivo))?.texto ?? "");
     if (!dados) invalidos.push({ arquivo, erro: "sem bloco json legível" });
     else if (dados.id !== arquivo.slice(0, -3)) invalidos.push({ arquivo, erro: "id não bate com o nome do arquivo" });
     else {
@@ -517,7 +520,7 @@ function escreverCard(dir: string, c: Card, etapas: Etapa[]): void {
 
 function lerLayout(dir: string): Layout {
   try {
-    const d = JSON.parse(readFileSync(layoutPath(dir), "utf8")) as Partial<Layout>;
+    const d = JSON.parse(lerTextoEmCache(layoutPath(dir))?.texto ?? "") as Partial<Layout>;
     return validarLayout(d);
   } catch {
     return { posicoes: {} };
@@ -576,6 +579,11 @@ export function criarPlano(projectPath: string, home: string, opts: { titulo?: u
   mkdirSync(cardsDir(dir), { recursive: true });
   emitir(projectPath, { type: "mudou", slug, origem: "tela", alvo: "plano" });
   return abrirPlano(projectPath, home, slug);
+}
+
+/** Só o roteiro (título, etapas, conversa do Manager), sem ler os cards. */
+export function roteiroDoPlano(projectPath: string, home: string, slug: string): Roteiro {
+  return roteiroOuErro(pastaDoPlano(projectPath, home, slug), slug);
 }
 
 export function abrirPlano(projectPath: string, home: string, slug: string): Plano {
@@ -806,6 +814,17 @@ export function listarHandoffs(projectPath: string, home: string, slug: string):
       criadoEm: statSync(join(pasta, nome)).birthtime.toISOString(),
       texto: readFileSync(join(pasta, nome), "utf8"),
     }));
+}
+
+/** Só os nomes dos handoffs (sem ler o texto): conferência barata da tela esperando o Manager. */
+export function nomesDeHandoff(projectPath: string, home: string, slug: string): string[] {
+  const dir = pastaDoPlano(projectPath, home, slug);
+  roteiroOuErro(dir, slug);
+  const pasta = handoffDir(dir);
+  if (!existsSync(pasta)) return [];
+  return readdirSync(pasta)
+    .filter((n) => /^\d{4}-\d{2}-\d{2}-\d{2,}\.md$/.test(n))
+    .sort();
 }
 
 /** Grava um prompt de handoff em arquivo NOVO (`wx`): nunca sobrescreve um enviado. */

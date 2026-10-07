@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { estadoDs, lerSistema, pastaAbsoluta, type DsCompleto } from "./design-system.ts";
+import { estadoDs, lerSistema, listarSistemas, pastaAbsoluta, type DsCompleto } from "./design-system.ts";
 import {
   abrirPlano,
   chaveDoAnexo,
@@ -61,7 +61,8 @@ function leitorDeDs(projectPath: string, home: string): (sistema: string) => DsC
     if (cache.has(id)) return cache.get(id)!;
     let ds: DsCompleto | null = null;
     try {
-      sistemas ??= estadoDs(projectPath, home).sistemas;
+      // só a lista: `estadoDs` leria o DS ativo inteiro sem precisar
+      sistemas ??= listarSistemas(projectPath, home);
       const s = sistemas.find((x) => x.id === id);
       if (s) ds = lerSistema(projectPath, home, s);
     } catch {

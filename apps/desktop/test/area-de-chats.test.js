@@ -59,6 +59,8 @@ describe("distribuir", () => {
     const a = c("a");
     const b = c("b");
     expect(distribuir({ chats: [a, b], foco: b, largura: 700 })).toEqual({ abertos: [b], chips: [a] });
+    // janela flutuante do plano: quem diz quantos cabem é a área do plano, não a janela (420px)
+    expect(distribuir({ chats: [a, b], foco: b, largura: 420, cabem: 2 })).toEqual({ abertos: [a, b], chips: [] });
   });
   it("tudo minimizado: nenhum aberto", () => {
     const a = c("a", { minimizado: true });

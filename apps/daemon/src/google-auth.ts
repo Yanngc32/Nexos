@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { GOOGLE_CLIENT_PADRAO } from "./google-client.ts";
 import { ensureHome, googleAuthPath } from "./home.ts";
 
@@ -38,8 +38,26 @@ function httpError(message: string, status: number): Error & { status: number } 
   return err;
 }
 
+/** `projetosRoot` lê a conta Google em toda leitura de dado de projeto: relê só quando o arquivo muda. */
+const cacheGoogle = new Map<string, { marca: string; store: GoogleStore }>();
+
 export function readGoogleStore(home: string): GoogleStore {
   const path = googleAuthPath(home);
+  let marca: string;
+  try {
+    const st = statSync(path, { bigint: true });
+    marca = `${st.mtimeNs}:${st.size}`;
+  } catch {
+    return {};
+  }
+  const c = cacheGoogle.get(path);
+  if (c && c.marca === marca) return { ...c.store };
+  const store = lerGoogleStore(path);
+  cacheGoogle.set(path, { marca, store: { ...store } });
+  return store;
+}
+
+function lerGoogleStore(path: string): GoogleStore {
   if (!existsSync(path)) return {};
   try {
     const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;

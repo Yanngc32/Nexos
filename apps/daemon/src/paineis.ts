@@ -166,11 +166,12 @@ export function ferramentaDePlanejar(threadId: string, home: string): Conjunto {
     {
       name: "nexo_plano_iniciar",
       description:
-        "Abre um PLANEJAMENTO na Tela de Planejamento a partir desta conversa: cria o plano no projeto, " +
-        "abre a conversa do Agent Manager e manda pra ele a transcrição desta conversa. Use quando a pessoa " +
-        "pedir pra planejar, montar um plano/planejamento ou usar a tela de planejamento — NÃO crie tarefas " +
-        "no Quadro no lugar disso. Chame UMA vez: se esta conversa já abriu um plano, devolve o mesmo. " +
-        "Depois de chamar, não continue planejando aqui: o Manager segue de lá.",
+        "Abre um PLANEJAMENTO na Tela de Planejamento a partir desta conversa: cria o plano no projeto e " +
+        "ESTA conversa vira o Agent Manager dele (a partir do próximo turno: só lê o projeto e monta o plano " +
+        "com as ferramentas nexo_plano_*). Use quando a pessoa pedir pra planejar, montar um plano/planejamento " +
+        "ou usar a tela de planejamento — NÃO crie tarefas no Quadro no lugar disso. Chame UMA vez: se esta " +
+        "conversa já tem plano, devolve o mesmo. Depois de chamar, encerre o turno com uma frase curta: o " +
+        "próximo turno já começa como Manager, com o pedido de montar o plano.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       executar: async () => {
         // o motor cria sozinho: esperar o app montar a tela estourava o prazo e o agente chamava de novo (plano duplicado)
@@ -187,11 +188,15 @@ export function ferramentaDePlanejar(threadId: string, home: string): Conjunto {
         });
         const base = r.reaproveitado
           ? `esta conversa já tinha aberto o plano "${r.titulo}" — é o mesmo, nada novo foi criado.`
-          : `plano "${r.titulo}" criado; o Agent Manager já recebeu esta conversa e segue de lá.`;
+          : `plano "${r.titulo}" criado e esta conversa virou o Agent Manager dele.`;
+        const seguir =
+          r.threadId === threadId
+            ? " Encerre este turno com uma frase curta: no próximo, você já é o Manager e recebe o pedido de montar o plano."
+            : " Este chat ficou ligado a ele: o que a pessoa escrever aqui vai pro Manager e a fala dele aparece aqui.";
         return {
           ok: true,
           texto:
-            `${base} Este chat ficou ligado a ele: o que a pessoa escrever aqui vai pro Manager e a fala dele aparece aqui.` +
+            `${base}${seguir}` +
             (aberto.ok ? "" : " (A tela do plano não abriu sozinha; a pessoa abre pelo botão \"Abrir planejamento\" do chat.)"),
         };
       },

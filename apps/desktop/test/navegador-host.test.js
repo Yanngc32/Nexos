@@ -51,6 +51,72 @@ describe("abrir", () => {
   });
 });
 
+describe("abrir espera a página e diz quando ela falha", () => {
+  function webviewComEventos(over = {}) {
+    const ouvintes = {};
+    const wv = criarWebviewFake({
+      dataset: { href: "about:blank" },
+      addEventListener: (nome, f) => ((ouvintes[nome] ||= new Set()).add(f)),
+      removeEventListener: (nome, f) => ouvintes[nome]?.delete(f),
+      ...over,
+    });
+    const disparar = (nome, e = {}) => [...(ouvintes[nome] || [])].forEach((f) => f(e));
+    return { wv, disparar, ouvintes };
+  }
+
+  it("guest recém-criado já na URL: espera did-stop-loading em vez de responder na hora", async () => {
+    const { wv, disparar } = webviewComEventos({
+      isLoading: () => {
+        throw new Error("The WebView must be attached to the DOM and the dom-ready event emitted");
+      },
+    });
+    wv.dataset.href = "http://localhost:3000/";
+    const host = criarNavegadorHost({ getWebview: () => wv });
+    let r = null;
+    void host.abrir("http://localhost:3000/").then((x) => (r = x));
+    await vi.advanceTimersByTimeAsync(50);
+    expect(r).toBeNull();
+    disparar("did-stop-loading");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(r).toEqual({ ok: true, texto: "aberto: http://localhost:3000/" });
+    expect(wv.loadURL).not.toHaveBeenCalled();
+  });
+
+  it("falha no frame principal (servidor fora do ar) vira erro com o motivo", async () => {
+    const { wv, disparar, ouvintes } = webviewComEventos({ loadURL: vi.fn(() => new Promise(() => {})) });
+    const host = criarNavegadorHost({ getWebview: () => wv });
+    const p = host.abrir("http://localhost:3000/");
+    await vi.advanceTimersByTimeAsync(0);
+    disparar("did-fail-load", { isMainFrame: true, errorCode: -102, errorDescription: "ERR_CONNECTION_REFUSED" });
+    const r = await p;
+    expect(r.ok).toBe(false);
+    expect(r.texto).toMatch(/ERR_CONNECTION_REFUSED/);
+    expect(ouvintes["did-fail-load"].size).toBe(0);
+  });
+
+  it("ERR_ABORTED (redirect) não é erro: espera a carga que substituiu", async () => {
+    const { wv, disparar } = webviewComEventos({
+      loadURL: vi.fn(() => Promise.reject(new Error("ERR_ABORTED (-3) loading 'http://localhost:3000/'"))),
+    });
+    const host = criarNavegadorHost({ getWebview: () => wv });
+    const p = host.abrir("http://localhost:3000/");
+    await vi.advanceTimersByTimeAsync(0);
+    disparar("did-fail-load", { isMainFrame: true, errorCode: -3 });
+    disparar("did-stop-loading");
+    expect((await p).ok).toBe(true);
+  });
+
+  it("página que não termina de carregar responde ok no teto, antes dos 20 s do daemon", async () => {
+    const { wv } = webviewComEventos({ loadURL: vi.fn(() => new Promise(() => {})) });
+    const host = criarNavegadorHost({ getWebview: () => wv });
+    const p = host.abrir("http://localhost:3000/");
+    await vi.advanceTimersByTimeAsync(12_000);
+    const r = await p;
+    expect(r.ok).toBe(true);
+    expect(r.texto).toMatch(/ainda está carregando/);
+  });
+});
+
 describe("screenshot", () => {
   it("chama capturePage e devolve a imagem em base64 como JPEG (não PNG cru, que estoura limite de tamanho do cliente MCP em página densa)", async () => {
     const { host, wv } = criarHost();

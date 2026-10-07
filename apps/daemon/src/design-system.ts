@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { esquecerTexto, lerTextoEmCache } from "./texto-em-cache.ts";
 import { dirname, join, resolve } from "node:path";
 import { codigoDoErro, log } from "./log.ts";
 import { projectDir, projectDirSemCriar, projetosRoot } from "./projeto-dir.ts";
@@ -114,10 +115,26 @@ function ponteiroPath(projectPath: string, home: string, criar: boolean): string
   return join(raizDoProjetoNexos(projectPath, home, criar), "design-system.json");
 }
 
+/*
+ * Arquivos do DS lidos por `lerTextoEmCache` (revalida por `stat`; ver texto-em-cache.ts). Hash,
+ * lint e controles de cada card também ficam guardados: só mudam com o html ou com os tokens.
+ * Gravação do motor e mudança vista pelo watcher (`ds-watch.ts`) apagam tudo.
+ */
+const cacheDerivado = new Map<string, { hash: string; lint: LintItem[]; controles: Controle[] }>();
+
+export function invalidarCacheDs(): void {
+  esquecerTexto();
+  cacheDerivado.clear();
+}
+
+const lerTextoComCache = lerTextoEmCache;
+
 function lerPonteiro(projectPath: string, home: string): Ponteiro {
   const arquivo = ponteiroPath(projectPath, home, false);
   try {
-    const bruto = JSON.parse(readFileSync(arquivo, "utf8")) as Partial<Ponteiro>;
+    const lido = lerTextoComCache(arquivo);
+    if (!lido) throw Object.assign(new Error("sem ponteiro"), { code: "ENOENT" });
+    const bruto = JSON.parse(lido.texto) as Partial<Ponteiro>;
     // id é nome de pasta: o que não passa no formato (arquivo editado à mão) some da lista, e o
     // que não tem pasta no disco também (apagada à mão, ou ponteiro de um layout antigo)
     const raiz = join(raizDoProjetoNexos(projectPath, home, false), "design-system");
@@ -200,6 +217,7 @@ function escreverAtomico(caminho: string, conteudo: string): void {
   const tmp = `${caminho}.${randomBytes(4).toString("hex")}.tmp`;
   writeFileSync(tmp, conteudo, "utf8");
   renameSync(tmp, caminho);
+  invalidarCacheDs();
 }
 
 export function pastaAbsoluta(projectPath: string, home: string, sistema: DsSistema): string {
@@ -540,7 +558,7 @@ function fundamentosDoMeta(meta: Meta): ConfigFundamento[] {
 
 function lerTexto(caminho: string): string | null {
   try {
-    return readFileSync(caminho, "utf8");
+    return lerTextoComCache(caminho)?.texto ?? null;
   } catch {
     return null;
   }
@@ -548,7 +566,7 @@ function lerTexto(caminho: string): string | null {
 
 function lerMeta(pasta: string): Meta {
   try {
-    const m = JSON.parse(readFileSync(join(pasta, "meta.json"), "utf8")) as Meta;
+    const m = JSON.parse(lerTexto(join(pasta, "meta.json")) ?? "") as Meta;
     return m && typeof m === "object" ? m : {};
   } catch {
     return {};
@@ -594,8 +612,25 @@ export function lerSistema(projectPath: string, home: string, sistema: DsSistema
   const ids = new Set(arquivos.map((f) => f.slice(0, -5)));
   // ordem do meta.json primeiro; card em disco que o meta não conhece vai pro fim
   const ordem = [...(meta.cards ?? []).map((c) => c.id).filter((id) => ids.has(id)), ...[...ids].filter((id) => !porId.has(id)).sort()];
+  const tokensMarca = hashDe(tokensTexto);
   const cards: DsCard[] = ordem.map((id) => {
-    const html = lerTexto(join(pastaAbs, "cards", `${id}.html`)) ?? "";
+    const caminho = join(pastaAbs, "cards", `${id}.html`);
+    let lido: { texto: string; marca: string } | null = null;
+    try {
+      lido = lerTextoComCache(caminho);
+    } catch {
+      lido = null;
+    }
+    const html = lido?.texto ?? "";
+    // hash/lint/controles só mudam com o html ou com os tokens (o lint confere as variáveis)
+    const chave = `${caminho}|${lido?.marca ?? ""}|${tokensMarca}`;
+    let derivado = cacheDerivado.get(chave);
+    if (!derivado) {
+      derivado = { hash: hashDe(html), lint: lintCard(html, conhecidas), controles: controlesDoCard(html) };
+      // versões velhas de card ficam penduradas no mapa: limpa de vez em quando
+      if (cacheDerivado.size > 2000) cacheDerivado.clear();
+      cacheDerivado.set(chave, derivado);
+    }
     const m = porId.get(id);
     return {
       id,
@@ -603,9 +638,9 @@ export function lerSistema(projectPath: string, home: string, sistema: DsSistema
       ...(m?.subtitulo ? { subtitulo: m.subtitulo } : {}),
       secao: m?.secao || "outros",
       html,
-      hash: hashDe(html),
-      lint: lintCard(html, conhecidas),
-      controles: controlesDoCard(html),
+      hash: derivado.hash,
+      lint: structuredClone(derivado.lint),
+      controles: structuredClone(derivado.controles),
       ...(ehTipo(m?.tipo) ? { tipo: m.tipo } : {}),
       ...(ehLargura(m?.largura) ? { largura: m.largura } : {}),
     };
@@ -635,6 +670,11 @@ export function lerSistema(projectPath: string, home: string, sistema: DsSistema
     kitCss: KIT_CSS,
     ...(origem ? { origem } : {}),
   };
+}
+
+/** Só a lista de DS do projeto (o ponteiro), sem ler nenhum card. */
+export function listarSistemas(projectPath: string, home: string): DsSistema[] {
+  return lerPonteiro(projectPath, home).sistemas;
 }
 
 export function estadoDs(projectPath: string, home: string): DsEstado {
@@ -698,6 +738,7 @@ export function painelDeMocks(projectPath: string, home: string): DsSistema {
     const est = criarDs(projectPath, home, { nome: NOME_MOCKS, base: "padrao" });
     const pasta = est.ds!.pastaAbs;
     rmSync(join(pasta, "cards"), { recursive: true, force: true });
+    invalidarCacheDs();
     mkdirSync(join(pasta, "cards"), { recursive: true });
     escreverAtomico(join(pasta, "meta.json"), `${JSON.stringify({ secoes: [{ id: "telas", titulo: "Telas" }], cards: [] }, null, 2)}
 `);
@@ -988,6 +1029,7 @@ export function criarDs(projectPath: string, home: string, input: { nome?: unkno
     if (resolve(origem) === resolve(abs)) throw erro("não dá pra copiar um design system em cima dele mesmo");
     // o histórico de versões é do DS de origem, não entra na cópia
     cpSync(origem, abs, { recursive: true, force: false, errorOnExist: false, filter: (src) => !/[\\/]\.versoes([\\/]|$)/.test(src) });
+    invalidarCacheDs();
   } else {
     if (escolhida !== "zero" && escolhida !== "padrao") throw erro("base inválida");
     for (const [arquivo, conteudo] of Object.entries(escolhida === "zero" ? vazio(nome) : esqueleto(nome))) {
@@ -1050,6 +1092,7 @@ export function apagarCard(projectPath: string, home: string, id: string): DsCom
   if (!existsSync(caminho)) throw erro("card não existe", 404);
   guardarVersao(pasta, id);
   rmSync(caminho);
+  invalidarCacheDs();
   const meta = lerMeta(pasta);
   if (meta.cards?.some((c) => c.id === id)) {
     escreverAtomico(join(pasta, "meta.json"), `${JSON.stringify({ ...meta, cards: meta.cards.filter((c) => c.id !== id) }, null, 2)}\n`);

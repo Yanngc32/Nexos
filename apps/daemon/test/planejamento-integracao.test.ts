@@ -20,6 +20,7 @@ import { ferramentasDePlanejamento, planoEmTexto } from "../src/planejamento-fer
 import { apagarTarefa, getQuadro, getTarefa, salvarTarefa } from "../src/tarefas.ts";
 import { appendEvent, createThread, readThread, renomearThread, threadHead } from "../src/threads.ts";
 import { addProfile } from "../src/profiles.ts";
+import { planejarConversa } from "../src/plano-da-conversa.ts";
 import { tempHome } from "./helpers.ts";
 
 function projeto(): string {
@@ -183,7 +184,7 @@ describe("plano a partir de conversa", () => {
     expect(() => conversaDeOrigem(geral.id, home)).toThrow(/projeto/);
   });
 
-  it("POST /v1/planejamento com deThreadId: plano no projeto da conversa, Manager com origem", async () => {
+  it("POST /v1/planejamento com deThreadId: plano no projeto da conversa, a própria conversa vira o Manager", async () => {
     const home = tempHome();
     addProfile({ id: "p1", engine: "stub" }, home);
     const p = projeto();
@@ -199,9 +200,21 @@ describe("plano a partir de conversa", () => {
     const j = (await res.json()) as { slug: string; projectPath: string; threadId: string; roteiro: { titulo: string } };
     expect(j.projectPath).toBe(p);
     expect(j.roteiro.titulo).toBe("Refazer login");
-    const head = threadHead(j.threadId, home)!;
+    // sem Manager separado: a conversa de origem é o Manager, ligada ao roteiro
+    expect(j.threadId).toBe(t.id);
+    const head = threadHead(t.id, home)!;
     expect(head.planejamento?.slug).toBe(j.slug);
-    expect(head.origemThreadId).toBe(t.id);
+    expect(head.planoLigado).toBeUndefined();
+    expect(abrirPlano(p, home, j.slug).roteiro.threadId).toBe(t.id);
+    // reabrir o plano pela lista acha a mesma conversa
+    const m = await app.request(`/v1/planejamento/${j.slug}/manager?projectPath=${encodeURIComponent(p)}`, {
+      method: "POST",
+      headers: { authorization: "Bearer tk", "content-type": "application/json" },
+      body: JSON.stringify({ profileId: "p1" }),
+    });
+    expect(((await m.json()) as { threadId: string }).threadId).toBe(t.id);
+    // de novo pela ferramenta (reusar): o mesmo plano, sem criar outro
+    expect(planejarConversa(t.id, home, { reusar: true })).toMatchObject({ slug: j.slug, threadId: t.id, reaproveitado: true });
   });
 });
 

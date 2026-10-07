@@ -1,4 +1,5 @@
 import { watch, type FSWatcher } from "node:fs";
+import { invalidarCacheDs } from "./design-system.ts";
 
 /**
  * Observa a pasta do design system ativo e avisa quem assina (o SSE do Canvas) quando um
@@ -31,6 +32,8 @@ export function assinarDs(pasta: string, ouvinte: Ouvinte): () => void {
     const watcher = watch(pasta, { recursive: true }, (_tipo, nome) => {
       const arquivo = String(nome ?? "").split("\\").join("/");
       if (!arquivo || ignorar(arquivo)) return;
+      // mudou por fora do motor (agente, editor, Drive): a próxima leitura vai ao disco
+      invalidarCacheDs();
       clearTimeout(timers.get(arquivo));
       timers.set(
         arquivo,

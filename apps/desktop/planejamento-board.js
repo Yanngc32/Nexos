@@ -186,6 +186,13 @@ export function progresso(etapas) {
   return { total, feitas, pct: total ? Math.round((feitas / total) * 100) : 0 };
 }
 
+/** SSE do plano: espera da reconexão (dobra a cada falha). */
+const SSE_ATRASO_MIN = 1500;
+const SSE_ATRASO_MAX = 30_000;
+/** Esperando o Manager: confere o handoff a cada 5 s; depois de 60 s oferece o rascunho ali mesmo. */
+const CONFERIR_HANDOFF_MS = 5000;
+const DEMORANDO_S = 60;
+
 export function createPlanejamentoBoard({
   req,
   api,
@@ -231,8 +238,13 @@ export function createPlanejamentoBoard({
   let layoutTimer = null;
   let carregando = false;
   let animador = null;
+  let ultimaAbertura = null;
+  const agora = () => (globalThis.performance?.now ? globalThis.performance.now() : Date.now());
   /** Diálogo de envio: passo atual e, esperando o Manager, os handoffs que já existiam. */
   let envio = null;
+  /** Reconexão do SSE: espera crescente (1,5 s → 30 s) e a falha logada uma vez por sequência. */
+  let sseAtraso = SSE_ATRASO_MIN;
+  let sseFalhaLogada = false;
   /** Prévia do anexo de tela aberta: o anexo (pra "Abrir no Canvas"). */
   let previa = null;
   /** Seletor de anexo aberto no editor: tipo e o que dá pra anexar (lido ao abrir). */
@@ -288,6 +300,11 @@ export function createPlanejamentoBoard({
     }
     pintar();
     if (plano) aoCarregarPlano(plano);
+    // plano mudou com a janela de envio aberta: a conferência e o rascunho acompanham
+    if (plano && envio?.passo === "conferir") {
+      if (plano.prontidao) pintarConferencia(plano.prontidao);
+      void carregarRascunho(envio);
+    }
     if (animar && anterior && plano) animarDiferenca(diffPlano(anterior, plano, proprios));
     proprios.clear();
   }
@@ -332,17 +349,28 @@ export function createPlanejamentoBoard({
     const meu = projeto;
     fetchImpl(api(`/v1/planejamento/events?projectPath=${encodeURIComponent(meu)}`), { headers: headers(), signal: ac.signal })
       .then(async (res) => {
-        if (!res.ok) return;
+        // resposta não-ok (503 com o motor subindo/travado) também religa: antes o SSE morria calado
+        if (!res.ok) return religar(`HTTP ${res.status}`);
+        sseAtraso = SSE_ATRASO_MIN;
+        sseFalhaLogada = false;
+        // reconectou: o handoff pode ter chegado enquanto estava fora
+        void handoffChegou();
         await lerEventos(res, aoEvento);
         religar();
       })
-      .catch(() => religar());
-    function religar() {
+      .catch((e) => religar(e?.message || "erro de rede"));
+    function religar(motivo) {
       if (sse !== ac || projeto !== meu) return;
+      if (motivo && !sseFalhaLogada) {
+        sseFalhaLogada = true;
+        console.warn(`[planejamento] SSE do plano caiu (${motivo}); religando com espera crescente`);
+      }
       sse = null;
-      setTimeout(() => {
+      const atraso = sseAtraso;
+      sseAtraso = motivo ? Math.min(SSE_ATRASO_MAX, sseAtraso * 2) : SSE_ATRASO_MIN;
+      win.setTimeout(() => {
         if (!sse && projeto === meu && slug) ouvir();
-      }, 1500);
+      }, atraso);
     }
   }
 
@@ -1317,14 +1345,21 @@ export function createPlanejamentoBoard({
     el("btn-pl-envio-manager").classList.toggle("hidden", passo !== "conferir");
     el("btn-pl-envio-enviar").classList.toggle("hidden", passo !== "revisar");
     el("btn-pl-envio-voltar").classList.toggle("hidden", passo === "conferir");
+    if (passo === "gerar") comecarEspera();
+    else pararEspera();
     atualizarBotoesDoEnvio();
   }
 
   function atualizarBotoesDoEnvio() {
     if (!envio) return;
     const travado = envio.bloqueios > 0 && !el("pl-envio-mesmo-assim").checked;
-    el("btn-pl-envio-rascunho").disabled = travado;
-    el("btn-pl-envio-manager").disabled = travado;
+    const semTexto = envio.preparando || !!envio.erro;
+    el("btn-pl-envio-rascunho").disabled = travado || semTexto;
+    el("btn-pl-envio-manager").disabled = travado || semTexto;
+    el("btn-pl-envio-rascunho").textContent = envio.preparando ? "Preparando…" : "Usar rascunho automático";
+    el("btn-pl-envio-manager").textContent = envio.preparando ? "Preparando…" : "Pedir ao Agent Manager";
+    el("pl-envio-erro")?.classList.toggle("hidden", !envio.erro);
+    if (envio.erro && el("pl-envio-erro-msg")) el("pl-envio-erro-msg").textContent = `Não deu pra preparar o rascunho: ${envio.erro}`;
   }
 
   function pintarLista(id, itens) {
@@ -1332,30 +1367,71 @@ export function createPlanejamentoBoard({
     ul.replaceChildren(...itens.map((i) => mk("li", "", i.texto)));
   }
 
-  async function abrirEnvio() {
+  /** Bloqueios e avisos da conferência (vem junto do plano; o rascunho traz a mesma conta). */
+  function pintarConferencia(p) {
+    if (!envio) return;
+    envio.bloqueios = p.bloqueios.length;
+    el("pl-envio-conferindo")?.classList.add("hidden");
+    pintarLista("pl-envio-bloqueios-lista", p.bloqueios);
+    pintarLista("pl-envio-avisos-lista", p.avisos);
+    el("pl-envio-bloqueios").classList.toggle("hidden", !p.bloqueios.length);
+    el("pl-envio-avisos").classList.toggle("hidden", !p.avisos.length);
+    el("pl-envio-tudo-certo").classList.toggle("hidden", !!(p.bloqueios.length || p.avisos.length));
+    atualizarBotoesDoEnvio();
+  }
+
+  /**
+   * Abre a janela NA HORA do clique, com a conferência do plano que a tela já tem; o rascunho e o
+   * pedido ao Manager chegam em segundo plano (só os dois botões esperam). Antes a janela só
+   * aparecia depois do `GET /handoff/rascunho`, e com o motor travado o clique parecia morto.
+   */
+  function abrirEnvio() {
     if (!plano) return;
-    let r;
-    try {
-      r = await req(rota("/handoff/rascunho"));
-    } catch (e) {
-      avisar(`Não deu pra conferir o plano: ${e.message}`);
-      return;
-    }
-    envio = { passo: "conferir", rascunho: r.texto, pedido: r.pedido, bloqueios: r.prontidao.bloqueios.length, antes: null };
+    // clique duplo: não abre de novo nem dispara outra requisição
+    if (envio) return;
+    const t0 = agora();
+    envio = { passo: "conferir", rascunho: null, pedido: null, bloqueios: 0, antes: null, preparando: true, erro: null };
     el("pl-envio-plano").textContent = `Planejamento · ${plano.roteiro.titulo}`;
-    pintarLista("pl-envio-bloqueios-lista", r.prontidao.bloqueios);
-    pintarLista("pl-envio-avisos-lista", r.prontidao.avisos);
-    el("pl-envio-bloqueios").classList.toggle("hidden", !r.prontidao.bloqueios.length);
-    el("pl-envio-avisos").classList.toggle("hidden", !r.prontidao.avisos.length);
-    el("pl-envio-tudo-certo").classList.toggle("hidden", !!(r.prontidao.bloqueios.length || r.prontidao.avisos.length));
     el("pl-envio-mesmo-assim").checked = false;
     el("pl-envio-prompt").value = "";
     // uma tarefa por etapa no Quadro: ligado por padrão quando há etapas
     const temEtapas = plano.roteiro.etapas.length > 0;
     el("pl-envio-quadro-campo")?.classList.toggle("hidden", !temEtapas);
     if (el("pl-envio-quadro")) el("pl-envio-quadro").checked = temEtapas;
+    if (plano.prontidao) pintarConferencia(plano.prontidao);
+    else {
+      // motor antigo, sem a conferência junto do plano: a lista chega com o rascunho
+      for (const id of ["pl-envio-bloqueios", "pl-envio-avisos", "pl-envio-tudo-certo"]) el(id).classList.add("hidden");
+      el("pl-envio-conferindo")?.classList.remove("hidden");
+    }
     el("pl-envio").classList.remove("hidden");
     mostrarPasso("conferir");
+    ultimaAbertura = agora() - t0;
+    void carregarRascunho(envio);
+  }
+
+  /** Rascunho + pedido ao Manager em segundo plano; janela fechada no meio descarta a resposta. */
+  async function carregarRascunho(e) {
+    if (!e || e.buscando) return;
+    e.buscando = true;
+    if (!e.rascunho) e.preparando = true;
+    e.erro = null;
+    atualizarBotoesDoEnvio();
+    try {
+      const r = await req(rota("/handoff/rascunho"));
+      if (envio !== e) return;
+      e.rascunho = r.texto;
+      e.pedido = r.pedido;
+      e.preparando = false;
+      pintarConferencia(r.prontidao);
+    } catch (err) {
+      if (envio !== e) return;
+      e.preparando = false;
+      if (!e.rascunho) e.erro = err.message || "erro desconhecido";
+      atualizarBotoesDoEnvio();
+    } finally {
+      e.buscando = false;
+    }
   }
 
   /** Tela do DS anexada, renderizada aqui mesmo (sem trocar pro Canvas) com os tokens do DS dela. */
@@ -1393,6 +1469,7 @@ export function createPlanejamentoBoard({
   }
 
   function fecharEnvio() {
+    pararEspera();
     envio = null;
     el("pl-envio").classList.add("hidden");
   }
@@ -1407,28 +1484,79 @@ export function createPlanejamentoBoard({
     ta.scrollTop = 0;
   }
 
+  function usarRascunho() {
+    if (envio?.rascunho) irParaRevisao(envio.rascunho.trimEnd());
+  }
+
+  /** Nomes dos handoffs (consulta leve: não lê o texto de todos do Drive). */
+  async function nomesDeHandoff() {
+    return new Set(await req(`${rota("/handoff")}&nomes=1`));
+  }
+
   async function pedirAoManager() {
     if (!envio) return;
     try {
-      envio.antes = new Set((await req(rota("/handoff"))).map((h) => h.nome));
+      envio.antes = await nomesDeHandoff();
     } catch {
-      envio.antes = new Set();
+      // sem a lista de antes não dá pra saber o que é novo: a conferência periódica pega a base
+      envio.antes = null;
     }
     mostrarPasso("gerar");
     aoPedirAoManager(envio.pedido);
   }
 
-  /** Arquivo novo em handoff/ enquanto esperava o Manager: é o prompt dele. */
+  /* Espera pelo Manager: confere o handoff a cada 5 s (além do SSE) e mostra há quanto tempo espera. */
+  function comecarEspera() {
+    if (!envio || envio.espera) return;
+    const inicio = Date.now();
+    const tique = () => {
+      if (!envio || envio.passo !== "gerar") return;
+      const seg = Math.floor((Date.now() - inicio) / 1000);
+      const t = el("pl-envio-tempo");
+      if (t) t.textContent = `${Math.floor(seg / 60)}:${String(seg % 60).padStart(2, "0")}`;
+      el("pl-envio-demorando")?.classList.toggle("hidden", seg < DEMORANDO_S);
+    };
+    tique();
+    envio.espera = {
+      relogio: win.setInterval(tique, 1000),
+      conferencia: win.setInterval(() => void handoffChegou(), CONFERIR_HANDOFF_MS),
+    };
+  }
+
+  function pararEspera() {
+    if (!envio?.espera) return;
+    win.clearInterval(envio.espera.relogio);
+    win.clearInterval(envio.espera.conferencia);
+    envio.espera = null;
+    el("pl-envio-demorando")?.classList.add("hidden");
+  }
+
+  /**
+   * Arquivo novo em handoff/ enquanto esperava o Manager: é o prompt dele. Roda pelo evento do SSE,
+   * ao reconectar o SSE e a cada 5 s; GET que falha fica pra próxima rodada (nunca desiste calado).
+   */
   async function handoffChegou() {
-    if (envio?.passo !== "gerar" || !envio.antes) return;
-    let lista = [];
+    const e = envio;
+    if (e?.passo !== "gerar" || e.conferindo) return;
+    e.conferindo = true;
     try {
-      lista = await req(rota("/handoff"));
-    } catch {
-      return;
+      const nomes = await nomesDeHandoff();
+      if (envio !== e || e.passo !== "gerar") return;
+      if (!e.antes) {
+        e.antes = nomes;
+        return;
+      }
+      const novo = [...nomes].filter((n) => !e.antes.has(n)).sort().at(-1);
+      if (!novo) return;
+      const lista = await req(rota("/handoff"));
+      const h = lista.find((x) => x.nome === novo);
+      if (h && envio === e && e.passo === "gerar") irParaRevisao(h.texto.trimEnd());
+    } catch (err) {
+      if (!e.falhaLogada) console.warn(`[planejamento] conferir handoff falhou: ${err?.message}; tenta de novo em 5 s`);
+      e.falhaLogada = true;
+    } finally {
+      e.conferindo = false;
     }
-    const novo = lista.filter((h) => !envio.antes.has(h.nome)).at(-1);
-    if (novo) irParaRevisao(novo.texto.trimEnd());
   }
 
   async function enviarParaImplementacao() {
@@ -1526,7 +1654,9 @@ export function createPlanejamentoBoard({
       if (e.target === el("pl-previa")) fecharPrevia();
     });
     el("btn-pl-envio-voltar").addEventListener("click", () => mostrarPasso("conferir"));
-    el("btn-pl-envio-rascunho").addEventListener("click", () => envio && irParaRevisao(envio.rascunho.trimEnd()));
+    el("btn-pl-envio-rascunho").addEventListener("click", usarRascunho);
+    el("btn-pl-envio-rascunho-demora")?.addEventListener("click", usarRascunho);
+    el("btn-pl-envio-tentar")?.addEventListener("click", () => envio && void carregarRascunho(envio));
     el("btn-pl-envio-manager").addEventListener("click", () => void pedirAoManager());
     el("btn-pl-envio-enviar").addEventListener("click", () => void enviarParaImplementacao());
     el("pl-envio-mesmo-assim").addEventListener("change", atualizarBotoesDoEnvio);
@@ -1666,6 +1796,8 @@ export function createPlanejamentoBoard({
     },
     /** Só pra teste. */
     _aoEvento: aoEvento,
+    /** ms entre o clique em "Enviar para implementação" e a janela visível (medida do envio). */
+    _ultimaAbertura: () => ultimaAbertura,
     _estado: () => ({ plano, vista, layout, selecionado, editando }),
   };
 }

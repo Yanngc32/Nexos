@@ -47,16 +47,35 @@ describe("comandoNavegador / responderNavegador", () => {
     expect(responderNavegador("thread-sem-nada", { ok: true, texto: "x" })).toBe(false);
   });
 
-  it("recusa um segundo comando enquanto o primeiro ainda está pendente na mesma thread", async () => {
+  it("segundo comando na mesma thread espera o primeiro, não é recusado", async () => {
     resetNavegadorForTest();
     const { threadId } = setup();
-    void comandoNavegador(threadId, { acao: "ler" });
+    const eventos: Array<{ acao?: string; id?: string }> = [];
+    sessionBus.on(threadId, (ev) => eventos.push(ev as { acao?: string; id?: string }));
+    const primeiro = comandoNavegador(threadId, { acao: "ler" });
+    const segundo = comandoNavegador(threadId, { acao: "screenshot" });
     await new Promise((r) => setTimeout(r, 10));
+    expect(eventos.map((e) => e.acao)).toEqual(["ler"]);
 
-    const segundo = await comandoNavegador(threadId, { acao: "screenshot" });
-    expect(segundo.ok).toBe(false);
+    expect(responderNavegador(threadId, { ok: true, texto: "lido" })).toBe(true);
+    expect(await primeiro).toEqual({ ok: true, texto: "lido" });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(eventos.map((e) => e.acao)).toEqual(["ler", "screenshot"]);
 
-    responderNavegador(threadId, { ok: true, texto: "x" });
+    responderNavegador(threadId, { ok: true, texto: "print" });
+    expect(await segundo).toEqual({ ok: true, texto: "print" });
+  });
+
+  it("resposta com id de outro comando (atrasada) não resolve o comando em voo", async () => {
+    resetNavegadorForTest();
+    const { threadId } = setup();
+    const eventos: Array<{ id?: string }> = [];
+    sessionBus.on(threadId, (ev) => eventos.push(ev as { id?: string }));
+    const chamada = comandoNavegador(threadId, { acao: "ler" });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(responderNavegador(threadId, { ok: true, texto: "velho" }, "bc-antigo")).toBe(false);
+    expect(responderNavegador(threadId, { ok: true, texto: "certo" }, eventos[0]!.id)).toBe(true);
+    expect(await chamada).toEqual({ ok: true, texto: "certo" });
   });
 
   it("sem resposta do renderer, expira sozinho depois do timeout e libera a thread", async () => {
@@ -69,8 +88,9 @@ describe("comandoNavegador / responderNavegador", () => {
       const saida = await chamada;
       expect(saida.ok).toBe(false);
       expect(saida.texto).toMatch(/não respondeu a tempo/);
-      // liberou a thread — um comando novo não é mais recusado por "já existe pendente"
+      // liberou a thread — o próximo comando sai na hora
       const proximo = comandoNavegador(threadId, { acao: "ler" });
+      await vi.advanceTimersByTimeAsync(0);
       responderNavegador(threadId, { ok: true, texto: "ok" });
       expect((await proximo).ok).toBe(true);
     } finally {

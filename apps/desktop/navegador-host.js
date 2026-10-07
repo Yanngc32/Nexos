@@ -76,6 +76,50 @@ export async function comPreviewPintado(webview, f, { win = globalThis, esperar 
   }
 }
 
+/** Carga da página mais longa que isso volta como "ainda carregando" — abaixo dos 20 s do daemon. */
+const CARGA_TETO_MS = 12_000;
+
+/**
+ * Espera o guest terminar de carregar (ou falhar no frame principal). Guest recém-criado ainda não
+ * aceita `isLoading()` (lança antes do dom-ready): aí só os eventos dizem quando terminou.
+ * `ERR_ABORTED` (-3) é navegação substituída, não erro.
+ */
+export function esperarCarregar(webview, { teto = CARGA_TETO_MS, conferirAgora = true } = {}) {
+  let cancelar = () => {};
+  let encerrar = () => {};
+  const promessa = new Promise((resolve) => {
+    if (typeof webview?.addEventListener !== "function") return resolve({});
+    let tetoId;
+    const fim = (r) => {
+      cancelar();
+      resolve(r);
+    };
+    encerrar = fim;
+    const parou = () => fim({});
+    const falhou = (e) => {
+      if (e?.isMainFrame === false || e?.errorCode === -3) return;
+      fim({ erro: e?.errorDescription || `erro ${e?.errorCode ?? "desconhecido"}` });
+    };
+    cancelar = () => {
+      clearTimeout(tetoId);
+      webview.removeEventListener?.("did-stop-loading", parou);
+      webview.removeEventListener?.("did-fail-load", falhou);
+    };
+    webview.addEventListener("did-stop-loading", parou);
+    webview.addEventListener("did-fail-load", falhou);
+    tetoId = setTimeout(() => fim({ teto: true }), teto);
+    // sem navegação nova, a carga pode já ter acabado antes de ouvir: guest pronto e parado = pronto
+    try {
+      if (conferirAgora && typeof webview.isLoading === "function" && !webview.isLoading()) {
+        queueMicrotask(() => fim({}));
+      }
+    } catch {
+      /* recém-criado, antes do dom-ready: espera os eventos */
+    }
+  });
+  return { promessa, cancelar: () => cancelar(), encerrar: (r) => encerrar(r) };
+}
+
 /** Teto da captura: guest que não pinta nunca responde — melhor erro claro que a ferramenta parada. */
 const CAPTURA_TETO_MS = 8000;
 
@@ -124,16 +168,27 @@ export function criarNavegadorHost({ getWebview, win = globalThis }) {
   async function abrir(url, threadId) {
     const webview = getWebview(threadId);
     if (!webview?.loadURL) return { ok: false, texto: "painel Browser indisponível" };
-    if (mesmoHref(hrefDoGuest(webview), url)) {
-      return { ok: true, texto: `aberto: ${url}` };
-    }
-    try {
-      await webview.loadURL(url);
+    const navegar = !mesmoHref(hrefDoGuest(webview), url);
+    const espera = esperarCarregar(webview, { conferirAgora: !navegar });
+    if (navegar) {
       if (webview.dataset) webview.dataset.href = url;
-      return { ok: true, texto: `aberto: ${url}` };
-    } catch (e) {
-      return { ok: false, texto: e?.message || "falhou ao navegar" };
+      try {
+        // não espera o loadURL: quem diz como a carga terminou é o evento (ou o teto)
+        Promise.resolve(webview.loadURL(url)).catch((e) => {
+          // ERR_ABORTED: redirect/nova navegação trocou a carga — segue esperando a que ficou
+          if (!/ERR_ABORTED|\(-3\)/.test(String(e?.message || e))) {
+            espera.encerrar({ erro: e?.message || "falhou ao navegar" });
+          }
+        });
+      } catch {
+        // guest recém-criado, antes do dom-ready: o loadURL lança na hora; o atributo navega
+        webview.src = url;
+      }
     }
+    const fim = await espera.promessa;
+    if (fim.erro) return { ok: false, texto: `não abriu ${url}: ${fim.erro}` };
+    if (fim.teto) return { ok: true, texto: `aberto: ${url} (a página ainda está carregando)` };
+    return { ok: true, texto: `aberto: ${url}` };
   }
 
   async function ler(threadId) {

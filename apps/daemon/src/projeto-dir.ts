@@ -468,8 +468,24 @@ function remoteOrigin(projectPath: string): string | undefined {
   return out;
 }
 
-/** Slugs já em uso em `projetosRoot`, lidos do `meta.json` de cada subpasta — pra checar colisão do fallback. */
+/**
+ * Projeto sem remote git chama isto a cada `projectSlug` (várias vezes por rota): sem cache eram
+ * um `readdir` da raiz + um `meta.json` por projeto, no Drive, a cada chamada. Pasta de projeto
+ * nova (`projectDir`) apaga o cache; a de outro aparelho entra em até `SLUGS_TTL_MS`.
+ */
+const cacheSlugs = new Map<string, { em: number; slugs: Map<string, string> }>();
+const SLUGS_TTL_MS = 30_000;
+
 function slugsExistentes(root: string): Map<string, string> {
+  const c = cacheSlugs.get(root);
+  if (c && Date.now() - c.em < SLUGS_TTL_MS) return c.slugs;
+  const slugs = lerSlugsExistentes(root);
+  cacheSlugs.set(root, { em: Date.now(), slugs });
+  return slugs;
+}
+
+/** Slugs já em uso em `projetosRoot`, lidos do `meta.json` de cada subpasta — pra checar colisão do fallback. */
+function lerSlugsExistentes(root: string): Map<string, string> {
   const out = new Map<string, string>(); // slug -> projectPath dono
   let nomes: string[];
   try {
@@ -518,22 +534,44 @@ export function projectDirSemCriar(projectPath: string, home: string): string {
   return dirDoProjeto(projectPath, home);
 }
 
+/**
+ * `meta.json` visto há pouco: `projectDir` roda em toda rota de dado de projeto e o `existsSync`
+ * no Drive custava caro a cada uma. Curto o bastante pra pasta apagada/raiz fora do ar voltar a
+ * ser checada logo.
+ */
+const metaVisto = new Map<string, number>();
+const META_TTL_MS = 30_000;
+
 /** Pasta de UM projeto. Cria (com o `meta.json`) se ainda não existir. */
 export function projectDir(projectPath: string, home: string): string {
   const { slug, origem } = projectSlug(projectPath, home);
   const modo = loadConfig(home).armazenamento;
   const dir = dirDoProjeto(projectPath, home, modo);
   const metaPath = join(dir, "meta.json");
-  if (!existsSync(metaPath)) {
+  const visto = metaVisto.get(metaPath);
+  if (visto !== undefined && Date.now() - visto < META_TTL_MS) return dir;
+  if (existsSync(metaPath)) {
+    metaVisto.set(metaPath, Date.now());
+    return dir;
+  }
+  {
     const fora = modo === "pasta" ? raizIndisponivel(home) : "";
     if (fora) throw new RaizIndisponivelError(fora);
     mkdirSync(dir, { recursive: true });
     // no modo pasta, o nome da pasta (com o sufixo da trava, se houve colisão com o repo)
     const nome = modo === "pasta" ? basename(dir) : slug;
     writeFileSync(metaPath, JSON.stringify({ projectPath, slug: nome, origem }, null, 2), "utf8");
+    cacheSlugs.clear();
+    metaVisto.set(metaPath, Date.now());
     if (modo === "projeto") garantirGitignore(projectPath);
   }
   return dir;
+}
+
+/** Só pra teste: esquece o que já foi visto no disco. */
+export function resetCacheDeProjetosForTest(): void {
+  cacheSlugs.clear();
+  metaVisto.clear();
 }
 
 function hashLegado(projectPath: string): string {

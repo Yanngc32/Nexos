@@ -52,7 +52,11 @@ function montar({ slug = "plano-1", respostas = {}, deps = {} } = {}) {
     const metodo = opts.method || "GET";
     chamadas.push({ metodo, path, body: opts.body ? JSON.parse(opts.body) : undefined });
     const chave = `${metodo} ${path.split("?")[0]}`;
-    if (respostas[chave]) return respostas[chave]({ plano, body: opts.body ? JSON.parse(opts.body) : undefined });
+    if (respostas[chave]) {
+      const r = respostas[chave]({ plano, body: opts.body ? JSON.parse(opts.body) : undefined });
+      // `/handoff?nomes=1`: o motor devolve só os nomes
+      return path.includes("nomes=1") && Array.isArray(r) ? r.map((h) => h.nome) : r;
+    }
     if (metodo === "GET" && path.startsWith("/v1/planejamento?")) return [{ slug: "plano-1", titulo: "Meu plano", etapas: 2, concluidas: 1 }];
     if (metodo === "GET") return structuredClone(plano);
     return {};
@@ -241,8 +245,9 @@ describe("enviar para implementação", () => {
     });
     await board.abrir();
     document.getElementById("btn-pl-enviar").click();
-    await vi.waitFor(() => expect(document.getElementById("pl-envio").classList.contains("hidden")).toBe(false));
-    expect(document.getElementById("pl-envio-bloqueios-lista").textContent).toContain("Amb");
+    expect(document.getElementById("pl-envio").classList.contains("hidden")).toBe(false);
+    // plano sem `prontidao` (motor antigo): a conferência chega junto do rascunho
+    await vi.waitFor(() => expect(document.getElementById("pl-envio-bloqueios-lista").textContent).toContain("Amb"));
     expect(document.getElementById("btn-pl-envio-rascunho").disabled).toBe(true);
     const mesmoAssim = document.getElementById("pl-envio-mesmo-assim");
     mesmoAssim.checked = true;
@@ -278,6 +283,133 @@ describe("enviar para implementação", () => {
     board._aoEvento({ type: "mudou", slug: "plano-1", alvo: "handoff", origem: "agente" });
     await vi.waitFor(() => expect(document.getElementById("pl-envio-prompt").value).toBe("# Do Manager"));
     expect(document.getElementById("pl-envio-revisar").classList.contains("hidden")).toBe(false);
+  });
+
+  it("janela abre no mesmo quadro do clique com a conferência do plano, mesmo com o motor lento", async () => {
+    let soltar;
+    const lento = new Promise((r) => (soltar = r));
+    const { board, chamadas } = montar({
+      respostas: {
+        "GET /v1/planejamento/plano-1": ({ plano }) => ({ ...structuredClone(plano), prontidao: rascunho.prontidao }),
+        "GET /v1/planejamento/plano-1/handoff/rascunho": () => lento,
+      },
+    });
+    await board.abrir();
+    const t0 = performance.now();
+    document.getElementById("btn-pl-enviar").click();
+    // síncrono: nada de await entre o clique e a janela visível
+    expect(document.getElementById("pl-envio").classList.contains("hidden")).toBe(false);
+    expect(performance.now() - t0).toBeLessThan(100);
+    expect(board._ultimaAbertura()).toBeLessThan(100);
+    // mesma lista de bloqueios e avisos que vinha do rascunho
+    expect(document.getElementById("pl-envio-bloqueios-lista").textContent).toContain("Amb");
+    expect(document.getElementById("pl-envio-avisos-lista").textContent).toContain("etapa B");
+    const rasc = document.getElementById("btn-pl-envio-rascunho");
+    const mesmoAssim = document.getElementById("pl-envio-mesmo-assim");
+    mesmoAssim.checked = true;
+    mesmoAssim.dispatchEvent(new Event("change"));
+    expect(rasc.disabled).toBe(true);
+    expect(rasc.textContent).toBe("Preparando…");
+    expect(document.getElementById("btn-pl-envio-manager").textContent).toBe("Preparando…");
+    // clique duplo: nem outra janela nem outra requisição
+    document.getElementById("btn-pl-enviar").click();
+    expect(chamadas.filter((c) => c.path.includes("/handoff/rascunho"))).toHaveLength(1);
+    soltar(rascunho);
+    await vi.waitFor(() => expect(rasc.disabled).toBe(false));
+    expect(rasc.textContent).toBe("Usar rascunho automático");
+    // rascunho é o principal; pedir ao Manager, secundário
+    expect(rasc.classList.contains("primary")).toBe(true);
+    expect(document.getElementById("btn-pl-envio-manager").classList.contains("ghost")).toBe(true);
+  });
+
+  it("erro no rascunho aparece dentro da janela com 'Tentar de novo'; fechar no meio descarta a resposta", async () => {
+    let falhar = true;
+    let soltar;
+    const { board, avisar } = montar({
+      respostas: {
+        "GET /v1/planejamento/plano-1/handoff/rascunho": () => {
+          if (falhar) throw new Error("motor travado");
+          return new Promise((r) => (soltar = r));
+        },
+      },
+    });
+    await board.abrir();
+    document.getElementById("btn-pl-enviar").click();
+    await vi.waitFor(() => expect(document.getElementById("pl-envio-erro").classList.contains("hidden")).toBe(false));
+    expect(document.getElementById("pl-envio-erro-msg").textContent).toContain("motor travado");
+    expect(avisar).not.toHaveBeenCalled();
+    expect(document.getElementById("btn-pl-envio-rascunho").disabled).toBe(true);
+    falhar = false;
+    document.getElementById("btn-pl-envio-tentar").click();
+    await vi.waitFor(() => expect(soltar).toBeTypeOf("function"));
+    expect(document.getElementById("pl-envio-erro").classList.contains("hidden")).toBe(true);
+    document.getElementById("btn-pl-envio-cancelar").click();
+    soltar({ ...rascunho, prontidao: { bloqueios: [], avisos: [] } });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(document.getElementById("pl-envio").classList.contains("hidden")).toBe(true);
+  });
+
+  it("SSE derrubado por 503 e handoff gravado: a janela vai pro Revisar em até 5 s", async () => {
+    vi.useFakeTimers();
+    try {
+      let handoffs = [{ nome: "2026-10-07-01.md", texto: "velho" }];
+      const fetchImpl = vi.fn(async () => ({ ok: false, status: 503 }));
+      const aviso = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { board } = montar({
+        deps: { fetchImpl, lerEventos: vi.fn(), aoPedirAoManager: vi.fn() },
+        respostas: {
+          "GET /v1/planejamento/plano-1/handoff/rascunho": () => ({ ...rascunho, prontidao: { bloqueios: [], avisos: [] } }),
+          "GET /v1/planejamento/plano-1/handoff": ({ plano }) => handoffs,
+        },
+      });
+      await board.abrir();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      document.getElementById("btn-pl-enviar").click();
+      await vi.advanceTimersByTimeAsync(0);
+      document.getElementById("btn-pl-envio-manager").click();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(document.getElementById("pl-envio-gerando").classList.contains("hidden")).toBe(false);
+      // SSE caído não fica morto: religa com espera crescente
+      await vi.advanceTimersByTimeAsync(1600);
+      expect(fetchImpl.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(aviso).toHaveBeenCalledTimes(1);
+      handoffs = [...handoffs, { nome: "2026-10-07-02.md", texto: "# Do Manager\n" }];
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(document.getElementById("pl-envio-prompt").value).toBe("# Do Manager");
+      expect(document.getElementById("pl-envio-revisar").classList.contains("hidden")).toBe(false);
+      board.fechar();
+      aviso.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("esperando o Manager mostra o tempo e, depois de 60 s, oferece o rascunho ali mesmo", async () => {
+    vi.useFakeTimers();
+    try {
+      const { board } = montar({
+        deps: { aoPedirAoManager: vi.fn() },
+        respostas: {
+          "GET /v1/planejamento/plano-1/handoff/rascunho": () => ({ ...rascunho, prontidao: { bloqueios: [], avisos: [] } }),
+          "GET /v1/planejamento/plano-1/handoff": () => [],
+        },
+      });
+      await board.abrir();
+      document.getElementById("btn-pl-enviar").click();
+      await vi.advanceTimersByTimeAsync(0);
+      document.getElementById("btn-pl-envio-manager").click();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(document.getElementById("pl-envio-demorando").classList.contains("hidden")).toBe(true);
+      await vi.advanceTimersByTimeAsync(61_000);
+      expect(document.getElementById("pl-envio-tempo").textContent).toBe("1:01");
+      expect(document.getElementById("pl-envio-demorando").classList.contains("hidden")).toBe(false);
+      document.getElementById("btn-pl-envio-rascunho-demora").click();
+      expect(document.getElementById("pl-envio-prompt").value).toBe("# Implementação: Meu plano");
+      expect(document.getElementById("pl-envio-demorando").classList.contains("hidden")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

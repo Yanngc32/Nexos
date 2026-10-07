@@ -40,10 +40,16 @@ export type ArgsNavegador =
 /** Resultado que o renderer devolve. `imagem` só em screenshot (ver extensão de `Saida` em mcp.ts). */
 export type ResultadoNavegador = { ok: boolean; texto: string; imagem?: { dataBase64: string; mimeType: string } };
 
-type Pendente = { resolve: (r: ResultadoNavegador) => void; timeoutId: ReturnType<typeof setTimeout> };
+type Pendente = { id: string; resolve: (r: ResultadoNavegador) => void; timeoutId: ReturnType<typeof setTimeout> };
 
-/** Comando de navegador em voo, por thread — no máximo um de cada vez, mesma regra de perguntas.ts. */
+/** Comando de navegador em voo, por thread — um de cada vez; os outros esperam em `filas`. */
 const pendentes = new Map<string, Pendente>();
+
+/**
+ * Fila por thread: o modelo costuma chamar `ler` e `screenshot` em paralelo. Recusar o segundo com
+ * "já existe pendente" fazia o modelo tentar de novo (e reabrir a página) em laço.
+ */
+const filas = new Map<string, Promise<unknown>>();
 
 /** É round-trip técnico, não decisão humana — deveria responder em segundos; 20s dá folga generosa. */
 const COMANDO_TIMEOUT_MS = 20_000;
@@ -54,31 +60,41 @@ function newComandoId(): string {
   return `bc-${Date.now().toString(36)}-${seq}`;
 }
 
-/**
- * Baixo nível, sem casca de ferramenta MCP — pede ao renderer da janela pra executar `args` no
- * painel Browser e espera o resultado (ou o timeout). Só UM comando pendente por thread.
- */
-export function comandoNavegador(threadId: string, args: ArgsNavegador): Promise<ResultadoNavegador> {
-  if (pendentes.has(threadId)) {
-    return Promise.resolve({ ok: false, texto: "já existe um comando de navegador pendente nesta conversa" });
-  }
+function despachar(threadId: string, args: ArgsNavegador): Promise<ResultadoNavegador> {
   const id = newComandoId();
   return new Promise<ResultadoNavegador>((resolve) => {
     const timeoutId = setTimeout(() => {
-      pendentes.delete(threadId);
+      if (pendentes.get(threadId)?.id === id) pendentes.delete(threadId);
       resolve({ ok: false, texto: "painel Browser não respondeu a tempo — o preview desta conversa está vivo?" });
     }, COMANDO_TIMEOUT_MS);
-    pendentes.set(threadId, { resolve, timeoutId });
+    pendentes.set(threadId, { id, resolve, timeoutId });
     const ev = { type: "browser_comando", threadId, id, ...args };
     sessionBus.emit(threadId, ev);
     sessionBus.emit("*", ev);
   });
 }
 
-/** Resolve o comando pendente desta thread. `false` se não havia nenhum (já respondido, ou nunca existiu). */
-export function responderNavegador(threadId: string, resultado: ResultadoNavegador): boolean {
+/**
+ * Baixo nível, sem casca de ferramenta MCP — pede ao renderer da janela pra executar `args` no
+ * painel Browser e espera o resultado (ou o timeout). Comandos da mesma thread rodam em fila.
+ */
+export function comandoNavegador(threadId: string, args: ArgsNavegador): Promise<ResultadoNavegador> {
+  const anterior = filas.get(threadId) ?? Promise.resolve();
+  const atual = anterior.then(() => despachar(threadId, args));
+  filas.set(threadId, atual);
+  void atual.finally(() => {
+    if (filas.get(threadId) === atual) filas.delete(threadId);
+  });
+  return atual;
+}
+
+/**
+ * Resolve o comando pendente desta thread. Com `id`, só se for o comando em voo: resposta atrasada
+ * de um comando que já expirou não pode resolver o seguinte. `false` se não havia nenhum.
+ */
+export function responderNavegador(threadId: string, resultado: ResultadoNavegador, id?: string): boolean {
   const p = pendentes.get(threadId);
-  if (!p) return false;
+  if (!p || (id && p.id !== id)) return false;
   clearTimeout(p.timeoutId);
   pendentes.delete(threadId);
   p.resolve(resultado);
@@ -100,6 +116,7 @@ export function modoDeNavegadorDaThread(threadId: string, home: string): Navegad
 export function resetNavegadorForTest(): void {
   for (const p of pendentes.values()) clearTimeout(p.timeoutId);
   pendentes.clear();
+  filas.clear();
 }
 
 /** Nomes das ferramentas como o CLI as enxerga — é isso que entra no --allowed-tools. */

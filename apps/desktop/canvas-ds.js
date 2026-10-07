@@ -408,9 +408,11 @@ export function createDsCanvas({
       overrides.clear();
       limparFrames();
     }
-    // vídeos do projeto no seletor + o stream deles (o agente abre um vídeo com nexo_video_*)
-    await videos?.ativarCanvas();
+    // vídeos do projeto no seletor + o stream deles (o agente abre um vídeo com nexo_video_*):
+    // em paralelo — esperar a lista de vídeos (e a checagem do ffmpeg) segurava o DS na tela
+    const comVideos = Promise.resolve(videos?.ativarCanvas()).catch(() => {});
     await recarregar({ animar: false });
+    await comVideos;
     try {
       geracao = (await req(`/v1/ds/gerar?${qs()}`)).geracao;
     } catch {
@@ -819,6 +821,27 @@ export function createDsCanvas({
     return { cartao, frame, hash: null, html: "", pronto: null, css: "" };
   }
 
+  /*
+   * Cada card é um iframe com o próprio documento (tokens, kit, fontes): montar dezenas no mesmo
+   * quadro travava a tela ao abrir o DS. Aqui eles entram aos poucos, alguns por quadro de
+   * animação, na ordem do board — os de cima aparecem primeiro e a tela responde no meio.
+   */
+  const FRAMES_POR_QUADRO = 4;
+  const filaDeFrames = [];
+  let filaAgendada = false;
+  function naVezDoFrame(fn) {
+    filaDeFrames.push(fn);
+    if (filaAgendada) return;
+    filaAgendada = true;
+    const rodar = () => {
+      for (let i = 0; i < FRAMES_POR_QUADRO && filaDeFrames.length; i++) filaDeFrames.shift()();
+      if (filaDeFrames.length) proximoQuadro(rodar);
+      else filaAgendada = false;
+    };
+    proximoQuadro(rodar);
+  }
+  const proximoQuadro = (fn) => (typeof win.requestAnimationFrame === "function" ? win.requestAnimationFrame(fn) : win.setTimeout(fn, 16));
+
   /** Garante o documento base no iframe; resolve quando dá pra escrever nele. */
   function prepararFrame(f, ds) {
     const base = baseHrefDoProjeto(ds.projetoAbs);
@@ -835,7 +858,10 @@ export function createDsCanvas({
       f.frame.addEventListener("load", pronto);
       const fontes = urlsDeFontes(ds.vars);
       f.fontes = fontes.join("|");
-      f.frame.srcdoc = montarSrcdoc({ css: ds.css, baseHref: base, fontes, kit: ds.kitCss || "" });
+      const srcdoc = montarSrcdoc({ css: ds.css, baseHref: base, fontes, kit: ds.kitCss || "" });
+      naVezDoFrame(() => {
+        f.frame.srcdoc = srcdoc;
+      });
     });
     return f.pronto;
   }

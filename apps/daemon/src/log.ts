@@ -39,7 +39,9 @@ export type Origem =
   | "login"
   | "projeto"
   | "video"
-  | "lixeira";
+  | "lixeira"
+  | "planejamento"
+  | "aprendizado";
 
 const PESO: Record<LogNivel, number> = { debug: 0, info: 1, aviso: 2, erro: 3 };
 const ROTULO: Record<LogNivel, string> = { debug: "DEBUG", info: "INFO ", aviso: "AVISO", erro: "ERRO " };

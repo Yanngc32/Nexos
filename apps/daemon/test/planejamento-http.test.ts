@@ -65,6 +65,16 @@ describe("/v1/planejamento", () => {
     const h = await req("POST", `/v1/planejamento/${slug}/handoff?projectPath=${P}`, { texto: "faça" });
     expect(h.status).toBe(201);
     expect((await req("GET", `/v1/planejamento/${slug}/handoff?projectPath=${P}`)).json).toMatchObject([{ nome: h.json.nome, texto: "faça\n" }]);
+    // consulta leve da tela esperando o Manager: só os nomes
+    expect((await req("GET", `/v1/planejamento/${slug}/handoff?projectPath=${P}&nomes=1`)).json).toEqual([h.json.nome]);
+  });
+
+  it("o plano vem com a conferência do envio (a janela abre sem esperar o rascunho)", async () => {
+    const req = cliente();
+    const slug = (await req("POST", `/v1/planejamento?projectPath=${P}`, {})).json.slug as string;
+    const plano = (await req("GET", `/v1/planejamento/${slug}?projectPath=${P}`)).json;
+    const rascunho = (await req("GET", `/v1/planejamento/${slug}/handoff/rascunho?projectPath=${P}`)).json;
+    expect(plano.prontidao).toEqual(rascunho.prontidao);
   });
 
   it("plano inexistente é 404, slug inválido é 400", async () => {

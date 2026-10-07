@@ -23,9 +23,10 @@ import { createThread, importarConversas, listThreads, projetosConhecidos, readT
 import { pingUsoDeTodasAsContas, postMessage, sessionBus, switchThread } from "./session.ts";
 import { loginProfile } from "./login.ts";
 import { varrerLixeira } from "./lixeira.ts";
+import { VARREDURA_MS, varrerAprendizado } from "./aprendizado-analise.ts";
 import { CODIGO_TRAVADO, pidPath, startDaemon, waitClosed } from "./server.ts";
 import { iniciarLog, log, registrarErrosSemDono } from "./log.ts";
-import { vigiarCongelamento } from "./congelamento.ts";
+import { medirAtividade, vigiarCongelamento } from "./congelamento.ts";
 import { fecharTudo, pararDeManter } from "./escuta.ts";
 import { instalarSkill } from "./skill.ts";
 import { instalarSkillsDoNexos } from "./skills-do-nexos.ts";
@@ -100,9 +101,9 @@ async function cmdUp(): Promise<void> {
    * no haiku, pula conta com `limits` fresco e o periódico para com a pessoa ausente (session.ts).
    */
   const PING_USO_MS = 30 * 60_000;
-  void pingUsoDeTodasAsContas(home).catch((e) => log.aviso("turno", "ping de uso falhou", { erro: (e as Error).message }));
+  void medirAtividade("ping de uso", () => pingUsoDeTodasAsContas(home)).catch((e) => log.aviso("turno", "ping de uso falhou", { erro: (e as Error).message }));
   const pingUso = setInterval(() => {
-    void pingUsoDeTodasAsContas(home, { periodico: true }).catch((e) => log.aviso("turno", "ping de uso falhou", { erro: (e as Error).message }));
+    void medirAtividade("ping de uso", () => pingUsoDeTodasAsContas(home, { periodico: true })).catch((e) => log.aviso("turno", "ping de uso falhou", { erro: (e as Error).message }));
   }, PING_USO_MS);
   /*
    * Sync com o Drive (só se a conta está conectada; a pasta "Nexos" é criada/achada sozinha) e,
@@ -132,14 +133,20 @@ async function cmdUp(): Promise<void> {
   };
   // sobra da cópia da 0.8.0 em ~/.nexos/drive: só avisa (uma vez por subida), nunca apaga
   void avisarLixoNoDrive(home);
-  syncDrive();
-  const timerDrive = setInterval(syncDrive, SYNC_DRIVE_MS);
+  const syncDriveMedido = (): void => medirAtividade("sync da pasta de projetos/biblioteca", syncDrive);
+  syncDriveMedido();
+  const timerDrive = setInterval(syncDriveMedido, SYNC_DRIVE_MS);
   // conversas paradas → lixeira → apagadas de vez (ver lixeira.ts): na subida e de hora em hora
   const varrer = (): void => {
-    void varrerLixeira(home).catch((e) => log.aviso("lixeira", "varredura falhou", { erro: (e as Error).message }));
+    void medirAtividade("varredura da lixeira", () => varrerLixeira(home)).catch((e) => log.aviso("lixeira", "varredura falhou", { erro: (e as Error).message }));
   };
   varrer();
   const timerLixeira = setInterval(varrer, 60 * 60_000);
+  // aprendizados: trechos marcados em conversa parada há 15 min viram candidatos (aprendizado-analise.ts)
+  const analisar = (): void => {
+    void medirAtividade("varredura de aprendizados", () => varrerAprendizado(home)).catch((e) => log.aviso("aprendizado", "varredura de aprendizados falhou", { erro: (e as Error).message }));
+  };
+  const timerAprendizado = setInterval(analisar, VARREDURA_MS);
   for (const f of started.falhas) {
     // túnel fora do ar é normal e ele volta sozinho; dizer o motivo evita que
     // "o celular não conecta" vire caça ao tesouro
@@ -157,6 +164,7 @@ async function cmdUp(): Promise<void> {
     clearInterval(pingUso);
     clearInterval(timerDrive);
     clearInterval(timerLixeira);
+    clearInterval(timerAprendizado);
     stopAllServices();
     // os sockets extras seguram o event loop vivo: fechar só o principal
     // deixaria o processo pendurado pra sempre

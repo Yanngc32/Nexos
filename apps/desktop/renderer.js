@@ -31,6 +31,7 @@ import { marcarLinhaAtiva } from "./thread-mark.js";
 import { escapeHtml, renderMd } from "./markdown.js";
 import { secaoDaVersao } from "./changelog.js";
 import { aplicarEventoNaPonte, ponteDosEventos, textoDaPonte } from "./ponte-plano.js";
+import { createAprendizados } from "./aprendizados.js";
 import {
   ago,
   clip,
@@ -46,6 +47,7 @@ import {
 import { portaDaUrl, urlDePreview, urlDoApk, urlDoCelular } from "./url.js";
 import {
   abaAtiva,
+  abaDoAgente,
   ativarAba,
   abrirAba,
   chaveWork,
@@ -2177,7 +2179,16 @@ function pintarAbas() {
       e.stopPropagation();
       fecharAbaWork(tab.id);
     });
-    btn.append(ico, name, x);
+    btn.append(ico, name);
+    const pendentesAprend = tab.kind === "graph" ? (aprendPendentes.get(normPath(state.projectPath)) ?? 0) : 0;
+    if (pendentesAprend > 0) {
+      const aviso = document.createElement("span");
+      aviso.className = "agents-badge";
+      aviso.textContent = String(pendentesAprend);
+      aviso.setAttribute("aria-label", pendentesAprend === 1 ? "1 aprendizado pra revisar" : `${pendentesAprend} aprendizados pra revisar`);
+      btn.append(aviso);
+    }
+    btn.append(x);
     btn.addEventListener("click", () => focarAbaWork(tab.id));
     btn.addEventListener("auxclick", (e) => {
       if (e.button === 1) {
@@ -2198,7 +2209,10 @@ function aoMostrarPainel(view) {
     requestAnimationFrame(() => state.fit?.fit());
   }
   if (view === "canvas") requestAnimationFrame(resizeSketch);
-  if (view === "graph") void loadGraphStatus();
+  if (view === "graph") {
+    void loadGraphStatus();
+    void aprendizados.carregar();
+  }
   if (view === "agentes") {
     toggleAgents(false);
     setAxTab(state.axTab);
@@ -2577,12 +2591,15 @@ function toggleInspector() {
   else inspectorHost.desligar();
 }
 
+/**
+ * `<webview>` em que o agente desta conversa age: a aba do Browser em foco da conversa
+ * (`abaDoAgente`). Sem Browser na conversa, o preview que a pessoa está vendo.
+ */
 function webviewDaThread(threadId) {
   const tid = threadId || state.threadId;
-  const s = sessaoWork(tid);
-  const tab = s.tabs.find((t) => t.kind === "browser") || abaAtiva(s);
-  if (tab?.kind === "browser") return browserPool.obter(chaveSessao(tid), tab.id);
-  return browserPool.daThread(chaveSessao(tid)) || guestVisivel();
+  const tab = abaDoAgente(sessaoWork(tid));
+  if (tab) return browserPool.obter(chaveSessao(tid), tab.id, tab.url || undefined);
+  return guestVisivel();
 }
 
 const navegadorHost = criarNavegadorHost({ getWebview: (threadId) => webviewDaThread(threadId) });
@@ -2638,10 +2655,13 @@ $("btn-nav-pause").addEventListener("click", () => {
   pintarBotaoNavPause();
 });
 
-/** Garante aba+webview da conversa do comando, sem roubar o foco se for outra thread. */
-function garantirBrowserDaThread(threadId, url) {
+/**
+ * Garante aba+webview da conversa, sem roubar o foco se for outra thread. `doAgente`: reaproveita
+ * a aba do Browser da conversa em vez de abrir outra (`abaDoAgente`).
+ */
+function garantirBrowserDaThread(threadId, url, { doAgente = false } = {}) {
   const s = sessaoWork(threadId);
-  const tab = abrirAba(s, "browser", url ? { url } : {});
+  const tab = doAgente && url ? abaDoAgente(s, url) : abrirAba(s, "browser", url ? { url } : {});
   if (url) setUrlDaAba(s, tab.id, url);
   persistirWork(threadId);
   // guest novo já nasce na URL: navegar um recém-criado (antes do dom-ready) é o que dava erro
@@ -2649,6 +2669,24 @@ function garantirBrowserDaThread(threadId, url) {
   if (url) browserPool.navegar(chaveSessao(threadId), tab.id, urlDePreview(url));
   if (chaveSessao() === chaveSessao(threadId)) aplicarSessaoWork();
   return tab;
+}
+
+/**
+ * `abrir` do agente: reaproveita a aba do Browser da conversa (nunca empilha abas) e espera a
+ * página carregar de verdade. O host marca a URL no guest ANTES de `aplicarSessaoWork`, senão o
+ * `navegar` da troca de tela iniciaria uma segunda carga que abortaria a primeira.
+ */
+async function abrirPeloAgente(threadId, url) {
+  const href = urlDePreview(url);
+  const s = sessaoWork(threadId);
+  const tab = abaDoAgente(s, href);
+  setUrlDaAba(s, tab.id, href);
+  persistirWork(threadId);
+  // guest novo já nasce na URL: navegar um recém-criado (antes do dom-ready) é o que dava erro
+  browserPool.obter(chaveSessao(threadId), tab.id, href);
+  const carga = navegadorHost.abrir(href, threadId);
+  if (chaveSessao() === chaveSessao(threadId)) aplicarSessaoWork();
+  return carga;
 }
 
 /**
@@ -2662,10 +2700,10 @@ async function tratarComandoNavegador(ev) {
     resultado = { ok: false, texto: "controle do painel Browser está pausado agora — a pessoa pausou manualmente" };
   } else {
     try {
-      if (ev.acao === "abrir") garantirBrowserDaThread(ev.threadId, ev.url);
-      else garantirBrowserDaThread(ev.threadId);
-      if (ev.acao === "abrir") resultado = await navegadorHost.abrir(ev.url, ev.threadId);
-      else if (ev.acao === "ler") resultado = await navegadorHost.ler(ev.threadId);
+      if (ev.acao === "abrir") resultado = await abrirPeloAgente(ev.threadId, ev.url);
+      else if (!webviewDaThread(ev.threadId)) {
+        resultado = { ok: false, texto: "nenhum preview aberto nesta conversa — abra a página com nexo_navegador_abrir" };
+      } else if (ev.acao === "ler") resultado = await navegadorHost.ler(ev.threadId);
       else if (ev.acao === "markdown") resultado = await navegadorHost.markdown(ev.threadId);
       else if (ev.acao === "screenshot") resultado = await navegadorHost.screenshot(ev.threadId);
       else if (ev.acao === "clicar") resultado = await navegadorHost.clicar(ev.ref, ev.threadId);
@@ -2678,7 +2716,7 @@ async function tratarComandoNavegador(ev) {
   try {
     await req(`/v1/navegador/${encodeURIComponent(ev.threadId)}/responder`, {
       method: "POST",
-      body: JSON.stringify(resultado),
+      body: JSON.stringify({ ...resultado, id: ev.id }),
     });
   } catch {
     /* daemon pode já ter desistido (timeout) — nada a fazer, o comando já expirou do lado dele */
@@ -3966,6 +4004,21 @@ function renderRepoTree() {
     count.textContent = String(list.length);
     count.title = list.length === 1 ? "1 conversa neste projeto" : `${list.length} conversas neste projeto`;
     sum.insertBefore(count, add);
+    const pendentesAprend = aprendPendentes.get(normPath(path)) ?? 0;
+    if (pendentesAprend > 0) {
+      const aviso = document.createElement("button");
+      aviso.type = "button";
+      aviso.className = "agents-badge repo-aprend";
+      aviso.textContent = String(pendentesAprend);
+      aviso.title = "Aprendizados pra revisar";
+      aviso.setAttribute("aria-label", pendentesAprend === 1 ? "1 aprendizado pra revisar" : `${pendentesAprend} aprendizados pra revisar`);
+      aviso.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        void abrirAprendizados(path);
+      });
+      sum.insertBefore(aviso, count);
+    }
     if (!list.length) {
       const empty = document.createElement("li");
       empty.className = "repo-empty";
@@ -4411,6 +4464,8 @@ function renderEvents(events, { manterRolagem = false } = {}) {
   log.style.display = prev;
   // "mostrar anteriores": o que já estava na tela fica no mesmo lugar, o novo entra em cima
   log.scrollTop = manterRolagem ? log.scrollHeight - doFim : log.scrollHeight;
+  // conversa nova no chat: vale o fim, mesmo que agora ele esteja escondido (ver `noFim`)
+  if (!manterRolagem) log.dataset.noFim = "1";
   atualizarHistoricoChat();
   atualizarBotaoDescer();
 }
@@ -4691,9 +4746,26 @@ function appendEvent(ev, scroll = true) {
       `<button type="button" class="primary plano-ligado-abrir">Abrir planejamento</button></div>`;
     li.querySelector(".plano-ligado-nome").textContent = ev.titulo || ev.slug;
     li.querySelector(".plano-ligado-abrir").dataset.slug = ev.slug;
+  } else if (ev.type === "thread_planejamento") {
+    // a própria conversa virou o Manager do plano: mesmo cartão, com o botão de abrir a tela dele
+    li.className = "plano-ligado";
+    li.innerHTML =
+      `<div class="plano-ligado-card"><span class="plano-ligado-ico">${icoSvg("planejamento", "plano-ligado-svg")}</span>` +
+      `<div class="plano-ligado-txt"><div class="plano-ligado-rot">Esta conversa virou o Agent Manager do plano</div><div class="plano-ligado-nome"></div></div>` +
+      `<button type="button" class="primary plano-ligado-abrir">Abrir planejamento</button></div>`;
+    li.querySelector(".plano-ligado-nome").textContent = ev.titulo || ev.slug;
+    li.querySelector(".plano-ligado-abrir").dataset.slug = ev.slug;
   } else if (ev.type === "plano_ponte") {
     li.className = "roteamento-marca";
     li.innerHTML = `<span class="stamp">${ev.ligada ? "Conversa com o Agent Manager religada" : "Conversa com o Agent Manager desligada — o agente deste chat volta a responder"}</span>`;
+  } else if (ev.type === "ponte" && ev.direcao === "falhou") {
+    li.className = "ponte-falhou";
+    li.innerHTML =
+      `<div class="ponte-falhou-msg" role="alert"><span class="ponte-falhou-rot">Não chegou ao Manager</span><span class="ponte-falhou-motivo"></span></div>` +
+      `<div class="ponte-falhou-texto"></div><button type="button" class="ghost ponte-reenviar">Reenviar</button>`;
+    li.querySelector(".ponte-falhou-motivo").textContent = ev.motivo ? ` — ${ev.motivo}` : "";
+    li.querySelector(".ponte-falhou-texto").textContent = ev.texto || "";
+    li.querySelector(".ponte-reenviar").dataset.texto = ev.texto || "";
   } else if (ev.type === "ponte") {
     const ida = ev.direcao === "ida";
     li.className = ida ? "you ponte-ida" : "bot ponte-volta";
@@ -4993,8 +5065,22 @@ function flushStreamRender() {
   st.pending = null;
 }
 
+/*
+ * Chat que estava escondido (pílula, minimizado, entrando no plano) recebe a conversa com altura 0:
+ * "rolar pro fim" ali vira rolar pro topo, e ao aparecer ele abria no começo da conversa. O log
+ * lembra se a pessoa estava no fim (`noFim`) e, quando ganha altura de novo, volta pro fim.
+ */
 porChat((chat) => {
-  $("log").addEventListener("scroll", () => areaDeChats.comChat(chat, atualizarBotaoDescer));
+  const log = $("log");
+  log.dataset.noFim = "1";
+  log.addEventListener("scroll", () => {
+    // escondido não conta: o scroll vai a 0 sozinho e apagaria o "estava no fim"
+    if (log.clientHeight > 0) log.dataset.noFim = pertoDoFimDoChat(log) ? "1" : "0";
+    areaDeChats.comChat(chat, atualizarBotaoDescer);
+  });
+  new ResizeObserver(() => {
+    if (log.clientHeight > 0 && log.dataset.noFim === "1") log.scrollTop = log.scrollHeight;
+  }).observe(log);
 });
 porChat(() => {
   $("btn-scroll-bottom").addEventListener("click", () => {
@@ -5096,6 +5182,13 @@ porChat(() => {
       form.classList.remove("hidden");
       outroToggle.classList.add("hidden");
       form.querySelector("input")?.focus();
+      return;
+    }
+    const reenviar = e.target.closest(".ponte-reenviar");
+    if (reenviar && !reenviar.disabled) {
+      // uma vez só: o motor também ignora a mesma mensagem já na fila
+      reenviar.disabled = true;
+      void mandarPelaPonte(reenviar.dataset.texto || "", []);
       return;
     }
     const abrirPlano = e.target.closest(".plano-ligado-abrir");
@@ -5302,7 +5395,20 @@ function distribuirChats() {
     foco: areaDeChats.foco,
     largura: colunasDosChats.clientWidth,
     maximizado: chatMaximizado,
+    ...(planoAberto ? { cabem: chatsQueCabemNoPlano() } : {}),
   });
+}
+
+/**
+ * Plano: a janela flutuante dobra de largura com dois chats abertos (`data-abertos="2"`). Cabem
+ * dois se a área do plano comporta duas larguras da janela; senão, um (o outro vira chip).
+ */
+function chatsQueCabemNoPlano() {
+  const work = $("work");
+  const largura = work.clientWidth;
+  if (!(largura > 0)) return 2;
+  const flut = parseFloat(work.style.getPropertyValue("--flut-w")) || 420;
+  return largura - 32 >= flut * 2 ? 2 : 1;
 }
 
 /** Põe os chats na ordem, com divisor entre os abertos; esconde os que viraram chip. */
@@ -5717,8 +5823,23 @@ setInterval(pintarEstadosDosChats, 2000);
 async function openThread(id, { chat: alvo = null } = {}) {
   // chat certo (Manager/Implementação do plano): a parte síncrona roda com ele como atual
   if (alvo && areaDeChats.atual() !== alvo) return areaDeChats.comChat(alvo, () => openThread(id, { chat: alvo }));
-  // qualquer outra abertura (sidebar, busca, passo de time) no plano: sai dele antes
-  if (!alvo && planoAberto) await sairDoPlano();
+  // mesma conversa já aberta (ou abrindo) neste chat: recarregar seria buscar e redesenhar tudo
+  // de novo e derrubar o SSE — o envio pra implementação chegava a abrir a mesma conversa 2×
+  if (alvo && alvo.threadId === id && (alvo.sseOn || alvo.abrindo === id)) {
+    desenharArea();
+    return;
+  }
+  if (!alvo && planoAberto) {
+    // clicou (barra lateral, quadro…) numa conversa do próprio plano: ela aparece no plano,
+    // em vez de sair dele e abrir o chat do lado direito
+    const doPlano = [planoAberto.manager, planoAberto.impl].find((c) => c?.threadId === id);
+    if (doPlano) {
+      await restaurarChat(doPlano);
+      return;
+    }
+    // qualquer outra abertura (sidebar, busca, passo de time) no plano: sai dele antes
+    await sairDoPlano();
+  }
   // conversa que já está noutro chat da tela só ganha foco: dois chats na mesma conversa = dois SSE
   const outro = alvo ? null : areaDeChats.doThread(id);
   if (outro && outro !== areaDeChats.atual()) {
@@ -5747,17 +5868,25 @@ async function openThread(id, { chat: alvo = null } = {}) {
   chat.projeto = stub ? stub.path : state.projectPath || null;
   if (foco()) localStorage.setItem("nexo.thread", id);
   // turno que o próprio Nexos mandou (Manager do plano) ainda não aparece na lista de agentes
-  const [events, emCurso] = await Promise.all([
-    req(`/v1/threads/${id}`),
-    req(`/v1/threads/${id}/em-curso`).then((r) => Boolean(r?.emCurso)).catch(() => false),
-  ]);
+  chat.abrindo = id;
+  let events, emCurso;
+  try {
+    [events, emCurso] = await Promise.all([
+      req(`/v1/threads/${id}`),
+      req(`/v1/threads/${id}/em-curso`).then((r) => Boolean(r?.emCurso)).catch(() => false),
+    ]);
+  } finally {
+    if (chat.abrindo === id) chat.abrindo = null;
+  }
   // outra conversa foi aberta neste chat durante a espera: a resposta velha não vale mais
   if (chat.threadId !== id || !areaDeChats.chats.includes(chat)) return;
   // o resto desenha NESTE chat, mesmo que o foco tenha ido pra outro durante a espera
   areaDeChats.comChat(chat, () => {
     state.limiteDoChat = LIMITE_DO_CHAT;
     const meta = events.find((e) => e.type === "thread_meta");
-    state.metaAtual = meta || null;
+    // conversa que virou Manager depois de nascer (plano criado a partir dela)
+    const virou = [...events].reverse().find((e) => e.type === "thread_planejamento");
+    state.metaAtual = meta ? { ...meta, ...(virou ? { planejamento: { slug: virou.slug } } : {}) } : null;
     $("btn-voltar-origem").classList.toggle("hidden", !meta?.origemThreadId);
     void barraDoChat(chat).carregar(id);
     const switched = [...events].reverse().find((e) => e.type === "switched");
@@ -5782,7 +5911,9 @@ async function openThread(id, { chat: alvo = null } = {}) {
     const fimDoTurno = state.agents.list.find((a) => a.threadId === id)?.lastTerminal;
     const acabouBem = !fimDoTurno || fimDoTurno === "done";
     if (!state.talking && acabouBem && filaDa().length && !state.filaFundo.enviando.has(id)) void enviarProximoDaFila();
-    if (!state.sideChat) state.sideChat = true;
+    // no plano os chats flutuam por cima do canvas: ligar o chat lateral aqui deixava ele aberto
+    // à direita quando a pessoa saía do plano
+    if (!state.sideChat && !planoAberto) state.sideChat = true;
     listenSse(chat);
     void refreshMeter();
     // no plano a área de trabalho é o canvas: a sessão da conversa fica pra quando sair
@@ -6040,6 +6171,12 @@ function onLive(ev) {
   }
   if (ev.type === "run_resultado" || ev.type === "arquivo_entregue") {
     appendEvent(ev);
+    return;
+  }
+  if (ev.type === "thread_planejamento") {
+    appendEvent(ev);
+    if (state.metaAtual) state.metaAtual = { ...state.metaAtual, planejamento: { slug: ev.slug } };
+    setChatHead();
     return;
   }
   if (ev.type === "plano_ligado" || ev.type === "plano_ponte" || ev.type === "ponte") {
@@ -6700,6 +6837,54 @@ $("btn-proj-hooks-abrir").addEventListener("click", () => {
 
 $("btn-close-graph").addEventListener("click", closeModule);
 
+/* ---------- Aprendizados (seção da Memória do Projeto; aprendizados.js) ---------- */
+
+/** Candidatos pra revisar por projeto: o contador da barra lateral, da aba e da seção seguem o mesmo número. */
+const aprendPendentes = new Map();
+
+function guardarPendentes(path, n) {
+  const k = normPath(path);
+  if ((aprendPendentes.get(k) ?? 0) === n) return;
+  aprendPendentes.set(k, n);
+  renderRepoTree();
+  pintarAbas();
+}
+
+const aprendizados = createAprendizados({
+  req,
+  el: $,
+  getProjectPath: () => state.projectPath,
+  visivel: () => state.view === "graph",
+  aoPendentes: guardarPendentes,
+  aoAbrirConversa: (id) => void openThreadInRepo(state.projectPath, id),
+  aoAbrirSkills: () => abrirConfiguracoes("skills"),
+});
+
+/** Clique no contador: abre a Memória do Projeto já rolada até a seção. */
+async function abrirAprendizados(path) {
+  await abrirModuloEmRepo(path, "graph");
+  requestAnimationFrame(() => $("aprend-sec")?.scrollIntoView({ block: "start", behavior: "smooth" }));
+}
+
+/** Só o número, pra cada repositório da barra lateral (o motor responde do cache em memória). Motor fora do ar ou pasta indisponível: sem contador agora; a seção mostra o motivo. */
+async function atualizarPendentes() {
+  if (!state.ok) return;
+  await Promise.all(
+    state.repos.map(async (path) => {
+      // com a seção aberta no projeto ativo, ela mesma mantém o número
+      if (state.view === "graph" && samePath(path, state.projectPath)) return;
+      try {
+        const r = await req(`/v1/aprendizados/pendentes?projectPath=${encodeURIComponent(path)}`);
+        guardarPendentes(path, Number(r.pendentes) || 0);
+      } catch {
+        /* previsto: motor reiniciando ou raiz de projetos fora do ar */
+      }
+    }),
+  );
+}
+setInterval(() => void atualizarPendentes(), 30_000);
+setTimeout(() => void atualizarPendentes(), 5000);
+
 $("btn-repomap-atualizar").addEventListener("click", async () => {
   if (!state.projectPath) return;
   $("repomap-err").classList.add("hidden");
@@ -6871,8 +7056,11 @@ async function entrarNoPlano(path, slug, managerThreadId) {
   areaDeChats.focar(manager);
   moverPetEMedidor();
   desenharArea();
-  if (!samePath(state.projectPath, path)) await bindProject(path);
+  // o plano aparece antes de trocar o projeto por inteiro (árvore de arquivos, conversas,
+  // serviços): `bindProject` já marca o projeto antes do primeiro await, que é o que o quadro usa
+  const trocando = samePath(state.projectPath, path) ? null : bindProject(path);
   mostrarPlanoNaTela();
+  if (trocando) await trocando;
   if (managerThreadId) await openThread(managerThreadId, { chat: manager });
 }
 
@@ -7141,8 +7329,8 @@ async function abrirTarefaNoQuadro(id) {
 }
 
 /**
- * Plano nascido de uma conversa: o daemon cria o plano no projeto dela e manda a transcrição pro
- * Agent Manager, que já começa a separar etapas. Abre a Tela de Planejamento na conversa dele.
+ * Plano nascido de uma conversa: o daemon cria o plano no projeto dela e a própria conversa vira o
+ * Agent Manager (já começa a separar etapas). Abre a Tela de Planejamento com ela como Manager.
  */
 async function planejarDaConversa(threadId) {
   if (!state.ok) return { ok: false, erro: "motor desligado" };
@@ -7194,15 +7382,22 @@ async function novoPlanejamento(path) {
 async function abrirPlanoExistente(path, slug) {
   const profileId = contaParaPlanejar();
   if (!profileId) return;
+  // a tela do plano abre na hora; a conversa do Manager chega em paralelo (antes a tela esperava
+  // o motor achar/criar o Manager pra só então aparecer)
+  const pedido = req(`/v1/planejamento/${encodeURIComponent(slug)}/manager?projectPath=${encodeURIComponent(path)}`, {
+    method: "POST",
+    body: JSON.stringify({ profileId }),
+  });
+  pedido.catch(() => {}); // tratado abaixo; sem isto a rejeição antes do await vira "não tratada"
   try {
-    const { threadId } = await req(`/v1/planejamento/${encodeURIComponent(slug)}/manager?projectPath=${encodeURIComponent(path)}`, {
-      method: "POST",
-      body: JSON.stringify({ profileId }),
-    });
-    await entrarNoPlano(path, slug, threadId);
+    await entrarNoPlano(path, slug, null);
+    const { threadId } = await pedido;
+    // a pessoa pode ter saído (ou trocado de plano) enquanto o Manager carregava
+    if (planoAberto?.slug === slug && samePath(planoAberto.path, path)) await entrarNoPlano(path, slug, threadId);
   } catch (e) {
     // plano apagado: não insiste nele na próxima vez
     if (ultimoPlano?.slug === slug) ultimoPlano = null;
+    if (planoAberto?.slug === slug) await sairDoPlano();
     dialogo.avisar(`Não abriu o planejamento: ${e.message}`);
   }
 }
@@ -7336,7 +7531,7 @@ const dsCanvas = createDsCanvas({
 function rotuloDoContexto() {
   // meta da conversa sendo pintada: `state.agentId` ainda é o da conversa anterior nesse ponto
   if (state.metaAtual?.handoff) return "Plano enviado pra implementação";
-  if (state.metaAtual?.planejamento) return "Conversa passada ao Agent Manager";
+  if (state.metaAtual?.planejamento) return "Pedido pro Agent Manager montar o plano";
   const def = agentDef(state.metaAtual?.agentId);
   return def?.name ? `Passando contexto ao ${def.name}` : "Passando contexto ao subagente ou time";
 }
@@ -7486,7 +7681,7 @@ async function tratarAbrirPainel(ev) {
   try {
     const s = sessaoWork(ev.threadId);
     const antes = s.activeId;
-    if (view === "browser") garantirBrowserDaThread(ev.threadId, ev.url);
+    if (view === "browser") garantirBrowserDaThread(ev.threadId, ev.url, { doAgente: true });
     else abrirAba(s, view);
     const naFrente = ev.frente !== false || !antes;
     if (!naFrente && antes !== s.activeId && s.tabs.some((t) => t.id === antes)) s.activeId = antes;

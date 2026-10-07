@@ -35,10 +35,12 @@ function render(event: ThreadEvent): string | undefined {
       return `System: switched ${event.fromProfileId} -> ${event.toProfileId} (${event.reason})`;
     case "error":
       return `System: error ${event.message}`;
+    case "thread_planejamento":
+      return `System: esta conversa passou a ser o Agent Manager do plano ${event.slug}.`;
     case "ponte":
-      return event.direcao === "ida"
-        ? `User (pro Agent Manager do plano): ${event.texto}`
-        : `System: o Agent Manager do plano respondeu:\n${event.texto}`;
+      if (event.direcao === "ida") return `User (pro Agent Manager do plano): ${event.texto}`;
+      if (event.direcao === "falhou") return `System: a mensagem pro Agent Manager do plano não chegou (${event.motivo ?? "erro"}): ${event.texto}`;
+      return `System: o Agent Manager do plano respondeu:\n${event.texto}`;
     case "run_resultado":
       return `System: o time "${event.titulo}" (chamado desta conversa) terminou com status ${event.status}.${event.arquivo ? ` Saída completa em ${event.arquivo}.` : ""}\n${event.texto}`;
   }

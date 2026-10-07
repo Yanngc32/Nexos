@@ -337,6 +337,22 @@
             <h2>Memória <span id="mem-status" class="mod-meta" data-on="0">verificando…</span></h2>
             <p class="ag-hint" id="mem-detalhe"></p>
           </section>
+          <section class="ag-sec" id="aprend-sec" aria-labelledby="aprend-h">
+            <h2 id="aprend-h" tabindex="-1">Aprendizados <span id="aprend-contador" class="agents-badge aprend-contador hidden" aria-label="0 aprendizados pra revisar">0</span> <span id="aprend-status" class="mod-meta" data-on="0">carregando…</span></h2>
+            <p class="ag-hint">Preferências que o Nexos percebeu nas suas correções. Só as aprovadas entram nas conversas, como referência.</p>
+            <label class="ag-check">
+              <input id="aprend-ligado" type="checkbox" checked />
+              <span>Aprender com as minhas correções neste projeto</span>
+            </label>
+            <div id="aprend-erro" class="aprend-erro hidden" role="alert">
+              <p class="ag-err" id="aprend-erro-msg"></p>
+              <button type="button" id="btn-aprend-tentar" class="ghost">Tentar de novo</button>
+            </div>
+            <div id="aprend-abas" class="aprend-abas hidden" role="tablist" aria-label="Aprendizados por situação"></div>
+            <div id="aprend-lista" class="aprend-lista"></div>
+            <p class="ag-hint" id="aprend-rodape"></p>
+            <div id="aprend-toast" class="aprend-toast hidden" role="status"></div>
+          </section>
           <section class="ag-sec">
             <h2>Repo map <span id="repomap-status" class="mod-meta" data-on="0">verificando…</span></h2>
             <p class="ag-hint" id="repomap-detalhe"></p>
@@ -1049,11 +1065,20 @@
                 <span class="pl-rotulo">Avisos</span>
                 <ul id="pl-envio-avisos-lista"></ul>
               </div>
+              <p id="pl-envio-conferindo" class="pl-envio-texto hidden">Conferindo o plano…</p>
+              <div id="pl-envio-erro" class="pl-envio-caixinha pl-envio-bloqueio hidden" role="alert">
+                <p id="pl-envio-erro-msg" class="pl-envio-texto"></p>
+                <button type="button" id="btn-pl-envio-tentar" class="ghost">Tentar de novo</button>
+              </div>
               <p id="pl-envio-tudo-certo" class="pl-envio-texto hidden">Tudo certo: nenhuma ambiguidade aberta, todas as etapas concluídas.</p>
             </section>
             <section id="pl-envio-gerando" class="pl-envio-corpo hidden">
               <p class="pl-envio-texto">Pedi ao Agent Manager pra escrever o prompt — acompanhe no chat. Assim que ele gravar, o texto aparece aqui pra você revisar.</p>
-              <div class="pl-envio-espera" aria-live="polite"><span class="pl-envio-pontos"></span> Esperando o Manager…</div>
+              <div class="pl-envio-espera" aria-live="polite"><span class="pl-envio-pontos"></span> Esperando o Manager… <span id="pl-envio-tempo" class="pl-envio-tempo">0:00</span></div>
+              <div id="pl-envio-demorando" class="pl-envio-caixinha pl-envio-aviso hidden">
+                <p class="pl-envio-texto">O Manager está demorando. O rascunho automático já tem as etapas e os cards do plano.</p>
+                <button type="button" id="btn-pl-envio-rascunho-demora" class="primary">Usar rascunho automático</button>
+              </div>
             </section>
             <section id="pl-envio-revisar" class="pl-envio-corpo hidden">
               <p class="pl-envio-texto">Edite à vontade: o texto final fica gravado no plano (<code>handoff/</code>) e vai como primeira mensagem da conversa de implementação.</p>
@@ -1064,8 +1089,8 @@
               <button type="button" id="btn-pl-envio-cancelar" class="ghost">Cancelar</button>
               <span class="pl-envio-espaco"></span>
               <button type="button" id="btn-pl-envio-voltar" class="ghost hidden">Voltar</button>
-              <button type="button" id="btn-pl-envio-rascunho" class="ghost">Usar rascunho automático</button>
-              <button type="button" id="btn-pl-envio-manager" class="primary">Pedir ao Agent Manager</button>
+              <button type="button" id="btn-pl-envio-manager" class="ghost">Pedir ao Agent Manager</button>
+              <button type="button" id="btn-pl-envio-rascunho" class="primary">Usar rascunho automático</button>
               <button type="button" id="btn-pl-envio-enviar" class="primary hidden">Enviar para implementação</button>
             </footer>
           </div>

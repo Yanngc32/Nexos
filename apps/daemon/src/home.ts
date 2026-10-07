@@ -48,7 +48,12 @@ export function projectKey(projectPath: string): string {
     .toLowerCase();
 }
 
+/** Raízes já preparadas: `ensureHome` roda em todo `loadConfig` e eram 10 `mkdirSync` por chamada. */
+const homesProntos = new Set<string>();
+
 export function ensureHome(root = nexoHome()): string {
+  // apagaram a pasta com o motor de pé (teste, limpeza à mão): prepara de novo
+  if (homesProntos.has(root) && existsSync(join(root, "threads"))) return root;
   for (const dir of [
     root,
     join(root, "profiles"),
@@ -63,6 +68,7 @@ export function ensureHome(root = nexoHome()): string {
   ]) {
     mkdirSync(dir, { recursive: true });
   }
+  homesProntos.add(root);
   return root;
 }
 

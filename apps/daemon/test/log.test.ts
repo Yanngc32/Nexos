@@ -109,6 +109,6 @@ describe("log", () => {
     parar();
     const avisos = linhas(home).filter((l) => l.includes("[congelamento]"));
     expect(avisos).toHaveLength(1);
-    expect(avisos[0]).toMatch(/^\S+ AVISO \[congelamento\] motor ficou \d+(\.\d)? s sem responder \{"ms":\d+\}$/);
+    expect(avisos[0]).toMatch(/^\S+ AVISO \[congelamento\] motor ficou \d+(\.\d)? s sem responder \{"ms":\d+,"suspeitos":\[.+\]\}$/);
   });
 });

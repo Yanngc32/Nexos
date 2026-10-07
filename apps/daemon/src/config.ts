@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import {
   CAVEMAN_NIVEIS,
   DEFAULT_CONFIG,
@@ -33,9 +33,35 @@ function writeJsonAtomico(path: string, data: unknown): void {
   renameSync(tmp, path);
 }
 
+/**
+ * `loadConfig` roda em quase toda rota (várias vezes: `projectDir`, `projetosRoot`, slug…). Ler e
+ * validar o JSON a cada chamada somava centenas de leituras por clique; o cache só relê quando o
+ * arquivo muda (mtime em ns + tamanho, um `stat` só). Devolve cópia: quem chama pode mexer.
+ */
+const cacheConfig = new Map<string, { marca: string; cfg: NexoConfig }>();
+
+function marcaDoArquivo(path: string): string | undefined {
+  try {
+    const st = statSync(path, { bigint: true });
+    return `${st.mtimeNs}:${st.size}`;
+  } catch {
+    return undefined;
+  }
+}
+
 export function loadConfig(home: string): NexoConfig {
   ensureHome(home);
   const path = configPath(home);
+  const marca = marcaDoArquivo(path);
+  const emCache = marca ? cacheConfig.get(path) : undefined;
+  if (emCache && emCache.marca === marca) return structuredClone(emCache.cfg);
+  const cfg = lerConfig(path);
+  const depois = marcaDoArquivo(path);
+  if (depois) cacheConfig.set(path, { marca: depois, cfg: structuredClone(cfg) });
+  return cfg;
+}
+
+function lerConfig(path: string): NexoConfig {
   if (!existsSync(path)) {
     writeJsonAtomico(path, DEFAULT_CONFIG);
     return { ...DEFAULT_CONFIG, pack: { ...DEFAULT_CONFIG.pack }, accent: DEFAULT_CONFIG.accent };
@@ -280,5 +306,6 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
     lixeiraAposDias: isDiasLixeira(patch.lixeiraAposDias) ? patch.lixeiraAposDias : current.lixeiraAposDias,
   };
   writeJsonAtomico(configPath(home), next);
+  cacheConfig.delete(configPath(home));
   return next;
 }

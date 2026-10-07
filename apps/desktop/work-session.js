@@ -73,7 +73,7 @@ export function abrirAba(sessao, kind, { url, nova } = {}) {
   if (kind === "browser") {
     const href = url ? urlDePreview(url) : "";
     if (href && href !== "about:blank" && !nova) {
-      const mesma = sessao.tabs.find((t) => t.kind === "browser" && t.url === href);
+      const mesma = sessao.tabs.find((t) => t.kind === "browser" && mesmaUrl(t.url, href));
       if (mesma) {
         sessao.activeId = mesma.id;
         return mesma;
@@ -108,6 +108,37 @@ export function abrirAba(sessao, kind, { url, nova } = {}) {
   sessao.tabs.push(tab);
   sessao.activeId = tab.id;
   return tab;
+}
+
+function mesmaUrl(a, b) {
+  if (a === b) return true;
+  try {
+    return new URL(a).href === new URL(b).href;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Aba do Browser em que o AGENTE (`nexo_navegador_*`) age. Ele nunca empilha abas: com `url`,
+ * foca a aba que já está nela, senão reaproveita a aba do Browser em foco (ou a primeira) e a
+ * caller navega; só cria quando a conversa não tem Browser nenhum. Sem `url` (ler, print,
+ * clicar), age na aba do Browser em foco — a que a pessoa está vendo — e devolve `null` se
+ * não há Browser (a caller decide o que fazer). Criar aba nova a cada `abrir` foi o que
+ * gerava centenas de abas: a URL da aba muda com redirect e nunca mais casava.
+ */
+export function abaDoAgente(sessao, url) {
+  const browsers = sessao.tabs.filter((t) => t.kind === "browser");
+  const ativa = abaAtiva(sessao);
+  const emFoco = ativa?.kind === "browser" ? ativa : browsers[0] || null;
+  if (!url) return emFoco;
+  const href = urlDePreview(url);
+  const tab = browsers.find((t) => mesmaUrl(t.url, href)) || emFoco;
+  if (tab) {
+    sessao.activeId = tab.id;
+    return tab;
+  }
+  return abrirAba(sessao, "browser", { url: href, nova: true });
 }
 
 export function fecharAba(sessao, id) {
