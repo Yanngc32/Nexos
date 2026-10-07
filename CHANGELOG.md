@@ -10,6 +10,25 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Alterado
 
+## [0.16.0] - 2026-10-07
+
+### Adicionado
+
+- Aprendizados: o motor marca as correções da pessoa (parar turno, mensagem no meio do turno, mock reprovado, "não, faz assim") sem gastar modelo; com a conversa parada há 15 min, um Haiku transforma os trechos em aprendizados candidatos. A pessoa aprova, edita ou rejeita na seção **Aprendizados** da Memória do Projeto (contador de pendentes na barra lateral). Os aprovados entram no contexto das conversas (`# Preferências aprendidas`, até 6 itens/1500 caracteres) e 3+ aprovados da mesma área viram proposta de skill. Liga/desliga na própria seção; `instintos/` sincroniza.
+- Plano criado a partir de uma conversa: a própria conversa vira o Agent Manager do plano (sem Manager separado nem ponte); cartão no chat leva pro planejamento.
+- Aviso de congelamento do motor no log diz o que estava rodando na hora; rota acima de 2 s é registrada como lenta.
+
+### Corrigido
+
+- Enviar plano pra implementação: a janela abre na hora do clique, a tela não fica presa em "Esperando o Agent Manager" e a ponte não perde mensagem com o Manager ocupado.
+- Chats do plano (Manager e Implementação) se revezavam — clicar em um escondia o outro — e conversa do plano clicada na barra lateral saía do plano.
+- Chat aberto às vezes mostrava o começo da conversa em vez das últimas mensagens.
+- Agente no painel Browser: abria uma aba nova a cada tentativa (centenas de abas), lia/printava a aba errada, dizia "aberto" antes da página carregar e recusava chamadas em paralelo. Agora reaproveita a aba, espera a carga, devolve o erro real (ex.: servidor fora do ar) e usa o preview em tela quando a conversa não tem Browser próprio.
+
+### Alterado
+
+- Desempenho: abrir plano existente ~1,5 s → ~120 ms no motor; Design System lido do Drive só quando o arquivo muda; config, conta e pasta do projeto em cache. Canvas do DS não espera mais a lista de vídeos e monta os cards em lotes.
+
 ## [0.15.0] - 2026-10-05
 
 ### Adicionado
