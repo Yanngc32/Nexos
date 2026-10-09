@@ -6,6 +6,14 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+### Corrigido
+
+### Alterado
+
+## [0.17.0] - 2026-10-09
+
+### Adicionado
+
 - **Torre de magia**: nova aba "Torre" (e miniatura na ilha de borda) que mostra em pixel art, no estilo do maguinho, o que os agentes estão fazendo. A visão geral tem uma torre por projeto — janelas acendem conforme a atividade, "?" quando alguém espera você, exploradores no porão — e o clique dá zoom na torre do projeto, em corte lateral com seis andares: **cristais de mana** (um por conta, cor da conta, brilho = `accounts/limits`), **Observatório** (mapa estelar do plano + mural do Quadro), **Salão dos magos** (uma mesa por conversa ativa, a cor do agente na gema do chapéu), **Biblioteca**, **Ateliê** e **Porão** com a dungeon dos subagentes (mapa gerado pelo id da chamada `Agent`, tocha, baú; ao voltar o explorador sobe a escada e entrega o pergaminho a quem o mandou, ferido se deu erro). Os magos vivem: conversam, espiam o vizinho que trabalha, comemoram juntos, apontam pro "?", acenam, vão à Biblioteca/Ateliê/Observatório quando a conversa usa a ferramenta de lá, tomam chá, fazem fila nos cristais quando a conta zera e dançam no apagão se todas zeram; mudanças no Quadro são levadas ao mural pelo mago da conversa que as fez (a feita na tela só desliza com "Você", sempre em até 15 s). Plano enviado: o astrônomo desce até a mesa da implementação. Tudo anima só com a aba visível (oculta = nenhum timer nem stream) e respeita movimento reduzido. Motor: `GET /v1/runs/events` e `GET /v1/tarefas/events` (SSE) e mais campos em `/v1/agents` e `/v1/planejamento`. Tiles da dungeon: Kenney Tiny Dungeon (CC0).
 - Molduras de aparelho no kit do Canvas: `.k-celular` (iPhone) e `.k-notebook` (MacBook) com `.k-tela`, cores por `data-cor` e `.k-escala` pra reduzir uma tela desenhada em tamanho real. Qualquer card ou mock de tela, de qualquer design system, pode aparecer dentro do aparelho (portado de Opensource UI, MIT).
 - `nexo_servico_subir` / `parar` / `listar`: o agente sobe servidor de dev (localhost) com o motor do Nexos como dono — sobrevive ao fim do turno e ao Parar, aparece no painel Serviços, fica registrado no `nexos.json` do projeto e só responde quando a URL atende (ou devolve o log se o processo cair).
