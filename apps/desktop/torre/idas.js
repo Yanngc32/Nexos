@@ -25,11 +25,11 @@ export function idasNovo() {
  * Avança. `sinais` = `feed.idasRecentes` (`{ threadId, andar, gravando, em }`).
  * @returns Map chave → `{ andar, fase: "indo"|"la"|"voltando", progresso, pose }`
  */
-export function avancarIdas(i, { magos, sinais = [], agora, reduzido = false }) {
+export function avancarIdas(i, { magos, sinais = [], agora, reduzido = false, bloqueado = false }) {
   const porChave = new Map(magos.map((m) => [m.chave, m]));
-  // sinal mais recente por conversa
+  // sinal mais recente por conversa (`bloqueado` = apagão: ninguém começa ida e quem está fora volta)
   const recente = new Map();
-  for (const s of sinais) {
+  for (const s of bloqueado ? [] : sinais) {
     if (agora - s.em > LINGER_MS || s.em > agora) continue;
     const chave = `conv:${s.threadId}`;
     const r = recente.get(chave);
@@ -61,7 +61,7 @@ export function avancarIdas(i, { magos, sinais = [], agora, reduzido = false }) 
       i.ativas.delete(chave);
       continue;
     }
-    if (!a.voltandoDesde && (INTERROMPE.has(m.estado) || agora - a.ultimoSinal > LINGER_MS)) a.voltandoDesde = agora;
+    if (!a.voltandoDesde && (bloqueado || INTERROMPE.has(m.estado) || agora - a.ultimoSinal > LINGER_MS)) a.voltandoDesde = agora;
     if (a.voltandoDesde) {
       const t = agora - a.voltandoDesde;
       if (t >= DESLOCAMENTO_MS || reduzido) {

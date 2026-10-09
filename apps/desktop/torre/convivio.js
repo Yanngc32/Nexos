@@ -92,6 +92,7 @@ export function avancarConvivio(c, { magos, mesas, eventos = [], agora, sorteio 
   for (const k of [...c.apontadoEm.keys()]) if (!esperando.includes(k)) c.apontadoEm.delete(k);
 
   // 2. eventos
+  const perguntasNovas = new Set();
   for (const ev of eventos) {
     if (ev.tipo === "terminou") {
       for (const v of vizinhos(mesas, ev.chave)) {
@@ -101,7 +102,7 @@ export function avancarConvivio(c, { magos, mesas, eventos = [], agora, sorteio 
         else if (OCUPADO.has(m.estado)) comecar(c, v, "levanta-cabeca", ev.chave, agora, 800);
       }
     }
-    if (ev.tipo === "pergunta") c.apontadoEm.delete(ev.chave); // força o apontar agora
+    if (ev.tipo === "pergunta") perguntasNovas.add(ev.chave); // força o apontar agora
     if (ev.tipo === "estrela") {
       // estrela acendeu: quem está livre olha pra cima; quem trabalha só levanta a cabeça
       for (const m of magos) {
@@ -120,10 +121,17 @@ export function avancarConvivio(c, { magos, mesas, eventos = [], agora, sorteio 
     }
   }
 
-  // 3. apontar pro "?" (agora e a cada 15 s enquanto durar)
+  // 3. apontar pro "?" (na pergunta nova e a cada 15 s enquanto durar). Quem já esperava quando a
+  //    aba abriu (ou voltou de oculta) só começa a contar: o primeiro retrato não gera reação.
   for (const alvo of esperando) {
     const ultimo = c.apontadoEm.get(alvo);
-    if (ultimo !== undefined && agora - ultimo < APONTA_REPETE_MS) continue;
+    if (!perguntasNovas.has(alvo)) {
+      if (ultimo === undefined) {
+        c.apontadoEm.set(alvo, agora);
+        continue;
+      }
+      if (agora - ultimo < APONTA_REPETE_MS) continue;
+    }
     c.apontadoEm.set(alvo, agora);
     for (const m of magos) {
       if (m.chave === alvo || c.ativas.has(m.chave)) continue;

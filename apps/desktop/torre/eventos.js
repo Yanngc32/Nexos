@@ -25,19 +25,26 @@ export function retratoDaTorre(modelo, agora) {
         estado: m.estado,
         ferramenta: m.ferramenta,
         travado: m.travado,
+        sinalEm: m.sinalEm ?? 0,
         pedidoEm: m.pedidoEm,
         herdouDe: m.herdouDe ?? "",
       });
     }
     for (const a of t.astronomos) personagens.set(a.chave, { torre: t.chave, tipo: "astro", estado: a.estado, threadId: a.threadId });
     for (const e of t.exploradores) {
-      personagens.set(e.chave, { torre: t.chave, tipo: "exp", pai: e.pai, aberto: !e.fim, erro: Boolean(e.fim?.erro) });
+      personagens.set(e.chave, { torre: t.chave, tipo: "exp", pai: e.pai, aberto: !e.fim, erro: Boolean(e.fim?.erro), descricao: e.descricao ?? "" });
     }
   }
   return { em: agora, personagens, estrelas };
 }
 
 const TRABALHANDO = new Set(["trabalhando", "pensando"]);
+
+/** "2 min", "1 h 5 min" — quanto tempo o mago está sem sinal. */
+function tempoParado(ms) {
+  const min = Math.max(1, Math.round(ms / 60_000));
+  return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} min` : ""}`;
+}
 
 /**
  * Eventos entre dois retratos. `antes` nulo = primeiro retrato: nada.
@@ -49,7 +56,7 @@ export function torreEventos(antes, depois) {
   for (const [chave, p] of depois.personagens) {
     const era = de.get(chave);
     if (p.tipo === "exp") {
-      if (!era) out.push({ tipo: "delegou", chave: p.pai, explorador: chave, torre: p.torre });
+      if (!era) out.push({ tipo: "delegou", chave: p.pai, explorador: chave, descricao: p.descricao, torre: p.torre });
       else if (era.aberto && !p.aberto) out.push({ tipo: "voltou", chave: p.pai, explorador: chave, ok: !p.erro, torre: p.torre });
       continue;
     }
@@ -71,7 +78,7 @@ export function torreEventos(antes, depois) {
     if (p.estado === "trabalhando" && p.ferramenta && p.ferramenta !== era.ferramenta) {
       out.push({ tipo: "ferramenta", chave, nome: p.ferramenta, torre: p.torre });
     }
-    if (p.travado && !era.travado) out.push({ tipo: "travou", chave, torre: p.torre });
+    if (p.travado && !era.travado) out.push({ tipo: "travou", chave, tempo: tempoParado(depois.em - p.sinalEm), torre: p.torre });
   }
   for (const [chave, era] of de) {
     if (era.tipo === "mago" && !depois.personagens.has(chave)) out.push({ tipo: "saiu", chave, torre: era.torre });

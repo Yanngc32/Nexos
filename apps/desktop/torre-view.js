@@ -550,7 +550,7 @@ export function createTorreView({
     const extras = [];
     if (f.escondidos.length) extras.push({ k: "mais", tipo: "mais", n: f.escondidos.length });
     if (f.exploradoresEscondidos) extras.push({ k: "mais-exp", tipo: "mais-exp", n: f.exploradoresEscondidos });
-    extras.push({ k: "mural", tipo: "mural" });
+    if (dados.feed.quadroLigado) extras.push({ k: "mural", tipo: "mural" });
     sincronizar(camadas.extra, extras, (it) => {
       if (it.tipo === "mural") {
         const b = mk("button", "tr-mural");

@@ -25,7 +25,7 @@ import { autorDaMudanca } from "./feed.js";
 import { avancarIdas, idasNovo } from "./idas.js";
 import { avancarLazer, lazerNovo } from "./lazer.js";
 import { torreLugares } from "./lugares.js";
-import { avancarMana, manaNovo } from "./mana.js";
+import { APAGANDO_MS, avancarMana, manaNovo } from "./mana.js";
 import { resumoDaTorre, rotuloAcessivel, textoDoEstado, torreVazia } from "./modelo.js";
 import { avancar as avancarMural, carregarQuadro, esvaziar as esvaziarMural, faseDaViagem, muralNovo, receberMudanca, textoDoBalao } from "./mural.js";
 import { ICONE_DA_REACAO, poseDe } from "./poses.js";
@@ -36,6 +36,8 @@ import { pontoDaFila, pontoDaMesa, pontoDoAndar, pontoDoLazer, pontoNaRota } fro
 export const DESCIDA_ASTRO_MS = 2_600;
 /** Explorador descendo da mesa do mago até a dungeon. */
 export const DESCIDA_EXP_MS = 1_800;
+/** Cada trecho da ronda de quem segura a tocha no apagão. */
+export const RONDA_TOCHA_MS = 4_000;
 /** Como o nome do gesto do mural vira pose. */
 const POSE_DO_GESTO = {
   "escreve-e-prega": "escrevendo",
@@ -150,19 +152,22 @@ export function avancarPalco(p, { modelo, feed, agora, visivel = true, reduzido 
   const ocupar = (chaves, ...mais) => new Set([...chaves, ...mais.flat()]);
 
   /* ---- camadas ---- */
-  const fora = ocupar(p.lazer.ativas.keys(), p.idas.ativas.keys(), p.mural.viagens.keys(), p.mana.fila.keys(), p.entregas.leituras.keys());
-  const conv = avancarConvivio(p.convivio, { magos: magos.filter((m) => !fora.has(m.chave)), mesas, eventos, agora, sorteio, reduzido });
-  const idas = avancarIdas(p.idas, { magos, sinais: feed?.idasRecentes ?? [], agora, reduzido });
+  // a mana vem primeiro: no apagão ninguém sai pra andar, e logo depois dele todo mundo fica sentado VOLTA_MS
+  const mana = avancarMana(p.mana, { magos, contas: celulas, agora });
+  const apagado = Boolean(mana.apagao);
+  const quietos = apagado || mana.voltando;
+  const fora = ocupar(p.lazer.ativas.keys(), p.idas.ativas.keys(), p.mural.viagens.keys(), mana.fila.keys(), p.entregas.leituras.keys());
+  const conv = avancarConvivio(p.convivio, { magos: quietos ? [] : magos.filter((m) => !fora.has(m.chave)), mesas, eventos, agora, sorteio, reduzido });
+  const idas = avancarIdas(p.idas, { magos, sinais: feed?.idasRecentes ?? [], agora, reduzido, bloqueado: apagado });
   const disponiveis = new Map();
   for (const m of magos) {
-    if (m.estado === "esperando" || m.estado === "sem-mana") continue;
+    // no escuro ninguém leva pergaminho: a mudança desliza sozinha no mural
+    if (apagado || m.estado === "esperando" || m.estado === "sem-mana") continue;
     disponiveis.set(m.chave, { comPressa: m.estado === "trabalhando" || m.estado === "pensando" });
   }
   avancarMural(p.mural, agora, disponiveis, visivel && !reduzido);
   const entregas = avancarEntregas(p.entregas, agora, new Set(mesas.keys()));
-  const mana = avancarMana(p.mana, { magos, contas: celulas, agora });
-  const apagado = Boolean(mana.apagao);
-  const ocupados = apagado
+  const ocupados = quietos
     ? new Set(magos.map((m) => m.chave))
     : ocupar(conv.keys(), idas.keys(), p.mural.viagens.keys(), mana.fila.keys(), entregas.leitores.keys());
   const lazer = avancarLazer(p.lazer, { magos, agora, sorteio, reduzido, ocupados });
@@ -184,7 +189,10 @@ export function avancarPalco(p, { modelo, feed, agora, visivel = true, reduzido 
   }
   aplicarEventosNasFalas(p.falas, falasEv.filter((e) => e.tipo !== "mural-excedente"), agora, sorteio);
   const proximoReset = celulas.map((c) => c.resetHora).filter(Boolean).sort()[0];
-  const falasPintadas = avancarFalas(p.falas, magos, agora, sorteio, { apagao: apagado, apagaoHora: proximoReset });
+  // "sem mana até HH:MM": a hora da conta do mago; sem ela, o reset mais próximo
+  const resetDa = new Map(celulas.map((c) => [c.id, c.resetHora]));
+  const magosComReset = magos.map((m) => (m.estado === "sem-mana" ? { ...m, resetHora: resetDa.get(m.profileId) || proximoReset } : m));
+  const falasPintadas = avancarFalas(p.falas, magosComReset, agora, sorteio, { apagao: apagado, apagaoHora: proximoReset });
   for (const e of falasEv) if (e.tipo === "mural-excedente") falasPintadas.push({ chave: e.chave, texto: e.texto, prioridade: 20, categoria: "aviso" });
   if (p.viagensVistas.size > 400) p.viagensVistas.clear();
   for (const [chave, desde] of [...p.herancas]) if (agora - desde > DESCIDA_ASTRO_MS) p.herancas.delete(chave);
@@ -232,6 +240,10 @@ export function avancarPalco(p, { modelo, feed, agora, visivel = true, reduzido 
       else if (f.fase === "descendo") Object.assign(pos, mover(destinoMural, base, f.progresso));
       pose = f.fase === "no-mural" ? (POSE_DO_GESTO[viagem.passos[f.passo]?.gesto] ?? "apontando") : f.fase === "fim" ? pose : pos.pose;
       icone = "";
+    } else if (ida && reduzido) {
+      // movimento reduzido: não sai da mesa, só faz o gesto do andar
+      pose = ida.pose;
+      icone = "";
     } else if (ida) {
       const alvo = pontoDoAndar(cena, ida.andar);
       if (ida.fase === "indo") Object.assign(pos, mover(base, alvo, ida.progresso));
@@ -249,7 +261,8 @@ export function avancarPalco(p, { modelo, feed, agora, visivel = true, reduzido 
     } else if (fila) {
       Object.assign(pos, { ...pontoDaFila(cena, fila.lugar), espelho: false });
       pose = fila.pose;
-    } else if (leitura) {
+    } else if (leitura && cer.modo !== "esperando") {
+      // quem espera sua resposta não larga o "?" pra ler o pergaminho
       pose = leitura.pose;
     } else if (ci && cer.modo !== "esperando") {
       pose = ci.pose;
@@ -266,6 +279,16 @@ export function avancarPalco(p, { modelo, feed, agora, visivel = true, reduzido 
     if (apagado && !viagem && !ida && !ANDANDO.has(pose) && pose !== "") {
       pose = mana.apagao.pose.get(chave) ?? pose;
       icone = "";
+      // quem pegou a tocha ronda os andares (mesa → Biblioteca → Ateliê → mesa) enquanto dura a festa
+      if (pose === "procurando-com-tocha" && !reduzido) {
+        const t = agora - p.mana.apagao.desde - APAGANDO_MS;
+        if (t > 0) {
+          const pontos = [base, pontoDoAndar(cena, "biblioteca"), pontoDoAndar(cena, "atelie"), base];
+          const perna = Math.floor(t / RONDA_TOCHA_MS) % (pontos.length - 1);
+          const r = mover(pontos[perna], pontos[perna + 1], (t % RONDA_TOCHA_MS) / RONDA_TOCHA_MS);
+          Object.assign(pos, { x: r.x, y: r.y, espelho: r.espelho });
+        }
+      }
     }
     if (ci?.tipo === "cumprimento" && !viagem && !ida && !laz) pose = "acenando";
 
@@ -336,7 +359,7 @@ export function avancarPalco(p, { modelo, feed, agora, visivel = true, reduzido 
     const b = cena.biblioteca.bibliotecario;
     atores.push({ tipo: "bibliotecario", chave: "biblio", x: b.x, y: b.y, quadro: quadro("biblio", "escrevendo-estante") });
   }
-  const pintorVisitado = [...idas.values()].some((x) => x.andar === "atelie" && x.fase !== "indo");
+  const pintorVisitado = !reduzido && [...idas.values()].some((x) => x.andar === "atelie" && x.fase !== "indo");
   if (torre.pintor && !pintorVisitado) {
     const pt = cena.atelie.pintor;
     atores.push({ tipo: "pintor", chave: "pintor", x: pt.x, y: pt.y, quadro: quadro("pintor", "pintando") });
@@ -378,11 +401,13 @@ export function avancarPalco(p, { modelo, feed, agora, visivel = true, reduzido 
       if (mesaDest) {
         const topo = { x: pe.x, y: mesaDest.y };
         const frente = { x: Math.max(pe.x, mesaDest.x - 12), y: mesaDest.y };
-        if (entrega.fase === "subindo") pos = { ...mover(pe, topo, entrega.progresso) };
+        // movimento reduzido: aparece direto na frente da mesa, entregando
+        if (reduzido) pos = { ...frente, espelho: false };
+        else if (entrega.fase === "subindo") pos = { ...mover(pe, topo, entrega.progresso) };
         else if (entrega.fase === "andando") pos = { ...mover(topo, frente, entrega.progresso) };
         else if (entrega.fase === "entregando") pos = { ...frente, espelho: false };
         else pos = { ...mover(frente, topo, entrega.progresso), espelho: true };
-        pose = entrega.fase === "saindo" ? "andando" : entrega.fase === "subindo" ? "subindo-com-pergaminho" : entrega.fase === "andando" ? "andando-com-pergaminho" : "entregando";
+        pose = reduzido ? "entregando" : entrega.fase === "saindo" ? "andando" : entrega.fase === "subindo" ? "subindo-com-pergaminho" : entrega.fase === "andando" ? "andando-com-pergaminho" : "entregando";
         carga = entrega.carga;
         icone = entrega.ok ? "" : "alerta";
       }

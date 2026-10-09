@@ -90,6 +90,8 @@ export function feedVazio() {
     muralEm: new Map(),
     /** Projeto que não deu pra ler (andar "sem leitura"): chave → Set de andares. */
     semLeitura: new Map(),
+    /** Módulo Quadro de tarefas ligado (`config.modulos.quadroTarefas`): sem ele, o mural fica vazio. */
+    quadroLigado: true,
     /** Quando chegou o 1º retrato (0 = ainda não: nada aqui gera reação). */
     retratoEm: 0,
   };
@@ -181,7 +183,8 @@ export function aplicarEventoAgente(feed, ev, agora) {
           threadId,
           // time delegado: o nome do time; subagente: o tipo
           tipo: String(input.subagent_type || input.teamId || input.agentId || "general-purpose"),
-          descricao: String(input.description || input.goal || "").replace(/\s+/g, " ").trim(),
+          // `nexo_delegar` manda o objetivo em `pedido`
+          descricao: String(input.description || input.pedido || input.goal || "").replace(/\s+/g, " ").trim(),
           abertaEm: agora,
           background: input.run_in_background === true,
         });

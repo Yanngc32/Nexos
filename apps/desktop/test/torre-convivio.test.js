@@ -90,7 +90,7 @@ describe("convívio", () => {
     const c = convivioNovo();
     const magos = [mago("q", "esperando"), mago("b", "ocioso"), mago("c", "trabalhando")];
     const m = mesas("q", "b", "c");
-    const out = avancarConvivio(c, { magos, mesas: m, agora: T0, sorteio: fixo(0.9) });
+    const out = avancarConvivio(c, { magos, mesas: m, eventos: [{ tipo: "pergunta", chave: "q" }], agora: T0, sorteio: fixo(0.9) });
     expect(out.get("b")).toMatchObject({ tipo: "apontando", alvo: "q", espelho: true });
     expect(out.get("c")).toMatchObject({ tipo: "olhando", alvo: "q", espelho: true });
     expect(avancarConvivio(c, { magos, mesas: m, agora: T0 + APONTA_MS + 10, sorteio: fixo(0.9) }).size).toBe(0);
@@ -98,6 +98,14 @@ describe("convívio", () => {
     // respondeu: ninguém aponta mais
     const resp = [mago("q", "trabalhando"), mago("b", "ocioso"), mago("c", "trabalhando")];
     expect(avancarConvivio(c, { magos: resp, mesas: m, agora: T0 + 2 * APONTA_REPETE_MS + 5, sorteio: fixo(0.9) }).size).toBe(0);
+  });
+
+  it("quem já esperava quando a aba abriu: ninguém aponta no primeiro tique, só depois de 15 s", () => {
+    const c = convivioNovo();
+    const magos = [mago("q", "esperando"), mago("b", "ocioso")];
+    const m = mesas("q", "b");
+    expect(avancarConvivio(c, { magos, mesas: m, agora: T0, sorteio: fixo(0.9) }).has("b")).toBe(false);
+    expect(avancarConvivio(c, { magos, mesas: m, agora: T0 + APONTA_REPETE_MS + 1, sorteio: fixo(0.9) }).get("b")?.tipo).toBe("apontando");
   });
 
   it("quem chega acena e os livres acenam de volta; ocupado não", () => {

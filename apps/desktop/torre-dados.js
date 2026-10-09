@@ -59,16 +59,18 @@ export function criarTorreDados({
 
   async function retrato() {
     const minha = gen;
-    const [agentes, contas, defs] = await Promise.all([
+    const [agentes, contas, defs, times] = await Promise.all([
       req("/v1/agents"),
       req("/v1/accounts/limits").catch(() => feed.contas),
       feed.defs.size ? Promise.resolve(null) : req("/v1/agents/defs").catch(() => null),
+      feed.defs.size ? Promise.resolve(null) : req("/v1/teams").catch(() => null),
     ]);
     if (minha !== gen) return false;
     const agora = relogio();
     aplicarRetrato(feed, agentes, agora);
     if (Array.isArray(contas)) feed.contas = contas;
-    if (Array.isArray(defs)) feed.defs = new Map(defs.map((d) => [d.id, { name: d.name, color: d.color }]));
+    // times entram no mesmo mapa: o explorador de `nexo_delegar` leva o nome do time no rótulo
+    if (Array.isArray(defs)) feed.defs = new Map([...(Array.isArray(times) ? times.map((t) => [t.id, { name: t.name, color: "" }]) : []), ...defs.map((d) => [d.id, { name: d.name, color: d.color }])]);
     for (const path of observados.keys()) feed.aprendizados.set(chaveDoProjeto(path), aprendizadosDe(path) || 0);
     limparFeed(feed, agora);
     ouvintes.retrato();
@@ -129,7 +131,7 @@ export function criarTorreDados({
     observados.set(path, true);
     const chave = chaveDoProjeto(path);
     feed.aprendizados.set(chave, aprendizadosDe(path) || 0);
-    abrirStream(`quadro:${chave}`, `/v1/tarefas/events?${qs(path)}`, (ev) => {
+    if (feed.quadroLigado) abrirStream(`quadro:${chave}`, `/v1/tarefas/events?${qs(path)}`, (ev) => {
       if (!ev?.tarefaId && ev?.tipo !== "colunas") return;
       const agora = relogio();
       feed.muralEm.set(chave, agora);
@@ -168,6 +170,8 @@ export function criarTorreDados({
 
   /** Quadro do projeto (mural): colunas + tarefas. */
   async function quadro(path) {
+    // módulo Quadro de tarefas desligado: mural vazio, sem consulta
+    if (!feed.quadroLigado) return;
     const minha = gen;
     try {
       const [q, tarefas] = await Promise.all([req(`/v1/tarefas/quadro?${qs(path)}`), req(`/v1/tarefas?${qs(path)}`)]);
@@ -205,6 +209,10 @@ export function criarTorreDados({
       pausado = false;
       resetar();
       let ok = true;
+      const minha = gen;
+      const cfg = await req("/v1/config").catch(() => null);
+      if (minha !== gen) return false;
+      feed.quadroLigado = cfg?.modulos?.quadroTarefas !== false;
       try {
         await retrato();
       } catch (e) {

@@ -241,6 +241,7 @@ export function torreModelo(feed, agora, opts = {}) {
       pedidoEm: feed.pedidoEm.get(a.threadId) ?? 0,
       fimEm: fim,
       travado: estado === "trabalhando" && sinal > 0 && agora - sinal > STALL_MS,
+      sinalEm: sinal,
       comemorando: estado === "terminou" && agora - (feed.terminouEm.get(a.threadId) ?? -Infinity) < DONE_MS,
       profileId: a.profileId ?? "",
     });

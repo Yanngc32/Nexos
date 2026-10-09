@@ -4,10 +4,12 @@ import { criarTorreDados } from "../torre-dados.js";
 const PROJ = "C:/proj/nexos";
 const agente = (id, extra = {}) => ({ threadId: id, projectPath: PROJ, busy: false, aguardando: false, emEspera: 0, pendingQuota: false, passos: [], ...extra });
 
-function montar({ agentes = [agente("a", { busy: true })], falhaRetrato = false } = {}) {
+function montar({ agentes = [agente("a", { busy: true })], falhaRetrato = false, quadroTarefas = true } = {}) {
   const chamadas = [];
   const req = vi.fn(async (rota) => {
     chamadas.push(rota);
+    if (rota === "/v1/config") return { modulos: { quadroTarefas } };
+    if (rota === "/v1/teams") return [{ id: "revisao", name: "Time de revisão" }];
     if (rota === "/v1/agents") {
       if (falhaRetrato) throw new Error("motor fora");
       return agentes;
@@ -54,6 +56,22 @@ describe("torre-dados", () => {
     expect(d.feed.defs.get("explore")).toEqual({ name: "Explorador", color: "#5fae74" });
     expect([...abertos.keys()]).toEqual(["/v1/runs/events"]);
     expect(timers.filter((t) => t.ativo)).toHaveLength(1);
+  });
+
+  it("times entram no mapa de nomes: o explorador de nexo_delegar leva o nome do time", async () => {
+    const { d } = montar();
+    await d.ligar();
+    expect(d.feed.defs.get("revisao")).toEqual({ name: "Time de revisão", color: "" });
+  });
+
+  it("módulo Quadro de tarefas desligado: não consulta o Quadro nem abre o stream dele", async () => {
+    const { d, chamadas, abertos } = montar({ quadroTarefas: false });
+    await d.ligar();
+    expect(d.feed.quadroLigado).toBe(false);
+    d.observar([PROJ], PROJ);
+    await noite();
+    expect(chamadas.some((r) => r.startsWith("/v1/tarefas"))).toBe(false);
+    expect([...abertos.keys()].some((u) => u.startsWith("/v1/tarefas/events"))).toBe(false);
   });
 
   it("motor fora: ligar devolve false e o feed fica vazio (a aba mostra o estado)", async () => {
