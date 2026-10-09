@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import {
   AGENTS_MAX,
   AGENT_DESC_MAX,
+  AGENT_PROJETOS_MAX,
   AGENT_ID_RE,
   AGENT_INSTRUCTIONS_MAX,
   AGENT_NAME_MAX,
@@ -9,6 +10,7 @@ import {
   ESFORCO_AUTO,
   MODEL_RE,
   PERMISSION_MODES,
+  SUBAGENTES_MAX,
   type AgentDef,
   type EffortLevel,
   type EsforcoEscolhido,
@@ -29,6 +31,8 @@ export type AgentInput = {
   permissionMode?: string | null;
   instructions?: string | null;
   color?: string | null;
+  subagente?: boolean | null;
+  projetos?: string[] | null;
 };
 
 function nowIso(): string {
@@ -114,6 +118,28 @@ function limparModo(v: string): PermissionMode {
   return v as PermissionMode;
 }
 
+function limparProjetos(v: unknown): string[] {
+  if (v === null) return [];
+  if (!Array.isArray(v)) throw badRequest("projetos inválidos");
+  const vistos = new Set<string>();
+  const out: string[] = [];
+  for (const item of v) {
+    if (typeof item !== "string") throw badRequest("projetos inválidos");
+    const p = item.trim();
+    if (!p || p.length > 500) throw badRequest(`projeto inválido: ${p.slice(0, 60)}`);
+    if (vistos.has(chaveDePasta(p))) continue;
+    vistos.add(chaveDePasta(p));
+    out.push(p);
+  }
+  if (out.length > AGENT_PROJETOS_MAX) throw badRequest(`no máximo ${AGENT_PROJETOS_MAX} projetos`);
+  return out;
+}
+
+/** Mesma pasta escrita de jeitos diferentes (barra, caixa, barra no fim) é a mesma pasta. */
+function chaveDePasta(p: string): string {
+  return p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
 function limparCor(v: string): string {
   if (!/^#[0-9a-fA-F]{6}$/.test(v)) throw badRequest(`cor inválida: ${v}`);
   return v.toLowerCase();
@@ -163,6 +189,18 @@ export function saveAgent(input: AgentInput, home: string): AgentDef {
   if (permissionMode) def.permissionMode = permissionMode;
   const color = campo(input.color, atual?.color, limparCor);
   if (color) def.color = color;
+  const projetos = input.projetos === undefined ? atual?.projetos : limparProjetos(input.projetos);
+  if (projetos?.length) def.projetos = projetos;
+  const subagente = input.subagente === undefined ? atual?.subagente : input.subagente === true;
+  if (subagente) {
+    // sem descrição o modelo não tem como saber quando chamar: expor seria só ruído no `Agent`
+    if (!def.description) throw badRequest("pra usar como subagente, escreva a descrição: quando chamar este agente");
+    const ligados = list.filter((a) => a.id !== id && a.subagente).length;
+    if (ligados >= SUBAGENTES_MAX) {
+      throw badRequest(`já há ${SUBAGENTES_MAX} agentes usados como subagente: desligue um antes de ligar outro`);
+    }
+    def.subagente = true;
+  }
 
   const next = atual ? list.map((a) => (a.id === id ? def : a)) : [...list, def];
   writeAll(next, home);
@@ -180,4 +218,33 @@ export function removeAgent(id: string, home: string): void {
     list.filter((a) => a.id !== id),
     home,
   );
+}
+
+/**
+ * Agentes que o `claude` desta conversa recebe como subagente nativo (`--agents`): marcados,
+ * com descrição, no escopo do projeto e nunca o próprio agente da conversa (ele chamaria a si mesmo).
+ */
+export function subagentesDaConversa(home: string, projectPath: string | undefined, agentIdDaConversa?: string): AgentDef[] {
+  const projeto = projectPath ? chaveDePasta(projectPath) : "";
+  return listAgents(home)
+    .filter((a) => a.subagente && a.description && a.id !== agentIdDaConversa)
+    .filter((a) => !a.projetos?.length || (projeto !== "" && a.projetos.some((p) => chaveDePasta(p) === projeto)))
+    .slice(0, SUBAGENTES_MAX);
+}
+
+/** Modelo que o `claude` aceita no subagente: alias ou id do Claude. Outro (gpt, "auto") = herda o da conversa. */
+const MODELO_DE_SUBAGENTE_RE = /^(opus|sonnet|haiku|fable|claude-[a-z0-9.-]+)$/;
+
+/** O JSON do `--agents`: `{ id: { description, prompt, model? } }`. */
+export function definicoesDeSubagentes(defs: AgentDef[]): Record<string, { description: string; prompt: string; model?: string }> {
+  const out: Record<string, { description: string; prompt: string; model?: string }> = {};
+  for (const a of defs) {
+    const description = a.description ?? "";
+    out[a.id] = {
+      description,
+      prompt: a.instructions || `Você é ${a.name}. ${description}`,
+      ...(a.model && MODELO_DE_SUBAGENTE_RE.test(a.model) ? { model: a.model } : {}),
+    };
+  }
+  return out;
 }

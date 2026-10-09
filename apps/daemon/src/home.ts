@@ -103,6 +103,11 @@ export function instrucoesPath(id: string, root = nexoHome()): string {
   return join(root, "threads", `${assertSlug(id)}.instrucoes.md`);
 }
 
+/** JSON do `--agents` da conversa (subagentes do Nexos), refeito a cada envio — ver engines/cli.ts. */
+export function subagentesPath(id: string, root = nexoHome()): string {
+  return join(root, "threads", `${assertSlug(id)}.subagentes.json`);
+}
+
 /**
  * `git worktree` isolada de uma conversa com branch fixa — ver
  * `thread_meta.worktreeDir` e worktree.ts. Uma por thread, não por projeto:

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { log } from "./log.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -25,6 +26,50 @@ import { commitsRelacionados } from "./tarefas-git.ts";
  * Migra sozinho, uma vez, do `tarefas.json` antigo (arquivo único, todos os projetos) na primeira
  * vez que o quadro de um projeto é lido — ver `migrarLegado`.
  */
+
+/* ---------------- eventos ao vivo (SSE do Quadro) ---------------- */
+
+/**
+ * Uma mudança no Quadro, pro SSE `/v1/tarefas/events` (a torre anima o mural com isso). `de`/`para`
+ * são colunas: sem o "de", ninguém sabe de qual coluna a tarefa saiu. `via` diz quem mexeu quando o
+ * motor sabe — `agente` = ferramenta `nexo_tarefa_*`, `plano` = andamento de etapa; sem `via` = a
+ * pessoa, pela tela.
+ */
+export type EventoQuadro = {
+  projectPath: string;
+  tarefaId: string;
+  tipo: "criou" | "moveu" | "editou" | "apagou" | "checklist" | "comentou" | "colunas";
+  de?: string;
+  para?: string;
+  titulo?: string;
+  via?: "agente" | "plano";
+  em: string;
+};
+
+export const tarefasBus = new EventEmitter();
+tarefasBus.setMaxListeners(0);
+
+export function canalTarefas(projectPath: string): string {
+  return `quadro:${projectKey(projectPath)}`;
+}
+
+// As gravações são síncronas: marcar o autor em volta da chamada não vaza pra outra.
+let autorAtual: EventoQuadro["via"];
+
+/** Roda `f` marcando quem está mexendo (os eventos emitidos dentro saem com esse `via`). */
+export function comoAutor<T>(via: EventoQuadro["via"], f: () => T): T {
+  const antes = autorAtual;
+  autorAtual = via;
+  try {
+    return f();
+  } finally {
+    autorAtual = antes;
+  }
+}
+
+function avisar(ev: Omit<EventoQuadro, "em" | "via">): void {
+  tarefasBus.emit(canalTarefas(ev.projectPath), { ...ev, ...(autorAtual ? { via: autorAtual } : {}), em: new Date().toISOString() });
+}
 
 export type Coluna = { id: string; nome: string; ordem: number };
 export type Marco = { id: string; nome: string; inicio?: string; prazo?: string };
@@ -355,12 +400,14 @@ export function salvarColuna(projectPath: string, input: ColunaInput, home: stri
     const ordem = typeof input.ordem === "number" ? input.ordem : atual.ordem;
     const editada: Coluna = { ...atual, nome, ordem };
     escreverQuadro({ ...quadro, colunas: quadro.colunas.map((c) => (c.id === editada.id ? editada : c)) }, home);
+    avisar({ projectPath, tarefaId: "", tipo: "colunas" });
     return editada;
   }
   if (quadro.colunas.length >= COLUNAS_MAX) throw badRequest(`limite de ${COLUNAS_MAX} colunas por projeto`);
   const nome = limparNome(input.nome, "nome da coluna", NOME_COLUNA_MAX);
   const coluna: Coluna = { id: newColunaId(), nome, ordem: quadro.colunas.length };
   escreverQuadro({ ...quadro, colunas: [...quadro.colunas, coluna] }, home);
+  avisar({ projectPath, tarefaId: "", tipo: "colunas" });
   return coluna;
 }
 
@@ -371,6 +418,7 @@ export function apagarColuna(projectPath: string, id: string, home: string): voi
   const emUso = listarTarefas(projectPath, home).filter((t) => t.colunaId === id).length;
   if (emUso > 0) throw badRequest(`${emUso} tarefa(s) nessa coluna — mova antes de apagar`);
   escreverQuadro({ ...quadro, colunas: quadro.colunas.filter((c) => c.id !== id) }, home);
+  avisar({ projectPath, tarefaId: "", tipo: "colunas" });
 }
 
 export type MarcoInput = { id?: string; nome?: string; inicio?: string | null; prazo?: string | null };
@@ -706,6 +754,8 @@ export function salvarTarefa(input: TarefaInput, home: string, criadoPor?: "agen
     updatedAt: ts,
   };
   escreverTarefa(def, quadro, home);
+  const mudanca = !atual ? "criou" : atual.colunaId !== colunaId ? "moveu" : "editou";
+  avisar({ projectPath, tarefaId: def.id, tipo: mudanca, ...(atual ? { de: atual.colunaId } : {}), para: colunaId, titulo });
   if (atual && atual.colunaId !== colunaId) dispararAutomacaoDeColuna(def, quadro, home);
   return def;
 }
@@ -713,8 +763,10 @@ export function salvarTarefa(input: TarefaInput, home: string, criadoPor?: "agen
 export function apagarTarefa(projectPath: string, home: string, id: string): void {
   const path = itemPath(projectPath, home, id);
   if (!existsSync(path)) throw notFound(`tarefa não existe: ${id}`);
+  const antes = lerTarefaDoDisco(projectPath, home, id);
   rmSync(path);
   cacheTarefa.delete(path);
+  avisar({ projectPath, tarefaId: id, tipo: "apagou", ...(antes ? { de: antes.colunaId, titulo: antes.titulo } : {}) });
 }
 
 function exigirTarefa(projectPath: string, home: string, id: string): Tarefa {
@@ -729,6 +781,7 @@ export function adicionarChecklistItem(projectPath: string, home: string, tarefa
   const item: ChecklistItem = { id: newChecklistItemId(), texto: limparNome(texto, "item do checklist", TEXTO_ITEM_MAX), feito: false };
   const quadro = getQuadro(projectPath, home);
   escreverTarefa({ ...t, checklist: [...t.checklist, item], updatedAt: agora() }, quadro, home);
+  avisar({ projectPath, tarefaId, tipo: "checklist", de: t.colunaId, para: t.colunaId, titulo: t.titulo });
   return item;
 }
 
@@ -741,6 +794,7 @@ export function alternarChecklistItem(projectPath: string, home: string, tarefaI
     quadro,
     home,
   );
+  avisar({ projectPath, tarefaId, tipo: "checklist", de: t.colunaId, para: t.colunaId, titulo: t.titulo });
 }
 
 export function apagarChecklistItem(projectPath: string, home: string, tarefaId: string, itemId: string): void {
@@ -748,6 +802,7 @@ export function apagarChecklistItem(projectPath: string, home: string, tarefaId:
   if (!t.checklist.some((i) => i.id === itemId)) throw notFound(`item não existe: ${itemId}`);
   const quadro = getQuadro(projectPath, home);
   escreverTarefa({ ...t, checklist: t.checklist.filter((i) => i.id !== itemId), updatedAt: agora() }, quadro, home);
+  avisar({ projectPath, tarefaId, tipo: "checklist", de: t.colunaId, para: t.colunaId, titulo: t.titulo });
 }
 
 /** Comentários são só de adicionar — activity log, não tem editar/apagar. */
@@ -762,6 +817,7 @@ export function adicionarComentario(projectPath: string, home: string, tarefaId:
   };
   const quadro = getQuadro(projectPath, home);
   escreverTarefa({ ...t, comentarios: [...t.comentarios, comentario], updatedAt: agora() }, quadro, home);
+  avisar({ projectPath, tarefaId, tipo: "comentou", de: t.colunaId, para: t.colunaId, titulo: t.titulo });
   return comentario;
 }
 
@@ -879,7 +935,7 @@ export function ferramentasDeTarefas(projectPath: string, home: string): Conjunt
         },
         executar: (args) =>
           tentar(() => {
-            const t = salvarTarefa({ ...(args as TarefaInput), projectPath }, home, "agente");
+            const t = comoAutor("agente", () => salvarTarefa({ ...(args as TarefaInput), projectPath }, home, "agente"));
             return `tarefa ${t.id} salva — [${quadro.colunas.find((c) => c.id === t.colunaId)?.nome ?? t.colunaId}] ${t.titulo}`;
           }),
       },
@@ -905,12 +961,12 @@ export function ferramentasDeTarefas(projectPath: string, home: string): Conjunt
             if (!a.tarefaId) throw badRequest("tarefaId obrigatório");
             if (a.acao === "adicionar") {
               if (!a.texto) throw badRequest("texto obrigatório pra adicionar");
-              const item = adicionarChecklistItem(projectPath, home, a.tarefaId, a.texto);
+              const item = comoAutor("agente", () => adicionarChecklistItem(projectPath, home, a.tarefaId!, a.texto!));
               return `item ${item.id} adicionado ao checklist`;
             }
             if (a.acao === "marcar" || a.acao === "desmarcar") {
               if (!a.itemId) throw badRequest("itemId obrigatório pra marcar/desmarcar");
-              alternarChecklistItem(projectPath, home, a.tarefaId, a.itemId, a.acao === "marcar");
+              comoAutor("agente", () => alternarChecklistItem(projectPath, home, a.tarefaId!, a.itemId!, a.acao === "marcar"));
               return `item ${a.itemId} ${a.acao === "marcar" ? "marcado" : "desmarcado"}`;
             }
             throw badRequest(`ação inválida: ${String(a.acao)}`);
@@ -929,7 +985,7 @@ export function ferramentasDeTarefas(projectPath: string, home: string): Conjunt
           tentar(() => {
             const a = args as { tarefaId?: string; texto?: string };
             if (!a.tarefaId || !a.texto) throw badRequest("tarefaId e texto obrigatórios");
-            const c = adicionarComentario(projectPath, home, a.tarefaId, a.texto);
+            const c = comoAutor("agente", () => adicionarComentario(projectPath, home, a.tarefaId!, a.texto!));
             return `comentário ${c.id} adicionado`;
           }),
       },

@@ -422,8 +422,8 @@
                 <section class="ag-sec" id="ag-tpl-sec">
                   <h2>Modelo de criação</h2>
                   <p class="ag-hint">
-                    Formatos inspirados no ADK do Google. O Nexos não orquestra sub-agentes — cada
-                    modelo dá a forma de trabalho pela instrução. Cada um explica onde difere.
+                    Formatos inspirados no ADK do Google: cada modelo dá a forma de trabalho pela
+                    instrução. Cada um explica onde difere.
                   </p>
                   <div class="ag-tpls" id="ag-tpls"></div>
                   <p class="ag-tpl-nota" id="ag-tpl-nota"></p>
@@ -441,6 +441,24 @@
                   </div>
                   <label class="ag-f"><span>Descrição</span>
                     <input id="ag-desc" type="text" maxlength="200" placeholder="Para que serve este agente" /></label>
+                </section>
+
+                <section class="ag-sec" id="ag-sub-sec">
+                  <h2>Nas conversas <span id="ag-sub-vaga" class="mod-meta" data-on="0"></span></h2>
+                  <label class="ag-check">
+                    <input id="ag-sub" type="checkbox" />
+                    <span>Usar como subagente nas conversas</span>
+                  </label>
+                  <p class="ag-hint">
+                    O agente da conversa chama este pela ferramenta Agent, como faz com o Explore, quando a
+                    descrição combinar com a tarefa. Roda na conta da conversa.
+                  </p>
+                  <p class="ag-gaps hidden" id="ag-sub-aviso"></p>
+                  <div class="ag-sub-proj hidden" id="ag-sub-proj-wrap">
+                    <p class="ag-hint">Só nestes projetos (nenhum marcado = em todos):</p>
+                    <div class="ag-sub-proj-lista" id="ag-sub-proj" role="group" aria-label="Projetos onde o subagente aparece"></div>
+                  </div>
+                  <p class="ag-hint" id="ag-sub-uso"></p>
                 </section>
 
                 <section class="ag-sec">
@@ -893,6 +911,20 @@
         </div>
       </section>
 
+      <section class="pane" id="pane-torre" aria-label="Torre de magia">
+        <div class="tr-barra" id="tr-barra">
+          <button type="button" id="btn-tr-voltar" class="tr-btn hidden" title="Todas as torres (Esc)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>Todas as torres
+          </button>
+          <span id="tr-nome" class="tr-nome">Torres</span>
+          <span id="tr-resumo" class="tr-resumo"></span>
+          <span class="tr-flex"></span>
+          <button type="button" id="btn-tr-centro" class="tr-ico hidden" title="Centralizar no Salão" aria-label="Centralizar no Salão">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M12 3v4M12 17v4M3 12h4M17 12h4" /></svg>
+          </button>
+        </div>
+        <div class="tr-corpo" id="tr-corpo"></div>
+      </section>
       <section class="pane" id="pane-planejamento">
         <header class="mod-head pl-head" role="toolbar" aria-label="Plano">
           <button type="button" id="btn-pl-voltar" class="ghost pl-voltar" title="Volta pra conversa que estava aberta">← Voltar</button>
@@ -1221,7 +1253,7 @@
               <div id="attach-strip" class="attach-strip hidden" aria-live="polite"></div>
               <textarea
                 id="input"
-                rows="3"
+                rows="1"
                 placeholder="Pergunta, pede mudança, ou descreve o que fazer…"
                 disabled
               ></textarea>
@@ -1285,13 +1317,15 @@
                 >
                   ⋯
                 </button>
+                <!-- Parar com nome, na barra — nunca no lugar do Enviar (parar sem querer custava o turno) -->
+                <button type="button" id="btn-abort" class="ghost btn-parar hidden" title="Parar o agente (ou Esc duas vezes)" aria-label="Parar o agente">
+                  <svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
+                  <span>Parar</span>
+                </button>
               </div>
               <div id="bar-more-panel" class="bar-more-panel hidden"></div>
-              <button type="button" id="btn-abort" class="send-fab ghost hidden" title="Parar" aria-label="Parar">
-                <svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
-                  <rect x="6" y="6" width="12" height="12" rx="2" />
-                </svg>
-              </button>
               <button type="submit" class="send-fab primary" id="btn-send" disabled title="Enviar" aria-label="Enviar">
                 <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                   <path d="M12 19V5" />

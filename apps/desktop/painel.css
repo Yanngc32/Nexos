@@ -382,6 +382,7 @@ body[data-modo="aberto"] .aberto {
 
 .visao {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   animation: surgir 220ms var(--entra);
 }
@@ -624,6 +625,13 @@ body[data-modo="aberto"] .aberto {
 .selo[data-estado="terminou"] {
   color: var(--fim);
 }
+.selo[data-estado="parou"],
+.ponto[data-estado="parou"] {
+  color: var(--muted);
+}
+.ponto[data-estado="parou"] {
+  background: var(--muted);
+}
 .selo svg {
   width: 13px;
   height: 13px;
@@ -707,4 +715,89 @@ body[data-modo="aberto"] .aberto {
     transition-duration: 1ms !important;
     transition-delay: 0ms !important;
   }
+}
+
+/* ---------- torres (pixel em canvas) ---------- */
+
+.c-torres {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 28px;
+  cursor: pointer;
+}
+.c-torres canvas {
+  display: block;
+  width: 15px;
+  height: 26px;
+  image-rendering: pixelated;
+}
+.c-torres[data-apagada="1"] canvas {
+  opacity: 0.45;
+}
+.c-torres canvas.q {
+  position: absolute;
+  left: 8px;
+  top: -3px;
+  width: 9px;
+  height: 11px;
+  opacity: 1;
+}
+.c-torres b {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.cartao.faixa {
+  flex: 1 0 100%;
+  align-items: flex-end;
+  gap: 24px;
+  min-height: 0;
+  height: 100px;
+  padding: 0 12px 8px;
+}
+.ft {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.ft canvas {
+  display: block;
+  width: 30px;
+  height: 52px;
+  image-rendering: pixelated;
+}
+.ft .q {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  margin-left: -2px;
+  line-height: 0;
+  cursor: pointer;
+}
+.ft .q canvas {
+  width: 18px;
+  height: 22px;
+}
+.ft span:not(.q) {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.ft:hover span:not(.q) {
+  color: var(--text);
+}
+.ft:focus-visible,
+.c-torres:focus-visible {
+  outline: 2px solid var(--accent-texto);
+  outline-offset: 2px;
 }

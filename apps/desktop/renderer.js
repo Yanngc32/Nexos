@@ -1,4 +1,5 @@
 import { createApiClient } from "./api.js";
+import { PET_FRAMES, PET_FRAME_MS, PET_IDLE_SPICE, PET_NEXT, PET_WORK_SPICE } from "./sprites.js";
 import { textoSyncEmAndamento } from "./drive-status.js";
 import { createFileTree } from "./file-tree.js";
 import { createServicesPanel } from "./services.js";
@@ -72,6 +73,10 @@ import { criarInspectorHost } from "./inspector-host.js";
 import { FASE } from "./inspector-estado.js";
 import { editarNome } from "./editar-nome.js";
 import { criarNavegadorHost } from "./navegador-host.js";
+import { criarCliqueSeguro } from "./clique-seguro.js";
+import { criarFetchSse } from "./sse-ponte.js";
+import { criarTorreDados } from "./torre-dados.js";
+import { createTorreView } from "./torre-view.js";
 import { LIMITE_DO_CHAT, inicioDaJanela, mensagensAntesDe } from "./janela-do-chat.js";
 import { criarAreaDeChats, criarEstadoDoChat, elementoDoChat, ligarEstadoDoChat, ouvirConversa } from "./chat-instancia.js";
 import {
@@ -88,6 +93,13 @@ import {
   retratoDoPlano,
   rotuloDoChip,
 } from "./area-de-chats.js";
+
+/** Redesenho com o mouse apertado espera o clique terminar (ver clique-seguro.js). */
+const adiarSeApertado = criarCliqueSeguro(document);
+
+/** Streams SSE pelo processo principal: no renderer eles esgotavam as 6 conexões por host. */
+const fetchSse = criarFetchSse();
+
 
 /** Chat que o código em curso desenha; ligado quando a área de chats nasce (mais abaixo). */
 let chatAtual = () => null;
@@ -107,6 +119,7 @@ const MODULES = [
   { id: "tarefas", name: "Tarefas", keys: "", ico: "🗂" },
   { id: "ds", name: "Design System", keys: "", ico: "◧" },
   { id: "planejamento", name: "Planejamento", keys: "", ico: "🧭" },
+  { id: "torre", name: "Torre", keys: "", ico: "♜" },
   { id: "side-chat", name: "Chat lateral", keys: "Ctrl+Shift+S", ico: "💬" },
 ];
 
@@ -121,6 +134,7 @@ const ICO_PATHS = {
   graph: '<circle cx="6" cy="12" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="18" cy="17" r="2"/><path d="M8 12h8M16.2 8.5 8.8 11.2M8.8 12.8l7.4 2.7"/>',
   agentes: '<rect x="5" y="9" width="14" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v2M9 14h.01M15 14h.01"/>',
   tarefas: '<rect x="4" y="5" width="6" height="14" rx="1"/><rect x="14" y="5" width="6" height="14" rx="1"/>',
+  torre: '<path d="M7 21V9L6 4h3v2h2V4h2v2h2V4h3l-1 5v12"/><path d="M4 21h16"/><path d="M10 21v-4a2 2 0 0 1 4 0v4"/>',
   "side-chat": '<path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-4 3v-3H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/>',
 };
 
@@ -192,6 +206,8 @@ const state = {
    */
   ultimaAvaliacaoRoteamento: null,
   talking: false,
+  /** Quando o 1º Esc foi apertado com o turno em voo: o 2º dentro de `ESC_PARAR_MS` para o agente. */
+  escParar: 0,
   think: { on: false, timer: null, start: 0, frame: 0, verb: 0, tokens: 0 },
   login: { id: "", profileId: "", url: "", poll: 0 },
   githubLogin: { id: "", poll: 0 },
@@ -1129,7 +1145,8 @@ function thinkTick() {
   const secs = Math.max(0, Math.round((Date.now() - t.start) / 1000));
   const parts = [`${secs}s`];
   if (t.tokens > 0) parts.push(`${t.tokens} tokens de pensamento`);
-  parts.push("esc pra parar");
+  // esforço alto pensa minutos calado; parar joga o raciocínio fora e a próxima mensagem recomeça do zero
+  parts.push(secs >= 60 ? "segue trabalhando — parar perde o que já pensou" : "esc pra parar");
   $("think-meta").textContent = `· ${parts.join(" · ")}`;
 }
 
@@ -1172,44 +1189,8 @@ function stopThink() {
  * Quadros idle/think/done/wait: pets/nexo/mago-fonte/gerar.py. work/off: mago-preview/bake.py.
  */
 const PET_BASE = "./pets/nexo/mago/";
+// tabelas de quadros: sprites.js (mesmo módulo do maguinho da ilha e dos personagens da torre)
 const PET_REST = "idle";
-const PET_BLINK = ["idle-blink-half", "idle-blink", "idle-blink-half"];
-const PET_IDLE_SPICE = [
-  [PET_REST, "idle-breath", PET_REST, ...PET_BLINK, PET_REST],
-  [
-    PET_REST, "idle-look-l", "idle-look-l", PET_REST, "idle-look-r", "idle-look-r",
-    PET_REST, ...PET_BLINK, PET_REST,
-  ],
-  [
-    PET_REST, "idle-in1", "idle-in2", "idle-hide", "idle-hide",
-    "idle-in2", "idle-in1", PET_REST, ...PET_BLINK, PET_REST,
-  ],
-];
-const PET_WORK_SPICE = [
-  [
-    "work", "work-tap-a", "work-on", "work-tap-b", "work-dim",
-    "work-tap-a-on", "work", "work-tap-b", "work-logo", "work-tap-a",
-    "work-blink", "work-tap-b-on", "work",
-  ],
-  [
-    "work", "work-tap-b", "work-on", "work-tap-a", "work-dim",
-    "work-tap-b-on", "work-logo", "work-tap-a", "work-blink", "work",
-  ],
-];
-const PET_FRAMES = {
-  off: ["off", "off-z1", "off-z2", "off-z1"],
-  wake: ["idle-hide", "idle-in2", "idle-in1", ...PET_BLINK, PET_REST],
-  idle: PET_IDLE_SPICE[0],
-  think: ["think-0", "think-1", "think-2", "think-3", "think-3"],
-  work: PET_WORK_SPICE[0],
-  done: ["done-rest", "done-squat", "done-jump", "done-high", "done-high", "done-land", "done-rest"],
-  espera: ["wait-0", "wait-1", "wait-2", "wait-3", "wait-blink", "wait-3", "wait-flip"],
-  // Configurações abertas: entra no chapéu aqui (o chapéu fica) e sai dele lá (ver ligarPetDasConfigs).
-  sai: [PET_REST, "idle-in1", "idle-in2", "idle-hide"],
-  fora: ["idle-hide"],
-};
-const PET_NEXT = { wake: "idle", done: "idle", sai: "fora" };
-const PET_FRAME_MS = { off: 700, wake: 220, idle: 400, think: 380, work: 120, done: 120, sai: 140, espera: 650 };
 
 const petState = {
   name: "",
@@ -1761,11 +1742,17 @@ function setMotor(on, live = false) {
   if (was !== state.talking) paintQueue();
 }
 
+/** Janela do Esc duplo: o 2º Esc dentro dela para o agente (parar joga fora o que o modelo estava gerando). */
+const ESC_PARAR_MS = 1500;
+
+/**
+ * Com o turno em voo o Enviar continua no lugar (a mensagem entra no turno ou na fila) e o Parar
+ * aparece na barra, com nome. Antes o Parar tomava o pixel do Enviar: quem mandava uma mensagem e
+ * clicava "de novo" matava o turno sem perceber.
+ */
 function syncTalking() {
   const abort = $("btn-abort");
-  const send = $("btn-send");
   if (abort) abort.classList.toggle("hidden", !state.talking);
-  if (send) send.classList.toggle("hidden", state.talking);
 }
 
 function selectedProfile() {
@@ -2061,7 +2048,10 @@ function pintarVazioDoChat() {
   acoes.classList.toggle("hidden", !semRepos);
 }
 
-const WORK_PANES = ["file", "terminal", "browser", "canvas", "graph", "agentes", "tarefas", "ds", "planejamento"];
+const WORK_PANES = ["file", "terminal", "browser", "canvas", "graph", "agentes", "tarefas", "ds", "planejamento", "torre"];
+
+/** Aba Torre (torre-view.js): criada mais abaixo; até lá o layout só ignora ela. */
+let torreView = null;
 
 function chaveSessao(threadId = state.threadId) {
   return chaveWork(threadId, state.projectPath);
@@ -2140,6 +2130,8 @@ function applyWorkLayout() {
   for (const id of WORK_PANES) {
     $(`pane-${id}`).classList.toggle("is-on", state.view === id);
   }
+  // a torre só anima (e só fala com o motor) enquanto a aba dela é a que se vê
+  torreView?.visivel(state.view === "torre");
   // Sem módulo aberto o chat vira o conteúdo principal — não depende de sideChat aqui.
   // No plano a faixa de chats (Manager e Implementação) sempre aparece.
   $("pane-chat").classList.toggle("hidden", !state.sideChat && !noModule && !planoAberto);
@@ -3937,6 +3929,7 @@ function montarSecaoChatGeral() {
 function renderRepoTree() {
   const tree = $("repo-tree");
   if (!tree) return;
+  if (adiarSeApertado(renderRepoTree)) return;
   if (state.renomeandoConversa) return; // campo de renomear aberto: redesenha quando fechar
   tree.replaceChildren();
   $("threads-empty").classList.toggle("hidden", state.repos.length > 0);
@@ -4681,7 +4674,7 @@ async function iniciarSubchat(li, runId) {
   pintar();
 
   const ac = new AbortController();
-  fetch(api(`/v1/runs/${runId}/events`), { headers: headers(), signal: ac.signal })
+  fetchSse(api(`/v1/runs/${runId}/events`), { headers: headers(), signal: ac.signal })
     .then((res) => lerEventos(res, (ev) => {
       if (aplicarEventoDeRun(run, ev)) pintar();
       if (ev.type === "run_end") ac.abort();
@@ -5000,6 +4993,11 @@ function appendEvent(ev, scroll = true) {
     li.innerHTML = `<div class="err">${escapeHtml(fmtDetail(ev.detail) || "Limite de uso do Claude.")}</div>`;
   } else if (ev.type === "sys") {
     li.innerHTML = `<span class="stamp">${escapeHtml(ev.message)}</span>`;
+  } else if (ev.type === "parado") {
+    // vem do daemon e fica no histórico: a conversa não acaba mais em silêncio depois de um Parar
+    const n = ev.reenviadas || 0;
+    const volta = n ? ` · ${n === 1 ? "sua mensagem volta" : `${n} mensagens suas voltam`} como turno novo` : "";
+    li.innerHTML = `<span class="stamp">Parado por você${escapeHtml(volta)}</span>`;
   } else if (ev.type === "panel") {
     const rows = ev.rows
       .map(
@@ -5938,7 +5936,7 @@ async function openThread(id, { chat: alvo = null } = {}) {
 function listenSse(chat = areaDeChats.atual()) {
   ouvirConversa(chat, areaDeChats, {
     conectar: async (threadId, signal, aoEvento) => {
-      const res = await fetch(api(`/v1/threads/${threadId}/events`), { headers: headers(), signal });
+      const res = await fetchSse(api(`/v1/threads/${threadId}/events`), { headers: headers(), signal });
       await lerEventos(res, aoEvento);
     },
     aoEvento: onLive,
@@ -6228,6 +6226,12 @@ function onLive(ev) {
     if (ev.suggestedProfileId) showQuota({ ...ev, auth: true }, true);
     return;
   }
+  if (ev.type === "parado") {
+    // o `done` do abort já chegou antes; aqui é só o rastro (e nada de pulinho de "terminei")
+    petParou();
+    appendEvent(ev);
+    return;
+  }
   if (ev.type === "error") {
     areaDeChats.atual().erroDoTurno = "Erro no turno";
     petParou();
@@ -6474,6 +6478,7 @@ async function doSwitch(id, reason) {
 /* ---------- serviços locais ---------- */
 
 const svcPanel = createServicesPanel({
+  fetchStream: fetchSse,
   req,
   api,
   headers,
@@ -7013,6 +7018,32 @@ const tarefasBoard = createTarefasBoard({
   avisar: (msg) => dialogo.avisar(msg),
 });
 
+/* ---------- Torre de magia: uma torre por projeto, com zoom (torre-view.js) ---------- */
+
+const torreDados = criarTorreDados({
+  req,
+  api,
+  headers,
+  fetchStream: fetchSse,
+  lerEventos,
+  aprendizadosDe: (path) => aprendPendentes.get(normPath(path)) ?? 0,
+  log: (msg) => console.warn(msg),
+});
+torreView = createTorreView({
+  el: $,
+  dados: torreDados,
+  getProjetos: () => state.repos,
+  getProjetoAtual: () => state.projectPath,
+  motorOk: () => state.ok,
+  aoLigarMotor: () => void cliqueNoMotor(),
+  aoAbrirConversa: ({ threadId, projectPath }) => void (projectPath ? openThreadInRepo(projectPath, threadId) : openThreadInGlobal(threadId)),
+  aoAbrirPlano: (path) => void (path && abrirModuloEmRepo(path, "planejamento")),
+  aoAbrirMemoria: (path) => void (path && abrirModuloEmRepo(path, "graph")),
+  aoAbrirTarefas: (path) => void (path && abrirModuloEmRepo(path, "tarefas")),
+  aoAbrirCanvas: (path) => void (path && abrirModuloEmRepo(path, "ds")),
+  aoAbrirContas: () => abrirConfiguracoes("contas"),
+});
+
 /* ---------- Planejamento em tela cheia: o plano é dono dos chats dele, não o contrário ---------- */
 
 /**
@@ -7262,6 +7293,7 @@ function aplicarTamanhoDoFlutuante(tam = null) {
 }
 
 const planejamentoBoard = createPlanejamentoBoard({
+  fetchStream: fetchSse,
   req,
   api,
   headers,
@@ -7444,6 +7476,7 @@ function pedirNoChatDoCanvas(texto) {
 
 // Painel de vídeo do Canvas (canvas-video.js): entra no seletor de sistema do DS
 const videoPanel = createVideoPanel({
+  fetchStream: fetchSse,
   req,
   api,
   headers,
@@ -7486,6 +7519,7 @@ $("ds-video-nome").addEventListener("keydown", (e) => {
 });
 
 const dsCanvas = createDsCanvas({
+  fetchStream: fetchSse,
   req,
   api,
   headers,
@@ -7563,6 +7597,7 @@ porChat(() => {
 });
 
 const teamStudio = createTeamStudio({
+  fetchStream: fetchSse,
   req,
   api,
   headers,
@@ -7576,6 +7611,7 @@ const teamStudio = createTeamStudio({
 });
 
 const agentStudio = createAgentStudio({
+  fetchStream: fetchSse,
   req,
   api,
   headers,
@@ -7716,6 +7752,7 @@ async function tratarAbrirPainel(ev) {
 function applyAgentEvent(ev) {
   const id = ev.threadId;
   if (!id) return;
+  torreView?.aoEventoAgente(ev);
   if (ev.type === "browser_comando") {
     void tratarComandoNavegador(ev);
     return;
@@ -7763,7 +7800,7 @@ function listenAgents() {
   const ac = new AbortController();
   state.agents.abort = ac;
   state.agents.on = true;
-  fetch(api("/v1/agents/events"), { headers: headers(), signal: ac.signal })
+  fetchSse(api("/v1/agents/events"), { headers: headers(), signal: ac.signal })
     .then(async (res) => {
       if (!res.ok || !res.body) throw new Error(`agents sse ${res.status}`);
       await lerEventos(res, applyAgentEvent);
@@ -8092,6 +8129,13 @@ function agentDefCard(d) {
     tag.textContent = `${d.instructions.length} car. de instrução`;
     badges.append(tag);
   }
+  if (d.subagente) {
+    const tag = document.createElement("span");
+    tag.className = "agent-tag";
+    tag.textContent = "subagente";
+    tag.title = d.projetos?.length ? `Nas conversas de: ${d.projetos.join(", ")}` : "Nas conversas de todos os projetos";
+    badges.append(tag);
+  }
 
   /*
    * A que times este agente pertence. Chip clicável: de dentro do agente se
@@ -8192,6 +8236,8 @@ function naAbaAgentesAtivos() {
 /** Pinta uma lista de agentes (dock OU a aba "Agentes" da tela cheia) nos mesmos elementos —
  * `ulId`/`emptyId` mudam, o card e a ordenação são os mesmos. */
 function pintarListaDeAgentes(ulId, emptyId, ordem) {
+  // o tique de 1 s some com o card entre apertar e soltar: adia pro próximo paint completo
+  if (adiarSeApertado(paintAgents)) return;
   const empty = $(emptyId);
   empty.textContent = state.agents.unsupported
     ? "Motor antigo, sem suporte ao painel. Desliga e liga o motor pra recarregar."
@@ -9753,6 +9799,9 @@ porChat(() => {
     // com a ponte ligada o turno deste chat não segura nada: a mensagem é do Manager
     if (state.talking && !state.ponte?.ligada) {
       enfileirar(text, takePending());
+      // motor que lê no meio do turno: vai na hora, sem passar pelo chip — ele só fica se o daemon recusar
+      const item = filaDa().at(-1);
+      if (item && podeEnviarAgora(item)) void enviarAgora(item);
       return;
     }
     await sendChatMessage(text);
@@ -9822,10 +9871,8 @@ async function abortTalk() {
     areaDeChats.comChat(chat, () => appendEvent({ type: "error", message: e.message || "Não parou." }));
     return;
   }
-  areaDeChats.comChat(chat, () => {
-    petParou(); // antes do done do abort, que senão comemoraria
-    appendEvent({ type: "sys", message: "Parou." });
-  });
+  // o rastro ("Parado por você") vem do daemon pelo SSE e fica no histórico — ver `parado`
+  areaDeChats.comChat(chat, () => petParou());
 }
 
 porChat(() => {
@@ -9865,7 +9912,14 @@ porChat(() => {
     }
     if (e.key === "Escape" && state.talking) {
       e.preventDefault();
-      void abortTalk();
+      // parar joga fora o que o modelo estava gerando: Esc uma vez avisa, duas seguidas param
+      if (state.escParar && Date.now() - state.escParar < ESC_PARAR_MS) {
+        state.escParar = 0;
+        void abortTalk();
+      } else {
+        state.escParar = Date.now();
+        appendEvent({ type: "sys", message: "Esc de novo pra parar o agente." });
+      }
       return;
     }
     if (e.key === "Enter" && !e.shiftKey) {
@@ -11082,6 +11136,11 @@ for (const id of ["painel-atencao", "painel-critico"]) {
 // do painel de borda: "Configurações do painel…" e clique numa conversa
 window.nexo.onPainel?.("nexo:config", (painel) => abrirConfiguracoes(typeof painel === "string" ? painel : "aparencia"));
 window.nexo.onPainel?.("painel:abrir", (alvo) => {
+  if (typeof alvo?.torre === "string") {
+    setView("torre");
+    void torreView?.abrirEm(alvo.torre);
+    return;
+  }
   if (!alvo?.threadId) return;
   void (alvo.projectPath ? openThreadInRepo(alvo.projectPath, alvo.threadId) : openThread(alvo.threadId)).catch(() => {});
 });
@@ -11227,7 +11286,9 @@ document.querySelectorAll(".btn-cli-update").forEach((btn) => {
       return;
     }
     status.classList.remove("set-err");
-    status.textContent = "Atualizado.";
+    // `claude update` diz de qual versão foi pra qual (ou que já estava na última)
+    const resumo = String(res.log || "").split(/\r?\n/).map((l) => l.trim()).filter((l) => /updated|up to date|version/i.test(l)).pop();
+    status.textContent = resumo ? `Atualizado. ${resumo}` : "Atualizado.";
   });
 });
 
@@ -11363,6 +11424,7 @@ $("btn-close-tarefas").addEventListener("click", fecharAbaAtual);
 $("btn-close-ds").addEventListener("click", fecharAbaAtual);
 $("btn-close-planejamento").addEventListener("click", () => (planoAberto ? void sairDoPlano() : fecharAbaAtual()));
 tarefasBoard.ligar();
+torreView.ligar();
 planejamentoBoard.ligar();
 dialogo.ligar();
 automacaoModal.ligar();

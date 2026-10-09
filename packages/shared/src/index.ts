@@ -203,6 +203,14 @@ export type AgentDef = {
   instructions?: string;
   /** Cor do cartão na UI. */
   color?: string;
+  /**
+   * Vai pro `claude` das conversas como subagente nativo (`--agents`): o modelo chama pela
+   * ferramenta `Agent`, como faz com o Explore. Opt-in, exige `description` e tem teto
+   * (`SUBAGENTES_MAX`) — cada um ocupa a descrição da ferramenta em todo turno.
+   */
+  subagente?: boolean;
+  /** Pastas de projeto onde o subagente aparece. Ausente ou vazio = em toda conversa. */
+  projetos?: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -214,6 +222,12 @@ export const AGENT_DESC_MAX = 200;
 /** Teto das instruções: elas ocupam janela de contexto em todo turno. */
 export const AGENT_INSTRUCTIONS_MAX = 8000;
 export const AGENTS_MAX = 100;
+/** Agentes ligados como subagente ao mesmo tempo: mais que isso vira ruído na escolha do modelo. */
+export const SUBAGENTES_MAX = 6;
+export const AGENT_PROJETOS_MAX = 20;
+
+/** Quantas vezes o `Agent` das conversas chamou cada subagente do Nexos (`GET /v1/agents/subagentes/uso`). */
+export type UsoDeSubagente = { usos: number; ultimoUso: string };
 
 /** O que um agente sobrepõe no motor da conta. */
 export type EngineOverrides = {
@@ -607,6 +621,11 @@ export type ThreadEvent =
        * mostra recolhido ("passando contexto…"); o motor recebe igual.
        */
       automatico?: boolean;
+      /**
+       * Entrou com o turno em voo (`injetarMensagem`): o modelo só lê entre uma ferramenta e outra.
+       * Turno parado antes disso = mensagem que ninguém leu, e `pararTurno` a reenvia.
+       */
+      injetada?: boolean;
     }
   /**
    * Um time chamado deste chat terminou. Aparece como bolha no chat, e o trecho vai junto da
@@ -731,6 +750,12 @@ export type ThreadEvent =
     }
   /** Marca de "/clear": o pack ignora tudo antes disso, mas o JSONL guarda pra sempre. */
   | { ts: string; type: "cleared"; threadId: string }
+  /**
+   * A pessoa parou o turno (Parar / Esc). Fica no histórico: sem isto a conversa acabava em
+   * silêncio e parecia que o agente tinha sumido. `reenviadas` = mensagens injetadas que o modelo
+   * não chegou a ler e voltam como turno novo logo em seguida.
+   */
+  | { ts: string; type: "parado"; threadId: string; por: "pessoa"; reenviadas?: number }
   | { ts: string; type: "error"; threadId: string; message: string; profileId: string }
   /**
    * `model` e `effort` são o que REALMENTE rodou naquele turno (o modelo que o
@@ -932,6 +957,11 @@ export type StartOpts = {
    * web e as ferramentas MCP dela. Ganha de conta e de agente — ver `somenteLeitura` em engines/cli.ts.
    */
   somenteLeitura?: boolean;
+  /**
+   * Conversa normal (sem run, sem Manager, não oculta): o `claude` recebe os agentes marcados como
+   * subagente (`AgentDef.subagente`) via `--agents`. Relido a cada envio — ligar/desligar vale já.
+   */
+  subagentesDoNexos?: boolean;
 };
 
 /* ---------- times de agentes ---------- */

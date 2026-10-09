@@ -251,3 +251,37 @@ describe("renovarCredenciais", () => {
     await expect(client.renovarCredenciais()).resolves.toBe(false);
   });
 });
+
+describe("prazo de leitura", () => {
+  it("GET parado estoura em 30 s com erro claro, sem re-tentar", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn((_url, opts) => new Promise((_ok, falha) => opts.signal.addEventListener("abort", () => falha(new DOMException("aborted", "AbortError")))));
+      const client = createApiClient({ daemonInfo: async () => motor(), fetchImpl });
+      const p = client.req("/v1/ds");
+      const pego = p.catch((e) => e);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect((await pego).message).toMatch(/demorou demais/);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("POST (mensagem que espera o turno) não tem prazo", async () => {
+    const { client, chamadas } = montar({ respostas: [resposta({ body: { ok: true } })] });
+    await client.req("/v1/threads/t/messages", { method: "POST", body: "{}" });
+    expect(chamadas[0].opts.signal).toBeUndefined();
+  });
+
+  it("abort de quem chamou repassa e não vira re-tentativa", async () => {
+    const fetchImpl = vi.fn((_url, opts) => new Promise((_ok, falha) => opts.signal.addEventListener("abort", () => falha(new DOMException("aborted", "AbortError")))));
+    const daemonInfo = vi.fn(async () => motor());
+    const client = createApiClient({ daemonInfo, fetchImpl });
+    const ac = new AbortController();
+    const p = client.req("/v1/ds", { signal: ac.signal }).catch((e) => e);
+    ac.abort();
+    expect((await p).name).toBe("AbortError");
+    expect(daemonInfo).not.toHaveBeenCalled();
+  });
+});

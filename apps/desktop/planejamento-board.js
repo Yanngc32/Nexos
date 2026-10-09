@@ -218,6 +218,8 @@ export function createPlanejamentoBoard({
   /** Anexo de tarefa / selo da etapa: abre o Quadro com a tarefa aberta. */
   aoAbrirTarefa = () => {},
   fetchImpl = (...a) => globalThis.fetch(...a),
+  /** Stream SSE (sse-ponte.js): fora do teto de 6 conexões do renderer. */
+  fetchStream = fetchImpl,
   win = globalThis.window ?? globalThis,
   doc = globalThis.document,
 }) {
@@ -347,7 +349,7 @@ export function createPlanejamentoBoard({
     ac.projeto = projeto;
     sse = ac;
     const meu = projeto;
-    fetchImpl(api(`/v1/planejamento/events?projectPath=${encodeURIComponent(meu)}`), { headers: headers(), signal: ac.signal })
+    fetchStream(api(`/v1/planejamento/events?projectPath=${encodeURIComponent(meu)}`), { headers: headers(), signal: ac.signal })
       .then(async (res) => {
         // resposta não-ok (503 com o motor subindo/travado) também religa: antes o SSE morria calado
         if (!res.ok) return religar(`HTTP ${res.status}`);

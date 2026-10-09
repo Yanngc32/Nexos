@@ -34,6 +34,8 @@ export function createServicesPanel({
   abrirNoBrowser,
   aoErro,
   fetchImpl = fetch,
+  /** Stream SSE (sse-ponte.js): fora do teto de 6 conexões do renderer. */
+  fetchStream = fetchImpl,
   storage = globalThis.localStorage,
 }) {
   let list = [];
@@ -370,7 +372,7 @@ export function createServicesPanel({
     if (!getProjectPath() || !isOk()) return;
     const ac = new AbortController();
     abort = ac;
-    fetchImpl(api(`/v1/services/events?projectPath=${encodeURIComponent(getProjectPath())}`), {
+    fetchStream(api(`/v1/services/events?projectPath=${encodeURIComponent(getProjectPath())}`), {
       headers: headers(),
       signal: ac.signal,
     })

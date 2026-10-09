@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ElementoDoPreview, EngineEvent, EngineKind, EngineOverrides, PartesDoPack, Profile, SwitchReason, ThreadEvent } from "@nexos/shared";
 import { ESFORCO_AUTO, MODELO_AUTO, MODELO_AUTO_FALLBACK, TURNO_TETO_MS } from "@nexos/shared";
-import { agentOverrides, getAgent } from "./agents.ts";
+import { agentOverrides, getAgent, listAgents } from "./agents.ts";
+import { registrarChamadaDeSubagente } from "./subagentes-uso.ts";
 import { readMemoria, readMemoriaGlobal } from "./memoria.ts";
 import { blocoDeAprendizados } from "./instintos.ts";
 import { promptWithAttachments, removeThreadAttachments, saveAttachments, textoComElementos, type IncomingFile } from "./attachments.ts";
@@ -21,6 +22,7 @@ import { MCP_TOOLS_DS_PRINT } from "./ds-print.ts";
 import { MCP_TOOLS_VIDEO } from "./video-ferramentas.ts";
 import { MCP_TOOLS_PAINEL, MCP_TOOLS_PLANEJAR } from "./paineis.ts";
 import { MCP_TOOLS_ENTREGAR } from "./entregar-arquivo.ts";
+import { MCP_TOOLS_SERVICOS } from "./servicos-ferramentas.ts";
 import { MCP_TOOLS_WINDOWS_CONTROL } from "./windows-control.ts";
 import { MCP_TOOLS_TAREFA } from "./tarefas.ts";
 import { expandirSkill } from "./skills.ts";
@@ -62,6 +64,8 @@ export type SessionEvent =
     })
   /** Troca feita pelo próprio daemon (switchMode auto): o cliente não pediu, precisa saber. */
   | { type: "switched"; threadId: string; fromProfileId: string; toProfileId: string; reason: SwitchReason }
+  /** A pessoa parou o turno (ver `pararTurno`): toda tela aberta nessa conversa mostra o porquê do silêncio. */
+  | { type: "parado"; threadId: string; por: "pessoa"; reenviadas?: number }
   /**
    * O histórico virou resumo. Vai pelo SSE porque acontece DEPOIS do turno, sem
    * ninguém ter pedido: a tela aberta precisa saber que o passado dela mudou de
@@ -206,6 +210,8 @@ type Live = {
    * inject. Zera quando o modelo volta a falar ou o turno fecha.
    */
   emEspera?: number;
+  /** Quando a pessoa parou o último turno (`pararTurno`); some no turno seguinte. O painel de borda diz "parado por você" em vez de "terminou". */
+  paradoEm?: number;
 };
 
 /** Último limite visto por conta: serve pro painel mesmo sem thread ativa. */
@@ -341,6 +347,8 @@ export type AgentSnapshot = {
   passos: PassoDoTurno[];
   /** Tarefas em background segurando o turno já respondido (`busy` é false nesse caso). */
   emEspera: number;
+  /** O último turno acabou porque a pessoa parou (não "terminou"): o painel de borda não comemora nem toca som. */
+  parado: boolean;
 };
 
 /**
@@ -369,6 +377,7 @@ export function agentSnapshots(): AgentSnapshot[] {
     ...(temPerguntaPendente(threadId) ? { pergunta: perguntaPendente(threadId) } : {}),
     passos: l.passos ?? [],
     emEspera: soEsperando(l) ? (l.emEspera ?? 0) : 0,
+    parado: Boolean(l.paradoEm) && !emVoo(l),
   }));
 }
 
@@ -749,6 +758,8 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
       ...mcpDaConversa(threadId, meta, p, home),
       // Agent Manager não altera o projeto (engines/cli.ts: só leitura, escrita negada)
       ...(meta.planejamento ? { somenteLeitura: true } : {}),
+      // agentes marcados como subagente vão pro `Agent` do claude — só em conversa da pessoa
+      ...(!meta.runId && !meta.planejamento && !meta.oculta ? { subagentesDoNexos: true } : {}),
     },
     (ev) => onEngineEvent(threadId, home, ev),
   );
@@ -851,6 +862,8 @@ function mcpDaConversa(
     ...(!meta.runId && meta.projectPath && !meta.handoff ? MCP_TOOLS_PLANEJAR : []),
     // arquivo no chat pra pessoa baixar/abrir no preview (entregar-arquivo.ts): conversa normal
     ...(!meta.runId ? MCP_TOOLS_ENTREGAR : []),
+    // servidor de dev com o motor como dono (servicos-ferramentas.ts): conversa normal de projeto
+    ...(!meta.runId && meta.projectPath ? MCP_TOOLS_SERVICOS : []),
     // Gate GLOBAL, não por conta (ver windows-control.ts): mexe em QUALQUER app da máquina, não
     // só o Nexos. `profileFlags` em engines/cli.ts filtra de novo, incondicional — esta linha só
     // evita listar a ferramenta quando já se sabe de antemão que a chamada vai ser barrada.
@@ -1287,6 +1300,11 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     live.blocoNovo = true;
     gravarTextoDoTurno(live, threadId, home);
     live.passos = [...(live.passos ?? []), { nome: ev.name, resumo: String(ev.summary ?? "").slice(0, PASSO_RESUMO_CHARS) }].slice(-PASSOS_MAX);
+    if (ev.name === "Agent" || ev.name === "Task") {
+      const ligados = new Set(listAgents(home).filter((a) => a.subagente).map((a) => a.id));
+      const chamado = registrarChamadaDeSubagente(ev.name, ev.input, ligados, home);
+      if (chamado) log.info("subagentes", "conversa chamou subagente do Nexos", { threadId, subagente: chamado });
+    }
     const input = capInputPraPersistir(ev.input);
     appendEvent(
       { ts: nowIso(), type: "tool", threadId, name: ev.name, summary: ev.summary, ...(ev.id ? { id: ev.id } : {}), ...(input !== undefined ? { input } : {}) },
@@ -1743,6 +1761,26 @@ export async function postMessage(
   }
 }
 
+/** Turno aberto só porque há tarefa em background (o modelo já respondeu). */
+export function estaSoEsperando(threadId: string): boolean {
+  const live = lives.get(threadId);
+  return Boolean(live && soEsperando(live));
+}
+
+/**
+ * Turno que só espera background (servidor de dev subido pelo modelo, por ex.) segura a trava da
+ * conversa por até 2 h. Mensagem nova entra por inject; se o motor recusar, a espera é encerrada —
+ * o background morre junto — e a mensagem segue como turno novo, em vez de ficar presa na fila.
+ */
+async function liberarEspera(threadId: string, text: string, home: string, images: IncomingFile[]): Promise<"injetada" | "liberou" | "nada"> {
+  const live = lives.get(threadId);
+  if (!live || !soEsperando(live)) return "nada";
+  if (injetarMensagem(threadId, text, home, images)) return "injetada";
+  log.aviso("motor", "mensagem nova encerrou turno que só esperava tarefa em background", { threadId, tarefas: live.emEspera ?? 0 });
+  await live.engine.abort();
+  return "liberou";
+}
+
 async function turnoDaMensagem(
   threadId: string,
   text: string,
@@ -1750,6 +1788,7 @@ async function turnoDaMensagem(
   images: IncomingFile[],
   opts: { automatico?: boolean; elementos?: ElementoDoPreview[] },
 ): Promise<void> {
+  if ((await liberarEspera(threadId, text, home, images)) === "injetada") return;
   await withLocked(threadId, async () => {
     // Teto de `nexo_delegar` é POR TURNO: mensagem nova reabre a cota.
     resetContadorDeDelegacao(threadId);
@@ -1820,8 +1859,9 @@ export function injetarMensagem(threadId: string, text: string, home: string, im
     appendEvent({ ts: nowIso(), type: "assistant", threadId, text: live.assistantBuf }, home);
     live.assistantBuf = "";
   }
+  // `injetada`: se o turno for parado antes de o modelo ler, `pararTurno` sabe o que reenviar
   appendEvent(
-    { ts: nowIso(), type: "user", threadId, text, ...(attachments.length > 0 ? { attachments } : {}) },
+    { ts: nowIso(), type: "user", threadId, text, injetada: true, ...(attachments.length > 0 ? { attachments } : {}) },
     home,
   );
   return true;
@@ -1895,6 +1935,7 @@ async function sendTurn(live: Live, text: string, partial = false): Promise<void
   live.passos = [];
   live.lastTerminal = null;
   live.emEspera = 0;
+  live.paradoEm = undefined;
   live.startedAt = Date.now();
   await live.engine.send(partial ? CONTINUE : text);
 }
@@ -2055,6 +2096,67 @@ export function getLive(threadId: string): Live | undefined {
 
 export async function abortThread(threadId: string): Promise<void> {
   await lives.get(threadId)?.engine.abort();
+}
+
+type EventoDaPessoa = Extract<ThreadEvent, { type: "user" }>;
+
+/**
+ * Mensagens injetadas (`injetarMensagem`) que o modelo NÃO chegou a ler. O CLI só lê o que entrou
+ * por inject entre uma ferramenta e outra: depois da mensagem precisa vir um `tool_result` e, depois
+ * dele, o modelo falar de novo (`tool` ou `assistant`). Sem isso — turno parado com o modelo ainda
+ * gerando a ferramenta — a mensagem está no histórico mas ninguém a leu. Só olha depois do último
+ * `parado`: o que ficou pra trás já foi tratado naquela parada.
+ */
+export function injetadasNaoLidas(events: ThreadEvent[]): EventoDaPessoa[] {
+  const inicio = events.map((e) => e.type).lastIndexOf("parado") + 1;
+  const naoLidas: EventoDaPessoa[] = [];
+  for (let i = inicio; i < events.length; i++) {
+    const e = events[i];
+    if (e.type !== "user" || !e.injetada) continue;
+    const resultado = events.findIndex((x, j) => j > i && x.type === "tool_result");
+    const lida = resultado >= 0 && events.some((x, j) => j > resultado && (x.type === "tool" || x.type === "assistant"));
+    if (!lida) naoLidas.push(e);
+  }
+  return naoLidas;
+}
+
+/**
+ * A pessoa parou o turno (botão Parar / Esc). Diferente de `abortThread`: deixa rastro no histórico
+ * (`parado`) e avisa a tela — antes a conversa acabava em silêncio e parecia que o agente tinha
+ * sumido. Mensagem injetada que o modelo não leu volta como turno novo, em vez de ficar no
+ * histórico fingindo que foi atendida.
+ */
+export async function pararTurno(threadId: string, home: string): Promise<{ emCurso: boolean; reenviadas: number }> {
+  const live = lives.get(threadId);
+  if (!live || !emVoo(live)) {
+    await live?.engine.abort();
+    return { emCurso: false, reenviadas: 0 };
+  }
+  live.paradoEm = Date.now();
+  // o `done` do abort grava o que o modelo já tinha escrito; o `parado` entra depois dele
+  await live.engine.abort();
+  const naoLidas = injetadasNaoLidas(readThread(threadId, home));
+  const reenviadas = naoLidas.length ? { reenviadas: naoLidas.length } : {};
+  appendEvent({ ts: nowIso(), type: "parado", threadId, por: "pessoa", ...reenviadas }, home);
+  emit(threadId, { type: "parado", threadId, por: "pessoa", ...reenviadas });
+  if (naoLidas.length) {
+    log.info("motor", "turno parado com mensagem injetada que o modelo não leu: volta como turno novo", { threadId, mensagens: naoLidas.length });
+    void reenviarInjetadas(threadId, home, naoLidas).catch((err) =>
+      log.erro("motor", "não consegui reenviar a mensagem injetada depois da parada", { threadId, erro: String(err) }),
+    );
+  }
+  return { emCurso: true, reenviadas: naoLidas.length };
+}
+
+/** As injetadas não lidas viram UM turno novo; o evento `user` delas já está no histórico, não se grava outro. */
+async function reenviarInjetadas(threadId: string, home: string, mensagens: EventoDaPessoa[]): Promise<void> {
+  // a trava ainda é do `postMessage` do turno parado até ele digerir o `done` do abort
+  await withLocked(threadId, async () => {
+    const live = await ensureLive(threadId, home);
+    const texto = mensagens.map((m) => textoComElementos(m.text, m.elementos)).join("\n\n");
+    const anexos = mensagens.flatMap((m) => m.attachments ?? []);
+    await dispatch(threadId, home, live, promptWithAttachments(texto, anexos));
+  });
 }
 
 export async function dropThread(threadId: string, home: string): Promise<void> {

@@ -9,6 +9,32 @@ import type { DsVar } from "./design-system.ts";
  * sai com o mesmo visual.
  */
 
+/*
+ * Molduras de aparelho pra mock de tela (`.k-celular`, `.k-notebook`). Portadas pra CSS puro de
+ * Opensource UI (https://opensourceui.in) — Copyright (c) 2026 Bidyut Kundu, licença MIT
+ * (phone-mockup-card e laptop-mockup-card; ver THIRD_PARTY_NOTICES.md). Cores da moldura são do
+ * aparelho, não do design system: ficam fixas, só trocam por `data-cor`.
+ */
+const KIT_APARELHOS_CSS = `.k-celular{--k-w:var(--k-celular-w,256px);--k-moldura:#4a4254;--k-botao:#423d4d;position:relative;box-sizing:border-box;flex:none;width:var(--k-w);aspect-ratio:70.6/146.6;padding:2px;border-radius:calc(var(--k-w)*.1625);background:var(--k-moldura)}
+.k-celular[data-cor=laranja]{--k-moldura:#d4845a;--k-botao:#cc7a50}
+.k-celular[data-cor=branco]{--k-moldura:#e4e4e8;--k-botao:#d8d8de}
+.k-celular[data-cor=titanio]{--k-moldura:#9a9590;--k-botao:#8f8a85}
+.k-celular[data-cor=cereja]{--k-moldura:#d49aa8;--k-botao:#ca90a0}
+.k-celular::before{content:"";position:absolute;right:-2px;top:23%;width:2px;height:11.5%;border-radius:0 2px 2px 0;background:var(--k-botao)}
+.k-celular::after{content:"";position:absolute;left:-2px;top:15.5%;width:2px;height:22.2%;border-radius:2px 0 0 2px;background:linear-gradient(to bottom,var(--k-botao) 0 14.4%,transparent 14.4% 24.8%,var(--k-botao) 24.8% 57.2%,transparent 57.2% 67.6%,var(--k-botao) 67.6% 100%)}
+.k-celular>.k-tela{position:relative;box-sizing:border-box;height:100%;overflow:hidden;border:3.5px solid #000;border-radius:calc(var(--k-w)*.15);background:var(--color-bg,#fff)}
+.k-celular>.k-tela::before{content:"";position:absolute;z-index:2;top:9px;left:50%;width:66px;height:20px;transform:translateX(-50%);border-radius:999px;background:#000}
+.k-celular[data-ilha=nao]>.k-tela::before{display:none}
+.k-celular>.k-tela::after{content:"";position:absolute;z-index:2;bottom:5.5px;left:50%;width:32%;height:3px;transform:translateX(-50%);border-radius:999px;background:color-mix(in srgb,currentColor 35%,transparent)}
+.k-notebook{--k-borda:#d4d4d4;--k-base-a:#d4d4d4;--k-base-b:#a3a3a3;--k-entalhe:#737373;display:inline-flex;flex-direction:column;align-items:center;flex:none;width:var(--k-notebook-w,384px)}
+.k-notebook[data-cor=titanio]{--k-borda:#7a7671;--k-base-a:#8a8580;--k-base-b:#6a6560;--k-entalhe:#5c5854}
+.k-notebook[data-cor=branco]{--k-borda:#e5e5e5;--k-base-a:#f5f5f5;--k-base-b:#d4d4d4;--k-entalhe:#a3a3a3}
+.k-notebook[data-cor=meia-noite]{--k-borda:#26262c;--k-base-a:#34343c;--k-base-b:#1c1c22;--k-entalhe:#131318}
+.k-notebook[data-cor=estelar]{--k-borda:#d8cdb8;--k-base-a:#f0e6d4;--k-base-b:#dcd0b8;--k-entalhe:#c9bc9e}
+.k-notebook>.k-tela{position:relative;box-sizing:border-box;width:100%;aspect-ratio:16/10.5;overflow:hidden;border:6px solid #262626;border-bottom:0;border-radius:12px 12px 0 0;box-shadow:0 0 0 2px var(--k-borda);background:var(--color-bg,#171717)}
+.k-notebook::after{content:"";display:block;width:112.5%;height:12px;border-radius:0 0 12px 12px;background:linear-gradient(var(--k-entalhe),var(--k-entalhe)) 50% 0/64px 4px no-repeat,linear-gradient(var(--k-base-a),var(--k-base-b))}
+.k-escala{width:calc(100% / var(--k-escala,1));height:calc(100% / var(--k-escala,1));transform:scale(var(--k-escala,1));transform-origin:0 0}`;
+
 export const KIT_CSS = `.k-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--k-min,130px),1fr));gap:12px}
 .k-amostra{height:64px;border-radius:8px;border:1px solid color-mix(in srgb,currentColor 25%,transparent)}
 .k-nome{font:600 12px/1.3 system-ui,sans-serif;opacity:.9;margin-top:8px;word-break:break-all}
@@ -21,7 +47,8 @@ export const KIT_CSS = `.k-grade{display:grid;grid-template-columns:repeat(auto-
 .k-forma{height:64px;background:color-mix(in srgb,currentColor 12%,transparent)}
 .k-rotulo{font:600 10px/1.2 system-ui,sans-serif;text-transform:uppercase;letter-spacing:.08em;opacity:.55;margin:0 0 8px}
 .k-demo{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
-.k-bloco+.k-bloco{margin-top:20px}`;
+.k-bloco+.k-bloco{margin-top:20px}
+${KIT_APARELHOS_CSS}`;
 
 export const LARGURAS = ["1/3", "1/2", "2/3", "1"] as const;
 export type Largura = (typeof LARGURAS)[number];
@@ -171,6 +198,22 @@ Fundamentos. Card de componente usa pros rótulos e a vitrine, e o resto com \`<
 - \`.k-demo\` — linha que quebra, com espaço, pra vitrine de variações lado a lado
 - \`.k-bloco\` — grupo; espaço entre um grupo e o próximo
 
+### Molduras de aparelho (mock de tela)
+Tela dentro de um iPhone ou MacBook: a moldura vem pronta, você só põe a tela dentro de \`.k-tela\`.
+- \`.k-celular\` — iPhone (256px de largura; mude com \`style="--k-celular-w:300px"\`). \`data-cor\`: roxo (padrão),
+  laranja, branco, titanio, cereja. \`data-ilha="nao"\` tira a Dynamic Island. Desenhe a tela pra ~250px de largura.
+- \`.k-notebook\` — MacBook (384px; \`style="--k-notebook-w:560px"\`). \`data-cor\`: cinza (padrão), titanio, branco,
+  meia-noite, estelar.
+- \`.k-escala\` — dentro da \`.k-tela\`, desenha a tela no tamanho real e reduz: \`style="--k-escala:.3"\` mostra uma
+  tela de 1280px num notebook de 384px.
+- Fundo da tela é \`--color-bg\` do DS; cor e fonte da tela seguem os tokens como em qualquer card.
+\`\`\`html
+<div class="k-demo">
+  <div class="k-celular"><div class="k-tela"><!-- tela do app no celular --></div></div>
+  <div class="k-notebook" data-cor="meia-noite"><div class="k-tela"><div class="k-escala" style="--k-escala:.3"><!-- tela de 1280px --></div></div></div>
+</div>
+\`\`\`
+
 ### Modelos
 Cores (só as da marca, por exemplo):
 \`\`\`html
@@ -228,4 +271,6 @@ export const KIT_NO_PEDIDO = `## Classes prontas no card (mesmo visual dos Funda
 \`.k-grade\` grade de amostras · \`.k-amostra\` bloco 64px (\`style="background:var(--token)"\`) · \`.k-nome\`/\`.k-val\` nome e valor do token ·
 \`.k-lista\` + \`.k-linha\` tabela com divisória · \`.k-barra\` barra de espaço (\`style="width:var(--space-4)"\`) · \`.k-forma\` caixa de raio/sombra ·
 \`.k-rotulo\` rótulo pequeno em caixa alta · \`.k-demo\` vitrine de variações lado a lado · \`.k-bloco\` grupo com espaço.
+Mock de tela num aparelho: \`<div class="k-celular"><div class="k-tela">…</div></div>\` (iPhone, ~250px) ou \`.k-notebook\` (MacBook, 384px);
+\`data-cor\` troca o acabamento e \`<div class="k-escala" style="--k-escala:.3">\` reduz uma tela desenhada em tamanho real.
 Use \`.k-rotulo\` + \`.k-demo\` pra mostrar estados/variações; em card de token use só as classes do kit.`;

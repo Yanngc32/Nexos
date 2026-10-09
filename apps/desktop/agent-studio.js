@@ -1,5 +1,6 @@
 import { TEMPLATES, aplicarTemplate, lacunas, templatePorId } from "./agent-templates.js";
 import { createTrace, fmtDuracao, larguras } from "./agent-trace.js";
+import { chaveDePasta, opcoesDeProjeto, SUBAGENTES_MAX, textoDaVaga, textoDoUso } from "./subagente-ui.js";
 
 /**
  * Tela cheia de criação e edição de agente, com bancada de teste ao lado.
@@ -25,6 +26,8 @@ export function createAgentStudio({
   aoFechar,
   renderMd,
   fetchImpl = fetch,
+  /** Stream SSE (sse-ponte.js): fora do teto de 6 conexões do renderer. */
+  fetchStream = fetchImpl,
   agora = () => Date.now(),
 }) {
   /** id em edição; "" = criando. `null` = tela fechada. */
@@ -39,6 +42,8 @@ export function createAgentStudio({
   let rodando = false;
   let resposta = "";
   let timer = 0;
+  /** O que a seção "Nas conversas" precisa e não está no formulário: outros agentes, projetos, uso. */
+  let subDados = { defs: [], repos: [], uso: {} };
 
   function vazio() {
     return {
@@ -51,6 +56,8 @@ export function createAgentStudio({
       effort: "",
       permissionMode: "",
       instructions: "",
+      subagente: false,
+      projetos: [],
     };
   }
 
@@ -69,6 +76,8 @@ export function createAgentStudio({
   function ler() {
     const out = {};
     for (const [campo, id] of Object.entries(CAMPOS)) out[campo] = el(id).value;
+    out.subagente = el("ag-sub").checked;
+    out.projetos = [...el("ag-sub-proj").querySelectorAll("input:checked")].map((i) => i.value);
     return out;
   }
 
@@ -76,12 +85,79 @@ export function createAgentStudio({
     for (const [campo, id] of Object.entries(CAMPOS)) {
       if (v[campo] !== undefined) el(id).value = v[campo];
     }
+    if (v.subagente !== undefined) el("ag-sub").checked = Boolean(v.subagente);
+    if (v.projetos !== undefined) pintarProjetos(v.projetos);
   }
 
   /** Mudou em relação ao que está salvo? É o que decide o rótulo do botão de teste. */
   function sujo() {
     const atual = ler();
-    return Object.keys(CAMPOS).some((c) => String(atual[c] ?? "") !== String(original[c] ?? ""));
+    return (
+      Object.keys(CAMPOS).some((c) => String(atual[c] ?? "") !== String(original[c] ?? "")) ||
+      atual.subagente !== Boolean(original.subagente) ||
+      chavesDe(atual.projetos) !== chavesDe(original.projetos)
+    );
+  }
+
+  /* ---------- nas conversas (subagente nativo do claude) ---------- */
+
+  /** Ordem da lista muda com os projetos conhecidos; o que importa é o conjunto. */
+  function chavesDe(projetos) {
+    return (projetos ?? []).map(chaveDePasta).sort().join("|");
+  }
+
+  function pintarProjetos(marcados) {
+    const box = el("ag-sub-proj");
+    const doc = box.ownerDocument;
+    box.replaceChildren();
+    for (const o of opcoesDeProjeto(subDados.repos, marcados)) {
+      const lab = doc.createElement("label");
+      lab.className = "ag-check";
+      lab.title = o.caminho;
+      const cb = doc.createElement("input");
+      cb.type = "checkbox";
+      cb.value = o.caminho;
+      cb.checked = o.marcado;
+      const nome = doc.createElement("span");
+      nome.textContent = o.nome;
+      lab.append(cb, nome);
+      box.append(lab);
+    }
+  }
+
+  function pintarSubagente(v) {
+    const ligado = v.subagente;
+    el("ag-sub-proj-wrap").classList.toggle("hidden", !ligado);
+    const vaga = textoDaVaga(subDados.defs, editando, ligado);
+    const meta = el("ag-sub-vaga");
+    meta.textContent = vaga.texto;
+    meta.dataset.on = ligado ? "1" : "0";
+    // o daemon recusa os dois casos; dizer antes de salvar poupa a volta
+    const aviso = ligado && !v.description.trim()
+      ? "Escreva a descrição acima dizendo QUANDO chamar este agente — sem ela não dá pra ligar."
+      : ligado && vaga.cheio
+        ? `Já há ${SUBAGENTES_MAX} agentes ligados como subagente: desligue um deles antes.`
+        : "";
+    const a = el("ag-sub-aviso");
+    a.textContent = aviso;
+    a.classList.toggle("hidden", !aviso);
+    el("ag-desc").placeholder = ligado ? "Quando chamar: ex. revisa o diff antes de commit" : "Para que serve este agente";
+    el("ag-sub-uso").textContent = textoDoUso(editando ? subDados.uso[editando] : undefined, ligado);
+  }
+
+  /** Busca o que a seção precisa. Falhar aqui não trava a tela: só fica sem contagem/projetos. */
+  async function carregarSubagente(projetosDoAgente) {
+    const [defs, projetos, uso] = await Promise.all([
+      req("/v1/agents/defs").catch(() => []),
+      req("/v1/projects").catch(() => ({ repos: [] })),
+      req("/v1/agents/subagentes/uso").catch(() => ({})),
+    ]);
+    subDados = { defs: Array.isArray(defs) ? defs : [], repos: projetos?.repos ?? [], uso: uso ?? {} };
+    if (editando === null) return;
+    // marcações feitas enquanto carregava valem mais que as salvas
+    const marcadosAgora = ler().projetos;
+    pintarProjetos(marcadosAgora.length ? marcadosAgora : projetosDoAgente);
+    aoMudar();
   }
 
   /* ---------- modelos de criação ---------- */
@@ -134,6 +210,7 @@ export function createAgentStudio({
     el("ag-dirty").classList.toggle("hidden", !sujo());
     el("btn-ag-run").textContent = sujo() ? "Salvar e testar" : "Testar";
     el("ag-head-name").textContent = v.name || (editando ? editando : "novo");
+    pintarSubagente(v);
   }
 
   function fillProfiles(escolhido) {
@@ -165,6 +242,7 @@ export function createAgentStudio({
     erro("");
     limparBancada();
     aoMudar();
+    void carregarSubagente(v.projetos);
   }
 
   function slug(nome) {
@@ -399,7 +477,7 @@ export function createAgentStudio({
     abort?.abort();
     const ac = new AbortController();
     abort = ac;
-    fetchImpl(api(`/v1/threads/${threadTeste}/events`), { headers: headers(), signal: ac.signal })
+    fetchStream(api(`/v1/threads/${threadTeste}/events`), { headers: headers(), signal: ac.signal })
       .then((res) =>
         lerEventos(res, (ev) => {
           if (abort !== ac) return;
@@ -447,6 +525,8 @@ export function createAgentStudio({
       el(id).addEventListener("input", aoMudar);
       el(id).addEventListener("change", aoMudar);
     }
+    el("ag-sub").addEventListener("change", aoMudar);
+    el("ag-sub-proj").addEventListener("change", aoMudar);
     el("btn-ag-save").addEventListener("click", () => void salvar());
     el("btn-ag-del").addEventListener("click", () => void excluir());
     el("btn-ag-clear").addEventListener("click", limparBancada);

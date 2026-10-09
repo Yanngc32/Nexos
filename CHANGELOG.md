@@ -6,9 +6,26 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- **Torre de magia**: nova aba "Torre" (e miniatura na ilha de borda) que mostra em pixel art, no estilo do maguinho, o que os agentes estão fazendo. A visão geral tem uma torre por projeto — janelas acendem conforme a atividade, "?" quando alguém espera você, exploradores no porão — e o clique dá zoom na torre do projeto, em corte lateral com seis andares: **cristais de mana** (um por conta, cor da conta, brilho = `accounts/limits`), **Observatório** (mapa estelar do plano + mural do Quadro), **Salão dos magos** (uma mesa por conversa ativa, a cor do agente na gema do chapéu), **Biblioteca**, **Ateliê** e **Porão** com a dungeon dos subagentes (mapa gerado pelo id da chamada `Agent`, tocha, baú; ao voltar o explorador sobe a escada e entrega o pergaminho a quem o mandou, ferido se deu erro). Os magos vivem: conversam, espiam o vizinho que trabalha, comemoram juntos, apontam pro "?", acenam, vão à Biblioteca/Ateliê/Observatório quando a conversa usa a ferramenta de lá, tomam chá, fazem fila nos cristais quando a conta zera e dançam no apagão se todas zeram; mudanças no Quadro são levadas ao mural pelo mago da conversa que as fez (a feita na tela só desliza com "Você", sempre em até 15 s). Plano enviado: o astrônomo desce até a mesa da implementação. Tudo anima só com a aba visível (oculta = nenhum timer nem stream) e respeita movimento reduzido. Motor: `GET /v1/runs/events` e `GET /v1/tarefas/events` (SSE) e mais campos em `/v1/agents` e `/v1/planejamento`. Tiles da dungeon: Kenney Tiny Dungeon (CC0).
+- Molduras de aparelho no kit do Canvas: `.k-celular` (iPhone) e `.k-notebook` (MacBook) com `.k-tela`, cores por `data-cor` e `.k-escala` pra reduzir uma tela desenhada em tamanho real. Qualquer card ou mock de tela, de qualquer design system, pode aparecer dentro do aparelho (portado de Opensource UI, MIT).
+- `nexo_servico_subir` / `parar` / `listar`: o agente sobe servidor de dev (localhost) com o motor do Nexos como dono — sobrevive ao fim do turno e ao Parar, aparece no painel Serviços, fica registrado no `nexos.json` do projeto e só responde quando a URL atende (ou devolve o log se o processo cair).
+
+- Agente do Nexos como subagente das conversas: na tela do agente, "Usar como subagente nas conversas" faz o Claude da conversa receber o agente como `subagent_type` da ferramenta Agent (via `--agents`), do mesmo jeito que usa o Explore. Exige descrição dizendo quando chamar, no máximo 6 ligados, escopo opcional por projeto e contador de quantas vezes cada um foi chamado. Antes os agentes só rodavam por hook: o `nexo_delegar` nunca foi escolhido em quase mil conversas.
+
 ### Corrigido
 
+- "Atualizar agora" do Claude CLI nas Configurações não atualizava: rodava `npm install -g`, mas o Claude em uso é a instalação nativa (`~/.local/bin`). Agora usa `claude update` quando o Claude já está instalado e mostra de qual versão foi pra qual.
+- Conversa "terminada" que não aceitava mensagem: com o agente esperando um servidor em background, a mensagem nova era recusada e ficava na fila por até 2 h. Agora ela encerra a espera e vira turno novo.
+- Clique perdido ("preciso clicar 2 ou 3 vezes"): a lista de agentes (a cada 1 s) e a árvore de conversas eram refeitas entre apertar e soltar o mouse, e o navegador descartava o clique. Agora o redesenho espera o clique terminar.
+- Agente sem `nexo_ds_print`/`nexo_ds_card_salvar` depois de criar o design system no meio da conversa: as duas só entravam na lista com DS ativo, e o Claude lê a lista no começo da sessão. Agora aparecem sempre e, sem DS, dizem como criar.
+- App que parava de responder ao motor ("o app não respondeu a tempo" no `nexo_ds_print`, navegador do agente mudo, telas lentas): os streams de eventos (agentes, chats, DS, vídeo, plano, serviços) ocupavam as 6 conexões que o Chromium permite por host e todo pedido novo ficava na fila. Os streams agora passam pelo processo principal.
+- Canvas do DS que parava de trocar de design até sair e voltar da conversa: pedido de leitura ao motor não tinha prazo e, preso na fila de conexões, travava a releitura do Canvas pra sempre. Leituras (GET) agora estouram em 30 s com erro claro.
+- Nexos que não abria mais depois de fechado (era preciso matar o processo no Gerenciador de Tarefas): com o painel de borda ligado, fechar a janela não encerrava o app — o painel é outra janela e segurava o processo de pé, sem janela, com o lock de instância única. Agora fechar a janela fecha o Nexos, e abrir de novo (atalho ou bandeja) recria a janela se ela tiver sumido.
+- Localhost que o agente subia caía quando o turno fechava (era tarefa em background da própria conversa), deixando o preview com "conexão recusada".
+
 ### Alterado
+
+- Caixa de mensagem nasce com uma linha e cresce com o texto até 40% da janela.
 
 ## [0.16.0] - 2026-10-07
 

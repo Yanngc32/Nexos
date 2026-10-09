@@ -98,7 +98,18 @@ export type Plano = {
   layout: Layout;
   invalidos: CardInvalido[];
 };
-export type ResumoPlano = { slug: string; titulo: string; etapas: number; concluidas: number; atualizadoEm: string };
+export type ResumoPlano = {
+  slug: string;
+  titulo: string;
+  etapas: number;
+  concluidas: number;
+  atualizadoEm: string;
+  /** Andamento da implementação de cada etapa, na ordem (estrelas do Observatório da torre). */
+  estrelas: EstadoImplementacao[];
+  /** Conversa do Manager e a de implementação (a torre faz o astrônomo descer quando ela aparece). */
+  threadId?: string;
+  implementacaoThreadId?: string;
+};
 export type Handoff = { nome: string; criadoEm: string; texto: string };
 export type Origem = "tela" | "agente";
 export type EventoPlano = { type: "mudou"; slug: string; origem: Origem; alvo: "roteiro" | "card" | "layout" | "handoff" | "plano"; id?: string };
@@ -564,6 +575,9 @@ export function listarPlanos(projectPath: string, home: string): ResumoPlano[] {
       etapas: roteiro.etapas.length,
       concluidas: roteiro.etapas.filter((e) => e.status === "concluida").length,
       atualizadoEm: statSync(roteiroPath(dir)).mtime.toISOString(),
+      estrelas: roteiro.etapas.map((e) => e.implementacao ?? "pendente"),
+      ...(roteiro.threadId ? { threadId: roteiro.threadId } : {}),
+      ...(roteiro.implementacaoThreadId ? { implementacaoThreadId: roteiro.implementacaoThreadId } : {}),
     });
   }
   return out.sort((a, b) => b.atualizadoEm.localeCompare(a.atualizadoEm));

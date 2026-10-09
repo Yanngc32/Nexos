@@ -12,8 +12,10 @@ import {
   busyThreads,
   clearThread,
   getLive,
+  injetadasNaoLidas,
   injetarMensagem,
   limitsOf,
+  pararTurno,
   perfilEmUso,
   perfilEmVoo,
   pingUsoDeTodasAsContas,
@@ -22,6 +24,7 @@ import {
   sessionBus,
   switchThread,
   tarefasEmEspera,
+  estaSoEsperando,
   turnoEmCurso,
 } from "../src/session.ts";
 import { janelaDaConta, MEMORIA_NO_PACK_MAX, memoriaDoPack, modeloDoMotor } from "../src/session.ts";
@@ -364,6 +367,69 @@ describe("session", () => {
     expect(assistant[0]).toMatchObject({ type: "assistant", text: "par" });
   });
 
+  it("pararTurno: deixa `parado` no histórico depois do texto parcial, avisa a tela e o painel", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    const vistos: string[] = [];
+    const onEv = (ev: { type: string }) => vistos.push(ev.type);
+    sessionBus.on(t.id, onEv);
+    try {
+      const pending = postMessage(t.id, "SLOW", home);
+      await vi.waitFor(() => expect(busyThreads()).toContain(t.id));
+      expect(await pararTurno(t.id, home)).toEqual({ emCurso: true, reenviadas: 0 });
+      await pending;
+    } finally {
+      sessionBus.off(t.id, onEv);
+    }
+    const tipos = readThread(t.id, home)
+      .filter((e) => e.type !== "thread_title")
+      .map((e) => e.type);
+    expect(tipos.slice(-2)).toEqual(["assistant", "parado"]);
+    expect(vistos).toContain("parado");
+    expect(agentSnapshots().find((a) => a.threadId === t.id)).toMatchObject({ busy: false, parado: true });
+    // sem turno em voo não inventa parada nem grava de novo
+    expect(await pararTurno(t.id, home)).toEqual({ emCurso: false, reenviadas: 0 });
+    expect(readThread(t.id, home).filter((e) => e.type === "parado")).toHaveLength(1);
+  });
+
+  it("pararTurno: mensagem injetada que o modelo não leu volta como turno novo, sem user repetido", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    const turno = postMessage(t.id, "GERANDO", home);
+    await vi.waitFor(() => expect(busyThreads()).toContain(t.id));
+    expect(injetarMensagem(t.id, "Foi????", home)).toBe(true);
+    expect(await pararTurno(t.id, home)).toEqual({ emCurso: true, reenviadas: 1 });
+    await turno;
+    const stub = getLive(t.id)?.engine as StubEngine;
+    await vi.waitFor(() => expect(stub.lastSend).toBe("Foi????"));
+    await vi.waitFor(() => expect(readThread(t.id, home).some((e) => e.type === "assistant" && e.text === "echo:Foi????")).toBe(true));
+    const trilha = readThread(t.id, home)
+      .filter((e) => e.type === "user" || e.type === "assistant" || e.type === "parado")
+      .map((e) => (e.type === "parado" ? `parado:${e.reenviadas}` : `${e.type}:${e.text}`));
+    expect(trilha).toEqual(["user:GERANDO", "assistant:Agora a torre.", "user:Foi????", "parado:1", "assistant:echo:Foi????"]);
+    expect(readThread(t.id, home).find((e) => e.type === "user" && e.text === "Foi????")).toMatchObject({ injetada: true });
+    // o painel de borda: turno novo em voo apaga o "parado por você"
+    expect(agentSnapshots().find((a) => a.threadId === t.id)?.parado).toBe(false);
+  });
+
+  it("injetadasNaoLidas: lida = tool_result depois dela e o modelo falando de novo; parada anterior zera a conta", () => {
+    const ev = (o: Record<string, unknown>) => ({ ts: ts0, threadId: "t", ...o }) as ThreadEvent;
+    const user = (text: string, injetada = true) => ev({ type: "user", text, ...(injetada ? { injetada } : {}) });
+    const tool = ev({ type: "tool", name: "Read", summary: "a" });
+    const result = ev({ type: "tool_result", id: "1", result: "ok" });
+    const fala = ev({ type: "assistant", text: "ok" });
+    // ferramenta já em curso quando a mensagem entrou: tool_result + fala nova = lida
+    expect(injetadasNaoLidas([user("lida"), tool, result, fala]).map((u) => u.text)).toEqual([]);
+    expect(injetadasNaoLidas([user("lida"), result, tool]).map((u) => u.text)).toEqual([]);
+    // só a ferramenta que o modelo já estava gerando: ninguém leu
+    expect(injetadasNaoLidas([user("x"), tool, result]).map((u) => u.text)).toEqual(["x"]);
+    expect(injetadasNaoLidas([fala, user("y"), fala]).map((u) => u.text)).toEqual(["y"]);
+    // mensagem normal (não injetada) nunca entra; parada anterior é página virada
+    expect(injetadasNaoLidas([user("normal", false), user("velha"), ev({ type: "parado", por: "pessoa" }), user("nova")]).map((u) => u.text)).toEqual(["nova"]);
+  });
+
   it("clearThread derruba a live: a próxima mensagem manda pack sem o que veio antes", async () => {
     const home = tempHome();
     addProfile({ id: "p1", engine: "stub" }, home);
@@ -593,6 +659,22 @@ describe("session", () => {
     await turno;
     expect(tarefasEmEspera(t.id)).toBe(0);
     expect(turnoEmCurso(t.id)).toBe(false);
+  });
+
+  it("turno só esperando background que recusa inject: mensagem nova encerra a espera e vira turno, sem ficar presa", async () => {
+    const home = tempHome();
+    addProfile({ id: "p1", engine: "stub" }, home);
+    const t = createThread({ projectPath: "/proj", profileId: "p1" }, home);
+    const espera = postMessage(t.id, "BACKGROUND_SURDO", home);
+    await vi.waitFor(() => expect(tarefasEmEspera(t.id)).toBe(1));
+    expect(estaSoEsperando(t.id)).toBe(true);
+    await postMessage(t.id, "e agora?", home);
+    await espera;
+    expect(estaSoEsperando(t.id)).toBe(false);
+    const trilha = readThread(t.id, home)
+      .filter((e) => e.type === "user" || e.type === "assistant")
+      .map((e) => `${e.type}:${e.type === "user" || e.type === "assistant" ? e.text : ""}`);
+    expect(trilha.slice(-2)).toEqual(["user:e agora?", "assistant:echo:e agora?"]);
   });
 
   it("perfilEmVoo só com turno rodando; conversa aberta e parada não segura o clique no anel", async () => {

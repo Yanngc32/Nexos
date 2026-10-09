@@ -50,6 +50,19 @@ contextBridge.exposeInMainWorld("nexo", {
   pickZipBase64: () => ipcRenderer.invoke("file:pickZipBase64"),
   pickImageBase64: () => ipcRenderer.invoke("file:pickImageBase64"),
   printDoDs: (args) => ipcRenderer.invoke("ds:print", args),
+  /** Stream SSE do motor pelo processo principal (ver sse-ponte.js): fora do teto de 6 conexões. */
+  sseAbrir: (url, headers, aoMsg) => {
+    const id = `sse-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const canal = `sse:${id}`;
+    const h = (_e, m) => {
+      if (m.fim) ipcRenderer.removeListener(canal, h);
+      aoMsg(m);
+    };
+    ipcRenderer.on(canal, h);
+    ipcRenderer.send("sse:abrir", { id, url, headers });
+    return id;
+  },
+  sseFechar: (id) => ipcRenderer.send("sse:fechar", id),
   killCommand: () => ipcRenderer.invoke("shell:kill"),
   checkForUpdate: () => ipcRenderer.invoke("update:check"),
   updateReady: () => ipcRenderer.invoke("update:status"),

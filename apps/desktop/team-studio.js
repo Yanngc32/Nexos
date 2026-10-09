@@ -32,6 +32,8 @@ export function createTeamStudio({
   aoSalvar,
   aoFechar,
   fetchImpl = fetch,
+  /** Stream SSE (sse-ponte.js): fora do teto de 6 conexões do renderer. */
+  fetchStream = fetchImpl,
   agora = () => Date.now(),
 }) {
   /** id em edição; "" = criando. `null` = tela fechada. */
@@ -430,7 +432,7 @@ export function createTeamStudio({
     abort?.abort();
     const ac = new AbortController();
     abort = ac;
-    fetchImpl(api(`/v1/runs/${run.id}/events`), { headers: headers(), signal: ac.signal })
+    fetchStream(api(`/v1/runs/${run.id}/events`), { headers: headers(), signal: ac.signal })
       .then((res) =>
         lerEventos(res, (ev) => {
           if (abort !== ac || !run) return;

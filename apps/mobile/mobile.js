@@ -823,6 +823,7 @@ async function abrirChat(id, titulo, profileId = "") {
     } else if (ev.type === "arquivo_entregue") cartaoArquivo(ev.arquivo ?? {}, "assistant", ev.descricao || "");
     else if (ev.type === "error") bolha("erro", ev.message);
     else if (ev.type === "cleared") bolha("sys", "— contexto cortado —");
+    else if (ev.type === "parado") bolha("sys", ev.reenviadas ? "— parado por você · sua mensagem volta como turno novo —" : "— parado por você —");
     else if (ev.type === "switched") {
       threadProfileId = ev.toProfileId;
       bolha("sys", `— trocou pra ${ev.toProfileId} —`);

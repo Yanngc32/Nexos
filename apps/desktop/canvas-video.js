@@ -133,6 +133,8 @@ export function createVideoPanel({
   lerEventos,
   headers,
   fetchImpl = (...a) => fetch(...a),
+  /** Stream SSE (sse-ponte.js): fora do teto de 6 conexões do renderer. */
+  fetchStream = fetchImpl,
   avisar = (msg) => Promise.resolve(window.alert(msg)),
   confirmar = (msg) => Promise.resolve(window.confirm(msg)),
   /** Manda pro chat em foco (abre um ao lado sem tirar o foco se não houver). */
@@ -291,7 +293,7 @@ export function createVideoPanel({
     if (!isOk() || !getProjectPath()) return;
     const ac = new AbortController();
     sse = ac;
-    fetchImpl(api(`/v1/videos/events?${qs()}`), { headers: headers(), signal: ac.signal })
+    fetchStream(api(`/v1/videos/events?${qs()}`), { headers: headers(), signal: ac.signal })
       .then(async (res) => {
         if (!res.ok) return;
         await lerEventos(res, (ev) => receber(ev));

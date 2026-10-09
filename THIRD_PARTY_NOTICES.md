@@ -24,6 +24,17 @@ licença.
   cortesia: **Sound effects: Kenney (kenney.nl)**.
 - A análise `sfx-analysis.json` vem do brag (MIT).
 
+## Tiles da dungeon da Torre — Kenney "Tiny Dungeon" (CC0 1.0)
+
+- O quê: 7 tiles genéricos (chão, parede, parede com grade, porta, baú fechado e aberto, entulho)
+  da dungeon do porão da Torre de magia, recoloridos pra paleta do maguinho e guardados como
+  máscara de texto em `apps/desktop/torre/arte.js` (`TILES_DUNGEON`). Conversão:
+  `apps/desktop/pets/torre-fonte/importar-kenney.py`. Personagens, móveis e ícones da torre são
+  desenho próprio.
+- Fonte: https://kenney.nl/assets/tiny-dungeon — domínio público (CC0 1.0 Universal,
+  https://creativecommons.org/publicdomain/zero/1.0/). Crédito não é obrigatório; fica aqui por
+  cortesia: **Dungeon tiles: Kenney (kenney.nl)**.
+
 ## brag — latent-spaces/brag (MIT)
 
 - O quê: o fluxo (inspecionar → planejar → compor → entregar), as leis criativas, os 7 tons e as
@@ -35,6 +46,36 @@ licença.
 MIT License
 
 Copyright (c) 2026 Shunit Haviv Hakimi
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Opensource UI — bidyut10/opensourceui (MIT)
+
+- O quê: as molduras de iPhone e MacBook do kit do Canvas (`.k-celular`, `.k-notebook` em
+  `apps/daemon/src/ds-kit.ts`) foram portadas pra CSS puro de `phone-mockup-card` e `laptop-mockup-card`.
+- Fonte: https://github.com/bidyut10/opensourceui (https://opensourceui.in)
+
+```
+MIT License
+
+Copyright (c) 2026 Bidyut Kundu
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

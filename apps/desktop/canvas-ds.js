@@ -335,6 +335,8 @@ export function createDsCanvas({
   avisar = (msg) => Promise.resolve(window.alert(msg)),
   confirmar = (msg) => Promise.resolve(window.confirm(msg)),
   fetchImpl = (...a) => fetch(...a),
+  /** Stream SSE (sse-ponte.js): fora do teto de 6 conexões do renderer. */
+  fetchStream = fetchImpl,
   /** Contas pro formulário de geração, e a selecionada no app (vira a padrão). */
   getProfiles = () => [],
   getProfileId = () => "",
@@ -478,7 +480,7 @@ export function createDsCanvas({
     sse = ac;
     const projeto = getProjectPath();
     const ativo = estado.ativo;
-    fetchImpl(api(`/v1/ds/events?${qs()}`), { headers: headers(), signal: ac.signal })
+    fetchStream(api(`/v1/ds/events?${qs()}`), { headers: headers(), signal: ac.signal })
       .then(async (res) => {
         if (!res.ok) return;
         await lerEventos(res, (ev) => {

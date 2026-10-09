@@ -13,7 +13,7 @@ import {
   type Plano,
   type Roteiro,
 } from "./planejamento.ts";
-import { adicionarChecklistItem, getQuadro, getTarefa, listarTarefas, salvarMarco, salvarTarefa, type Quadro, type Tarefa } from "./tarefas.ts";
+import { adicionarChecklistItem, comoAutor, getQuadro, getTarefa, listarTarefas, salvarMarco, salvarTarefa, type Quadro, type Tarefa } from "./tarefas.ts";
 import { listThreads, readThread, renomearThread, threadHead } from "./threads.ts";
 import { log } from "./log.ts";
 
@@ -292,7 +292,8 @@ export function marcarImplementacaoDaEtapa(
   if (!destino || destino === tarefa.colunaId) return { roteiro };
   const nome = quadro.colunas.find((c) => c.id === destino)?.nome ?? destino;
   try {
-    salvarTarefa({ id: tarefa.id, projectPath, colunaId: destino }, home);
+    // pela tela é a pessoa; pela ferramenta, a conversa de implementação (a torre leva o pergaminho)
+    comoAutor(origem === "tela" ? undefined : "plano", () => salvarTarefa({ id: tarefa.id, projectPath, colunaId: destino }, home));
     return { roteiro, quadro: `tarefa \`${tarefa.id}\` movida pra "${nome}"` };
   } catch (e) {
     return { roteiro, quadro: `tarefa \`${tarefa.id}\` não foi pra "${nome}": ${(e as Error).message}` };

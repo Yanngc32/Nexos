@@ -356,7 +356,7 @@ credencial nenhuma).
 | skills | `GET /v1/skills` |
 | serviços | `GET /v1/services`, `POST /v1/services/trust` \| `/autostart`, `GET /v1/services/:id/logs`, `POST /v1/services/:id/start` \| `/stop` \| `/restart`, `GET /v1/probe` |
 | config | `GET/PUT /v1/config` |
-| streams (SSE) | `GET /v1/agents/events`, `GET /v1/threads/:id/events`, `GET /v1/services/events`, `GET /v1/runs/:id/events` |
+| streams (SSE) | `GET /v1/agents/events`, `GET /v1/threads/:id/events`, `GET /v1/services/events`, `GET /v1/runs/:id/events`, `GET /v1/runs/events` (todos os runs, com projeto e se é hook; `?projectPath=` filtra), `GET /v1/tarefas/events?projectPath=` (mudanças do Quadro com a coluna de antes e a de depois e `via` = quem mexeu) |
 
 ## Telas
 
@@ -387,6 +387,7 @@ Layout único: barra lateral fixa + área de trabalho que troca de painel.
 | Terminal | `Ctrl+J` | PowerShell (Windows) ou bash, preso ao `cwd` do projeto, um comando por vez |
 | Browser | `Ctrl+Shift+B` | `<webview>` pra preview de servidor de dev, com limpeza de cache/service worker e inspector de elemento (ver seção própria) |
 | Canvas | — | área de rascunho |
+| Torre | — | visão geral das torres (uma por projeto) e, com zoom, a torre de um projeto em corte lateral (ver *Torre de magia*) |
 | Chat | — | conversa com o agente; `@agente`/`@time` dispara Run em paralelo (ver Composer) |
 | Chat lateral | `Ctrl+Shift+S` | chat junto de outro painel |
 | Time (Team Studio) | — | editor de membros de um time + execução do run (passos, duração, tokens, custo) |
@@ -427,6 +428,28 @@ bloqueante e o escopo global ou a branch.
 Janela própria, sem moldura, sempre por cima — passo do run em andamento, conversas trabalhando,
 anéis de quota por conta e custo acumulado. Poll de 2s (8s com motor desligado), do PROJETO
 ABERTO, não da máquina inteira.
+
+### Torre de magia
+
+Pixel art 2D, no estilo do maguinho, do que os agentes estão fazendo: aba **Torre** da área de
+trabalho (`torre-view.js`) e miniatura na ilha de borda (`painel-torres.js`). Camadas puras em
+`apps/desktop/torre/`, sem DOM nem relógio próprio (quem chama passa `agora`), de baixo pra cima:
+
+| camada | arquivo | o quê |
+| --- | --- | --- |
+| feed | `feed.js` | retrato (`/v1/agents`) + eventos ao vivo; chamadas `Agent` pelo id (exploradores), runs de hook, ferramentas de Quadro/plano/DS |
+| modelo | `modelo.js`, `lugares.js` | torres por projeto, personagens com chave estável (`conv:`, `astro:`, `exp:`, `biblio:`); mesa estável por mago |
+| eventos | `eventos.js` | o que mudou entre dois retratos (o primeiro não gera evento) |
+| vida | `cerebro.js`, `convivio.js`, `idas.js`, `entregas.js`, `lazer.js`, `mana.js`, `falas.js`, `mural.js` | rotina de cada mago, interações, idas aos andares, entrega do explorador, lazer, fila dos cristais e apagão, balões, coreografia do Quadro (4 passos por viagem, atraso máx. 15 s) |
+| cena | `cena.js`, `trajetos.js`, `dungeon.js` | geometria da torre, rotas pela escada, dungeon gerada pela semente = id da chamada |
+| palco | `palco.js` | junta tudo num quadro pintável + áreas de clique |
+| pintura | `render.js`, `pintor-canvas.js`, `arte.js`, `poses.js` | `pintarTorre`/`pintarTorreMini` num pintor com `ret` e `masc` (canvas no app, buffer no Node) |
+
+`torre-dados.js` busca o que a aba pede (retrato a cada 4 s, SSE de runs, Quadro e vídeo dos projetos
+observados) e só roda com a aba visível: oculta = nenhum timer nem stream; ao voltar, recomeça do
+retrato de agora sem reencenar. `prefers-reduced-motion`: ninguém anda e o zoom é troca direta.
+Arte: personagens e móveis desenhados em código (`pets/torre-fonte/`), tiles da dungeon do Kenney
+Tiny Dungeon (CC0, em `THIRD_PARTY_NOTICES.md`).
 
 ### Configurações
 

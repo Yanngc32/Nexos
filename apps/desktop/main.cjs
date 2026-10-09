@@ -366,6 +366,8 @@ function spawnNexoLogin(id) {
 }
 
 let win;
+/** `before-quit` já passou: não recria janela no meio da saída. */
+let saindo = false;
 let tray;
 let painel;
 let projectRoot = "";
@@ -832,6 +834,12 @@ function createWindow() {
    * Só o painel Browser usa <webview>, e sempre com este preload — nenhum caso legítimo
    * precisa de outro.
    */
+  /*
+   * Fechar a janela principal fecha o Nexos. Só o `window-all-closed` não bastava: o painel de borda
+   * é outra BrowserWindow (viva mesmo escondida), então o processo ficava de pé sem janela e com o
+   * lock de instância única — abrir de novo só acordava esse processo, que não tinha o que mostrar.
+   */
+  win.on("closed", () => app.quit());
   win.webContents.on("will-attach-webview", (_event, webPreferences) => {
     webPreferences.preload = join(here, "browser-inspector-preload.cjs");
     webPreferences.nodeIntegration = false;
@@ -1201,7 +1209,13 @@ function alternarPainel() {
 }
 
 function mostrarNexos() {
-  if (!win || win.isDestroyed()) return;
+  // boot ainda não criou a janela: o `whenReady` cria, não duplica aqui
+  if (!win) return;
+  // janela fechada com o processo de pé (algo segurou a saída): abre outra em vez de não fazer nada
+  if (win.isDestroyed()) {
+    if (!saindo) createWindow();
+    return;
+  }
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
@@ -1327,7 +1341,7 @@ function createTray() {
   tray.setToolTip("Nexos");
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "Abrir", click: () => win?.show() },
+      { label: "Abrir", click: () => mostrarNexos() },
       { label: "Painel de borda", click: () => alternarPainel() },
       { label: "Ligar motor", click: () => void subirMotor() },
       {
@@ -1341,7 +1355,7 @@ function createTray() {
       { label: "Sair", click: () => app.quit() },
     ]),
   );
-  tray.on("click", () => win?.show());
+  tray.on("click", () => mostrarNexos());
 }
 
 function killShell() {
@@ -1364,12 +1378,7 @@ function handle(channel, fn) {
   });
 }
 
-app.on("second-instance", () => {
-  if (!win || win.isDestroyed()) return;
-  if (win.isMinimized()) win.restore();
-  win.show();
-  win.focus();
-});
+app.on("second-instance", () => mostrarNexos());
 
 /**
  * Versão nova já extraída de uma sessão anterior (o app fechou com agente trabalhando, ou a
@@ -1476,6 +1485,8 @@ app.whenReady().then(async () => {
     if (alvo && typeof alvo.threadId === "string" && win && !win.isDestroyed()) {
       win.webContents.send("painel:abrir", { threadId: alvo.threadId, projectPath: String(alvo.projectPath ?? "") });
     }
+    // clique numa torre da ilha: o Nexos abre a aba Torre na visão geral ("geral") ou já nessa torre
+    if (alvo && typeof alvo.torre === "string" && win && !win.isDestroyed()) win.webContents.send("painel:abrir", { torre: alvo.torre.slice(0, 600) });
     return { ok: true };
   });
   /** A pessoa está com o Nexos na frente? Aí o painel não precisa espiar toda vez que um turno começa. */
@@ -1722,6 +1733,61 @@ app.whenReady().then(async () => {
    * sandbox, e o documento já vem com CSP sem script. Vai por arquivo temporário (não data:) pra
    * `<base href="file:///projeto/">` achar o logo real do projeto.
    */
+  /**
+   * Streams SSE do motor lidos aqui e repassados ao renderer (ver sse-ponte.js): no renderer eles
+   * ocupavam as 6 conexões que o Chromium permite por host e travavam todo o resto. Só o motor
+   * local (`127.0.0.1`, rota `/v1/`) — o canal não vira proxy pra qualquer URL.
+   */
+  const streamsSse = new Map();
+  /** Janela fechada ou recarregada (frame principal): os streams dela morrem juntos. */
+  const janelasComSse = new Set();
+  function vigiarJanela(wc) {
+    if (janelasComSse.has(wc.id)) return;
+    janelasComSse.add(wc.id);
+    const fecharDela = () => {
+      for (const [, st] of streamsSse) if (st.wc === wc.id) st.ac.abort();
+    };
+    wc.once("destroyed", () => {
+      fecharDela();
+      janelasComSse.delete(wc.id);
+    });
+    wc.on("did-start-navigation", (_ev, _url, isInPlace, isMainFrame) => {
+      if (isMainFrame && !isInPlace) fecharDela();
+    });
+  }
+  ipcMain.on("sse:abrir", async (e, { id, url, headers }) => {
+    const enviar = (m) => {
+      if (!e.sender.isDestroyed()) e.sender.send(`sse:${id}`, m);
+    };
+    let alvo;
+    try {
+      alvo = new URL(String(url));
+    } catch {
+      return enviar({ fim: true, erro: "url inválida" });
+    }
+    if (alvo.protocol !== "http:" || alvo.hostname !== "127.0.0.1" || !alvo.pathname.startsWith("/v1/")) {
+      return enviar({ fim: true, erro: "stream só do motor local" });
+    }
+    const ac = new AbortController();
+    streamsSse.set(id, { ac, wc: e.sender.id });
+    vigiarJanela(e.sender);
+    try {
+      const res = await fetch(alvo, { headers: headers || {}, signal: ac.signal });
+      enviar({ inicio: true, status: res.status });
+      if (!res.body) return enviar({ fim: true });
+      const dec = new TextDecoder();
+      for await (const pedaco of res.body) {
+        const dado = dec.decode(pedaco, { stream: true });
+        if (dado) enviar({ dado });
+      }
+      enviar({ fim: true });
+    } catch (err) {
+      enviar({ fim: true, ...(ac.signal.aborted ? {} : { erro: err?.message || String(err) }) });
+    } finally {
+      streamsSse.delete(id);
+    }
+  });
+  ipcMain.on("sse:fechar", (_e, id) => streamsSse.get(id)?.ac.abort());
   handle("ds:print", async (_e, { html, largura }) => {
     const larg = Math.max(320, Math.min(1600, Number(largura) || 764));
     const arquivo = join(tmpdir(), `nexos-ds-print-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.html`);
@@ -1886,6 +1952,7 @@ function avisarDoUpdate(titulo, corpo) {
 }
 
 app.on("before-quit", (event) => {
+  saindo = true;
   killShell();
   if (!updateReady || quittingForUpdate) return;
   event.preventDefault();

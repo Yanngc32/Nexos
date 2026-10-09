@@ -3,8 +3,9 @@ import { log, nivelDoLog, recarregarNivel } from "./log.ts";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
-import type { SwitchReason } from "@nexos/shared";
+import type { RunEvent, SwitchReason } from "@nexos/shared";
 import { getAgent, listAgents, removeAgent, saveAgent, type AgentInput } from "./agents.ts";
+import { usoDosSubagentes } from "./subagentes-uso.ts";
 import { loadConfig, saveConfig } from "./config.ts";
 import { clearTypesafeApiKey, hasTypesafeApiKey, pausaDoTypesafe, saveTypesafeApiKey, typesafeUsage } from "./typesafe.ts";
 import {
@@ -106,6 +107,7 @@ import {
 import { listarLixeira } from "./lixeira.ts";
 import {
   abortThread,
+  pararTurno,
   agentSnapshots,
   allLimits,
   pingUsoDaConta,
@@ -114,6 +116,7 @@ import {
   tarefasEmEspera,
   clearThread,
   dropThread,
+  estaSoEsperando,
   injetarMensagem,
   postMessage,
   retomarTurnoPendente,
@@ -136,6 +139,7 @@ import {
 import { ferramentaDeVeredito } from "./veredito.ts";
 import { ferramentaDePerguntar, responderPergunta } from "./perguntas.ts";
 import { ferramentaDeDelegar, modoDeDelegacaoDaThread } from "./delegar.ts";
+import { ferramentasDeServicos } from "./servicos-ferramentas.ts";
 import { ferramentasDeNavegador, modoDeNavegadorDaThread, responderNavegador } from "./navegador.ts";
 import { chromeBus, extensaoConectou, extensaoRecente, ferramentasDoChrome, responderChrome, statusDaExtensao } from "./chrome.ts";
 import { ferramentaDePrintDoDs, responderPrint } from "./ds-print.ts";
@@ -178,7 +182,10 @@ import {
   salvarEtiqueta,
   salvarMarco,
   salvarTarefa,
+  canalTarefas,
+  tarefasBus,
   type ColunaInput,
+  type EventoQuadro,
   type EtiquetaInput,
   type MarcoInput,
   type TarefaInput,
@@ -780,6 +787,11 @@ export function createApp(home: string, token: string): Hono {
         // de qual run de time esta conversa é passo; o painel usa pra não
         // contar duas vezes o que já aparece como passo do run
         ...(head?.runId ? { runId: head.runId } : {}),
+        // a torre separa quem senta no Salão: hook (oculta) vai pra Biblioteca, Manager pro Observatório
+        ...(head?.runTitle ? { runTitle: head.runTitle } : {}),
+        ...(head?.oculta ? { oculta: true } : {}),
+        ...(head?.planejamento ? { planejamento: head.planejamento } : {}),
+        ...(head?.handoff ? { handoff: head.handoff } : {}),
         // Nome e cor vêm daqui pro painel não ter que cruzar duas listas.
         ...(def ? { agentName: def.name, ...(def.color ? { agentColor: def.color } : {}) } : {}),
       };
@@ -790,6 +802,9 @@ export function createApp(home: string, token: string): Hono {
   /* ---------- agentes personalizados (definições) ---------- */
 
   app.get("/v1/agents/defs", (c) => c.json(listAgents(home)));
+
+  // quantas vezes o `Agent` das conversas chamou cada subagente do Nexos (tela do agente)
+  app.get("/v1/agents/subagentes/uso", (c) => c.json(usoDosSubagentes(home)));
 
   app.post("/v1/agents/defs", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as AgentInput;
@@ -1101,9 +1116,17 @@ export function createApp(home: string, token: string): Hono {
         mandarPelaPonte(c.req.param("id"), text, images, home);
         return c.json({ injetada: true, ponte: true });
       }
-      const injetada = injetarMensagem(c.req.param("id"), text, home, images);
+      const id = c.req.param("id");
+      // turno só esperando background: se o motor recusar o inject, a mensagem vira turno novo
+      // (postMessage encerra a espera) em vez de voltar pra fila atrás de até 2 h de espera
+      const esperando = estaSoEsperando(id);
+      const injetada = injetarMensagem(id, text, home, images);
+      if (!injetada && esperando) {
+        void postMessage(id, text, home, images).catch((e) => log.erro("motor", "mensagem depois da espera falhou", { threadId: id, erro: (e as Error).message }));
+        return c.json({ injetada: true });
+      }
       // aprendizados: corrigir o agente no meio do turno é sinal de correção
-      if (injetada) marcarSinal(home, { threadId: c.req.param("id"), tipo: "inject", trecho: text });
+      if (injetada) marcarSinal(home, { threadId: id, tipo: "inject", trecho: text });
       return c.json({ injetada });
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400);
@@ -1154,9 +1177,11 @@ export function createApp(home: string, token: string): Hono {
   app.post("/v1/threads/:id/abort", async (c) => {
     // aprendizados: a pessoa parou um turno em curso (sinal de correção)
     const emCurso = turnoEmCurso(c.req.param("id"));
-    await abortThread(c.req.param("id"));
+    // "travou?" quase sempre é alguém parando um turno longo: o log diz quando e se havia turno
+    log.info("motor", "turno parado pela pessoa", { threadId: c.req.param("id"), emCurso });
+    const parada = await pararTurno(c.req.param("id"), home);
     if (emCurso) marcarSinal(home, { threadId: c.req.param("id"), tipo: "parar" });
-    return c.json({ ok: true });
+    return c.json({ ok: true, reenviadas: parada.reenviadas });
   });
 
   /** "/clear": grava o corte de contexto e derruba a live em memória — não some do JSONL. */
@@ -1855,6 +1880,23 @@ export function createApp(home: string, token: string): Hono {
     const projectPath = c.req.query("projectPath") || "";
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
     return c.json(getQuadro(projectPath, home));
+  });
+
+  /** SSE: uma linha por mudança no Quadro deste projeto, com a coluna de antes e a de depois (torre). */
+  app.get("/v1/tarefas/events", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    return streamSSE(c, async (stream) => {
+      const canal = canalTarefas(projectPath);
+      const ouvir = (ev: EventoQuadro) => void stream.writeSSE({ data: JSON.stringify(ev) });
+      tarefasBus.on(canal, ouvir);
+      await new Promise<void>((resolve) => {
+        stream.onAbort(() => {
+          tarefasBus.off(canal, ouvir);
+          resolve();
+        });
+      });
+    });
   });
 
   app.post("/v1/tarefas/colunas", async (c) => {
@@ -2566,6 +2608,39 @@ export function createApp(home: string, token: string): Hono {
    * pedir a lista inteira pra isso lia todo `run.json` da máquina e serializava
    * megabytes por consulta. Aqui o caso comum não toca no disco.
    */
+  /**
+   * SSE de todos os runs (o `"*"` do bus), com o projeto e se é hook — a torre põe o bibliotecário
+   * pra escrever enquanto o hook de memória/repo map roda (dura segundos; consulta não pegaria).
+   * `projectPath` filtra.
+   */
+  app.get("/v1/runs/events", (c) => {
+    const filtro = c.req.query("projectPath") || "";
+    const doRun = new Map<string, { projectPath: string; hook: boolean; time: string } | null>();
+    const infoDoRun = (runId: string) => {
+      if (!doRun.has(runId)) {
+        const run = getRun(runId, home);
+        const time = run ? getTeam(run.teamId, home) : undefined;
+        doRun.set(runId, run ? { projectPath: run.projectPath, hook: time?.origem === "hook", time: time?.name ?? run.teamId } : null);
+      }
+      return doRun.get(runId);
+    };
+    return streamSSE(c, async (stream) => {
+      const onEv = (ev: RunEvent) => {
+        const info = infoDoRun(ev.runId);
+        if (!info) return;
+        if (filtro && projectKey(filtro) !== projectKey(info.projectPath)) return;
+        void stream.writeSSE({ data: JSON.stringify({ ...ev, ...info }) });
+      };
+      runsBus.on("*", onEv);
+      await new Promise<void>((resolve) => {
+        stream.onAbort(() => {
+          runsBus.off("*", onEv);
+          resolve();
+        });
+      });
+    });
+  });
+
   app.get("/v1/runs/atual", (c) => c.json(runAtual(home, c.req.query("projectPath") || undefined) ?? null));
 
   /**
@@ -2705,6 +2780,8 @@ export function createApp(home: string, token: string): Hono {
       ...(threadId && !runId ? ferramentaDePainel(threadId, modoNavegador, home)() : []),
       // arquivo pra pessoa baixar/abrir no preview: só onde há chat pra mostrar o cartão
       ...(threadId && !runId ? ferramentaDeEntregar(threadId, home)() : []),
+      // servidor de dev com o motor como dono (servicos-ferramentas.ts): sobrevive ao turno
+      ...(threadId && projectPath && !runId ? ferramentasDeServicos(threadId, home)() : []),
       // conversa de implementação já nasceu de um plano: não abre outro
       ...(threadId && projectPath && !runId && !impl?.handoff ? ferramentaDePlanejar(threadId, home)() : []),
       // Gate mestre: `--allowed-tools` (engines/cli.ts::profileFlags) já barra a CHAMADA

@@ -20,6 +20,8 @@ export class StubEngine implements Engine {
   private roteiro: string[] = [];
   /** Turno "ESPERA" aberto: só fecha quando chega mensagem por `inject`. */
   private esperandoInjecao = false;
+  /** Turno "GERANDO": como o CLI gerando um tool_use enorme — inject entra na fila e ninguém lê até o abort. */
+  private gerando = false;
   injetadas: string[] = [];
 
   constructor(readonly cwd: string) {
@@ -35,8 +37,10 @@ export class StubEngine implements Engine {
 
   inject(text: string): boolean {
     if (!this.esperandoInjecao || !this.handler) return false;
-    this.esperandoInjecao = false;
     this.injetadas.push(text);
+    // "GERANDO": aceita a mensagem mas segue ocupado (modelo no meio de uma ferramenta longa) — só o abort encerra
+    if (this.gerando) return true;
+    this.esperandoInjecao = false;
     // como no CLI: a resposta vem depois, pelo stream, nunca dentro da própria escrita no stdin
     const handler = this.handler;
     setTimeout(() => {
@@ -66,7 +70,10 @@ export class StubEngine implements Engine {
 
   async send(text: string): Promise<void> {
     this.lastSend = text;
-    if (this.aborted || !this.handler) return;
+    // como o CLI: turno novo depois de um abort volta a responder
+    this.aborted = false;
+    this.finished = false;
+    if (!this.handler) return;
     for (const linha of text.split("\n")) {
       if (linha.startsWith("STUB:")) this.roteiro.push(linha.slice(5).trim());
     }
@@ -151,9 +158,21 @@ export class StubEngine implements Engine {
       this.handler({ type: "text", text: "antes" });
       return;
     }
+    if (text === "GERANDO") {
+      this.gerando = true;
+      this.esperandoInjecao = true;
+      this.handler({ type: "text", text: "Agora a torre." });
+      return;
+    }
     // como o CLI com dev server em background: respondeu, turno segue aberto até chegar `inject`
     if (text === "BACKGROUND") {
       this.esperandoInjecao = true;
+      this.handler({ type: "text", text: "pronto" });
+      this.handler({ type: "em_espera", tarefas: 1 });
+      return;
+    }
+    // background com a entrada do motor já fechada: inject recusado, só o abort encerra a espera
+    if (text === "BACKGROUND_SURDO") {
       this.handler({ type: "text", text: "pronto" });
       this.handler({ type: "em_espera", tarefas: 1 });
       return;
@@ -203,6 +222,7 @@ export class StubEngine implements Engine {
   async abort(): Promise<void> {
     this.aborted = true;
     this.esperandoInjecao = false;
+    this.gerando = false;
     if (!this.finished) {
       this.finished = true;
       this.handler?.({ type: "done" });

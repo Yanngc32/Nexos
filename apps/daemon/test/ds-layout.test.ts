@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { tempHome } from "./helpers.ts";
 import { criarCardDeTipo, criarDs, estadoDs, lintCard, listarBases, mudarCard, mudarSecao } from "../src/design-system.ts";
-import { cardsDeFundamentos, KIT_MD } from "../src/ds-kit.ts";
+import { cardsDeFundamentos, KIT_CSS, KIT_MD, KIT_NO_PEDIDO } from "../src/ds-kit.ts";
 import { blocoDoDsParaPack } from "../src/ds-sync.ts";
 
 let home: string;
@@ -140,3 +140,15 @@ describe("base do design system novo", () => {
     expect(() => criarDs(outro, home, { nome: "X", base: "outra" })).toThrow(/base inválida/);
   });
 });
+
+describe("molduras de aparelho no kit", () => {
+  it("todo card já tem .k-celular, .k-notebook, .k-tela e .k-escala, e o KIT.md e o pedido de geração ensinam a usar", () => {
+    for (const cls of [".k-celular{", ".k-notebook{", ".k-celular>.k-tela{", ".k-notebook>.k-tela{", ".k-escala{"]) expect(KIT_CSS).toContain(cls);
+    for (const cor of ["laranja", "branco", "titanio", "cereja"]) expect(KIT_CSS).toContain(`.k-celular[data-cor=${cor}]`);
+    for (const cor of ["titanio", "branco", "meia-noite", "estelar"]) expect(KIT_CSS).toContain(`.k-notebook[data-cor=${cor}]`);
+    expect(KIT_MD).toContain('<div class="k-celular"><div class="k-tela">');
+    expect(KIT_MD).toContain("--k-escala");
+    expect(KIT_NO_PEDIDO).toContain(".k-notebook");
+  });
+});
+

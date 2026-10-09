@@ -213,6 +213,54 @@ function validateDef(item: unknown, projectPath: string): ServiceDef {
   };
 }
 
+export type ServicoDeclarado = { id: string; cmd: string; cwd?: string; url?: string; name?: string };
+
+/**
+ * Grava (ou atualiza, pelo `id`) um serviço no `nexos.json` do projeto — é como o agente
+ * (`nexo_servico_subir`) deixa o servidor de dev registrado pra reaproveitar depois. Preserva o
+ * resto do arquivo e o `autostart` que a pessoa já tinha. `mudou: false` quando já estava igual.
+ * Projeto só com o `nexo.json` antigo é recusado: escrever o novo esconderia os serviços de lá.
+ */
+export function declararServico(projectPath: string, novo: ServicoDeclarado): { mudou: boolean; def: ServiceDef } {
+  const raiz = resolve(projectPath);
+  const path = join(raiz, SERVICES_FILE);
+  if (!existsSync(path) && existsSync(join(raiz, SERVICES_FILE_ANTIGO))) {
+    throw new Error(`o projeto usa o ${SERVICES_FILE_ANTIGO} antigo: renomeie pra ${SERVICES_FILE} antes`);
+  }
+  let raw: Record<string, unknown> = {};
+  if (existsSync(path)) {
+    try {
+      raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    } catch (e) {
+      throw new Error(`${SERVICES_FILE} inválido: ${(e as Error).message}`);
+    }
+  }
+  const atuais = readServiceDefs(projectPath);
+  const antigo = atuais.find((d) => d.id === novo.id);
+  const def = validateDef(
+    {
+      id: novo.id,
+      cmd: novo.cmd,
+      cwd: novo.cwd ?? antigo?.cwd ?? ".",
+      ...(novo.url ?? antigo?.url ? { url: novo.url ?? antigo?.url } : {}),
+      ...(novo.name ?? antigo?.name ? { name: novo.name ?? antigo?.name } : {}),
+      ...(antigo?.autostart ? { autostart: true } : {}),
+      ...(antigo?.env ? { env: antigo.env } : {}),
+    },
+    projectPath,
+  );
+  if (antigo && JSON.stringify(antigo) === JSON.stringify(def)) return { mudou: false, def };
+  const lista = Array.isArray(raw.services) ? (raw.services as unknown[]) : [];
+  const i = lista.findIndex((s) => (s as { id?: unknown })?.id === def.id);
+  const gravado: Record<string, unknown> = { ...(i >= 0 ? (lista[i] as Record<string, unknown>) : {}), ...def };
+  if (!def.autostart) delete gravado.autostart;
+  if (i >= 0) lista[i] = gravado;
+  else lista.push(gravado);
+  writeFileSync(path, `${JSON.stringify({ ...raw, services: lista }, null, 2)}
+`, "utf8");
+  return { mudou: true, def };
+}
+
 /** Mesma regra do boundPath do desktop: serviço não roda fora da pasta do projeto. */
 function assertInsideProject(cwd: string, projectPath: string, id: string): void {
   const root = resolve(projectPath);

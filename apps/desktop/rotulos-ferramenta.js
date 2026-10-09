@@ -44,6 +44,12 @@ const GRUPOS = [
     ico: "☰",
     acoes: { listar: "lendo o quadro", salvar: "atualizando card", checklist: "checklist", comentar: "comentando", commits: "ligando commits" },
   },
+  {
+    prefixo: "nexo_servico_",
+    grupo: "Servidor local",
+    ico: "▶",
+    acoes: { subir: "subindo", parar: "parando", listar: "listando" },
+  },
 ];
 
 const AVULSAS = {

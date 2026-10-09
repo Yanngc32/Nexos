@@ -79,13 +79,14 @@ function avisarCanvas(projectPath: string, ativo: string | null): void {
 /**
  * Ferramentas do design system pra conversa de projeto: listar, criar (ex.: "Mocks" copiando o
  * visual do ativo, pra montar uma tela de teste), ativar, salvar card e ver o card renderizado.
- * Criar/listar existem mesmo sem DS; salvar e print só com um ativo.
+ * Todas aparecem mesmo sem DS ativo: o CLI recebe a lista de ferramentas UMA vez, no começo da
+ * sessão — esconder salvar/print sem DS deixava sem elas a conversa que criou o DS no meio do
+ * caminho ("nexo_ds_print não existe nas minhas ferramentas"). Sem DS, elas respondem dizendo isso.
  */
 export function ferramentaDePrintDoDs(threadId: string, projectPath: string, home: string): Conjunto {
   return () => {
-    let ds;
     try {
-      ds = estadoDs(projectPath, home).ds;
+      estadoDs(projectPath, home);
     } catch (e) {
       // as ferramentas nexo_ds_* somem do menu do agente: fica no log (uma vez por projeto e motivo)
       log.avisoUmaVez(`ds-ferramentas:${projectPath}:${(e as Error).message}`, "ds", `ferramentas do design system fora da conversa: não consegui ler o DS de ${projectPath}`, {
@@ -194,7 +195,6 @@ export function ferramentaDePrintDoDs(threadId: string, projectPath: string, hom
         },
       },
     ];
-    if (!ds) return gestao;
     return [
       ...gestao,
       {
@@ -242,7 +242,7 @@ export function ferramentaDePrintDoDs(threadId: string, projectPath: string, hom
         },
         executar: async (args: Record<string, unknown>): Promise<Saida> => {
           const atual = estadoDs(projectPath, home).ds;
-          if (!atual) return { ok: false, texto: "este projeto não tem design system" };
+          if (!atual) return { ok: false, texto: "este projeto não tem design system ativo — crie com nexo_ds_criar ou ative com nexo_ds_ativar" };
           const todos = [
             ...atual.fundamentos.map((f) => ({ id: f.id, secao: "fundamentos", largura: f.largura ?? "1/2", avisos: 0 })),
             ...atual.cards.map((c) => ({ id: c.id, secao: c.secao, largura: c.largura ?? "1/2", avisos: c.lint.length })),

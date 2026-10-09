@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { addProfile, markReady, updateProfile } from "../src/profiles.ts";
+import { saveAgent } from "../src/agents.ts";
 import { claudeEngine, codexEngine, FECHAMENTO_NO_PACK, LEMBRETE_DE_FECHAMENTO, parseCliLine } from "../src/engines/cli.ts";
 import { contextWindowOf, toolSummary } from "../src/engines/parse-claude.ts";
 import { spawnCwd } from "../src/project-cwd.ts";
@@ -1063,5 +1064,42 @@ describe("motor codex", () => {
   it("sem MCP não sobra flag de MCP no argv", async () => {
     const { engine } = await turno(tempHome());
     expect(engine.lastArgs).not.toContain("-c");
+  });
+});
+
+describe("subagentes do Nexos no argv (--agents)", () => {
+  async function engineCom(home: string, extra: Record<string, unknown>) {
+    addProfile({ id: "c-sub", engine: "claude" }, home, { skipBinCheck: true });
+    markReady("c-sub", home);
+    saveAgent({ id: "revisor", name: "Revisor", profileId: "c-sub", description: "revisa diff", instructions: "seja seco", subagente: true }, home);
+    process.env.NEXOS_CLAUDE_BIN = fake;
+    const engine = claudeEngine(home, "c-sub");
+    await engine.start({ threadId: "t-sub", projectPath: spawnCwd("."), profileId: "c-sub", contextPack: "", ...extra }, () => {});
+    return engine;
+  }
+
+  it("conversa normal recebe o arquivo com os agentes ligados", async () => {
+    const home = tempHome();
+    try {
+      const engine = await engineCom(home, { subagentesDoNexos: true });
+      const i = engine.lastArgs.indexOf("--agents");
+      expect(i).toBeGreaterThan(-1);
+      const defs = JSON.parse(readFileSync(engine.lastArgs[i + 1]!, "utf8"));
+      expect(defs).toEqual({ revisor: { description: "revisa diff", prompt: "seja seco" } });
+    } finally {
+      delete process.env.NEXOS_CLAUDE_BIN;
+    }
+  });
+
+  it("sem a marca da conversa, ou somente leitura, não vai", async () => {
+    for (const extra of [{}, { subagentesDoNexos: true, somenteLeitura: true }]) {
+      const home = tempHome();
+      try {
+        const engine = await engineCom(home, extra);
+        expect(engine.lastArgs).not.toContain("--agents");
+      } finally {
+        delete process.env.NEXOS_CLAUDE_BIN;
+      }
+    }
   });
 });

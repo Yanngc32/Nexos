@@ -18,7 +18,7 @@ const texto = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
 /** Caminho relativo vale a partir de onde o agente trabalha: a worktree da conversa, senão o projeto. */
-function pastaDaConversa(threadId: string, home: string): string {
+export function pastaDaConversa(threadId: string, home: string): string {
   const meta = readThread(threadId, home).find((e) => e.type === "thread_meta");
   if (meta?.type !== "thread_meta") return "";
   return meta.worktreeDir || meta.projectPath || "";

@@ -1,5 +1,6 @@
 import {
   AGENT_INSTRUCTIONS_MAX,
+  SUBAGENTES_MAX,
   EFFORT_LEVELS,
   PERMISSION_MODES,
   TEAM_CANAIS,
@@ -87,7 +88,7 @@ export function ferramentasDeAutoria(home: string): Conjunto {
             "",
             "## Agentes",
             agentes.length
-              ? agentes.map((a) => `- ${a.id} — ${a.name} (conta ${a.profileId})`).join("\n")
+              ? agentes.map((a) => `- ${a.id} — ${a.name} (conta ${a.profileId})${a.subagente ? " [subagente das conversas]" : ""}`).join("\n")
               : "- nenhum",
             "",
             "## Times",
@@ -147,6 +148,16 @@ export function ferramentasDeAutoria(home: string): Conjunto {
             model: { type: "string" },
             effort: { type: "string", enum: [...EFFORT_LEVELS] },
             permissionMode: { type: "string", enum: [...PERMISSION_MODES] },
+            subagente: {
+              type: "boolean",
+              description:
+                `true = vira subagente nativo das conversas (ferramenta Agent). Exige \`description\` dizendo QUANDO chamar; no máximo ${SUBAGENTES_MAX} ligados.`,
+            },
+            projetos: {
+              type: "array",
+              items: { type: "string" },
+              description: "pastas de projeto onde o subagente aparece; vazio = em todas",
+            },
           },
           required: ["id", "name", "profileId"],
           additionalProperties: false,

@@ -14,10 +14,11 @@ import {
 import type { Engine, EngineHandler, EngineMcp } from "./types.ts";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { attachmentsDir, enginePidPath, globalChatDir, globalSkillsDir, instrucoesPath } from "../home.ts";
+import { attachmentsDir, enginePidPath, globalChatDir, globalSkillsDir, instrucoesPath, subagentesPath } from "../home.ts";
 import { killTreeAsync } from "../kill-tree.ts";
 import { spawnCwd } from "../project-cwd.ts";
-import { agentOverrides } from "../agents.ts";
+import { agentOverrides, definicoesDeSubagentes, subagentesDaConversa } from "../agents.ts";
+import { log } from "../log.ts";
 import { loadConfig } from "../config.ts";
 import { engineEnv, engineSpawnEnv, getProfile } from "../profiles.ts";
 import { skillsDesligadasNoProjeto, syncGlobalSkills } from "../skills.ts";
@@ -252,6 +253,8 @@ export class CliEngine implements Engine {
   private mcpHttp?: { url: string; token: string };
   /** Ver `StartOpts.somenteLeitura`. */
   private somenteLeitura = false;
+  /** Ver `StartOpts.subagentesDoNexos`. */
+  private subagentesDoNexos = false;
   private aborted = false;
   private finished = false;
   /** Sessão do CLI `claude` pra `--resume`. Vazio = pack no stdin, como antes. */
@@ -284,6 +287,7 @@ export class CliEngine implements Engine {
     this.mcpTools = opts.mcpTools;
     this.mcpHttp = opts.mcpHttp;
     this.somenteLeitura = opts.somenteLeitura === true;
+    this.subagentesDoNexos = opts.subagentesDoNexos === true;
     this.syncArgs();
     this.extra = engineEnv(profile, this.home);
     this.spawnEnv = engineSpawnEnv(profile, this.home);
@@ -375,6 +379,7 @@ export class CliEngine implements Engine {
         ...(this.somenteLeitura ? FERRAMENTAS_NEGADAS_SO_LEITURA : []),
       ];
       if (off.length) this.args.push("--disallowed-tools", ...off);
+      this.args.push(...this.subagentesFlags());
     }
     this.lastArgs = this.args;
     // Skill de `~/.nexos/skills` só chega no motor se estiver dentro do CLAUDE_CONFIG_DIR
@@ -388,6 +393,30 @@ export class CliEngine implements Engine {
         if (loadConfig(this.home).modulos.rtk) void syncRtkHook(dir);
       }
     }
+  }
+
+  /**
+   * Agentes do Nexos marcados como subagente viram `subagent_type` da ferramenta `Agent` do
+   * `claude` — o caminho que o modelo já usa (Explore etc.). O `nexo_delegar` sozinho nunca era
+   * escolhido: ferramenta adiada, sem a lista de quem existe, e com confirmação a cada chamada.
+   *
+   * Vai por ARQUIVO (`--agents <arquivo>` só vale com `--print`, que é o caso): instruções longas
+   * no argv estourariam a linha de comando no Windows. Refeito a cada envio, então ligar, desligar
+   * ou editar o agente vale no próximo turno, inclusive em sessão retomada (`--agents` não fica
+   * gravado na sessão do CLI). Conversa somente leitura não ganha: `Agent` é negado nela.
+   */
+  private subagentesFlags(): string[] {
+    if (!this.subagentesDoNexos || this.somenteLeitura || !this.threadId) return [];
+    const defs = subagentesDaConversa(this.home, this.projectPath, this.agentId);
+    if (!defs.length) return [];
+    const arquivo = subagentesPath(this.threadId, this.home);
+    try {
+      writeFileSync(arquivo, JSON.stringify(definicoesDeSubagentes(defs), null, 2), "utf8");
+    } catch (err) {
+      log.avisoUmaVez(`subagentes-arquivo:${this.threadId}`, "subagentes", "não consegui gravar o --agents da conversa", { threadId: this.threadId, erro: String(err) });
+      return [];
+    }
+    return ["--agents", arquivo];
   }
 
   /**

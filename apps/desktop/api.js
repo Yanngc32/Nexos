@@ -13,6 +13,9 @@
 /** Mesmo padrão do daemon. Vale só até o primeiro `aplicar`, mas evita depender da ordem do boot. */
 const PORTA_PADRAO = 7432;
 
+/** Prazo padrão de leitura (GET) — ver `req`. */
+const PRAZO_LEITURA_MS = 30_000;
+
 export function createApiClient({ daemonInfo, onInfo = () => {}, fetchImpl = fetch }) {
   let port = PORTA_PADRAO;
   let token = "";
@@ -51,11 +54,32 @@ export function createApiClient({ daemonInfo, onInfo = () => {}, fetchImpl = fet
    * cara do usuário até o próximo poll.
    */
   async function req(path, opts = {}) {
-    const chamar = () => fetchImpl(api(path), { ...opts, headers: { ...headers(), ...opts.headers } });
+    // Leitura nunca deveria demorar: GET parado (motor congelado, conexão presa) segurava a tela
+    // pra sempre — o Canvas do DS ficava sem trocar de design. Escrita fica sem prazo: o POST de
+    // mensagem espera o turno inteiro.
+    const leitura = !opts.method || String(opts.method).toUpperCase() === "GET";
+    const prazoMs = opts.prazoMs ?? (leitura ? PRAZO_LEITURA_MS : 0);
+    let estourou = false;
+    const chamar = () => {
+      if (!prazoMs) return fetchImpl(api(path), { ...opts, headers: { ...headers(), ...opts.headers } });
+      const ac = new AbortController();
+      const timer = setTimeout(() => {
+        estourou = true;
+        ac.abort();
+      }, prazoMs);
+      const repassar = () => ac.abort();
+      opts.signal?.addEventListener?.("abort", repassar, { once: true });
+      return fetchImpl(api(path), { ...opts, signal: ac.signal, headers: { ...headers(), ...opts.headers } }).finally(() => {
+        clearTimeout(timer);
+        opts.signal?.removeEventListener?.("abort", repassar);
+      });
+    };
     let res;
     try {
       res = await chamar();
     } catch (e) {
+      if (estourou) throw new Error("O motor demorou demais pra responder. Tenta de novo.");
+      if (opts.signal?.aborted) throw e;
       if (!(await renovarCredenciais())) {
         throw new Error("O motor não está respondendo. Liga o motor e tenta de novo.");
       }

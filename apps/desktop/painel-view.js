@@ -113,9 +113,10 @@ export function linhasDeAtividade(agentes, terminadas = new Map(), agora = Date.
   }
   for (const [threadId, t] of terminadas) {
     if (vistos.has(threadId)) continue;
-    linhas.push({ ...t, threadId, estado: "terminou", ms: 0, passos: [] });
+    // `parou`: a pessoa parou o turno — não é "terminou", a ilha não comemora
+    linhas.push({ ...t, threadId, estado: t.parou ? "parou" : "terminou", ms: 0, passos: [] });
   }
-  const ordem = { esperando: 0, trabalhando: 1, terminou: 2 };
+  const ordem = { esperando: 0, trabalhando: 1, terminou: 2, parou: 2 };
   return linhas.sort((a, b) => ordem[a.estado] - ordem[b.estado]);
 }
 
@@ -204,20 +205,22 @@ export function transicoes(antes, agora) {
   const terminou = [];
   const esperando = [];
   const comecou = [];
+  const parou = [];
   for (const a of Array.isArray(agora) ? agora : []) {
     const era = eram.get(a.threadId);
     const e = estadoDoAgente(a);
     if (e === "esperando" && era !== "esperando") esperando.push(a);
     // voltar de uma pergunta respondida não é "começou": a conversa já estava em voo
     if (e === "trabalhando" && era !== "trabalhando" && era !== "esperando") comecou.push(a);
-    if (e === "parado" && (era === "trabalhando" || era === "esperando") && a.lastTerminal !== "error") terminou.push(a);
+    // `parado` no retrato = a pessoa apertou Parar: avisa como parada, não como "terminou"
+    if (e === "parado" && (era === "trabalhando" || era === "esperando") && a.lastTerminal !== "error") (a.parado ? parou : terminou).push(a);
   }
   // conversa em voo que sumiu da lista (motor fechou) também terminou
   const ids = new Set((Array.isArray(agora) ? agora : []).map((a) => a.threadId));
   for (const a of Array.isArray(antes) ? antes : []) {
     if (!ids.has(a.threadId) && estadoDoAgente(a) === "trabalhando") terminou.push(a);
   }
-  return { terminou, esperando, comecou };
+  return { terminou, esperando, comecou, parou };
 }
 
 /**

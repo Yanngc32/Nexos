@@ -87,6 +87,12 @@ describe("transicoes", () => {
     expect(r.terminou.map((a) => a.threadId)).toEqual(["2"]);
   });
 
+  it("turno parado pela pessoa sai como `parou`, não como terminou", () => {
+    const r = transicoes([t("1", true), t("2", true)], [{ ...t("1", false, false, "done"), parado: true }, t("2", false, false, "done")]);
+    expect(r.parou.map((a) => a.threadId)).toEqual(["1"]);
+    expect(r.terminou.map((a) => a.threadId)).toEqual(["2"]);
+  });
+
   it("esperando que continua esperando não repete", () => {
     expect(transicoes([t("1", true, true)], [t("1", true, true)]).esperando).toEqual([]);
   });

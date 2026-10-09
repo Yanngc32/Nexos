@@ -1,4 +1,5 @@
 import { createApiClient } from "./api.js";
+import { MAGO_ILHA, passoDoClipe } from "./sprites.js";
 import { Ilha, caixaDaIlha, faixaDeDespertar, tamanhoDaIlha, ILHA } from "./painel-ilha.js";
 import {
   celulasDeConta,
@@ -10,6 +11,12 @@ import {
   transicoes,
   VISTA_VALE_MS,
 } from "./painel-view.js";
+import { TORRES_NA_FAIXA, conversaEsperando, torresDaIlha } from "./painel-torres.js";
+import { PALETA } from "./torre/arte.js";
+import { pintorDeCanvas } from "./torre/pintor-canvas.js";
+import { pintarTorreMini } from "./torre/render.js";
+import { mascaraDoIcone } from "./torre/arte.js";
+import { miniDaTorre } from "./torre/visao.js";
 
 /**
  * Painel de borda no estilo ilha: recolhida é um traço na borda da tela, compacta mostra o mago e
@@ -46,6 +53,8 @@ let alvo = "";
 let foco = "";
 let ligado = false;
 let dados = { contas: [], agentes: [] };
+/** As torres ativas (painel-torres.js), recalculadas a cada pintura a partir do retrato. */
+let torresIlha = { torres: [], ativas: 0, esperando: false, primeiraEsperando: "", aria: "Torres: nenhum projeto ativo" };
 let agentesAntes = null;
 let limitesAntes = null;
 /** threadId → { projectPath, projeto, nome, resumo }: terminou e ninguém abriu ainda. */
@@ -105,14 +114,7 @@ function tocar(tipo) {
  * Os mesmos quadros do maguinho da janela principal (pets/nexo/mago), em clipes curtos: aqui ele
  * é só indicador de estado. Só anima com a ilha à vista — recolhida, não roda timer nenhum.
  */
-const MAGO = {
-  off: [["off", 0]],
-  parado: [["idle", 2600], ["idle-breath", 700], ["idle", 1800], ["idle-blink-half", 70], ["idle-blink", 110], ["idle-blink-half", 70]],
-  trabalhando: [["work", 240], ["work-tap-a", 90], ["work-on", 110], ["work-tap-b", 90], ["work-dim", 70], ["work-tap-a-on", 90], ["work", 200], ["work-tap-b", 90], ["work-blink", 120]],
-  esperando: [["wait-0", 900], ["wait-1", 650], ["wait-2", 650], ["wait-3", 650], ["wait-blink", 110], ["wait-3", 650], ["wait-flip", 260]],
-  // o pulinho acontece uma vez; depois ele fica parado
-  terminou: [["done-rest", 200], ["done-squat", 120], ["done-jump", 90], ["done-high", 140], ["done-high", 140], ["done-land", 110], ["idle", 0]],
-};
+const MAGO = MAGO_ILHA;
 const mago = { estado: "", quadro: "", i: 0, timer: 0 };
 
 function quadroDoMago(nome) {
@@ -121,8 +123,7 @@ function quadroDoMago(nome) {
 }
 
 function passoDoMago() {
-  const clipe = MAGO[mago.estado] ?? MAGO.parado;
-  const [nome, ms] = clipe[mago.i % clipe.length];
+  const { nome, ms } = passoDoClipe(MAGO[mago.estado] ?? MAGO.parado, mago.i);
   mago.quadro = nome;
   quadroDoMago(nome);
   mago.i += 1;
@@ -146,6 +147,70 @@ function animarMago(estado) {
     // a visão foi repintada: a imagem nova precisa do quadro que já estava na tela
     quadroDoMago(mago.quadro);
   }
+}
+
+/* ---------------- torres (arte pixel em canvas) ---------------- */
+
+/** Torre em miniatura (15×26 px de arte × `escala`); `data-sig` entra no `innerHTML` pra a visão repintar quando as janelas mudam. */
+function canvasDaTorre(t, escala) {
+  const c = document.createElement("canvas");
+  c.width = 15 * escala;
+  c.height = 26 * escala;
+  c.className = "px";
+  c.dataset.sig = JSON.stringify([t.cor, t.janelas]);
+  c.setAttribute("aria-hidden", "true");
+  const ctx = c.getContext("2d");
+  if (ctx) pintarTorreMini(pintorDeCanvas(ctx, escala), 0, 0, miniDaTorre(t), 0);
+  return c;
+}
+
+function canvasDoIcone(nome, escala) {
+  const c = document.createElement("canvas");
+  const m = mascaraDoIcone(nome);
+  c.width = 9 * escala;
+  c.height = 11 * escala;
+  c.className = "px";
+  c.setAttribute("aria-hidden", "true");
+  const ctx = c.getContext("2d");
+  if (ctx && m) pintorDeCanvas(ctx, escala).masc(`icone:${nome}`, m, PALETA, 0, 0);
+  return c;
+}
+
+const TORRE_APAGADA = { cor: -1, janelas: {} };
+let ultimaTorreCompacta = "";
+
+/** Ícone de torre + nº de torres ativas (+ "?" em warning se alguém espera). Só repinta quando muda. */
+function pintarTorresCompacto() {
+  const t = torresIlha.torres[0] ?? TORRE_APAGADA;
+  const sig = JSON.stringify([ligado, torresIlha.ativas, torresIlha.esperando, t.cor, t.janelas]);
+  const caixa = el("c-torres");
+  caixa.setAttribute("aria-label", ligado ? torresIlha.aria : "Torres: motor desligado");
+  caixa.dataset.apagada = ligado && torresIlha.ativas ? "0" : "1";
+  if (sig === ultimaTorreCompacta) return;
+  ultimaTorreCompacta = sig;
+  const nos = [canvasDaTorre(ligado ? t : TORRE_APAGADA, 1)];
+  if (ligado && torresIlha.esperando) {
+    const q = canvasDoIcone("pergunta", 1);
+    q.classList.add("q");
+    nos.push(q);
+  }
+  if (ligado && torresIlha.ativas) nos.push(h("b", {}, String(torresIlha.ativas)));
+  caixa.replaceChildren(...nos);
+}
+
+/** Faixa da ilha aberta: as torres com atividade (no máximo 4), cada uma um botão que abre o Nexos nela. */
+function faixaDeTorres() {
+  const lista = torresIlha.torres.slice(0, TORRES_NA_FAIXA);
+  if (!lista.length) return null;
+  const faixa = h("div", { class: "cartao faixa", role: "group", "aria-label": torresIlha.aria });
+  for (const t of lista) {
+    const espera = conversaEsperando(t);
+    const q = espera ? h("span", { class: "q", role: "button", "aria-label": `Abrir a conversa que espera você em ${t.nome}`, data: { acao: "torre-pergunta", thread: espera.threadId, projeto: espera.projectPath } }, canvasDoIcone("pergunta", 2)) : null;
+    faixa.append(
+      h("button", { type: "button", class: "ft", title: t.nome, "aria-label": `Abrir a torre ${t.nome}`, data: { acao: "torre", chave: t.chave } }, q, canvasDaTorre(t, 2), h("span", {}, t.nome)),
+    );
+  }
+  return faixa;
 }
 
 /* ---------------- montagem ---------------- */
@@ -220,6 +285,7 @@ function anelDaConta(c, pequeno) {
 const SELO = {
   esperando: ["esperando você", [["circle", { cx: 12, cy: 12, r: 9 }], ["path", { d: "M12 7v6M12 16.5v.5" }]]],
   terminou: ["terminou", [["path", { d: "M5 12.5l4.5 4.5L19 7.5" }]]],
+  parou: ["parado por você", [["rect", { x: 7, y: 7, width: 10, height: 10, rx: 1.5 }]]],
 };
 /** Estado com ícone E texto: a cor sozinha não pode ser o único sinal. */
 function selo(estado) {
@@ -229,6 +295,9 @@ function selo(estado) {
 
 const magoImg = (pequeno) => h("img", { class: pequeno ? "mago p" : "mago", "data-mago": true, alt: "" });
 const botao = (texto, acao, extra = {}, cls = "btn") => h("button", { type: "button", class: cls, data: { acao, ...extra } }, texto);
+
+/** Estados de linha que já não estão rodando (contam como "acabou", não como conversa em voo). */
+const ACABOU = new Set(["terminou", "parou"]);
 
 function estadoGeral(linhas) {
   if (linhas.some((l) => l.estado === "esperando")) return "esperando";
@@ -247,9 +316,10 @@ function pintarCompacto(linhas, celulas) {
   else if (!l) dois("Nada rodando");
   else if (l.estado === "esperando") dois("Esperando você", l.nome);
   else if (l.estado === "terminou") dois("Terminou", l.nome);
+  else if (l.estado === "parou") dois("Parado por você", l.nome);
   else if (l.passos[0]) dois(l.passos[0].verbo, l.passos[0].curto);
   else dois("Pensando", l.nome);
-  const rodando = linhas.filter((x) => x.estado !== "terminou").length;
+  const rodando = linhas.filter((x) => !ACABOU.has(x.estado)).length;
   el("c-mais").classList.toggle("hidden", rodando < 2);
   el("c-mais").textContent = `+${rodando - 1}`;
   el("c-mais").title = `${rodando} conversas rodando`;
@@ -291,9 +361,9 @@ function cartaoDoFoco(l) {
 
 function visaoGeral(linhas, celulas) {
   const emFoco = linhas.find((l) => l.threadId === foco) ?? linhas[0];
-  const rodando = linhas.filter((l) => l.estado !== "terminou").length;
+  const rodando = linhas.filter((l) => !ACABOU.has(l.estado)).length;
   const lista = h("div", { class: "cartao col" }, h("span", { class: "rot" }, rodando ? `Conversas · ${rodando} rodando` : "Conversas"));
-  const rotulo = { esperando: "esperando você", terminou: "terminou" };
+  const rotulo = { esperando: "esperando você", terminou: "terminou", parou: "parado por você" };
   for (const l of linhas.slice(0, MAX_LINHAS)) {
     lista.append(
       h(
@@ -318,7 +388,7 @@ function visaoGeral(linhas, celulas) {
       ),
     );
   }
-  return [cartaoDoFoco(emFoco), lista];
+  return [faixaDeTorres(), cartaoDoFoco(emFoco), lista].filter(Boolean);
 }
 
 function visaoDaConta(c) {
@@ -385,7 +455,7 @@ function visaoDoFim(l) {
       h(
         "div",
         { class: "inf" },
-        h("div", { class: "tit" }, h("span", { class: "n" }, l.nome), h("small", {}, l.projeto), selo("terminou")),
+        h("div", { class: "tit" }, h("span", { class: "n" }, l.nome), h("small", {}, l.projeto), selo(l.estado === "parou" ? "parou" : "terminou")),
         l.resumo ? h("p", { class: "texto sec" }, l.resumo) : null,
         h("div", { class: "acoes" }, botao("Abrir conversa", "abrir", abrir, "btn pri"), botao("Dispensar", "dispensar", { thread: l.threadId })),
       ),
@@ -411,7 +481,7 @@ function conferirVisao(linhas, celulas) {
       }
     }
   } else if (visao === "fim") {
-    if (!linhas.some((l) => l.threadId === alvo && l.estado === "terminou")) some();
+    if (!linhas.some((l) => l.threadId === alvo && ACABOU.has(l.estado))) some();
   } else if (visao === "conta") {
     if (!celulas.some((c) => c.id === alvo)) some();
   }
@@ -464,6 +534,7 @@ function pintar() {
   document.documentElement.style.setProperty("--opac", `${Math.round((opac >= 0.3 && opac <= 1 ? opac : 1) * 100)}%`);
   const celulas = ligado ? celulasDeConta(dados.contas, agora, prefs) : [];
   const linhas = ligado ? linhasDeAtividade(dados.agentes, terminadas, agora) : [];
+  torresIlha = ligado ? torresDaIlha(dados.agentes, agora) : { torres: [], ativas: 0, esperando: false, primeiraEsperando: "", aria: "Torres: motor desligado" };
   conferirVisao(linhas, celulas);
 
   body.dataset.borda = borda;
@@ -472,6 +543,7 @@ function pintar() {
   body.dataset.atividade = estadoGeral(linhas);
   body.dataset.ligado = ligado ? "1" : "0";
 
+  pintarTorresCompacto();
   pintarCompacto(linhas, celulas);
   if (ilha.modo === "aberto") pintarVisao(linhas, celulas);
   pintarContagem();
@@ -515,26 +587,29 @@ function abrirPergunta(threadId, pinado = true) {
 
 async function notar(transicao) {
   const terminou = naoVistas(transicao.terminou, vistas);
+  // parada pela pessoa: entra na lista com o selo "parado por você", sem som de "terminei"
+  const parou = naoVistas(transicao.parou ?? [], vistas);
   const esperando = transicao.esperando.filter((a) => !dispensadas.has(a.threadId));
-  for (const a of terminou) {
+  for (const a of [...terminou, ...parou]) {
     const antes = agentesAntes?.find((x) => x.threadId === a.threadId);
     terminadas.set(a.threadId, {
       projectPath: a.projectPath ?? "",
       projeto: a.projectPath ? a.projectPath.replace(/[\\/]+$/, "").replace(/^.*[\\/]/, "") : "sem projeto",
       nome: a.agentName || a.preview || a.profileId || "conversa",
       resumo: resumoDoFim(antes?.tail),
+      ...(a.parado ? { parou: true } : {}),
     });
   }
   while (terminadas.size > MAX_TERMINADAS) terminadas.delete(terminadas.keys().next().value);
 
-  if (terminou.length || esperando.length) {
-    if (esperando.length ? prefs.somAoPedir : prefs.somAoTerminar) tocar(esperando.length ? "pedir" : "fim");
+  if (terminou.length || parou.length || esperando.length) {
+    if (esperando.length ? prefs.somAoPedir : prefs.somAoTerminar && terminou.length) tocar(esperando.length ? "pedir" : "fim");
     if (prefs.espiar > 0 && prefs.mostrar !== "desligado") {
-      // pergunta pede ação: abre e fica. "Terminou" só espia — e nunca por cima de uma pergunta aberta
+      // pergunta pede ação: abre e fica. "Terminou"/"parou" só espia — e nunca por cima de uma pergunta aberta
       if (esperando.length) abrirPergunta(esperando[0].threadId);
       else if (!ilha.pinado) {
         visao = "fim";
-        alvo = terminou[0].threadId;
+        alvo = (terminou[0] ?? parou[0]).threadId;
         ilha.abrir({ ms: prefs.espiar * 1000 });
       }
     }
@@ -691,6 +766,9 @@ const ACOES = {
     if (l?.estado === "esperando") abrirPergunta(d.thread, false);
   },
   "ver-pergunta": (d) => abrirPergunta(d.thread, false),
+  torres: () => void window.nexo.painelAbrir({ torre: "geral" }),
+  torre: (d) => void window.nexo.painelAbrir({ torre: d.chave || "geral" }),
+  "torre-pergunta": (d) => void window.nexo.painelAbrir({ threadId: d.thread, projectPath: d.projeto ?? "" }),
   conta: (d) => {
     visao = "conta";
     alvo = d.conta;

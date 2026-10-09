@@ -10,11 +10,16 @@ import { ferramentaDePrintDoDs, resetPrintForTest, responderPrint } from "../src
 afterEach(() => resetPrintForTest());
 
 describe("nexo_ds_print", () => {
-  it("some sem DS; sem card lista; card inexistente recusa; com card pede ao app e devolve a imagem", async () => {
+  it("sem DS aparece e explica; sem card lista; card inexistente recusa; com card pede ao app e devolve a imagem", async () => {
     const home = tempHome();
     const proj = mkdtempSync(join(tmpdir(), "nexo-print-"));
-    // sem DS: só dá pra listar, criar, ativar e gravar mock
-    expect(ferramentaDePrintDoDs("t1", proj, home)().map((x) => x.name)).toEqual(["nexo_ds_listar", "nexo_ds_criar", "nexo_ds_ativar", "nexo_mock_salvar"]);
+    // sem DS a lista é a mesma: o CLI só lê a lista no começo da sessão, e o DS pode nascer no meio dela
+    const semDs = ferramentaDePrintDoDs("t1", proj, home)();
+    expect(semDs.map((x) => x.name)).toEqual(["nexo_ds_listar", "nexo_ds_criar", "nexo_ds_ativar", "nexo_mock_salvar", "nexo_ds_card_salvar", "nexo_ds_print"]);
+    const printSemDs = await semDs.find((x) => x.name === "nexo_ds_print")!.executar({});
+    expect(printSemDs.ok).toBe(false);
+    expect(printSemDs.texto).toMatch(/nexo_ds_criar/);
+    expect((await semDs.find((x) => x.name === "nexo_ds_card_salvar")!.executar({ titulo: "x", html: "<p>x</p>" })).ok).toBe(false);
     criarDs(proj, home, { nome: "Teste" });
     const f = ferramentaDePrintDoDs("t1", proj, home)().find((x) => x.name === "nexo_ds_print");
 
