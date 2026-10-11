@@ -6,9 +6,15 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Adicionado
 
+- Torre: telhado em cone de mago (telhas com lado da luz e da sombra), água-furtada que acende com a torre ativa, chaminé que solta fumaça com mago trabalhando e cristal pulsando na ponta do mastro.
+
 ### Corrigido
 
+- Motor deixa de travar (e ser reiniciado pelo app) ao listar tarefas e planos guardados no Google Drive: a leitura agora é assíncrona, e arquivo só-na-nuvem atrasa só aquela resposta.
+
 ### Alterado
+
+- Torre: o cenário parado é pintado uma vez numa camada própria; a cada quadro só o que anima é repintado, e a sombra da dungeon sai em faixas em vez de célula por célula.
 
 ## [0.17.0] - 2026-10-09
 

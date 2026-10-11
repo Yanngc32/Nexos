@@ -32,7 +32,9 @@ export const ANDARES = [
   { id: "atelie", rotulo: "Ateliê", h: 40 },
   { id: "porao", rotulo: "Porão", h: 30 },
 ];
-const TELHADO_H = 34;
+/** Cone do telhado: começa logo abaixo do topo do mastro do estandarte e desce até o beiral. */
+const TELHADO_CONE = { y: 10, h: 70 };
+const TELHADO_H = TELHADO_CONE.y + TELHADO_CONE.h + 3;
 
 /**
  * A cena inteira. `faixas` = quantas faixas de dungeon (≥ 1: sem explorador ela fica lá, escura).
@@ -78,7 +80,7 @@ export function cenaDaTorre({ faixas = 1, contas = 0 } = {}) {
     w: CENA_W,
     h,
     torre: { x: MARGEM, w: TORRE_W, topo: TELHADO_H - 2 },
-    telhado: { y: 0, h: TELHADO_H, estandarte: { x: MARGEM + TORRE_W / 2 - 1, y: 0 } },
+    telhado: { y: 0, h: TELHADO_H, cone: TELHADO_CONE, estandarte: { x: MARGEM + TORRE_W / 2 - 1, y: 1 } },
     andares,
     mesas,
     escada: { x: x0, w: ESCADA_W },
