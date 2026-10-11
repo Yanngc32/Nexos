@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 
 /**
  * Leitura de texto revalidada por `stat` (mtime em ns + tamanho). Os dados do projeto moram no
@@ -7,25 +8,47 @@ import { readFileSync, statSync } from "node:fs";
  * com Edit, outro aparelho) muda o mtime e é relida na hora; quem grava pelo motor chama
  * `esquecerTexto` (pega até a troca dentro do mesmo instante, com o mesmo tamanho).
  */
-const cache = new Map<string, { marca: string; texto: string }>();
+type Lido = { texto: string; marca: string; mtime: Date };
+const cache = new Map<string, Lido>();
 const TETO = 5000;
 
+function guardar(caminho: string, novo: Lido): Lido {
+  if (cache.size >= TETO) cache.clear();
+  cache.set(caminho, novo);
+  return novo;
+}
+
 /** Texto do arquivo, ou `null` se ele não existe. Outros erros de leitura sobem. */
-export function lerTextoEmCache(caminho: string): { texto: string; marca: string } | null {
-  let marca: string;
+export function lerTextoEmCache(caminho: string): Lido | null {
+  let st;
   try {
-    const st = statSync(caminho, { bigint: true });
-    marca = `${st.mtimeNs}:${st.size}`;
+    st = statSync(caminho, { bigint: true });
   } catch {
     cache.delete(caminho);
     return null;
   }
+  const marca = `${st.mtimeNs}:${st.size}`;
   const c = cache.get(caminho);
   if (c && c.marca === marca) return c;
-  const novo = { marca, texto: readFileSync(caminho, "utf8") };
-  if (cache.size >= TETO) cache.clear();
-  cache.set(caminho, novo);
-  return novo;
+  return guardar(caminho, { marca, mtime: st.mtime, texto: readFileSync(caminho, "utf8") });
+}
+
+/**
+ * Igual a `lerTextoEmCache`, sem segurar o event loop: arquivo só-na-nuvem do Drive leva
+ * segundos pra baixar, e as rotas de listagem leem dezenas deles.
+ */
+export async function lerTextoEmCacheAsync(caminho: string): Promise<Lido | null> {
+  let st;
+  try {
+    st = await stat(caminho, { bigint: true });
+  } catch {
+    cache.delete(caminho);
+    return null;
+  }
+  const marca = `${st.mtimeNs}:${st.size}`;
+  const c = cache.get(caminho);
+  if (c && c.marca === marca) return c;
+  return guardar(caminho, { marca, mtime: st.mtime, texto: await readFile(caminho, "utf8") });
 }
 
 export function esquecerTexto(caminho?: string): void {
