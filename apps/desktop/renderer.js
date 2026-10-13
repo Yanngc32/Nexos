@@ -747,7 +747,23 @@ function persistAccent(hex) {
   }, 250);
 }
 
-const MODEL_OPTION_VALUES = ["", "auto", "opus", "sonnet", "haiku", "fable"];
+/**
+ * Versões anteriores ainda servidas pela API, por ID completo (o `--model` do CLI aceita). Os
+ * aliases de cima sempre apontam pra mais nova; quem precisa fixar uma antiga abre o grupo.
+ * Modelo aposentado sai daqui (ver tabela de modelos da Anthropic).
+ */
+const CLAUDE_MODELOS_ANTIGOS = [
+  { value: "claude-fable-5", label: "Fable 5" },
+  { value: "claude-opus-5", label: "Opus 5" },
+  { value: "claude-opus-4-8", label: "Opus 4.8" },
+  { value: "claude-opus-4-7", label: "Opus 4.7" },
+  { value: "claude-opus-4-6", label: "Opus 4.6" },
+  { value: "claude-opus-4-5", label: "Opus 4.5" },
+  { value: "claude-sonnet-5", label: "Sonnet 5" },
+  { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
+  { value: "claude-sonnet-4-5", label: "Sonnet 4.5" },
+  { value: "claude-haiku-4-5", label: "Haiku 4.5" },
+].map((e) => ({ ...e, title: e.value, grupo: "Modelos antigos" }));
 const CLAUDE_MODEL_ENTRIES = [
   { value: "", label: "Modelo: padrão" },
   // "auto" não é modelo: o daemon escolhe um a cada turno pela complexidade da
@@ -757,7 +773,9 @@ const CLAUDE_MODEL_ENTRIES = [
   { value: "sonnet", label: "Sonnet" },
   { value: "haiku", label: "Haiku" },
   { value: "fable", label: "Fable" },
+  ...CLAUDE_MODELOS_ANTIGOS,
 ];
+const MODEL_OPTION_VALUES = CLAUDE_MODEL_ENTRIES.map((e) => e.value);
 /** Mesma ordem do <select id="mode-select">: valor do CLI -> rótulo. */
 const MODE_VALUES = ["", "auto", "manual", "acceptEdits", "plan", "bypassPermissions"];
 const MODE_NAMES = ["padrão", "automático", "manual", "aceitar edições", "planejar", "ignorar permissões"];
@@ -1784,15 +1802,31 @@ function setVia() {
   syncEngineControls();
 }
 
-/** Substitui as `<option>` de um select por `entries` ({value,label,title?}) e restaura o valor atual. */
+/**
+ * Substitui as `<option>` de um select por `entries` ({value,label,title?,grupo?}) e restaura o
+ * valor atual. Entradas com `grupo` vão pra um `<optgroup data-recolhivel>`, que a lista do
+ * combobox mostra fechado até a pessoa abrir.
+ */
 function setSelectEntries(select, entries, currentValue) {
   select.replaceChildren();
+  const grupos = new Map();
   for (const e of entries) {
     const opt = document.createElement("option");
     opt.value = e.value;
     opt.textContent = e.label;
     if (e.title) opt.title = e.title;
-    select.append(opt);
+    if (!e.grupo) {
+      select.append(opt);
+      continue;
+    }
+    if (!grupos.has(e.grupo)) {
+      const g = document.createElement("optgroup");
+      g.label = e.grupo;
+      g.dataset.recolhivel = "";
+      grupos.set(e.grupo, g);
+      select.append(g);
+    }
+    grupos.get(e.grupo).append(opt);
   }
   select.value = entries.some((e) => e.value === currentValue) ? currentValue : "";
 }
