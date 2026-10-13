@@ -9,7 +9,7 @@
  */
 import { passosLegiveis, tempoCurto } from "./painel-view.js";
 import { escalaPara } from "./torre/cena.js";
-import { PALETA, PROPS, corDaConta, cristalDe, mascaraDoIcone, paletaCom } from "./torre/arte.js";
+import { PALETA, PROPS, corDaConta, cristalDe, linhasDeMana, mascaraDoCristal, mascaraDoIcone, paletaCom } from "./torre/arte.js";
 import { contasDaTorre, textoDoCristal } from "./torre/contas.js";
 import { chaveDoProjeto } from "./torre/feed.js";
 import { torreModelo } from "./torre/modelo.js";
@@ -189,8 +189,11 @@ export function createTorreView({
     if (!ctx) return;
     ctx.clearRect(0, 0, c.width, c.height);
     const nivelC = nivelDoCristal(celula);
-    const paleta = paletaCom({ cristal: cristalDe(corDaConta(celula?.id ?? ""), nivelC) });
-    pintorDeCanvas(ctx, escala).masc(`cristal:${corDaConta(celula?.id ?? "")}:${nivelC}`, PROPS.cristal, paleta, 0, 0);
+    const apagado = nivelC === "apagado";
+    const cor = corDaConta(celula?.id ?? "");
+    const cheio = apagado ? 0 : 1 - (celula?.uso ?? 0);
+    const paleta = paletaCom({ cristal: cristalDe(cor, nivelC) });
+    pintorDeCanvas(ctx, escala).masc(`cristal:${apagado ? "apagado" : cor}:${linhasDeMana(cheio)}`, mascaraDoCristal(cheio), paleta, 0, 0);
   }
 
   function pintarIcone(c, nome, escala) {
@@ -248,7 +251,7 @@ export function createTorreView({
     const ceu = mk("div", "vg-ceu");
     contas.forEach((c) => {
       const w = mk("span", "vg-cristal");
-      const cv = canvasPixel(7, 12, 3);
+      const cv = canvasPixel(PROPS.cristal[0].length, PROPS.cristal.length, 3);
       pintarCristalPequeno(cv, c, 3);
       w.append(cv, mk("b", "", c.nome), mk("i", "", textoDoCristal(c)));
       ceu.append(w);

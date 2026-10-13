@@ -69,7 +69,7 @@ export function cenaDaTorre({ faixas = 1, contas = 0 } = {}) {
   const espacoCristal = Math.min(30, Math.floor((INTERIOR_W - ESCADA_W - 30) / nContas));
   const cristais = Array.from({ length: nContas }, (_, i) => ({
     x: x0 + ESCADA_W + 6 + i * espacoCristal,
-    y: mana.piso - 15,
+    y: mana.piso - 18,
     w: 9,
   }));
 

@@ -12,7 +12,7 @@ import {
   vizinhos,
 } from "../torre/convivio.js";
 import { POSES, POSES_DE_OCIO, REACOES } from "../torre/poses.js";
-import { CRISTAIS, corDaConta, cristalDe, CRISTAL_APAGADO, mascaraDoMago, MAGO_H } from "../torre/arte.js";
+import { CRISTAIS, corDaConta, cristalDe, CRISTAL_APAGADO, linhasDeMana, mascaraDoCristal, mascaraDoMago, MAGO_H, PROPS } from "../torre/arte.js";
 
 const T0 = 500_000;
 const mago = (chave, estado, extra = {}) => ({ chave, estado, comemorando: false, ...extra });
@@ -137,15 +137,30 @@ describe("convívio", () => {
 });
 
 describe("cores: gema e cristais", () => {
-  it("cristal: cor estável por conta, nível pelo brilho; apagado é cinza", () => {
+  it("cristal: cor estável por conta (não muda com o nível); apagado é cinza", () => {
     expect(corDaConta("2d")).toBe(corDaConta("2D"));
-    const a = cristalDe(corDaConta("2d"), "cheio");
-    const b = cristalDe(corDaConta("2d"), "medio");
-    const c = cristalDe(corDaConta("2d"), "pouco");
-    expect(a).not.toEqual(b);
-    expect(b).not.toEqual(c);
+    expect(cristalDe(corDaConta("2d"), "cheio")).toEqual(cristalDe(corDaConta("2d"), "pouco"));
+    expect(cristalDe(0, "cheio")).not.toEqual(cristalDe(1, "cheio"));
     expect(cristalDe(3, "apagado")).toBe(CRISTAL_APAGADO);
     expect(CRISTAIS.apagado).toBe(CRISTAL_APAGADO);
+  });
+
+  it("cristal enche de baixo pra cima pela área da mana que resta", () => {
+    const comMana = (m) => m.filter((l) => /[xYXZ]/.test(l)).length;
+    const cheio = mascaraDoCristal(1);
+    expect(cheio).toEqual(PROPS.cristal);
+    expect(mascaraDoCristal(0).some((l) => /[xYXZ]/.test(l))).toBe(false);
+    // pouquinho de mana nunca some; quase cheio nunca parece cheio
+    expect(linhasDeMana(0.01)).toBe(1);
+    expect(linhasDeMana(0.99)).toBeLessThan(linhasDeMana(1));
+    // mais mana, mais linhas; a superfície (Z) fica em cima da mana
+    expect(linhasDeMana(0.2)).toBeLessThan(linhasDeMana(0.6));
+    const meio = mascaraDoCristal(0.5);
+    const topo = meio.findIndex((l) => /[xYXZ]/.test(l));
+    expect(meio[topo]).toMatch(/Z/);
+    expect(comMana(meio)).toBe(linhasDeMana(0.5));
+    // por área, metade da mana fica acima da metade das linhas (a ponta de baixo é estreita)
+    expect(linhasDeMana(0.5)).toBeGreaterThan(Math.floor((PROPS.cristal.length - 2) / 2) - 1);
   });
 
   it("mago entrando no chapéu: corte some com o corpo, chapéu fica", () => {

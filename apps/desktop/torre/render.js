@@ -17,7 +17,9 @@ import {
   cristalDe,
   estandarteDe,
   gemaDe,
+  linhasDeMana,
   mascaraDaTorreMini,
+  mascaraDoCristal,
   mascaraDoIcone,
   mascaraDoMago,
   paletaCom,
@@ -178,19 +180,21 @@ function andarMana(p, cena, s, t) {
     const cel = s.contas?.[i];
     if (!cel && i > 0) continue;
     const nivel = nivelDoCristal(cel);
-    props(p, "pedestal", c.x - 1, mana.piso - 3);
-    // a cor é a da conta; o nível é o brilho + ícone (nunca só cor)
+    props(p, "pedestal", c.x - 2, mana.piso - 3);
+    // a cor é a da conta; a mana que resta ENCHE o cristal de baixo pra cima (+ ícone, nunca só cor)
+    const apagado = nivel === "apagado";
     const cor = corDaConta(cel?.id ?? "");
+    const cheio = apagado ? 0 : 1 - (cel?.uso ?? 0);
     const paleta = paletaCom({ cristal: cristalDe(cor, nivel) });
-    const pulso = nivel === "cheio" && Math.floor(t / 900) % 2 ? -1 : 0;
-    p.masc(`cristal:${cor}:${nivel}`, PROPS.cristal, paleta, c.x, mana.piso - 15 + pulso);
+    // flutua 1 px acima do pedestal; com mana, sobe e desce devagar
+    const pulso = !apagado && Math.floor(t / 900) % 2 ? -1 : 0;
+    p.masc(`cristal:${apagado ? "apagado" : cor}:${linhasDeMana(cheio)}`, mascaraDoCristal(cheio), paleta, c.x - 1, mana.piso - 18 + pulso);
     // barrinha da semana no pedestal: o que ainda resta
     const resta = Math.max(0, Math.min(1, 1 - (cel?.semana ?? 1)));
     p.ret(c.x, mana.piso - 2, 7, 1, P.k);
     if (cel && !cel.semDado) p.ret(c.x, mana.piso - 2, Math.round(7 * resta), 1, resta > 0.2 ? P.i : P.y);
-    if (nivel === "cheio" || nivel === "medio") p.ret(c.x + 1, mana.piso - 13 + pulso, 1, 1, P.w);
     const icone = nivel === "pouco" ? "alerta" : nivel === "apagado" && cel && !cel.semDado ? "sem-mana" : "";
-    if (icone) p.masc(`icone:${icone}`, mascaraDoIcone(icone), P, c.x - 1, mana.piso - 28);
+    if (icone) p.masc(`icone:${icone}`, mascaraDoIcone(icone), P, c.x - 1, mana.piso - 30);
   }
   props(p, "banco", cena.banco.x, cena.banco.y);
   props(p, "banco", cena.banco.x + 12, cena.banco.y);

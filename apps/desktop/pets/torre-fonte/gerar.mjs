@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 import {
   CRISTAIS,
+  cristalDe,
   ICONES,
   PROPS,
   TILES_DUNGEON,
@@ -21,6 +22,7 @@ import {
   FORMAS_DE_OLHO,
   FORMAS_DE_PERNA,
   gemaDe,
+  mascaraDoCristal,
   paletaCom,
 } from "../../torre/arte.js";
 
@@ -102,7 +104,8 @@ for (const i of ICONES) pecas.push([`icone-${i}`, mascaraDoIcone(i)]);
 for (const [nome, m] of Object.entries(TILES_DUNGEON)) pecas.push([`dungeon-${nome}`, m]);
 pecas.push(["torre-mini-acesa", mascaraDaTorreMini({ observatorio: 1, salao: 1, biblioteca: 1, atelie: 1, porao: 1 })]);
 pecas.push(["torre-mini-apagada", mascaraDaTorreMini({})]);
-for (const [nivel, c] of Object.entries(CRISTAIS)) pecas.push([`cristal-${nivel}`, PROPS.cristal, paletaCom({ cristal: c })]);
+for (const f of [1, 0.75, 0.5, 0.15, 0]) pecas.push([`cristal-${Math.round(f * 100)}`, mascaraDoCristal(f), paletaCom({ cristal: cristalDe(0, "cheio") })]);
+pecas.push(["cristal-apagado", mascaraDoCristal(0), paletaCom({ cristal: CRISTAIS.apagado })]);
 
 mkdirSync(SAIDA, { recursive: true });
 const Z = 4;

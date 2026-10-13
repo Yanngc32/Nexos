@@ -37,6 +37,8 @@ export const PALETA = {
   n: "#5fae74", // pronto (success do DS)
   h: "#9b9ba4", // neutro (muted do DS)
   i: "#56b6c2", // dica (info do DS)
+  j: "#4a4a5c", // vidro do cristal vazio
+  J: "#383846", // vidro sombra
 };
 
 /** Estandartes por projeto (`corDoProjeto` → índice); neutro = torre Geral. */
@@ -61,9 +63,12 @@ export function paletaCom({ gema, estandarte, cristal } = {}) {
   const p = { ...PALETA };
   if (gema) [p.G, p.g] = gema;
   if (estandarte) [p.b, p.B] = estandarte;
-  if (cristal) [p.x, p.X] = cristal;
+  if (cristal) [p.x, p.Y, p.X, p.U, p.Z] = cristal;
   return p;
 }
+
+/** Cristal vazio: as facetas viram vidro (`j`/`J` da paleta). */
+const VIDRO = { x: "j", Y: "J", X: "J" };
 
 export function escurecer(hex, f) {
   const n = parseInt(hex.slice(1), 16);
@@ -74,13 +79,11 @@ export function escurecer(hex, f) {
   return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
 }
 
-/** Cristal apagado (conta no limite / sem leitura): cinza, sem cor de conta. */
-export const CRISTAL_APAGADO = ["#4a4a56", "#34343e"];
+/** Cristal apagado (conta no limite / sem leitura): cinza, sem cor de conta (claro, médio, escuro, contorno, superfície). */
+export const CRISTAL_APAGADO = ["#5c5c6a", "#4a4a56", "#34343e", "#5c5c72", "#71717b"];
 /** Só pra prévia/testes: um cristal em cada nível com a cor da primeira conta. */
 export const CRISTAIS = {
   cheio: cristalDe(0, "cheio"),
-  medio: cristalDe(0, "medio"),
-  pouco: cristalDe(0, "pouco"),
   apagado: CRISTAL_APAGADO,
 };
 
@@ -93,15 +96,13 @@ export function corDaConta(id) {
 }
 
 /**
- * Cristal de mana: a COR é a da conta; o NÍVEL é o brilho — cheio (claro + brilho), médio,
- * pouco (escuro; a tela põe "!" em cima), apagado (cinza; raio cortado em cima).
+ * Cristal de mana: a COR é a da conta (claro, médio, escuro, contorno, superfície da mana); o
+ * NÍVEL não muda a cor, muda o quanto o cristal está cheio (`mascaraDoCristal`). Apagado = cinza.
  */
 export function cristalDe(cor, nivel) {
   if (nivel === "apagado") return CRISTAL_APAGADO;
   const [base, sombra] = ESTANDARTES[((cor % ESTANDARTES.length) + ESTANDARTES.length) % ESTANDARTES.length];
-  if (nivel === "cheio") return [clarear(base, 0.35), base];
-  if (nivel === "medio") return [base, sombra];
-  return [escurecer(base, 0.72), escurecer(sombra, 0.72)];
+  return [clarear(base, 0.3), base, sombra, escurecer(sombra, 0.75), clarear(base, 0.6)];
 }
 
 export function clarear(hex, f) {
@@ -275,21 +276,24 @@ export const PROPS = {
   rolo0: pad([".kkk.", "kqwqk", "kwkwk", "kqwqk", ".kkk."]),
   rolo1: pad([".kkk.", "kwqwk", "kqkqk", "kwqwk", ".kkk."]),
   estandarte: pad(["k", "kbbbbbb", "kbbbbbb", "kbBBBbb", "kbbbbbb", "kbbbbbb", "kbbbbbb", "kbb..bb", "kb....b", "k", "k"]),
+  // lapidado: faceta clara à esquerda (x), aresta de brilho (w), meio (Y), sombra à direita (X)
   cristal: pad([
-    "...x...",
-    "..xXx..",
-    ".xxXxx.",
-    ".xxXxx.",
-    "xxxXxxx",
-    "xxxXxxx",
-    "xxxXxxx",
-    ".xxXxx.",
-    ".xxXxx.",
-    "..xXx..",
-    "..xXx..",
-    "...X...",
+    "....U....",
+    "...UwU...",
+    "..UxwYU..",
+    ".UxxwYXU.",
+    "UxxxwYXXU",
+    "UxxxwYXXU",
+    "UxxxYYXXU",
+    "UxxxYYXXU",
+    "UxxxYYXXU",
+    "UxxxYYXXU",
+    ".UxxYYXU.",
+    "..UxYXU..",
+    "...UYU...",
+    "....U....",
   ]),
-  pedestal: pad(["qqqqqqqqq", ".pPPPPPp.", ".ppppppp."]),
+  pedestal: pad(["qqqqqqqqqqq", ".PqqqqqqqP.", ".pPPPPPPPp."]),
   estrelinha: pad([".F.", "FwF", ".F."]),
   maozinha: pad(["cc", "cc"]),
   dedo: pad(["cccc"]),
@@ -299,6 +303,42 @@ export const PROPS = {
   suspiro: pad(["h.", ".h", "h."]),
   alcapao: pad(["kkkkkkkkkkkkkk", "kdDDdDDdDDdDDk", "kdDDdDDdDDdDDk", "kkkkkkkkkkkkkk"]),
 };
+
+/** Linhas de dentro do cristal (entre a ponta e o fundo de contorno). */
+const CRISTAL_MIOLO = PROPS.cristal.length - 2;
+/** Área acumulada de baixo pra cima: `AREA[n]` = pixels de dentro nas `n` linhas de baixo. */
+const CRISTAL_AREA = PROPS.cristal
+  .slice(1, -1)
+  .reverse()
+  .reduce((acc, l) => [...acc, acc[acc.length - 1] + (l.match(/[xYXw]/g) ?? []).length], [0]);
+
+/**
+ * Quantas linhas de dentro têm mana: `cheio` (0..1) = mana que resta, medida em ÁREA (a ponta de
+ * baixo é estreita; por linha, 15% pareceria vazio).
+ */
+export function linhasDeMana(cheio) {
+  const f = Math.max(0, Math.min(1, Number.isFinite(cheio) ? cheio : 0));
+  const alvo = f * CRISTAL_AREA[CRISTAL_MIOLO];
+  let n = 0;
+  for (let i = 1; i <= CRISTAL_MIOLO; i++) if (Math.abs(CRISTAL_AREA[i] - alvo) < Math.abs(CRISTAL_AREA[n] - alvo)) n = i;
+  // nunca "vazio" com mana sobrando nem "cheio" com mana gasta
+  if (f > 0 && n === 0) return 1;
+  if (f < 1 && n === CRISTAL_MIOLO) return CRISTAL_MIOLO - 1;
+  return n;
+}
+
+/**
+ * Cristal enchendo de baixo pra cima. Acima da mana, vidro escuro; a linha de cima da mana é a
+ * superfície (Z), mais clara. O brilho (w) fica sempre: é o vidro que brilha, não a mana.
+ */
+export function mascaraDoCristal(cheio) {
+  const n = linhasDeMana(cheio);
+  const topo = CRISTAL_MIOLO + 1 - n; // primeira linha com mana
+  return PROPS.cristal.map((l, y) => {
+    if (y < topo) return l.replace(/[xYX]/g, (c) => VIDRO[c]);
+    return y === topo && n < CRISTAL_MIOLO ? l.replace(/[xYX]/g, "Z") : l;
+  });
+}
 
 /* ---------------- ícones de estado (balão com símbolo, nunca só cor) ---------------- */
 
