@@ -1,11 +1,14 @@
-import { existsSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { tempHome } from "./helpers.ts";
 
 const execFileMock = vi.hoisted(() => vi.fn());
 vi.mock("node:child_process", () => ({ execFile: execFileMock }));
 
-const { certPath, hostnameTailscale, keyPath, pedirCertTailscale } = await import("../src/tls-tailscale.ts");
+const { certGuardado, certPath, hostnameTailscale, keyPath, pedirCertTailscale, statusTailscale, tlsDir } = await import("../src/tls-tailscale.ts");
+const CERT = readFileSync(join(import.meta.dirname, "fixtures/fake-tls-cert.pem"), "utf8");
+const KEY = readFileSync(join(import.meta.dirname, "fixtures/fake-tls-key.pem"), "utf8");
 
 beforeEach(() => {
   execFileMock.mockReset();
@@ -71,5 +74,46 @@ describe("pedirCertTailscale", () => {
     execFileMock.mockImplementation((_bin, _args, _opts, cb) => cb(null, { stdout: "" }));
     await expect(pedirCertTailscale("maquina.tail1234.ts.net", home)).resolves.toBeNull();
     expect(existsSync(certPath(home))).toBe(false);
+  });
+});
+
+describe("statusTailscale", () => {
+  it("Running: nome sem ponto final e os IPs deste node", async () => {
+    execFileMock.mockImplementation((_bin, _args, _opts, cb) =>
+      cb(null, { stdout: JSON.stringify({ BackendState: "Running", Self: { DNSName: "Maquina.tail1.ts.net.", TailscaleIPs: ["100.64.8.119", "fd7a:115c:a1e0::1"] } }) }),
+    );
+    expect(await statusTailscale()).toEqual({ hostname: "maquina.tail1.ts.net", ips: ["100.64.8.119", "fd7a:115c:a1e0::1"] });
+  });
+
+  it("NoState/Starting (logo depois de bloquear a tela ou acordar): null, mesmo com JSON válido", async () => {
+    execFileMock.mockImplementation((_bin, _args, _opts, cb) =>
+      cb(null, { stdout: JSON.stringify({ BackendState: "NoState", Self: { DNSName: "", TailscaleIPs: null } }) }),
+    );
+    expect(await statusTailscale()).toBeNull();
+  });
+});
+
+describe("certificado guardado", () => {
+  function gravar(home: string) {
+    mkdirSync(tlsDir(home), { recursive: true });
+    writeFileSync(certPath(home), CERT);
+    writeFileSync(keyPath(home), KEY);
+  }
+
+  it("serve se é do mesmo nome e vale por mais de um dia; outro nome ou vencendo, não", () => {
+    const home = tempHome();
+    expect(certGuardado(home, "nexo-teste.invalid")).toBeNull();
+    gravar(home);
+    expect(certGuardado(home, "nexo-teste.invalid")).toMatchObject({ certPem: CERT, keyPem: KEY, venceEm: "2036-09-10" });
+    expect(certGuardado(home, "outra.tail1.ts.net")).toBeNull();
+    expect(certGuardado(home, "nexo-teste.invalid", Date.parse("2036-09-09T12:00:00Z"))).toBeNull();
+  });
+
+  it("tailscale cert falhou (rede/firewall): devolve o par guardado em vez de derrubar o HTTPS", async () => {
+    const home = tempHome();
+    gravar(home);
+    execFileMock.mockImplementation((_bin, _args, _opts, cb) => cb(new Error("dial tcp: forbidden"), undefined));
+    const par = await pedirCertTailscale("nexo-teste.invalid", home);
+    expect(par).toEqual({ certPem: CERT, keyPem: KEY });
   });
 });

@@ -14,12 +14,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { JdkHelper } from "@bubblewrap/core";
 import type { TwaManifestJson } from "@bubblewrap/core/dist/lib/TwaManifest.js";
 import { carregarBubblewrap } from "./apk-deps.ts";
 import { garantirKeystore, gerarAssetLinks } from "./apk-keystore.ts";
+import { log } from "./log.ts";
 
 /**
  * Build do TWA (Trusted Web Activity) que embrulha a PWA do celular — Fase 2 do
@@ -75,6 +76,21 @@ export function resetApkBuildForTest(): void {
   construindoAgora = false;
 }
 
+/**
+ * Onde o APK de `atual.json` está de verdade. O caminho é gravado RELATIVO à pasta do APK;
+ * `atual.json` antigo trazia absoluto — e quando a pasta do Nexos mudou de lugar (`~/.nexo`
+ * → `~/.nexos`), apontava pra um arquivo que não existe mais: o motor dizia "sem build" e o
+ * celular recebia a página de erro com o APK pronto ali do lado. Relativo ou absoluto, se
+ * não achar, procura `builds/<pasta>/nexo.apk` pelos dois últimos nomes do caminho.
+ */
+export function caminhoDoApk(home: string, gravado: string): string | null {
+  const direto = isAbsolute(gravado) ? gravado : join(apkDir(home), gravado);
+  if (existsSync(direto)) return direto;
+  const partes = gravado.split(/[\\/]+/);
+  const pelaPasta = join(buildsDir(home), partes.at(-2) ?? "", partes.at(-1) ?? "nexo.apk");
+  return existsSync(pelaPasta) ? pelaPasta : null;
+}
+
 /** O estado atual — relê `atual.json` do disco na primeira consulta após religar o daemon. */
 export function estadoAtualBuild(home: string): EstadoBuild {
   if (estado.fase === "ocioso" && existsSync(atualPath(home))) {
@@ -83,9 +99,11 @@ export function estadoAtualBuild(home: string): EstadoBuild {
         Extract<EstadoBuild, { fase: "pronto" }>,
         "fase"
       >;
-      if (existsSync(salvo.caminho)) estado = { fase: "pronto", ...salvo };
-    } catch {
-      /* atual.json corrompido: segue "ocioso", o próximo build sobrescreve */
+      const caminho = caminhoDoApk(home, salvo.caminho);
+      if (caminho) estado = { fase: "pronto", ...salvo, caminho };
+      else log.avisoUmaVez(`apk-sumiu:${salvo.caminho}`, "apk", "atual.json aponta pra um APK que não existe mais; gere de novo", { caminho: salvo.caminho });
+    } catch (err) {
+      log.aviso("apk", "atual.json ilegível; o próximo build sobrescreve", { erro: String(err) });
     }
   }
   return estado;
@@ -232,9 +250,15 @@ export function construirApk(home: string, https: { hostname: string; port: numb
   rodar(home, https)
     .then((pronto) => {
       estado = pronto;
+      if (pronto.fase === "erro") log.aviso("apk", `build do APK não rodou: ${pronto.motivo}`);
+      else if (pronto.fase === "pronto") log.info("apk", "APK pronto", { versao: pronto.versao, hostname: pronto.hostname });
     })
     .catch((err) => {
-      estado = { fase: "erro", motivo: (err as Error)?.message || "erro desconhecido" };
+      const motivo = (err as Error)?.message || "erro desconhecido";
+      // a etapa onde parou ajuda mais que a pilha: gradle, SDK, keystore têm consertos diferentes
+      const etapa = estado.fase === "construindo" ? estado.etapa : "";
+      estado = { fase: "erro", motivo: etapa ? `${motivo} (na etapa: ${etapa})` : motivo };
+      log.aviso("apk", "build do APK falhou", { etapa, erro: motivo.slice(0, 2000) });
     })
     .finally(() => {
       construindoAgora = false;
@@ -344,7 +368,9 @@ async function rodar(home: string, https: { hostname: string; port: number }): P
     const sha256 = createHash("sha256").update(readFileSync(destApk)).digest("hex");
 
     const pronto = { caminho: destApk, sha256, hostname: https.hostname, versao, criadoEm: Date.now() };
-    writeFileSync(atualPath(home), JSON.stringify(pronto), "utf8");
+    // relativo à pasta do APK: sobrevive à pasta do Nexos mudar de lugar (ver `caminhoDoApk`)
+    const relativo = join("builds", basename(dirname(destApk)), basename(destApk));
+    writeFileSync(atualPath(home), JSON.stringify({ ...pronto, caminho: relativo }), "utf8");
     podarBuildsAntigos(home);
     return { fase: "pronto", ...pronto };
   } finally {

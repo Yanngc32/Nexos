@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { apkDir, construirApk, estadoAtualBuild, resetApkBuildForTest } from "../src/apk-build.ts";
+import { apkDir, caminhoDoApk, construirApk, estadoAtualBuild, resetApkBuildForTest } from "../src/apk-build.ts";
 import { tempHome } from "./helpers.ts";
 
 beforeEach(resetApkBuildForTest);
@@ -100,5 +100,31 @@ describe("estadoAtualBuild", () => {
     mkdirSync(apkDir(home), { recursive: true });
     writeFileSync(join(apkDir(home), "atual.json"), "{ isto não é json", "utf8");
     expect(estadoAtualBuild(home)).toEqual({ fase: "ocioso" });
+  });
+});
+
+describe("APK gravado com caminho de outra pasta do Nexos (~/.nexo → ~/.nexos)", () => {
+  it("acha o build pela pasta dele e serve como pronto", () => {
+    const home = tempHome();
+    const pasta = join(apkDir(home), "builds", "1789393967050-3351e7ab");
+    mkdirSync(pasta, { recursive: true });
+    writeFileSync(join(pasta, "nexo.apk"), "apk");
+    writeFileSync(
+      join(apkDir(home), "atual.json"),
+      JSON.stringify({ caminho: "C:\\Users\\x\\.nexo\\apk\\builds\\1789393967050-3351e7ab\\nexo.apk", sha256: "ab", hostname: "m.ts.net", versao: "1", criadoEm: 1 }),
+    );
+    const e = estadoAtualBuild(home);
+    expect(e.fase).toBe("pronto");
+    expect(e.fase === "pronto" && e.caminho).toBe(join(pasta, "nexo.apk"));
+  });
+
+  it("caminhoDoApk: relativo à pasta do APK, absoluto existente, e null quando não há arquivo", () => {
+    const home = tempHome();
+    const pasta = join(apkDir(home), "builds", "b1");
+    mkdirSync(pasta, { recursive: true });
+    writeFileSync(join(pasta, "nexo.apk"), "apk");
+    expect(caminhoDoApk(home, join("builds", "b1", "nexo.apk"))).toBe(join(pasta, "nexo.apk"));
+    expect(caminhoDoApk(home, join(pasta, "nexo.apk"))).toBe(join(pasta, "nexo.apk"));
+    expect(caminhoDoApk(home, "/outra/pasta/b9/nexo.apk")).toBeNull();
   });
 });

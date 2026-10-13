@@ -2,8 +2,8 @@ import type { Server } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { DEFAULT_CONFIG } from "@nexos/shared";
-import { classificar, enderecosDaMaquina, escolherHostDoCelular, ondeEscutar } from "./enderecos.ts";
-import { hostnameTailscale, httpsSubiu, motivoHttps, pedirCertTailscale } from "./tls-tailscale.ts";
+import { classificar, enderecosDaMaquina, escolherHostDoCelular, ondeEscutar, scoreAlcance } from "./enderecos.ts";
+import { httpsSubiu, motivoHttps, pedirCertTailscale, statusTailscale } from "./tls-tailscale.ts";
 
 /**
  * Em quais endereços o daemon está escutando — e mantê-los em dia sem reiniciar.
@@ -68,6 +68,10 @@ let httpsInfo: EstadoHttps = null;
 /** Uma tentativa de cada vez — `tailscale cert` pode demorar, e empilhar chamada
  *  concorrente só faria a mesma pergunta duas vezes sem ganhar nada. */
 let tentandoHttps = false;
+/** Certificado servido agora: renovar só religa o socket se o `tailscale cert` trouxe outro. */
+let certAtual = "";
+/** Quando o HTTPS foi confirmado/renovado por último (pra renovação periódica). */
+let ultimaRenovacao = 0;
 
 function abrir(fetchHandler: Fetch, hostname: string, port: number): Promise<{ server: Server; port: number }> {
   return new Promise((resolve, reject) => {
@@ -124,6 +128,24 @@ function fecharHttps(): void {
   if (ligadoHttps) fechar(ligadoHttps);
   ligadoHttps = null;
   httpsInfo = null;
+  certAtual = "";
+}
+
+/**
+ * Em qual socket de túnel o HTTPS deve escutar: o do IP que o PRÓPRIO Tailscale diz ser
+ * dele (`ips` do `tailscale status`). Sem isso caía no primeiro `100.x` ligado — e numa
+ * máquina com NetBird (`wt0`) ou Hamachi no mesmo bloco CGNAT, o certificado do
+ * `*.ts.net` ia parar num endereço pra onde o nome nem resolve. Sem `ips` (CLI antiga),
+ * o melhor túnel pelo `scoreAlcance` (interface "Tailscale" primeiro).
+ */
+export function hostDoHttps(hostsLigados: string[], ipsDoTailscale: string[], enderecos = enderecosDaMaquina()): string | undefined {
+  const doTs = ipsDoTailscale.filter((ip) => hostsLigados.includes(ip));
+  const v4 = doTs.find((h) => !h.includes(":"));
+  if (v4 ?? doTs[0]) return v4 ?? doTs[0];
+  if (ipsDoTailscale.length) return undefined; // Tailscale diz quais são, e nenhum está ligado ainda
+  return hostsLigados
+    .filter((h) => classificar(h) === "tunel")
+    .sort((a, b) => scoreAlcance(a, enderecos) - scoreAlcance(b, enderecos))[0];
 }
 
 /**
@@ -200,37 +222,48 @@ export function fecharTudo(): void {
  * ausente, erro de rede) só fecha o que já havia — o daemon segue servindo
  * HTTP, exatamente como antes deste módulo existir.
  */
-export async function tentarHttps(fetchHandler: Fetch, port: number, home: string): Promise<void> {
+export async function tentarHttps(fetchHandler: Fetch, port: number, home: string, opts: { renovar?: boolean } = {}): Promise<void> {
   if (tentandoHttps) return;
   tentandoHttps = true;
   try {
-    const hostname = await hostnameTailscale();
-    if (!hostname) return fecharHttps();
+    const status = await statusTailscale();
+    if (!status) return fecharHttps();
+    const { hostname } = status;
 
-    // só serve pedir certificado se há, AGORA, um socket de túnel de pé pra
-    // atender quem se conectar nele — certificado sem ninguém escutando atrás
-    // não ajuda ninguém
-    const tunel = ligados.find((l) => classificar(l.host) === "tunel");
-    if (!tunel) {
-      motivoHttps("nenhum endereço do Tailscale escutando neste motor (100.x)", { hostname }, "debug");
+    // só serve pedir certificado se há, AGORA, um socket de túnel do Tailscale de pé pra
+    // atender quem se conectar nele — certificado sem ninguém escutando atrás não ajuda ninguém
+    const host = hostDoHttps(
+      ligados.map((l) => l.host),
+      status.ips,
+    );
+    if (!host) {
+      motivoHttps("nenhum endereço do Tailscale escutando neste motor ainda", { hostname, ips: status.ips }, "debug");
       return fecharHttps();
     }
 
-    // já está de pé com o hostname certo: nada a fazer (evita religar o
-    // socket, e derrubar conexão em voo, sem necessidade)
-    if (ligadoHttps && httpsInfo?.hostname === hostname && httpsInfo.host === tunel.host) return;
+    // já está de pé com o hostname e o endereço certos: sem renovação pedida, nada a fazer
+    // (evita religar o socket, e derrubar conexão em voo, sem necessidade)
+    const deMesmoJeito = Boolean(ligadoHttps && httpsInfo?.hostname === hostname && httpsInfo.host === host);
+    if (deMesmoJeito && !opts.renovar) return;
 
     const par = await pedirCertTailscale(hostname, home);
-    if (!par) return fecharHttps();
+    if (!par) {
+      // renovação que falhou com o HTTPS de pé: mantém o que está servindo (ainda vale)
+      if (deMesmoJeito) return;
+      return fecharHttps();
+    }
+    ultimaRenovacao = Date.now();
+    if (deMesmoJeito && par.certPem === certAtual) return;
 
     if (ligadoHttps) fechar(ligadoHttps);
     // 443 fixo: o manifest do TWA (bubblewrap) monta a URL como `https://${host}${startUrl}`,
     // sem campo de porta — porta implícita é sempre 443. Servir noutra porta faz o app
     // do celular bater em "conexão recusada" contra a 443, que ninguém escuta.
-    const aberto = await abrirHttps(fetchHandler, tunel.host, httpsPort || portaHttpsPadrao(), par.certPem, par.keyPem);
+    const aberto = await abrirHttps(fetchHandler, host, httpsPort || portaHttpsPadrao(), par.certPem, par.keyPem);
     httpsPort = aberto.port;
-    ligadoHttps = { host: tunel.host, server: aberto.server };
-    httpsInfo = { host: tunel.host, hostname, port: httpsPort };
+    ligadoHttps = { host, server: aberto.server };
+    httpsInfo = { host, hostname, port: httpsPort };
+    certAtual = par.certPem;
     httpsSubiu(hostname, httpsPort);
   } catch (e) {
     // bind da porta (443 ocupada, sem permissão) ou cert inválido pro servidor
@@ -239,6 +272,11 @@ export async function tentarHttps(fetchHandler: Fetch, port: number, home: strin
   } finally {
     tentandoHttps = false;
   }
+}
+
+/** O HTTPS precisa de outra tentativa: está fora, ou o endereço em que ele escuta sumiu do túnel. */
+export function httpsPrecisaTentar(): boolean {
+  return !httpsInfo || !ligados.some((l) => l.host === httpsInfo?.host);
 }
 
 /**
@@ -268,20 +306,26 @@ export function pararDeManter(): void {
 }
 
 /**
- * Relógio PRÓPRIO do HTTPS, bem mais espaçado que o de HTTP: `tailscale cert`
- * já decide sozinho se está perto de vencer (Let's Encrypt dá ~90 dias), então
- * checar a cada poucas horas sobra — checar a cada 20s só bateria à toa no
- * binário externo sem ganhar nada.
+ * Relógio PRÓPRIO do HTTPS. Duas cadências:
+ *
+ * - **fora do ar** (nunca subiu, Tailscale caiu com o bloqueio de tela/suspensão, o IP sumiu
+ *   e voltou): tenta a cada `HTTPS_TENTATIVA_MS`. Antes era 6 h — o Tailscale voltava em
+ *   segundos, o HTTP em 20 s, e o app do celular (que só fala `https://…ts.net`) ficava
+ *   desconectado por horas; o build do APK recusava pelo mesmo motivo.
+ * - **de pé**: renova o certificado a cada `HTTPS_PERIODO_MS` (`tailscale cert` decide se
+ *   está perto de vencer), e só religa o socket se o certificado mudou.
  */
 const HTTPS_PERIODO_MS = 6 * 60 * 60 * 1000;
+export const HTTPS_TENTATIVA_MS = 60_000;
 let httpsRelogio: NodeJS.Timeout | null = null;
 
 export function manterHttpsEmDia(fetchHandler: Fetch, port: number, home: string): void {
   pararDeManterHttps();
   void tentarHttps(fetchHandler, port, home);
   httpsRelogio = setInterval(() => {
-    void tentarHttps(fetchHandler, port, home);
-  }, HTTPS_PERIODO_MS);
+    if (httpsPrecisaTentar()) void tentarHttps(fetchHandler, port, home);
+    else if (Date.now() - ultimaRenovacao >= HTTPS_PERIODO_MS) void tentarHttps(fetchHandler, port, home, { renovar: true });
+  }, HTTPS_TENTATIVA_MS);
   httpsRelogio.unref?.();
 }
 

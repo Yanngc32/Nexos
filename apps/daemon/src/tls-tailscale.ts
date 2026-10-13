@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { chmodSync, mkdirSync, readFileSync } from "node:fs";
+import { X509Certificate } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { log } from "./log.ts";
@@ -39,6 +40,11 @@ export function httpsSubiu(hostname: string, port: number): void {
   ultimoMotivo = "ok";
 }
 
+/** O último motivo registrado (vazio = nunca tentou; "ok" = de pé). A rota do APK mostra isto. */
+export function ultimoMotivoHttps(): string {
+  return ultimoMotivo;
+}
+
 /** Só pra teste. */
 export function resetMotivoHttpsForTest(): void {
   ultimoMotivo = "";
@@ -75,18 +81,42 @@ export function keyPath(home: string): string {
  * nem `tailscale cert` nem a URL do QR o aceitam.
  */
 export async function hostnameTailscale(): Promise<string | null> {
+  return (await statusTailscale())?.hostname ?? null;
+}
+
+export type StatusTailscale = { hostname: string; ips: string[] };
+
+/**
+ * Nome MagicDNS + IPs DESTE node no tailnet, ou `null` se o Tailscale não está conectado.
+ *
+ * Os IPs importam: a máquina pode ter outros túneis no mesmo bloco CGNAT `100.64/10`
+ * (NetBird `wt0`, Hamachi…) e o HTTPS tem que escutar no endereço do Tailscale, que é
+ * pra onde o nome `*.ts.net` resolve — não no primeiro `100.x` que aparecer.
+ *
+ * `BackendState` diferente de `Running` (ex.: `NoState`/`Starting` logo depois de
+ * bloquear a tela ou acordar o PC) devolve `null` com o estado no log: o JSON vem, mas
+ * sem nome nem IP, e o motivo antigo ("não é JSON") escondia isso.
+ */
+export async function statusTailscale(): Promise<StatusTailscale | null> {
   try {
     const { stdout } = await execFileAsync(tailscaleBin(), ["status", "--json"], { timeout: TIMEOUT_STATUS_MS });
-    let status: { Self?: { DNSName?: string } };
+    let status: { BackendState?: string; Self?: { DNSName?: string; TailscaleIPs?: string[] | null } };
     try {
-      status = JSON.parse(stdout) as { Self?: { DNSName?: string } };
+      status = JSON.parse(stdout) as typeof status;
     } catch (e) {
-      motivoHttps("saída do \"tailscale status\" não é JSON", { erro: (e as Error).message, saida: stdout.slice(0, 300) });
+      motivoHttps("saída do \"tailscale status\" não é JSON (Tailscale iniciando?)", { erro: (e as Error).message, saida: stdout.slice(0, 300) });
+      return null;
+    }
+    if (status.BackendState && status.BackendState !== "Running") {
+      motivoHttps(`Tailscale não está conectado (estado ${status.BackendState})`, { estado: status.BackendState });
       return null;
     }
     const nome = status.Self?.DNSName?.replace(/\.$/, "");
-    if (!nome) motivoHttps("máquina sem nome MagicDNS (fora do tailnet ou MagicDNS desligado)", undefined, "debug");
-    return nome ? nome.toLowerCase() : null;
+    if (!nome) {
+      motivoHttps("máquina sem nome MagicDNS (fora do tailnet ou MagicDNS desligado)", undefined, "debug");
+      return null;
+    }
+    return { hostname: nome.toLowerCase(), ips: (status.Self?.TailscaleIPs ?? []).filter(Boolean) };
   } catch (e) {
     const dados = erroDoComando(e);
     if (dados.codigo === "ENOENT") motivoHttps(`binário ${tailscaleBin()} não encontrado`, dados, "debug");
@@ -121,6 +151,13 @@ export async function pedirCertTailscale(hostname: string, home: string): Promis
       timeout: TIMEOUT_CERT_MS,
     });
   } catch (e) {
+    // Sem rede até o Let's Encrypt (firewall da empresa, Tailscale reconectando) o certificado
+    // que já está no disco ainda serve até vencer: melhor que derrubar o HTTPS do celular.
+    const guardado = certGuardado(home, hostname);
+    if (guardado) {
+      log.avisoUmaVez(`https-cert-guardado:${hostname}`, "https", `"tailscale cert" falhou; usando o certificado guardado (vence em ${guardado.venceEm})`, erroDoComando(e));
+      return { certPem: guardado.certPem, keyPem: guardado.keyPem };
+    }
     // o caso típico: HTTPS certificates desligado no admin do tailnet
     motivoHttps(`"tailscale cert ${hostname}" recusou (HTTPS ligado no admin do tailnet?)`, erroDoComando(e));
     return null;
@@ -135,6 +172,31 @@ export async function pedirCertTailscale(hostname: string, home: string): Promis
     return { certPem, keyPem };
   } catch (e) {
     motivoHttps(`não consegui ler o certificado em ${dir}`, { erro: (e as Error).message });
+    return null;
+  }
+}
+
+/** Folga mínima pra reaproveitar um certificado guardado. */
+const FOLGA_CERT_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * O par já gravado em `~/.nexos/tls`, se ele é DESTE hostname e ainda vale por mais de um dia.
+ * `null` se falta arquivo, o certificado é de outro nome ou está vencendo.
+ */
+export function certGuardado(home: string, hostname: string, agora = Date.now()): (CertPar & { venceEm: string }) | null {
+  const arqCert = certPath(home);
+  const arqKey = keyPath(home);
+  if (!existsSync(arqCert) || !existsSync(arqKey)) return null;
+  try {
+    const certPem = readFileSync(arqCert, "utf8");
+    const keyPem = readFileSync(arqKey, "utf8");
+    const x = new X509Certificate(certPem);
+    const nomes = `${x.subjectAltName ?? ""} ${x.subject}`.toLowerCase();
+    if (!nomes.includes(hostname.toLowerCase())) return null;
+    const vence = Date.parse(x.validTo);
+    if (!Number.isFinite(vence) || vence - agora < FOLGA_CERT_MS) return null;
+    return { certPem, keyPem, venceEm: new Date(vence).toISOString().slice(0, 10) };
+  } catch {
     return null;
   }
 }
