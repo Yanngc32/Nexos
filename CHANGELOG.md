@@ -10,6 +10,21 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Alterado
 
+## [0.18.0] - 2026-10-13
+
+### Adicionado
+
+- Torre: telhado em cone de mago (telhas com lado da luz e da sombra), água-furtada que acende com a torre ativa, chaminé que solta fumaça com mago trabalhando e cristal pulsando na ponta do mastro.
+- Seletor de modelo (Claude) ganha o grupo **Modelos antigos**, fechado por padrão: abre na própria lista (clique, Enter ou →) e fixa uma versão anterior pelo ID completo — Fable 5, Opus 5, Opus 4.8/4.7/4.6/4.5, Sonnet 5/4.6/4.5, Haiku 4.5.
+
+### Corrigido
+
+- Motor deixa de travar (e ser reiniciado pelo app) ao listar tarefas e planos guardados no Google Drive: a leitura agora é assíncrona, e arquivo só-na-nuvem atrasa só aquela resposta.
+
+### Alterado
+
+- Torre: o cenário parado é pintado uma vez numa camada própria; a cada quadro só o que anima é repintado, e a sombra da dungeon sai em faixas em vez de célula por célula.
+
 ## [0.17.0] - 2026-10-09
 
 ### Adicionado

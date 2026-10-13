@@ -184,7 +184,7 @@ import {
   ferramentasDeTarefas,
   getQuadro,
   getTarefa,
-  listarTarefas,
+  listarTarefasAsync,
   salvarColuna,
   salvarEtiqueta,
   salvarMarco,
@@ -1997,10 +1997,10 @@ export function createApp(home: string, token: string): Hono {
     }
   });
 
-  app.get("/v1/tarefas", (c) => {
+  app.get("/v1/tarefas", async (c) => {
     const projectPath = c.req.query("projectPath") || "";
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
-    return c.json(listarTarefas(projectPath, home));
+    return c.json(await listarTarefasAsync(projectPath, home));
   });
 
   app.post("/v1/tarefas", async (c) => {
@@ -2185,10 +2185,10 @@ export function createApp(home: string, token: string): Hono {
     return c.json(err.status === 409 ? { error: err.message, atual: err.atual ?? null } : { error: err.message }, status);
   };
 
-  app.get("/v1/planejamento", (c) => {
+  app.get("/v1/planejamento", async (c) => {
     const projectPath = c.req.query("projectPath") || "";
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
-    return c.json(listarPlanos(projectPath, home));
+    return c.json(await listarPlanos(projectPath, home));
   });
 
   const conversaDoManager = (projectPath: string, slug: string, profileId: unknown): string =>

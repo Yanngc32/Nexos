@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAGO_H } from "../torre/arte.js";
+import { MAGO_H, PALETA, mascaraDoTelhado, metadeDoTelhado } from "../torre/arte.js";
 import { cenaDaTorre } from "../torre/cena.js";
 import { contasDaTorre, horaDoReset, textoDoCristal } from "../torre/contas.js";
 import { aplicarRetrato, feedVazio } from "../torre/feed.js";
@@ -140,5 +140,24 @@ describe("painel-torres: o retrato da ilha vira torres", () => {
   it("sem retrato: nada ativo", () => {
     expect(torresDaIlha(null).ativas).toBe(0);
     expect(torresDaIlha([]).aria).toBe("Torres: nenhum projeto ativo");
+  });
+});
+
+describe("telhado em cone", () => {
+  const cena = cenaDaTorre();
+  const { h } = cena.telhado.cone;
+  const largura = cena.torre.w + 8;
+  const m = mascaraDoTelhado(largura, h);
+  it("ponta fina, abre só pra baixo e termina na largura do beiral", () => {
+    expect(m).toHaveLength(h);
+    expect(m.every((l) => l.length === largura)).toBe(true);
+    const metades = m.map((_, r) => metadeDoTelhado(r, h, largura));
+    expect(metades[0]).toBe(2);
+    expect(metades.at(-1)).toBe(largura / 2);
+    expect(metades.every((v, i) => i === 0 || v >= metades[i - 1])).toBe(true);
+  });
+  it("só usa cores da paleta e cabe acima do beiral", () => {
+    expect([...new Set(m.join(""))].filter((c) => c !== "." && !PALETA[c])).toEqual([]);
+    expect(cena.telhado.cone.y + h).toBeLessThanOrEqual(cena.telhado.h - 3);
   });
 });

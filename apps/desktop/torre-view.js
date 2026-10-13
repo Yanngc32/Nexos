@@ -15,7 +15,7 @@ import { chaveDoProjeto } from "./torre/feed.js";
 import { torreModelo } from "./torre/modelo.js";
 import { acenarNoPalco, avancarPalco, carregarQuadroNoPalco, mudancaNoQuadro, palcoNovo, recomecarPalco } from "./torre/palco.js";
 import { pintorDeCanvas } from "./torre/pintor-canvas.js";
-import { nivelDoCristal, pintarTorre, pintarTorreMini, posicoesDoMural } from "./torre/render.js";
+import { chaveDoFundo, nivelDoCristal, pintarFrenteDaTorre, pintarFundoDaTorre, pintarTorre, pintarTorreMini, posicoesDoMural } from "./torre/render.js";
 import { NIVEL_GERAL, corDoEstandarteCss, miniDaTorre, nivelInicial, resumoGeral, rotuloDaTorre, torreAtiva, torresDaPaisagem } from "./torre/visao.js";
 
 /** Quadros por segundo da torre aberta e da visão geral (só luzes mudam: pouco). */
@@ -380,6 +380,9 @@ export function createTorreView({
   let torreEl = null;
   let cv = null;
   let ctx = null;
+  /** Camada do cenário parado (`pintarFundoDaTorre`), repintada só quando `chaveFundo` muda. */
+  let fundo = null;
+  let chaveFundo = "";
   const camadas = {};
 
   function montarTorre(escala) {
@@ -453,13 +456,31 @@ export function createTorreView({
       torreEl.style.height = `${alt}px`;
     }
     if (ctx) {
-      ctx.clearRect(0, 0, cv.width, cv.height);
       // só pinta quem está na área visível da torre (rolagem): com muitos personagens, o resto não custa nada
       const c = corpo();
       const topo = (c.scrollTop - torreEl.offsetTop) / e - 24;
       const base = topo + c.clientHeight / e + 48;
       const atores = c.clientHeight ? f.s.atores.filter((a) => a.y + 40 >= topo && a.y - 14 <= base) : f.s.atores;
-      pintarTorre(pintorDeCanvas(ctx, e), cena, { ...f.s, atores, apagada: estado === "fora" }, agora);
+      const s = { ...f.s, atores, apagada: estado === "fora" };
+      // cenário parado numa camada à parte: a cada quadro só a cópia dela + o que anima por cima
+      // (repintar a torre inteira custava ~16 ms por quadro na thread do chat)
+      const chave = `${e}|${chaveDoFundo(cena, s)}`;
+      if (chave !== chaveFundo) {
+        const novo = doc.createElement("canvas");
+        novo.width = larg;
+        novo.height = alt;
+        const fctx = ctxDe(novo);
+        if (fctx) pintarFundoDaTorre(pintorDeCanvas(fctx, e), cena, s);
+        fundo = fctx ? novo : null;
+        chaveFundo = fctx ? chave : "";
+      }
+      if (fundo) {
+        ctx.drawImage(fundo, 0, 0);
+        pintarFrenteDaTorre(pintorDeCanvas(ctx, e), cena, s, agora);
+      } else {
+        ctx.clearRect(0, 0, cv.width, cv.height);
+        pintarTorre(pintorDeCanvas(ctx, e), cena, s, agora);
+      }
     }
     cv.setAttribute("aria-label", `Torre do projeto ${f.nome} em corte lateral: ${f.resumo || "sem atividade"}`);
     const sr = doc.getElementById("tr-resumo-sr");
@@ -699,6 +720,8 @@ export function createTorreView({
       torreEl = null;
       cv = null;
       ctx = null;
+      fundo = null;
+      chaveFundo = "";
       lerModelo(relogio());
       observar();
       pintarGeral(relogio());

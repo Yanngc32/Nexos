@@ -22,6 +22,8 @@ import {
   mascaraDoCristal,
   mascaraDoIcone,
   mascaraDoMago,
+  mascaraDoTelhado,
+  metadeDoTelhado,
   paletaCom,
 } from "./arte.js";
 import { FAIXA_PAREDE, LAJE, MAGO_H, MAGO_W, TILE } from "./cena.js";
@@ -115,19 +117,74 @@ function ceu(p, cena, tema, semente) {
   for (let i = 0; i < 26; i++) p.ret(Math.floor(s() * cena.w), Math.floor(s() * 60), 1, 1, T.estrela);
 }
 
-function telhado(p, cena, torre) {
+/** Fumaça e brilho no telhado: em cor de céu com alfa (some no apagão junto com o resto). */
+const FUMACA = "#9b9ba4";
+
+/**
+ * Telhado em cone com água-furtada, chaminé e o cristal no pé do mastro. Reage à torre: a
+ * janelinha acende com qualquer andar ativo, a chaminé solta fumaça com mago trabalhando e o
+ * cristal pulsa enquanto houver atividade.
+ */
+function geometriaDoTelhado(cena) {
   const { x, w } = cena.torre;
   const base = cena.telhado.h - 2;
-  // telhado em degraus, do beiral até a ponta
-  for (let i = 0; i < 14; i++) {
-    const ww = w - i * 10;
-    if (ww <= 4) break;
-    p.ret(x + (w - ww) / 2, base - (i + 1) * 2, ww, 2, i % 2 ? P.q : P.P);
+  const { y: topo, h: alto } = cena.telhado.cone;
+  const meio = x + w / 2;
+  // linha do cone onde a meia largura passa de `m` (pra assentar chaminé e água-furtada)
+  const linhaCom = (m) => topo + Array.from({ length: alto }, (_, r) => metadeDoTelhado(r, alto, w + 8)).findIndex((h) => h >= m);
+  return { x, w, base, topo, alto, meio, ch: { x: meio + 34, y: linhaCom(36) - 7 }, d: { x: meio - 6, y: base - 11 } };
+}
+
+function telhadoFundo(p, cena, s) {
+  const { x, w, base, topo, alto, meio, ch, d } = geometriaDoTelhado(cena);
+  // chaminé na água da sombra, pintada antes: o cone cobre o pé dela na inclinação
+  p.ret(ch.x + 1, ch.y + 2, 5, 14, P.k);
+  p.ret(ch.x + 2, ch.y + 2, 3, 14, P.p);
+  p.ret(ch.x, ch.y, 7, 3, P.k);
+  p.ret(ch.x + 1, ch.y + 1, 5, 1, P.q);
+  p.masc(`telhado:${w}:${alto}`, mascaraDoTelhado(w + 8, alto), P, x - 4, topo);
+
+  // água-furtada no meio da água de baixo: frontão de telha (a janelinha é da frente)
+  for (let i = 0; i < 6; i++) {
+    p.ret(meio - 1 - i, d.y - 6 + i, 2 + 2 * i, 1, P.k);
+    if (i > 0 && i < 5) p.ret(meio - i, d.y - 6 + i, 2 * i, 1, i === 2 ? P.R : P.t);
   }
+  p.ret(d.x, d.y - 1, 12, base - d.y, P.k);
+  p.ret(d.x + 1, d.y, 10, base - 1 - d.y, P.p);
+
   p.ret(x - 3, base - 1, w + 6, 3, P.k);
   const est = cena.telhado.estandarte;
-  const paleta = paletaCom({ estandarte: estandarteDe(torre?.cor ?? -1) });
-  p.masc(`estandarte:${chaveDaPaleta(paleta)}`, PROPS.estandarte, paleta, est.x, est.y + 2);
+  const paleta = paletaCom({ estandarte: estandarteDe(s.torre?.cor ?? -1) });
+  p.masc(`estandarte:${chaveDaPaleta(paleta)}`, PROPS.estandarte, paleta, est.x, est.y);
+}
+
+function telhadoFrente(p, cena, s, t) {
+  const { topo, meio, ch, d } = geometriaDoTelhado(cena);
+  const j = s.janelas ?? {};
+  const trabalhando = (j.salao ?? 0) > 0;
+  const ativa = trabalhando || Boolean(j.observatorio || j.biblioteca || j.atelie) || (j.porao ?? 0) > 0;
+  if (trabalhando) {
+    for (let i = 0; i < 3; i++) {
+      const f = (t / 1800 + i / 3) % 1;
+      const lado = 2 + Math.round(f * 3);
+      const alfa = Math.round((1 - f) * 0x99).toString(16).padStart(2, "0");
+      p.ret(ch.x + 2 + Math.round(f * 4), ch.y - 2 - Math.round(f * 7), lado, lado, `${FUMACA}${alfa}`);
+    }
+  }
+  janela(p, meio - 2, d.y + 1, ativa);
+
+  // cristal na ponta, no pé do mastro: apagado parado, aceso e pulsando com a torre ativa
+  const cy = topo;
+  if (ativa && Math.floor(t / 700) % 2) p.ret(meio - 4, cy - 2, 8, 7, `${P.G}40`);
+  p.ret(meio - 2, cy, 4, 3, P.k);
+  p.ret(meio - 1, cy, 2, 3, ativa ? P.G : P.g);
+  if (ativa) {
+    p.ret(meio - 1, cy, 1, 1, P.w);
+    for (let i = 0; i < 2; i++) {
+      const f = (t / 1600 + i / 2) % 1;
+      p.ret(meio + (i ? 3 : -4), cy - 1 - Math.round(f * 6), 1, 1, `${P.w}${Math.round((1 - f) * 0xcc).toString(16).padStart(2, "0")}`);
+    }
+  }
 }
 
 /** Paredes externas, fundo interno, lajes e a escada em zigue-zague. */
@@ -143,9 +200,6 @@ function estrutura(p, cena, s) {
     p.ret(a.x, a.piso - 2, a.w, 2, T.interiorFundo);
     p.ret(a.x, a.piso, a.w, LAJE, P.d);
     p.ret(a.x, a.piso, a.w, 1, P.e);
-    const aceso = s.janelas?.[a.id];
-    janela(p, x + 1, a.y + Math.floor(a.h / 2) - 4, aceso);
-    janela(p, x + w - 5, a.y + Math.floor(a.h / 2) - 4, aceso);
   }
   // mezanino entre as duas fileiras de mesas do Salão
   const m = cena.mesas[0];
@@ -160,6 +214,16 @@ function estrutura(p, cena, s) {
       p.ret(e.x + (ida ? dx : e.w - 6 - dx), a.y + yy - 1, 6, 2, P.D);
     }
     p.ret(e.x + e.w - 1, a.y, 1, a.h, P.p);
+  }
+}
+
+/** Janelas da parede de fora: acendem com o andar ativo. */
+function janelasDosAndares(p, cena, s) {
+  const { x, w } = cena.torre;
+  for (const a of cena.andares.values()) {
+    const aceso = s.janelas?.[a.id];
+    janela(p, x + 1, a.y + Math.floor(a.h / 2) - 4, aceso);
+    janela(p, x + w - 5, a.y + Math.floor(a.h / 2) - 4, aceso);
   }
 }
 
@@ -196,15 +260,11 @@ function andarMana(p, cena, s, t) {
     const icone = nivel === "pouco" ? "alerta" : nivel === "apagado" && cel && !cel.semDado ? "sem-mana" : "";
     if (icone) p.masc(`icone:${icone}`, mascaraDoIcone(icone), P, c.x - 1, mana.piso - 30);
   }
-  props(p, "banco", cena.banco.x, cena.banco.y);
-  props(p, "banco", cena.banco.x + 12, cena.banco.y);
 }
 
 function andarObservatorio(p, cena, s, t) {
   const j = cena.janelaDoCeu;
-  // janela da cúpula com o mapa estelar do plano
-  p.ret(j.x - 2, j.y - 2, j.w + 4, j.h + 4, P.k);
-  p.ret(j.x, j.y, j.w, j.h, "#10121c");
+  // janela da cúpula com o mapa estelar do plano (moldura e vidro vêm do fundo)
   const estrelas = s.estrelas ?? [];
   if (estrelas.length) {
     const sorteio = sorteioDe(`estrelas:${s.planoSlug ?? ""}`);
@@ -311,8 +371,6 @@ function estante(p, x, y, w, h, semente) {
 
 function andarBiblioteca(p, cena, s) {
   const b = cena.biblioteca;
-  for (const [i, e] of b.estantes.entries()) estante(p, e.x, e.y, e.w, e.h, i);
-  props(p, "mesa", b.mesa.x, b.mesa.y);
   // pilha de pergaminhos = aprendizados pendentes (até 6 desenhados)
   const n = Math.min(6, s.aprendizados ?? 0);
   for (let i = 0; i < n; i++) props(p, "pergaminho", b.pilha.x + (i % 2) * 2, b.pilha.y - 5 - i * 3);
@@ -320,8 +378,6 @@ function andarBiblioteca(p, cena, s) {
 
 function andarAtelie(p, cena, s, t) {
   const a = cena.atelie;
-  props(p, "cavalete", a.cavalete.x, a.cavalete.y);
-  props(p, "mesa", a.bancada.x, a.bancada.y);
   if (s.render) props(p, Math.floor(t / 150) % 2 ? "rolo1" : "rolo0", a.rolo.x, a.rolo.y);
   else props(p, "rolo0", a.rolo.x, a.rolo.y);
   props(p, "pincel", a.bancada.x + 10, a.bancada.y - 4);
@@ -356,21 +412,29 @@ function faixaDaDungeon(p, cena, faixa, dungeon, t) {
     const aberto = dungeon.bauAberto;
     p.masc(`tile:${aberto ? "bauAberto" : "bau"}`, TILES_DUNGEON[aberto ? "bauAberto" : "bau"], P, d.x + mapa.bau * TILE, y + FAIXA_PAREDE - TILE + 2);
   }
-  // escuridão: tudo apagado, menos o raio da tocha; sala visitada fica em penumbra
+  // escuridão: tudo apagado, menos o raio da tocha; sala visitada fica em penumbra. Células 3×3
+  // vizinhas na linha com o mesmo alfa saem num retângulo só (eram ~500 `fillRect` por quadro).
   const luz = dungeon?.luz;
+  const tremor = Math.floor(t / 180) % 2;
+  const alfaEm = (xx, yy) => {
+    let a = 0.9;
+    if (mapa && dungeon.visitadas?.has(salaDaColunaRapida(mapa, xx / TILE))) a = 0.62;
+    if (luz) {
+      const dist = Math.hypot(d.x + xx + 1 - luz.x, y + yy + 1 - luz.y);
+      if (dist < 15 + tremor) a = 0;
+      else if (dist < 24 + tremor) a = Math.min(a, 0.42);
+    }
+    return a;
+  };
   for (let yy = 0; yy < FAIXA_PAREDE + 6; yy += 3) {
-    for (let xx = 0; xx < d.w; xx += 3) {
-      const cx = d.x + xx + 1;
-      const cy = y + yy + 1;
-      let a = 0.9;
-      if (mapa && dungeon.visitadas?.has(salaDaColunaRapida(mapa, xx / TILE))) a = 0.62;
-      if (luz) {
-        const dist = Math.hypot(cx - luz.x, cy - luz.y);
-        const tremor = Math.floor(t / 180) % 2;
-        if (dist < 15 + tremor) a = 0;
-        else if (dist < 24 + tremor) a = Math.min(a, 0.42);
-      }
-      if (a > 0) p.ret(d.x + xx, y + yy, 3, 3, `#0b0b0e${Math.round(a * 255).toString(16).padStart(2, "0")}`);
+    let ini = 0;
+    let alfa = alfaEm(0, yy);
+    for (let xx = 3; xx <= d.w + 2; xx += 3) {
+      const a = xx < d.w ? alfaEm(xx, yy) : -1;
+      if (a === alfa) continue;
+      if (alfa > 0) p.ret(d.x + ini, y + yy, xx - ini, 3, `#0b0b0e${Math.round(alfa * 255).toString(16).padStart(2, "0")}`);
+      ini = xx;
+      alfa = a;
     }
   }
 }
@@ -413,16 +477,50 @@ export function pintarPersonagem(p, a) {
  *   mural, aprendizados, render, dungeons: [{ faixa, mapa, luz, visitadas, bauAberto }], atores: [...], apagada }`
  */
 export function pintarTorre(p, cena, s, t = 0) {
-  const tema = s.tema ?? "escuro";
-  ceu(p, cena, tema, s.torre?.chave ?? "");
-  telhado(p, cena, s.torre);
+  pintarFundoDaTorre(p, cena, s);
+  pintarFrenteDaTorre(p, cena, s, t);
+}
+
+/**
+ * O que não se mexe nem muda com o estado: céu, pedra, salas, escada, móveis, estantes. Só
+ * depende da cena, do tema, da torre (semente do céu e cor do estandarte) — ver `chaveDoFundo`.
+ * O app pinta isto uma vez numa camada e, a cada quadro, só copia; eram ~2 000 `fillRect`.
+ */
+export function pintarFundoDaTorre(p, cena, s) {
+  ceu(p, cena, s.tema ?? "escuro", s.torre?.chave ?? "");
+  telhadoFundo(p, cena, s);
   estrutura(p, cena, s);
+  props(p, "banco", cena.banco.x, cena.banco.y);
+  props(p, "banco", cena.banco.x + 12, cena.banco.y);
+  const j = cena.janelaDoCeu;
+  p.ret(j.x - 2, j.y - 2, j.w + 4, j.h + 4, P.k);
+  p.ret(j.x, j.y, j.w, j.h, "#10121c");
+  for (const mesa of cena.mesas) props(p, "mesa", mesa.mago.x + MESA_X, mesa.chao - 7);
+  const b = cena.biblioteca;
+  for (const [i, e] of b.estantes.entries()) estante(p, e.x, e.y, e.w, e.h, i);
+  props(p, "mesa", b.mesa.x, b.mesa.y);
+  const a = cena.atelie;
+  props(p, "cavalete", a.cavalete.x, a.cavalete.y);
+  props(p, "mesa", a.bancada.x, a.bancada.y);
+  andarPorao(p, cena);
+}
+
+/**
+ * Muda quando o fundo precisa ser repintado. A cena sai só de (faixas da dungeon, contas) —
+ * `cenaDaTorre` — então tamanho + topo da dungeon + nº de cristais a identificam.
+ */
+export function chaveDoFundo(cena, s) {
+  return [cena.w, cena.h, cena.dungeon.y, cena.cristais.length, s.tema ?? "escuro", s.torre?.chave ?? "", s.torre?.cor ?? -1].join("|");
+}
+
+/** O que anima ou acompanha o estado: tudo por cima do fundo, na mesma ordem de antes. */
+export function pintarFrenteDaTorre(p, cena, s, t = 0) {
+  telhadoFrente(p, cena, s, t);
+  janelasDosAndares(p, cena, s);
   andarMana(p, cena, s, t);
   andarObservatorio(p, cena, s, t);
-  for (const mesa of cena.mesas) props(p, "mesa", mesa.mago.x + MESA_X, mesa.chao - 7);
   andarBiblioteca(p, cena, s);
   andarAtelie(p, cena, s, t);
-  andarPorao(p, cena);
   for (const f of cena.dungeon.faixas) {
     const dg = s.dungeons?.find((d) => d.faixa === f.i);
     faixaDaDungeon(p, cena, f, dg, t);

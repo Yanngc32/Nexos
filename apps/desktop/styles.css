@@ -3682,7 +3682,7 @@ select option {
   border: 1px solid var(--line-2);
   border-radius: var(--r-lg);
   box-shadow: var(--sh-2);
-  max-height: 256px;
+  max-height: min(360px, 70vh);
   overflow-y: auto;
   animation: cb-list-in var(--dur) var(--ease)-out;
 }
@@ -3699,6 +3699,35 @@ select option {
 .cb-opt.ativa { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .cb-opt[aria-selected="true"] { color: var(--accent); font-weight: 600; }
 .cb-opt.desabilitada { opacity: .4; cursor: default; }
+/* <optgroup data-recolhivel>: título que abre/fecha as opções dele (ex.: "Modelos antigos") */
+.cb-grupo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+.cb-grupo.ativa { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--text); }
+.cb-grupo-chevron {
+  flex: none;
+  width: 10px;
+  height: 6px;
+  transform: rotate(-90deg);
+  transition: transform var(--dur) var(--ease);
+}
+.cb-grupo[aria-expanded="true"] .cb-grupo-chevron { transform: none; }
+.cb-opt-sub { padding-left: 18px; }
+@media (prefers-reduced-motion: reduce) {
+  .cb-grupo-chevron { transition: none; }
+}
 
 /* ---- checkbox vira toggle: mesmo elemento, aparência de switch, semântica/eventos intactos ---- */
 input[type="checkbox"] {

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { log } from "./log.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig } from "./config.ts";
 import { projectKey, tarefasPath as legadoPath } from "./home.ts";
@@ -516,26 +517,52 @@ function lerTarefaDoArquivo(projectPath: string, path: string): Tarefa | null {
       c = { marca, dados: lerBloco<Partial<Tarefa>>(readFileSync(path, "utf8")) ?? null };
       cacheTarefa.set(path, c);
     }
-    const dados = c.dados ? structuredClone(c.dados) : null;
-    if (!dados || typeof dados.id !== "string" || typeof dados.titulo !== "string" || typeof dados.colunaId !== "string") {
-      return null;
-    }
-    return {
-      ...dados,
-      id: dados.id,
-      projectPath,
-      titulo: dados.titulo,
-      colunaId: dados.colunaId,
-      etiquetaIds: Array.isArray(dados.etiquetaIds) ? dados.etiquetaIds : [],
-      checklist: Array.isArray(dados.checklist) ? dados.checklist : [],
-      comentarios: Array.isArray(dados.comentarios) ? dados.comentarios : [],
-      ordem: typeof dados.ordem === "number" ? dados.ordem : 0,
-      createdAt: dados.createdAt ?? new Date().toISOString(),
-      updatedAt: dados.updatedAt ?? new Date().toISOString(),
-    };
+    return tarefaDosDados(projectPath, c.dados);
   } catch {
     return null;
   }
+}
+
+/** Igual a `lerTarefaDoArquivo`, sem segurar o event loop (arquivo só-na-nuvem do Drive). */
+async function lerTarefaDoArquivoAsync(projectPath: string, path: string): Promise<Tarefa | null> {
+  let marca: string;
+  try {
+    const st = await stat(path, { bigint: true });
+    marca = `${st.mtimeNs}:${st.size}`;
+  } catch {
+    cacheTarefa.delete(path);
+    return null;
+  }
+  try {
+    let c = cacheTarefa.get(path);
+    if (!c || c.marca !== marca) {
+      c = { marca, dados: lerBloco<Partial<Tarefa>>(await readFile(path, "utf8")) ?? null };
+      cacheTarefa.set(path, c);
+    }
+    return tarefaDosDados(projectPath, c.dados);
+  } catch {
+    return null;
+  }
+}
+
+function tarefaDosDados(projectPath: string, lidos: Partial<Tarefa> | null): Tarefa | null {
+  const dados = lidos ? structuredClone(lidos) : null;
+  if (!dados || typeof dados.id !== "string" || typeof dados.titulo !== "string" || typeof dados.colunaId !== "string") {
+    return null;
+  }
+  return {
+    ...dados,
+    id: dados.id,
+    projectPath,
+    titulo: dados.titulo,
+    colunaId: dados.colunaId,
+    etiquetaIds: Array.isArray(dados.etiquetaIds) ? dados.etiquetaIds : [],
+    checklist: Array.isArray(dados.checklist) ? dados.checklist : [],
+    comentarios: Array.isArray(dados.comentarios) ? dados.comentarios : [],
+    ordem: typeof dados.ordem === "number" ? dados.ordem : 0,
+    createdAt: dados.createdAt ?? new Date().toISOString(),
+    updatedAt: dados.updatedAt ?? new Date().toISOString(),
+  };
 }
 
 function escreverTarefa(t: Tarefa, quadro: Quadro, home: string): void {
@@ -558,6 +585,25 @@ export function listarTarefas(projectPath: string, home: string): Tarefa[] {
     if (t) tarefas.push(t);
   }
   return tarefas;
+}
+
+/**
+ * `listarTarefas` pra rota de leitura (Quadro, torre): tarefa só-na-nuvem do Drive leva segundos
+ * pra baixar e dezenas delas, síncronas, travavam o motor até o app matá-lo. Quem grava continua
+ * na síncrona (precisa da lista e da escrita no mesmo passo).
+ */
+export async function listarTarefasAsync(projectPath: string, home: string): Promise<Tarefa[]> {
+  migrarLegado(projectPath, home);
+  const dir = itensDir(projectPath, home);
+  let arquivos: string[];
+  try {
+    arquivos = await readdir(dir);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw e;
+  }
+  const lidas = await Promise.all(arquivos.filter((a) => a.endsWith(".md")).map((a) => lerTarefaDoArquivoAsync(projectPath, join(dir, a))));
+  return lidas.filter((t): t is Tarefa => t !== null);
 }
 
 export function getTarefa(projectPath: string, home: string, id: string): Tarefa | undefined {

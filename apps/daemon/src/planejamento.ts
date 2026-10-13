@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { esquecerTexto, lerTextoEmCache } from "./texto-em-cache.ts";
+import { readdir } from "node:fs/promises";
+import { esquecerTexto, lerTextoEmCache, lerTextoEmCacheAsync } from "./texto-em-cache.ts";
 import { dirname, join } from "node:path";
 import { projectKey } from "./home.ts";
 import { projectDir, projectDirSemCriar } from "./projeto-dir.ts";
@@ -462,8 +463,11 @@ function corpoDoCard(c: Card, etapas: Etapa[]): string {
 
 function lerRoteiro(dir: string): Roteiro | null {
   const lido = lerTextoEmCache(roteiroPath(dir));
-  if (!lido) return null;
-  const d = lerBloco<Partial<Roteiro>>(lido.texto);
+  return lido ? roteiroDoTexto(lido.texto) : null;
+}
+
+function roteiroDoTexto(texto: string): Roteiro | null {
+  const d = lerBloco<Partial<Roteiro>>(texto);
   if (!d) return null;
   let etapas: Etapa[] = [];
   try {
@@ -560,27 +564,37 @@ export function validarLayout(v: unknown): Layout {
  * API do store
  * ------------------------------------------------------------------------- */
 
-export function listarPlanos(projectPath: string, home: string): ResumoPlano[] {
+/**
+ * Assíncrona de propósito: roda a cada poucos segundos (Planejamento, Observatório da torre) e o
+ * roteiro só-na-nuvem do Drive leva segundos pra baixar — síncrona, travava o motor inteiro.
+ */
+export async function listarPlanos(projectPath: string, home: string): Promise<ResumoPlano[]> {
   const r = raiz(projectPath, home, false);
-  if (!existsSync(r)) return [];
-  const out: ResumoPlano[] = [];
-  for (const slug of readdirSync(r)) {
-    if (!ID_RE.test(slug)) continue;
-    const dir = join(r, slug);
-    const roteiro = lerRoteiro(dir);
-    if (!roteiro) continue;
-    out.push({
-      slug,
-      titulo: roteiro.titulo,
-      etapas: roteiro.etapas.length,
-      concluidas: roteiro.etapas.filter((e) => e.status === "concluida").length,
-      atualizadoEm: statSync(roteiroPath(dir)).mtime.toISOString(),
-      estrelas: roteiro.etapas.map((e) => e.implementacao ?? "pendente"),
-      ...(roteiro.threadId ? { threadId: roteiro.threadId } : {}),
-      ...(roteiro.implementacaoThreadId ? { implementacaoThreadId: roteiro.implementacaoThreadId } : {}),
-    });
+  let slugs: string[];
+  try {
+    slugs = await readdir(r);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw e;
   }
-  return out.sort((a, b) => b.atualizadoEm.localeCompare(a.atualizadoEm));
+  const lidos = await Promise.all(
+    slugs.filter((slug) => ID_RE.test(slug)).map(async (slug): Promise<ResumoPlano | null> => {
+      const lido = await lerTextoEmCacheAsync(roteiroPath(join(r, slug)));
+      const roteiro = lido ? roteiroDoTexto(lido.texto) : null;
+      if (!lido || !roteiro) return null;
+      return {
+        slug,
+        titulo: roteiro.titulo,
+        etapas: roteiro.etapas.length,
+        concluidas: roteiro.etapas.filter((e) => e.status === "concluida").length,
+        atualizadoEm: lido.mtime.toISOString(),
+        estrelas: roteiro.etapas.map((e) => e.implementacao ?? "pendente"),
+        ...(roteiro.threadId ? { threadId: roteiro.threadId } : {}),
+        ...(roteiro.implementacaoThreadId ? { implementacaoThreadId: roteiro.implementacaoThreadId } : {}),
+      };
+    }),
+  );
+  return lidos.filter((p): p is ResumoPlano => p !== null).sort((a, b) => b.atualizadoEm.localeCompare(a.atualizadoEm));
 }
 
 export function criarPlano(projectPath: string, home: string, opts: { titulo?: unknown; agora?: Date } = {}): Plano {

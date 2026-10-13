@@ -84,14 +84,14 @@ describe("regras puras", () => {
 });
 
 describe("plano", () => {
-  it("nasce 'Sem nome', vazio, e aparece na lista", () => {
+  it("nasce 'Sem nome', vazio, e aparece na lista", async () => {
     const home = tempHome();
     const plano = criarPlano(P, home, { agora: AGORA });
     expect(plano.slug).toBe("plano-20260924-1423");
     expect(plano.roteiro).toMatchObject({ titulo: "Sem nome", rev: 1, etapas: [] });
     expect(plano.cards).toEqual([]);
-    expect(listarPlanos(P, home)).toMatchObject([{ slug: plano.slug, titulo: "Sem nome", etapas: 0 }]);
-    expect(listarPlanos("/outro", home)).toEqual([]);
+    await expect(listarPlanos(P, home)).resolves.toMatchObject([{ slug: plano.slug, titulo: "Sem nome", etapas: 0 }]);
+    await expect(listarPlanos("/outro", home)).resolves.toEqual([]);
   });
 
   it("slug inválido ou plano inexistente", () => {

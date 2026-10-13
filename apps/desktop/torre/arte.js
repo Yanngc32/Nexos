@@ -39,6 +39,9 @@ export const PALETA = {
   i: "#56b6c2", // dica (info do DS)
   j: "#4a4a5c", // vidro do cristal vazio
   J: "#383846", // vidro sombra
+  r: "#2a2644", // telha escura
+  R: "#433c6c", // telha
+  t: "#675e9e", // telha clara
 };
 
 /** Estandartes por projeto (`corDoProjeto` → índice); neutro = torre Geral. */
@@ -382,6 +385,36 @@ export function mascaraDoIcone(nome) {
     for (let x = 0; x < linha.length; x++) if (linha[x] === "k") g[2 + y][2 + x] = "k";
   });
   return g.map((l) => l.join(""));
+}
+
+/* ---------------- o telhado ---------------- */
+
+/** Meia largura do cone na linha `r` (de `altura`): ponta fina que abre em curva até o beiral. */
+export function metadeDoTelhado(r, altura, largura) {
+  return 2 + Math.round((largura / 2 - 2) * Math.pow(r / (altura - 1), 1.6));
+}
+
+/**
+ * Cone do telhado (`largura` par) com `altura` linhas, da ponta até o beiral: borda em tinta,
+ * lado da luz à esquerda (`t`) e da sombra à direita (`R`), telhas em escama com fileiras de 4
+ * linhas desencontradas.
+ */
+export function mascaraDoTelhado(largura, altura) {
+  const meio = largura / 2;
+  const linhas = [];
+  for (let r = 0; r < altura; r++) {
+    const metade = metadeDoTelhado(r, altura, largura);
+    const faixa = Math.floor(r / 4);
+    let l = ".".repeat(meio - metade);
+    for (let x = meio - metade; x < meio + metade; x++) {
+      const luz = x < meio;
+      if (x === meio - metade || x === meio + metade - 1) l += "k";
+      else if (r % 4 === 3 || (Math.abs(x - meio + 0.5) + (faixa % 2) * 3) % 6 < 1) l += luz ? "R" : "r";
+      else l += luz ? "t" : "R";
+    }
+    linhas.push(l.padEnd(largura, "."));
+  }
+  return linhas;
 }
 
 /* ---------------- a torre em miniatura (visão geral e ilha) ---------------- */
