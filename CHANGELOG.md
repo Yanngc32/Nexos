@@ -10,6 +10,29 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Alterado
 
+## [0.19.0] - 2026-10-13
+
+### Adicionado
+
+- **Cérebro**: nova aba que mostra tudo o que o agente sabe usar no projeto (ferramentas do Nexos, skills, agentes, times, memória, docs e MCP externos) e quanto cada coisa é usada de verdade. Modo **Painel**: indicadores clicáveis com tendência de 14 dias, **Testar gatilhos** (você escreve uma mensagem e vê o que lembraria o agente, com os termos marcados e a linha exata), tabela com edição de descrição, gatilhos e "como usar" na própria linha, switch ligar/desligar com desfazer, sugestões tiradas das medições (gatilho ignorado, ferramenta sem uso, palavra que vale virar gatilho, espaço no pack), disparos recentes e "Adicionar capacidade" (inclusive doc e MCP externo). Modo **Mapa**: grafo das capacidades em volta do Cérebro, maior = mais usada, pulsando ao vivo. Escopo por projeto ou Global.
+- Lembretes no momento certo: as conversas (chats, passos de time e supervisores) recebem um índice curto do que sabem usar e, quando uma mensagem bate num gatilho, uma linha `[Cérebro]` lembra a capacidade certa — no máximo 3 por mensagem e sem repetir a mesma em 10 mensagens. Cada lembrete é medido (disparou → usou).
+- Ferramenta `nexo_cerebro` (consultar, ler, registrar) já carregada no agente, sem passar pela busca de ferramentas.
+- Subagentes padrão **explorador**, **revisor** e **testador**, instalados sozinhos e editáveis; os passos de time também passam a recebê-los.
+- MCP externos por projeto: servidores configurados no projeto entram nas conversas (Claude e Codex) e suas ferramentas aparecem no Cérebro.
+- `pnpm medir --capacidades`: uso de cada capacidade em 7 e 30 dias por tipo de conversa.
+- Torre: cristal de mana lapidado na cor da conta, que enche de baixo pra cima conforme a mana.
+
+### Corrigido
+
+- App do celular "desconectado" depois de bloquear a tela (Win+L) ou de ligar o PC com o Tailscale ainda conectando: o HTTPS só tentava subir de novo a cada 6 horas. Agora volta em até 1 minuto, escuta no endereço do próprio Tailscale (não em outro túnel 100.x, como NetBird ou Hamachi), diz no log quando o Tailscale não está conectado e reaproveita o certificado guardado se o `tailscale cert` falhar.
+- "Gerar APK" que nunca funcionava: recusava sempre por falta de HTTPS (ver acima) e agora tenta subir o HTTPS na hora, explicando o motivo se não der. O APK já gerado sumia depois da mudança da pasta `~/.nexo` → `~/.nexos`; agora é encontrado, e as falhas do build vão pro log com a etapa.
+- Streams do app que caíam a cada 20 segundos por causa do sinal de "ainda vivo" do motor.
+
+### Alterado
+
+- Os lembretes "Perguntar com opções", "Quadro de tarefas", "Mock vai pro Canvas" e "Símbolos sob demanda" viraram linhas do Cérebro, editáveis na aba.
+- Teto de agentes usados como subagente cai de 6 pra 4.
+
 ## [0.18.0] - 2026-10-13
 
 ### Adicionado
