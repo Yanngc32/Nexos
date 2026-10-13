@@ -7,6 +7,7 @@
  */
 import { nexoHome } from "../src/home.ts";
 import { medirConsumo, pesoRelativo, type Linha } from "../src/medir-consumo.ts";
+import { gravarUsoDoCerebro, relatorioDeUso, varrerConversas } from "../src/cerebro-uso.ts";
 
 function arg(nome: string): string | undefined {
   const i = process.argv.indexOf(`--${nome}`);
@@ -15,6 +16,38 @@ function arg(nome: string): string | undefined {
 
 const dias = Number(arg("dias") ?? 7);
 const home = arg("home") ?? nexoHome();
+
+/*
+ * `pnpm medir --capacidades [--projeto <pasta>] [--json]`: quanto o modelo usou cada capacidade
+ * do Nexos (ferramenta nexo_*, skill, subagente, delegação, MCP externo), 7 e 30 dias, por tipo
+ * de conversa. É a linha de base do Cérebro: rodar antes e depois de mudar índice/gatilhos.
+ */
+if (process.argv.includes("--capacidades")) {
+  const projeto = arg("projeto");
+  const varrido = await varrerConversas(home);
+  gravarUsoDoCerebro(home);
+  const r = relatorioDeUso(home, projeto !== undefined ? { projectPath: projeto } : {});
+  if (process.argv.includes("--json")) {
+    console.log(JSON.stringify(r, null, 2));
+    process.exit(0);
+  }
+  console.log(`\nUso das capacidades (7 / 30 dias) — ${home}${projeto ? ` — projeto ${projeto}` : ""}`);
+  console.log(`  varredura: ${varrido.conversas} conversas lidas, ${varrido.novos} chamadas novas contadas\n`);
+  const larg = Math.max(12, ...r.capacidades.map((c) => c.chave.length));
+  console.log(`${"capacidade".padEnd(larg)}  ${"7d".padStart(5)}  ${"30d".padStart(5)}  ${"chat".padStart(5)}  ${"run".padStart(5)}  ${"time".padStart(5)}  ${"ocult".padStart(5)}  ${"disp→usou".padStart(10)}  último uso`);
+  console.log("-".repeat(larg + 70));
+  for (const c of r.capacidades) {
+    const disparo = c.disparos30d ? `${c.disparos30d}→${c.usosAposDisparo30d}` : "-";
+    console.log(
+      `${c.chave.padEnd(larg)}  ${String(c.usos7d).padStart(5)}  ${String(c.usos30d).padStart(5)}  ${String(c.porConversa.chat).padStart(5)}  ${String(c.porConversa.run).padStart(5)}  ${String(c.porConversa.time).padStart(5)}  ${String(c.porConversa.oculta).padStart(5)}  ${disparo.padStart(10)}  ${c.ultimoUso?.slice(0, 16).replace("T", " ") ?? "nunca"}`,
+    );
+  }
+  if (!r.capacidades.length) console.log("  nenhum uso registrado nos últimos 30 dias");
+  const t = r.porConversa;
+  console.log(`\nTotal 30 dias por tipo de conversa: chat ${t.chat} · run ${t.run} · time ${t.time} · oculta ${t.oculta}`);
+  console.log("  disp→usou = vezes que um gatilho lembrou a capacidade → vezes que ela foi usada logo em seguida\n");
+  process.exit(0);
+}
 const desde = new Date(Date.now() - dias * 24 * 60 * 60_000);
 const r = medirConsumo(home, desde);
 

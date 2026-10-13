@@ -2,7 +2,7 @@ import type { EngineEvent, EngineOverrides, PartesDoPack, StartOpts } from "@nex
 
 export type EngineHandler = (ev: EngineEvent) => void;
 
-export type EngineMcp = Pick<StartOpts, "mcpConfig" | "mcpTools" | "mcpHttp">;
+export type EngineMcp = Pick<StartOpts, "mcpConfig" | "mcpTools" | "mcpHttp" | "mcpFlagsExtras">;
 
 export interface Engine {
   start(opts: StartOpts, onEvent: EngineHandler): Promise<void>;

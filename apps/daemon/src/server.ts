@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import type { Server } from "node:http";
 import { join } from "node:path";
 import { DEFAULT_CONFIG } from "@nexos/shared";
+import { varrerConversas } from "./cerebro-uso.ts";
 import { loadConfig } from "./config.ts";
 import { fecharTudo, ligadoEm, manterEmDia, manterHttpsEmDia, religar } from "./escuta.ts";
 import { ensureHome, tokenPath } from "./home.ts";
@@ -143,6 +144,12 @@ export async function startDaemon(home: string, opts?: { port?: number }): Promi
   const app = createApp(home, token);
 
   const estado = await religar(app.fetch, port, hostManual());
+  // Cérebro: conta o que ficou pra trás (conversas de antes, motor fechado no meio) sem atrasar o boot
+  setTimeout(() => {
+    varrerConversas(home)
+      .then((r) => log.info("cerebro", "varredura de uso das capacidades", r))
+      .catch((e: unknown) => log.aviso("cerebro", "varredura de uso falhou", { erro: String(e) }));
+  }, 5000).unref();
 
   /*
    * **O LOOPBACK É QUEM DECIDE se este processo é o daemon.**

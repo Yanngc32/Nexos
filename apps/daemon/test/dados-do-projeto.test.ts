@@ -28,6 +28,9 @@ const QUEM_GRAVA: Record<string, string[]> = {
   "video.ts": ['"videos"'],
   // aprendizados (um .md por instinto + _config.json da chave): sincronizam entre aparelhos
   "instintos.ts": ['"instintos"'],
+  // Cérebro: catalogo.json (ajustes da pessoa) e mcp.json (MCP externos) do projeto sincronizam
+  "cerebro-catalogo.ts": ['"cerebro"'],
+  "cerebro-mcp-externos.ts": ['"cerebro"'],
   // `GET /v1/projects/dados-dir` ("Ver pasta de dados do Nexos"): só cria a pasta (+ meta.json) pra
   // abrir no explorer, não grava dado nenhum
   "http.ts": [],

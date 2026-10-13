@@ -81,6 +81,13 @@ export type Ferramenta = {
   description: string;
   inputSchema: unknown;
   executar: (args: Record<string, unknown>) => Promise<Saida> | Saida;
+  /**
+   * `_meta` do `tools/list` (MCP 2025-06-18). O `claude` lê `anthropic/alwaysLoad: true` aqui pra
+   * NÃO adiar a ferramenta atrás do ToolSearch — é o que faz `nexo_cerebro` chegar com schema já
+   * carregado (medido no binário do CLI: "except a tool the server itself lists with _meta
+   * anthropic/alwaysLoad"). As outras `nexo_*` seguem adiadas de propósito: são ~50 schemas.
+   */
+  meta?: Record<string, unknown>;
 };
 
 /**
@@ -92,7 +99,7 @@ export type Conjunto = () => Ferramenta[];
 
 /** O que vai no `tools/list`: a ferramenta sem o que o modelo não precisa ver. */
 export function definicoesDeFerramenta(ferramentas: Ferramenta[]): unknown[] {
-  return ferramentas.map((f) => ({ name: f.name, description: f.description, inputSchema: f.inputSchema }));
+  return ferramentas.map((f) => ({ name: f.name, description: f.description, inputSchema: f.inputSchema, ...(f.meta ? { _meta: f.meta } : {}) }));
 }
 
 /**
@@ -269,9 +276,11 @@ export const MCP_TOOL_TIMEOUT_MS = TURNO_TETO_MS + FOLGA_MS;
  * argumento porque carrega o token do daemon: argv de processo é legível por
  * qualquer processo do mesmo usuário, e um arquivo `0600` não é.
  */
-function configPara(porta: number, token: string, caminho: string): string {
+function configPara(porta: number, token: string, caminho: string, externos: Record<string, unknown> = {}): string {
   return JSON.stringify({
     mcpServers: {
+      // MCP externos do projeto (cerebro-mcp-externos.ts) entram antes: `nexo` nunca é sobrescrito
+      ...externos,
       nexo: {
         type: "http",
         url: `http://127.0.0.1:${porta}${caminho}`,
@@ -329,8 +338,9 @@ export function configDeMcpAutoria(
   projectPath?: string,
   runId?: string,
   threadId?: string,
+  externos: Record<string, unknown> = {},
 ): string {
-  return configPara(porta, token, caminhoDaAutoria(projectPath, runId, threadId));
+  return configPara(porta, token, caminhoDaAutoria(projectPath, runId, threadId), externos);
 }
 
 /** Endereço da boca MCP do daemon. O `codex` recebe isto, não arquivo. */

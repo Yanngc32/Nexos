@@ -59,6 +59,7 @@ export const DADOS_DO_PROJETO: readonly string[] = [
   "design-system.json",
   "videos",
   "instintos",
+  "cerebro",
 ];
 
 /**

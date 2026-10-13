@@ -80,6 +80,13 @@ import { cancelLogin, loginStatus, startLogin, submitCode } from "./login-sessio
 import { alternarPonte, iniciarPontePlano, mandarPelaPonte, ponteLigada } from "./ponte-plano.ts";
 import { marcarSinal, talvezMarcarMensagemSeguinte } from "./aprendizado-sinais.ts";
 import { analisandoNoProjeto } from "./aprendizado-analise.ts";
+import { aoMudarUsoDoCerebro, ligarContadorDoCerebro, relatorioDeUso, varrerConversas } from "./cerebro-uso.ts";
+import { ajustarCapacidade, catalogoDoCerebro, conteudoDaCapacidade, kpisDoCatalogo, removerAjuste } from "./cerebro-catalogo.ts";
+import { ferramentaDoCerebro } from "./cerebro-ferramenta.ts";
+import { testarGatilhos } from "./cerebro-gatilhos.ts";
+import { detalheDeUso, disparosComTitulo, sugestoesDoCerebro } from "./cerebro-sugestoes.ts";
+import { instalarAgentesDoNexos } from "./agentes-do-nexos.ts";
+import { descobrirFerramentas, ferramentasExternasEmCache, listarMcpExternos, removerMcpExterno, salvarMcpExterno, semSegredos } from "./cerebro-mcp-externos.ts";
 import {
   adiarProposta,
   agirNoInstinto,
@@ -235,7 +242,8 @@ import {
 import { desligarRepoMapResumos, gerarResumosSobDemanda, sincronizarRepoMapResumos } from "./repo-map-auto.ts";
 import { statusDaMemoria, statusDaMemoriaGlobal } from "./memoria.ts";
 import { importarZip } from "./importadores/importar-zip.ts";
-import { estadoAtual, melhorHost } from "./escuta.ts";
+import { estadoAtual, melhorHost, tentarHttps } from "./escuta.ts";
+import { ultimoMotivoHttps } from "./tls-tailscale.ts";
 import { abrirPareamento, fecharPareamento, pareamentoAberto, resgatar } from "./pair.ts";
 import { abrirDownload, downloadAberto, fecharDownload, resgatarDownload } from "./apk-share.ts";
 import { paginaApk } from "./apk-pagina.ts";
@@ -328,6 +336,8 @@ type McpCtx = {
 export function createApp(home: string, token: string): Hono {
   const app = new Hono();
   iniciarPontePlano();
+  // Cérebro: cada `tool` gravado conta uso da capacidade na hora (cerebro-uso.ts)
+  ligarContadorDoCerebro();
   /*
    * O token é MUTÁVEL porque `POST /v1/token/rotate` o troca com o daemon de
    * pé. Fica na closure e não em estado de módulo: os testes criam vários apps,
@@ -545,9 +555,23 @@ export function createApp(home: string, token: string): Hono {
    * `apk-build.ts`). Dispara em segundo plano; `GET` é só consulta de status,
    * pro painel Celular fazer polling enquanto `fase` for `"construindo"`.
    */
-  app.post("/v1/apk/build", (c) => {
+  app.post("/v1/apk/build", async (c) => {
+    // HTTPS fora (Tailscale acabou de voltar, o relógio ainda não tentou): tenta agora,
+    // em vez de mandar a pessoa esperar o próximo ciclo
+    if (!estadoAtual().https) await tentarHttps(app.fetch, estadoAtual().port, home);
     const https = estadoAtual().https;
-    if (!https) return c.json({ error: "HTTPS ainda não está disponível — sem ele, o TWA não builda" }, 400);
+    if (!https) {
+      const motivo = ultimoMotivoHttps();
+      return c.json(
+        {
+          error:
+            "HTTPS pelo Tailscale não está de pé — sem ele o APK não builda" +
+            (motivo && motivo !== "ok" ? `: ${motivo}.` : ".") +
+            " Confira se o Tailscale está conectado e com HTTPS ligado no admin do tailnet.",
+        },
+        400,
+      );
+    }
     construirApk(home, https);
     return c.json(estadoAtualBuild(home), 202);
   });
@@ -683,6 +707,8 @@ export function createApp(home: string, token: string): Hono {
     const body = (await c.req.json()) as AddProfileInput & { apiKey?: string };
     try {
       const p = addProfile(body, home, { apiKey: body.apiKey, skipBinCheck: body.engine === "stub" });
+      // primeira conta da casa: os subagentes padrão precisam de uma conta pra existir
+      instalarAgentesDoNexos(home);
       return c.json(p, 201);
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400);
@@ -2453,6 +2479,190 @@ export function createApp(home: string, token: string): Hono {
     });
   });
 
+  /* ---------- Cérebro: uso por capacidade (cerebro-uso.ts) ---------- */
+
+  /**
+   * Usos por capacidade (ferramenta nexo_*, skill, subagente, delegação, MCP externo) em 7/30 dias,
+   * por tipo de conversa. `projectPath` filtra um projeto; ausente = todos. Só memória/disco.
+   */
+  app.get("/v1/cerebro/uso", (c) => {
+    const projectPath = c.req.query("projectPath");
+    return c.json(relatorioDeUso(home, projectPath !== undefined ? { projectPath } : {}));
+  });
+
+  /** Reconta conversas que mudaram desde a última varredura (`tudo=1` relê todas a partir dos cursores). */
+  app.post("/v1/cerebro/uso/varrer", async (c) => {
+    return c.json(await varrerConversas(home, { tudo: c.req.query("tudo") === "1" }));
+  });
+
+  /** Linha do tempo: últimos disparos de gatilho (mais novo primeiro), com `usou` quando a capacidade foi usada em seguida. */
+  app.get("/v1/cerebro/disparos", (c) => {
+    const projectPath = c.req.query("projectPath");
+    const max = Number(c.req.query("max") ?? 50) || 50;
+    return c.json({ disparos: disparosComTitulo(home, { ...(projectPath !== undefined ? { projectPath } : {}), max: Math.min(200, max) }) });
+  });
+
+  /**
+   * Contadores ao vivo pra aba Cérebro: um evento por uso/disparo (`{tipo, chave, threadId, ts,
+   * projectPath?, usou?}`). `projectPath` filtra. No desktop passa pela ponte SSE do processo principal.
+   */
+  app.get("/v1/cerebro/events", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    return streamSSE(c, async (stream) => {
+      const desligar = aoMudarUsoDoCerebro((ev) => {
+        if (projectPath && ev.projectPath !== projectPath) return;
+        void stream.writeSSE({ data: JSON.stringify(ev) });
+      });
+      const ping = setInterval(() => void stream.writeSSE({ event: "ping", data: "" }), 20_000);
+      await new Promise<void>((resolve) => {
+        stream.onAbort(() => {
+          desligar();
+          clearInterval(ping);
+          resolve();
+        });
+      });
+    });
+  });
+
+  const erroDoCerebro = (c: Context, e: unknown) => {
+    if (e instanceof RaizIndisponivelError) throw e;
+    const err = e as Error & { status?: number };
+    return c.json({ error: err.message }, (err.status ?? 400) as 400);
+  };
+
+  /** Catálogo de capacidades (auto + ajustes da pessoa + uso). `projectPath` ausente = chat geral. */
+  app.get("/v1/cerebro/catalogo", (c) => {
+    const projectPath = c.req.query("projectPath") || undefined;
+    try {
+      const itens = catalogoDoCerebro(projectPath, home);
+      return c.json({ itens, kpis: kpisDoCatalogo(itens) });
+    } catch (e) {
+      return erroDoCerebro(c, e);
+    }
+  });
+
+  /** Sugestões tiradas das medições (gatilho ignorado, sem gatilho, palavra candidata, teto do bloco). */
+  app.get("/v1/cerebro/sugestoes", (c) => {
+    const projectPath = c.req.query("projectPath") || undefined;
+    try {
+      return c.json({ sugestoes: sugestoesDoCerebro(projectPath, home) });
+    } catch (e) {
+      return erroDoCerebro(c, e);
+    }
+  });
+
+  /**
+   * "Testar gatilhos": o que uma mensagem acordaria neste projeto, sem registrar disparo. Body:
+   * `{ texto, tipo? }` (tipo de conversa: chat padrão). Devolve candidatos com peso e a linha exata.
+   */
+  app.post("/v1/cerebro/testar", async (c) => {
+    const projectPath = c.req.query("projectPath") || undefined;
+    const body = (await c.req.json().catch(() => ({}))) as { texto?: unknown; tipo?: unknown };
+    const texto = typeof body.texto === "string" ? body.texto.slice(0, 4000) : "";
+    const tipo = body.tipo === "run" || body.tipo === "time" ? body.tipo : "chat";
+    try {
+      return c.json(testarGatilhos(texto, catalogoDoCerebro(projectPath, home), { tipo }));
+    } catch (e) {
+      return erroDoCerebro(c, e);
+    }
+  });
+
+  /** Detalhe de uso de uma capacidade: por conversa, por dia, últimos usos com título, gatilhos sugeridos. */
+  app.get("/v1/cerebro/catalogo/:id/uso", (c) => {
+    const projectPath = c.req.query("projectPath") || undefined;
+    try {
+      const r = detalheDeUso(c.req.param("id"), projectPath, home);
+      return r ? c.json(r) : c.json({ error: "capacidade não existe" }, 404);
+    } catch (e) {
+      return erroDoCerebro(c, e);
+    }
+  });
+
+  /** Conteúdo da capacidade (SKILL.md, doc, memória, agente) pra preview. */
+  app.get("/v1/cerebro/catalogo/:id/conteudo", (c) => {
+    const projectPath = c.req.query("projectPath") || undefined;
+    try {
+      const r = conteudoDaCapacidade(c.req.param("id"), projectPath, home);
+      return r ? c.json(r) : c.json({ error: "capacidade não existe" }, 404);
+    } catch (e) {
+      return erroDoCerebro(c, e);
+    }
+  });
+
+  /**
+   * Ajuste da pessoa (descricao, gatilhos, comoUsar, ligada) ou capacidade nova (tipo + nome +
+   * descricao). `escopo=global|projeto` (padrão: projeto se veio projectPath).
+   */
+  app.put("/v1/cerebro/catalogo/:id", async (c) => {
+    const projectPath = c.req.query("projectPath") || undefined;
+    const escopo = c.req.query("escopo") as "projeto" | "global" | undefined;
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    try {
+      return c.json(ajustarCapacidade(c.req.param("id"), body, { ...(projectPath ? { projectPath } : {}), ...(escopo ? { escopo } : {}) }, home));
+    } catch (e) {
+      return erroDoCerebro(c, e);
+    }
+  });
+
+  /* ---------- MCP externos por projeto (cerebro-mcp-externos.ts) ---------- */
+
+  /** Lista (segredos mascarados) + ferramentas descobertas de cada servidor. */
+  app.get("/v1/cerebro/mcp", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      const ferramentas = ferramentasExternasEmCache(projectPath, home);
+      return c.json({ servidores: listarMcpExternos(projectPath, home).map((m) => ({ ...semSegredos(m), descoberta: ferramentas[m.nome] ?? null })) });
+    } catch (e) {
+      return erroDoCerebro(c, e);
+    }
+  });
+
+  /** Cria/atualiza. Body: transporte, comando/args ou url, env, headers, ligado, descricao. `•••` em env/headers mantém o valor salvo. */
+  app.put("/v1/cerebro/mcp/:nome", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    try {
+      return c.json(semSegredos(salvarMcpExterno(projectPath, c.req.param("nome"), body, home)));
+    } catch (e) {
+      return erroDoCerebro(c, e);
+    }
+  });
+
+  app.delete("/v1/cerebro/mcp/:nome", (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      return removerMcpExterno(projectPath, c.req.param("nome"), home) ? c.json({ ok: true }) : c.json({ error: "servidor não existe" }, 404);
+    } catch (e) {
+      return erroDoCerebro(c, e);
+    }
+  });
+
+  /** Conecta uma vez no servidor, lista as ferramentas e grava no cache (vira capacidade no catálogo). */
+  app.post("/v1/cerebro/mcp/:nome/descobrir", async (c) => {
+    const projectPath = c.req.query("projectPath") || "";
+    if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);
+    try {
+      return c.json(await descobrirFerramentas(projectPath, c.req.param("nome"), home));
+    } catch (e) {
+      return erroDoCerebro(c, e);
+    }
+  });
+
+  /** Tira o ajuste da pessoa: capacidade auto volta ao gerado; criada por ela some. */
+  app.delete("/v1/cerebro/catalogo/:id", (c) => {
+    const projectPath = c.req.query("projectPath") || undefined;
+    const escopo = c.req.query("escopo") as "projeto" | "global" | undefined;
+    try {
+      const ok = removerAjuste(c.req.param("id"), { ...(projectPath ? { projectPath } : {}), ...(escopo ? { escopo } : {}) }, home);
+      return ok ? c.json({ ok: true }) : c.json({ error: "sem ajuste pra remover" }, 404);
+    } catch (e) {
+      return erroDoCerebro(c, e);
+    }
+  });
+
   /* ---------- Aprendizados (seção da Memória do Projeto; ver instintos.ts) ---------- */
 
   const erroDoAprendizado = (c: Context, e: unknown) => {
@@ -2748,6 +2958,7 @@ export function createApp(home: string, token: string): Hono {
         // do DS só o print (ver a tela); criar/ativar/salvar ficam de fora
         ...ferramentaDePrintDoDs(threadId, pp, home)().filter((f) => f.name === "nexo_ds_print"),
         ...ferramentaDePerguntar(threadId, home)(),
+        ...ferramentaDoCerebro(threadId, pp, home)(),
         // Manager mostra o design/plano/quadro enquanto planeja; navegador só sem url (sem controle)
         ...ferramentaDePainel(threadId, "negado", home)(),
         ...ferramentasDeRepoMap(pp, home)(),
@@ -2771,6 +2982,8 @@ export function createApp(home: string, token: string): Hono {
       ...(projectPath && loadConfig(home).modulos.quadroTarefas ? ferramentasDeTarefas(projectPath, home)() : []),
       ...(runId ? ferramentaDeVeredito(runId)() : []),
       ...(threadId ? ferramentaDePerguntar(threadId, home)() : []),
+      // Cérebro (cerebro-ferramenta.ts): em toda conversa, inclusive passo de run
+      ...(threadId ? ferramentaDoCerebro(threadId, projectPath || undefined, home)() : []),
       ...(modoDelegacao !== "negado" ? ferramentaDeDelegar(threadId, projectPath, modoDelegacao, home)() : []),
       ...(modoNavegador !== "negado" ? ferramentasDeNavegador(threadId, home, modoNavegador)() : []),
       ...(modoNavegador !== "negado" && extensaoRecente() ? ferramentasDoChrome(threadId, home, modoNavegador)() : []),

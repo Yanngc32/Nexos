@@ -92,4 +92,10 @@ describe("lerEventos", () => {
     const res = resposta("data: {isso não é json}\n\n");
     await expect(coletar(res)).rejects.toThrow();
   });
+
+  it("keepalive do motor (`event: ping`, data vazio) não é evento nem derruba o laço", async () => {
+    const vistos = [];
+    await lerEventos(resposta("event: ping\ndata: \n\n", 'data: {"a":1}\n\n'), (ev) => vistos.push(ev));
+    expect(vistos).toEqual([{ a: 1 }]);
+  });
 });

@@ -30,6 +30,7 @@ import { medirAtividade, vigiarCongelamento } from "./congelamento.ts";
 import { fecharTudo, pararDeManter } from "./escuta.ts";
 import { instalarSkill } from "./skill.ts";
 import { instalarSkillsDoNexos } from "./skills-do-nexos.ts";
+import { instalarAgentesDoNexos } from "./agentes-do-nexos.ts";
 import { apagarBranchesNexo, listarBranchesNexo, podeIsolar } from "./worktree.ts";
 import {
   isTrusted,
@@ -86,6 +87,8 @@ async function cmdUp(): Promise<void> {
   if (modulos.caveman) void ensureCavemanInstalled(home);
   // skills que vêm no pacote (nexo-video): síncrono e local, só copia arquivo
   instalarSkillsDoNexos(home);
+  // subagentes padrão (explorador, revisor, testador): só lê/grava agents.json
+  instalarAgentesDoNexos(home);
   // Síncrono e barato (só lê agents.json/hooks.json) — sem network, não precisa de fire-and-forget.
   const r = sincronizarRepoMapResumos(home);
   if (!r.ok) log.aviso("motor", "resumos do repo map", { motivo: r.motivo });

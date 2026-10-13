@@ -23,7 +23,10 @@ export async function lerEventos(res, onEvent) {
     for (const chunk of chunks) {
       const line = chunk.split("\n").find((l) => l.startsWith("data:"));
       if (!line) continue;
-      onEvent(JSON.parse(line.slice(5).trim()));
+      // keepalive do motor (`event: ping` com data vazio): não é evento, e JSON.parse("") derrubaria o laço
+      const dado = line.slice(5).trim();
+      if (!dado) continue;
+      onEvent(JSON.parse(dado));
     }
   }
 }

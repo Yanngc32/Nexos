@@ -383,12 +383,16 @@ export function agentSnapshots(): AgentSnapshot[] {
 
 export { sessionBus } from "./bus.ts";
 import { sessionBus } from "./bus.ts";
-import { blocoDoDsParaPack, REGRA_MOCK_NO_CANVAS } from "./ds-sync.ts";
+import { blocoDoDsParaPack } from "./ds-sync.ts";
+import { blocoDoCerebro, lembreteDoCerebro } from "./cerebro-gatilhos.ts";
+import { MCP_TOOLS_CEREBRO } from "./cerebro-ferramenta.ts";
+import { flagsCodexDosExternos, mcpServersParaClaude, mcpToolsExternos } from "./cerebro-mcp-externos.ts";
+import { tipoDaConversa, type TipoDeConversa } from "./cerebro-uso.ts";
 import { pastaDoPlano } from "./planejamento.ts";
 import { blocoDoHandoff, blocoDoManager, MCP_TOOLS_PLANEJAMENTO, MCP_TOOLS_PLANO_NA_IMPLEMENTACAO } from "./planejamento-ferramentas.ts";
 
 /** O que muda nas instruções fixas conforme o tipo da conversa (ver `opcoesDoPack`). */
-type OpcoesDoPack = { incluirDs?: boolean; oculta?: boolean; planejamento?: string; handoff?: string };
+type OpcoesDoPack = { incluirDs?: boolean; oculta?: boolean; planejamento?: string; handoff?: string; tipo?: TipoDeConversa };
 
 /** Opções do pack a partir do `thread_meta` — um lugar só pros dois caminhos de `ensureLive`. */
 function opcoesDoPack(meta: {
@@ -396,11 +400,15 @@ function opcoesDoPack(meta: {
   semRoteamento?: boolean;
   planejamento?: { slug: string };
   handoff?: { slug: string };
+  runId?: string;
+  mcpRunId?: string;
 }): OpcoesDoPack {
   return {
     // DS fica fora da geração do próprio DS e do Manager (que não mexe em front)
     incluirDs: !(meta.oculta || meta.semRoteamento || meta.planejamento),
     oculta: meta.oculta === true,
+    // o bloco `# Cérebro` filtra as capacidades pelo tipo (run não tem navegador, DS, delegar…)
+    tipo: tipoDaConversa(meta),
     ...(meta.planejamento ? { planejamento: meta.planejamento.slug } : {}),
     ...(meta.handoff ? { handoff: meta.handoff.slug } : {}),
   };
@@ -540,20 +548,18 @@ function instrucoesDoPack(
         'disser "stop caveman" ou "modo normal".',
     );
   }
-  // Sem isso o modelo lista as opções como TEXTO comum ("A) ... B) ... C) ...") em vez de chamar a
-  // ferramenta — a descrição do `tools/list` sozinha perde pro hábito. Vale em toda conversa: a
-  // ferramenta está sempre disponível (perguntas.ts), e o custo de 2 linhas é bem menor que ter
-  // que descobrir de novo, por tentativa, por que a pergunta não virou bolha interativa.
-  blocos.push(
-    "# Perguntar com opções\nQuando quiser que a pessoa ESCOLHA entre opções (não só confirme algo " +
-      'em texto livre), chame a ferramenta `nexo_perguntar` com `opcoes` — não liste "A) ... B) ... ' +
-      'C) ..." como texto comum, nem numere "1. ... 2. ... 3. ..." perguntas diferentes num texto só. ' +
-      "Isso vira uma pergunta de verdade na tela, com botão por opção, e pausa o turno até a " +
-      "resposta chegar. Se mais de uma opção puder valer ao mesmo tempo (ex.: \"quais destes " +
-      'pontos se aplicam?"), some `multiSelect: true`. **Tem VÁRIAS perguntas pendentes?** Chame ' +
-      "`nexo_perguntar` uma de cada vez (a próxima só depois da resposta da anterior) — nunca junte " +
-      "todas numa lista de texto só esperando uma resposta que cubra tudo.",
-  );
+  // Os lembretes de capacidade ("Perguntar com opções", "Quadro de tarefas", "Mock vai pro Canvas",
+  // "Símbolos sob demanda") viraram linhas do bloco `# Cérebro` (cerebro-gatilhos.ts): um índice
+  // compacto `quando → como`, com teto, montado do catálogo que a pessoa edita na aba Cérebro.
+  // Runs e passos de time recebem o mesmo bloco (antes não recebiam lembrete nenhum).
+  if (!opts.oculta) {
+    const cerebro = blocoDoCerebro(projectPath, home, {
+      tipo: opts.tipo ?? "chat",
+      ...(opts.planejamento ? { planejamento: true } : {}),
+      ...(modulos.quadroTarefas ? {} : { quadroTarefas: false }),
+    });
+    if (cerebro) blocos.push(cerebro);
+  }
   // Sem isso o turno às vezes termina numa frase de progresso ("agora vou ajustar X…") e a pessoa
   // fica sem saber o que de fato mudou — o resumo é o que ela lê primeiro ao voltar pro chat.
   // conversa de trabalho do Nexos (geração do DS) responde em formato fixo: resumo ali atrapalha
@@ -564,28 +570,12 @@ function instrucoesDoPack(
       "o turno numa frase de progresso do tipo \"agora vou…\". Pergunta simples sem ferramenta não " +
       "precisa de resumo.",
   );
-  // Vale em toda conversa com projeto, igual "Perguntar com opções" — quadro de tarefas só serve
-  // pra coordenar times/humano se ele reflete trabalho real, não só o que foi planejado no início.
-  // Toggle em Configurações → Módulos (`modulos.quadroTarefas`), ligado por padrão.
-  // o Manager não trabalha tarefas: ele planeja (o plano vira tarefa no envio pra implementação)
-  if (modulos.quadroTarefas && !opts.planejamento) {
-    blocos.push(
-      "# Quadro de tarefas\nEste projeto tem um quadro (`nexo_tarefa_listar` / `nexo_tarefa_salvar`). " +
-        "Pergunta ou pedido ÚNICO: não liste o quadro — responda/aja direto. " +
-        "**A mensagem tem MAIS DE UM pedido** (duas ou mais coisas distintas pra fazer, numeradas, " +
-        "separadas por 'e depois', 'também', listas, etc.): ANTES de começar o trabalho, chame " +
-        "`nexo_tarefa_listar` e crie UM card por pedido (`nexo_tarefa_salvar`, coluna de andamento " +
-        "no que for atacar agora, as outras na coluna inicial). Não junte vários pedidos num card só. " +
-        "Enquanto trabalha, vá atualizando o card da vez (checklist, comentário, coluna). Ao concluir " +
-        "um pedido, mova o card dele pra coluna final e só então passe pro próximo.",
-    );
-  }
   // Design system ativo do projeto (Fase 5): é isto que faz o agente usar os tokens ao mexer no
   // front. Fora das conversas de trabalho do próprio DS, que já recebem tudo no pedido delas.
+  // (a regra "mock vai pro Canvas" mora no `# Cérebro`, linha do `nexo_mock_salvar`)
   if (projectPath && opts.incluirDs !== false) {
     const ds = blocoDoDsParaPack(projectPath, home);
     if (ds) blocos.push(ds);
-    blocos.push(REGRA_MOCK_NO_CANVAS);
   }
   // Tela de Planejamento: o Manager e a conversa de implementação que nasce do envio
   if (projectPath && opts.planejamento) blocos.push(blocoDoManager(opts.planejamento, pastaDoPlano(projectPath, home, opts.planejamento)));
@@ -605,15 +595,7 @@ function instrucoesDoPack(
   if (projectPath && indiceDisponivel(projectPath, home)) {
     const indice = lerIndice(projectPath, home);
     if (indice) blocos.push(`# Repo map — árvore de arquivos deste projeto\n${indice}`);
-    blocos.push(
-      "# Símbolos sob demanda\nRegra: antes de ler (`Read`) um arquivo de código deste projeto pela " +
-        "PRIMEIRA vez na conversa, chame `nexo_mapa_simbolos` nele — sem perguntar, sem esperar ser " +
-        "pedido. Ele devolve as assinaturas top-level (função, classe, export, interface/type) na hora " +
-        "e custa uma fração do token de ler o arquivo inteiro; abra o arquivo de verdade só depois, e só " +
-        "se os símbolos confirmarem que o que você procura está lá. Vale pra pasta também: antes de " +
-        "listar/explorar uma pasta arquivo por arquivo, chame `nexo_mapa_simbolos` nela pra ver todo " +
-        "mundo de uma vez.",
-    );
+    // (o nudge "Símbolos sob demanda" mora no `# Cérebro`, linha do `nexo_mapa_simbolos`)
   }
   return blocos.join("\n\n");
 }
@@ -758,8 +740,10 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
       ...mcpDaConversa(threadId, meta, p, home),
       // Agent Manager não altera o projeto (engines/cli.ts: só leitura, escrita negada)
       ...(meta.planejamento ? { somenteLeitura: true } : {}),
-      // agentes marcados como subagente vão pro `Agent` do claude — só em conversa da pessoa
-      ...(!meta.runId && !meta.planejamento && !meta.oculta ? { subagentesDoNexos: true } : {}),
+      // agentes marcados como subagente vão pro `Agent` do claude — em conversa da pessoa E em
+      // passo de run/time (318 runs medidos sem nenhum subagente); fora só o Manager (só leitura)
+      // e as conversas internas do Nexos
+      ...(!meta.planejamento && !meta.oculta ? { subagentesDoNexos: true } : {}),
     },
     (ev) => onEngineEvent(threadId, home, ev),
   );
@@ -815,7 +799,11 @@ function mcpDaConversa(
   if (perfil.engine === "codex") {
     const token = tokenDoHome(home);
     return token
-      ? { mcpHttp: { url: urlDeMcpAutoria(loadConfig(home).port, meta.projectPath, meta.runId, threadId), token } }
+      ? {
+          mcpHttp: { url: urlDeMcpAutoria(loadConfig(home).port, meta.projectPath, meta.runId, threadId), token },
+          // MCP externos do projeto, na forma do codex (ver `mcpToolsExternos` abaixo pra regra do run)
+          ...(!meta.runId ? { mcpFlagsExtras: flagsCodexDosExternos(meta.projectPath, home) } : {}),
+        }
       : {};
   }
   if (perfil.engine !== "claude") return {};
@@ -829,6 +817,7 @@ function mcpDaConversa(
       mcpTools: [
         ...MCP_TOOLS_PLANEJAMENTO,
         ...MCP_TOOLS_PERGUNTAR,
+        ...MCP_TOOLS_CEREBRO,
         ...(loadConfig(home).paineisDoAgente.modo !== "nunca" ? MCP_TOOLS_PAINEL : []),
         ...(meta.projectPath && indiceDisponivel(meta.projectPath, home) ? MCP_TOOLS_REPO_MAP : []),
       ],
@@ -844,6 +833,8 @@ function mcpDaConversa(
     ...(meta.runId ? MCP_TOOLS_VEREDITO : []),
     // Em toda conversa (normal ou passo de Run) — `nexo_perguntar` não depende de run nenhum.
     ...MCP_TOOLS_PERGUNTAR,
+    // `nexo_cerebro` (cerebro-ferramenta.ts): a porta única pras capacidades, em toda conversa
+    ...MCP_TOOLS_CEREBRO,
     ...(loadConfig(home).modulos.quadroTarefas ? MCP_TOOLS_TAREFA : []),
     // Só em conversa NORMAL (sem runId) e com a conta liberada: é isso que barra a recursão — o
     // que `nexo_delegar` dispara é sempre um passo de Run, que já nasce com runId.
@@ -869,7 +860,10 @@ function mcpDaConversa(
     // evita listar a ferramenta quando já se sabe de antemão que a chamada vai ser barrada.
     ...(!meta.runId && loadConfig(home).windowsControlEnabled ? MCP_TOOLS_WINDOWS_CONTROL : []),
   ];
-  return { mcpConfig: arquivo, mcpTools: tools };
+  // MCP externos do projeto (cerebro-mcp-externos.ts): já estão no arquivo; aqui só a liberação
+  // (`mcp__<nome>` libera todas as ferramentas do servidor). Nunca em run: servidor de fora num
+  // passo automático sem ninguém olhando é risco que a pessoa não escolheu.
+  return { mcpConfig: arquivo, mcpTools: [...tools, ...(!meta.runId ? mcpToolsExternos(meta.projectPath, home) : [])] };
 }
 
 /** O token do daemon, ou vazio se ele ainda não subiu nesta home. */
@@ -909,7 +903,8 @@ function arquivoDeAutoria(projectPath: string | undefined, runId: string | undef
     .digest("hex")
     .slice(0, 10);
   const arquivo = join(dir, `mcp-autoria-${hash}.json`);
-  writeFileSync(arquivo, configDeMcpAutoria(loadConfig(home).port, token, projectPath, runId, threadId), {
+  const externos = runId ? {} : mcpServersParaClaude(projectPath, home);
+  writeFileSync(arquivo, configDeMcpAutoria(loadConfig(home).port, token, projectPath, runId, threadId, externos), {
     encoding: "utf8",
     mode: 0o600,
   });
@@ -1835,7 +1830,14 @@ async function turnoDaMensagem(
     if (roteamento.pendente) return;
     const live = await ensureLive(threadId, home);
     await aplicarOverridesDoTurno(threadId, text, eventosAtuais, live, home, antecipada);
-    await dispatch(threadId, home, live, promptWithAttachments(resultados + comSkill(textoComElementos(text, opts.elementos), live, home, meta), attachments));
+    // Gatilhos do Cérebro: lembrete de 1 linha na frente do pedido quando a mensagem (ou o turno
+    // anterior) pede uma capacidade que o modelo costuma esquecer. Depois do `comSkill`, que olha o
+    // começo do texto; fora do JSONL, que guarda só o que a pessoa escreveu.
+    const lembrete = lembreteDoCerebro(threadId, text, eventosAtuais, home, {
+      quadroTarefas: loadConfig(home).modulos.quadroTarefas,
+      arquivos: attachments.map((a) => a.name),
+    });
+    await dispatch(threadId, home, live, promptWithAttachments(resultados + lembrete + comSkill(textoComElementos(text, opts.elementos), live, home, meta), attachments));
   });
 }
 

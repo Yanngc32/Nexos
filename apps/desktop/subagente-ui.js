@@ -4,7 +4,7 @@
  */
 
 /** Mesmo teto do daemon (`SUBAGENTES_MAX` em @nexos/shared). */
-export const SUBAGENTES_MAX = 6;
+export const SUBAGENTES_MAX = 4;
 
 /** Mesma pasta escrita de jeitos diferentes (barra, caixa, barra no fim) é a mesma pasta. */
 export function chaveDePasta(p) {

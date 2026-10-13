@@ -77,6 +77,8 @@ import { criarCliqueSeguro } from "./clique-seguro.js";
 import { criarFetchSse } from "./sse-ponte.js";
 import { criarTorreDados } from "./torre-dados.js";
 import { createTorreView } from "./torre-view.js";
+import { criarCerebroDados } from "./cerebro-dados.js";
+import { createCerebroView } from "./cerebro-view.js";
 import { LIMITE_DO_CHAT, inicioDaJanela, mensagensAntesDe } from "./janela-do-chat.js";
 import { criarAreaDeChats, criarEstadoDoChat, elementoDoChat, ligarEstadoDoChat, ouvirConversa } from "./chat-instancia.js";
 import {
@@ -120,6 +122,7 @@ const MODULES = [
   { id: "ds", name: "Design System", keys: "", ico: "◧" },
   { id: "planejamento", name: "Planejamento", keys: "", ico: "🧭" },
   { id: "torre", name: "Torre", keys: "", ico: "♜" },
+  { id: "cerebro", name: "Cérebro", keys: "", ico: "🧠" },
   { id: "side-chat", name: "Chat lateral", keys: "Ctrl+Shift+S", ico: "💬" },
 ];
 
@@ -135,6 +138,7 @@ const ICO_PATHS = {
   agentes: '<rect x="5" y="9" width="14" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v2M9 14h.01M15 14h.01"/>',
   tarefas: '<rect x="4" y="5" width="6" height="14" rx="1"/><rect x="14" y="5" width="6" height="14" rx="1"/>',
   torre: '<path d="M7 21V9L6 4h3v2h2V4h2v2h2V4h3l-1 5v12"/><path d="M4 21h16"/><path d="M10 21v-4a2 2 0 0 1 4 0v4"/>',
+  cerebro: '<path d="M12 5a3 3 0 1 0-6 .1 4 4 0 0 0-2.5 5.8 4 4 0 0 0 .5 6.6A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 6 .1 4 4 0 0 1 2.5 5.8 4 4 0 0 1-.5 6.6A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/>',
   "side-chat": '<path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-4 3v-3H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/>',
 };
 
@@ -2048,10 +2052,12 @@ function pintarVazioDoChat() {
   acoes.classList.toggle("hidden", !semRepos);
 }
 
-const WORK_PANES = ["file", "terminal", "browser", "canvas", "graph", "agentes", "tarefas", "ds", "planejamento", "torre"];
+const WORK_PANES = ["file", "terminal", "browser", "canvas", "graph", "agentes", "tarefas", "ds", "planejamento", "torre", "cerebro"];
 
 /** Aba Torre (torre-view.js): criada mais abaixo; até lá o layout só ignora ela. */
 let torreView = null;
+/** Aba Cérebro (cerebro-view.js): idem, criada mais abaixo. */
+let cerebroView = null;
 
 function chaveSessao(threadId = state.threadId) {
   return chaveWork(threadId, state.projectPath);
@@ -2132,6 +2138,8 @@ function applyWorkLayout() {
   }
   // a torre só anima (e só fala com o motor) enquanto a aba dela é a que se vê
   torreView?.visivel(state.view === "torre");
+  // o Cérebro só fala com o motor (catálogo + stream) enquanto a aba dele é a que se vê
+  cerebroView?.visivel(state.view === "cerebro");
   // Sem módulo aberto o chat vira o conteúdo principal — não depende de sideChat aqui.
   // No plano a faixa de chats (Manager e Implementação) sempre aparece.
   $("pane-chat").classList.toggle("hidden", !state.sideChat && !noModule && !planoAberto);
@@ -7044,6 +7052,17 @@ torreView = createTorreView({
   aoAbrirContas: () => abrirConfiguracoes("contas"),
 });
 
+/* ---------- Cérebro: catálogo de capacidades e uso real, modo mapa (cerebro-view.js) ---------- */
+
+const cerebroDados = criarCerebroDados({ req, api, headers, fetchStream: fetchSse, lerEventos, log: (msg) => console.warn(msg) });
+cerebroView = createCerebroView({
+  el: $,
+  dados: cerebroDados,
+  getProjetoAtual: () => state.projectPath,
+  getProjetos: () => state.repos,
+  aoAbrirConversa: ({ threadId, projectPath }) => void (projectPath ? openThreadInRepo(projectPath, threadId) : openThreadInGlobal(threadId)),
+});
+
 /* ---------- Planejamento em tela cheia: o plano é dono dos chats dele, não o contrário ---------- */
 
 /**
@@ -8453,6 +8472,7 @@ async function bindProject(path) {
   videoPanel.fechar();
   videoPanel.trocouProjeto();
   if (state.view === "ds") void dsCanvas.abrir();
+  if (state.view === "cerebro") cerebroView?.recarregar();
   if (state.ok) await loadThreads();
   await loadServices();
   listenServices();
@@ -11425,6 +11445,8 @@ $("btn-close-ds").addEventListener("click", fecharAbaAtual);
 $("btn-close-planejamento").addEventListener("click", () => (planoAberto ? void sairDoPlano() : fecharAbaAtual()));
 tarefasBoard.ligar();
 torreView.ligar();
+cerebroView.ligar();
+$("btn-close-cerebro").addEventListener("click", fecharAbaAtual);
 planejamentoBoard.ligar();
 dialogo.ligar();
 automacaoModal.ligar();

@@ -251,6 +251,8 @@ export class CliEngine implements Engine {
   private mcpConfig?: string;
   private mcpTools?: string[];
   private mcpHttp?: { url: string; token: string };
+  /** Ver `StartOpts.mcpFlagsExtras` (MCP externos no codex). */
+  private mcpFlagsExtras?: string[];
   /** Ver `StartOpts.somenteLeitura`. */
   private somenteLeitura = false;
   /** Ver `StartOpts.subagentesDoNexos`. */
@@ -286,6 +288,7 @@ export class CliEngine implements Engine {
     this.mcpConfig = opts.mcpConfig;
     this.mcpTools = opts.mcpTools;
     this.mcpHttp = opts.mcpHttp;
+    this.mcpFlagsExtras = opts.mcpFlagsExtras;
     this.somenteLeitura = opts.somenteLeitura === true;
     this.subagentesDoNexos = opts.subagentesDoNexos === true;
     this.syncArgs();
@@ -313,6 +316,7 @@ export class CliEngine implements Engine {
     this.mcpConfig = mcp.mcpConfig;
     this.mcpTools = mcp.mcpTools;
     this.mcpHttp = mcp.mcpHttp;
+    this.mcpFlagsExtras = mcp.mcpFlagsExtras;
   }
 
   updateResume(sessionId?: string): void {
@@ -442,7 +446,7 @@ export class CliEngine implements Engine {
      * volta vazio e não há nada a liberar.
      */
     if (engine === "codex") {
-      return this.mcpHttp ? { flags: flagsDeMcpCodex(this.mcpHttp.url), tools: [] } : { flags: [], tools: [] };
+      return this.mcpHttp ? { flags: [...flagsDeMcpCodex(this.mcpHttp.url), ...(this.mcpFlagsExtras ?? [])], tools: [] } : { flags: [], tools: [] };
     }
     if (engine !== "claude" || !this.mcpConfig) return { flags: [], tools: [] };
     return {

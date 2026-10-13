@@ -42,7 +42,9 @@ export type Origem =
   | "lixeira"
   | "planejamento"
   | "aprendizado"
-  | "subagentes";
+  | "subagentes"
+  | "cerebro"
+  | "apk";
 
 const PESO: Record<LogNivel, number> = { debug: 0, info: 1, aviso: 2, erro: 3 };
 const ROTULO: Record<LogNivel, string> = { debug: "DEBUG", info: "INFO ", aviso: "AVISO", erro: "ERRO " };

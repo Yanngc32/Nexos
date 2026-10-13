@@ -577,9 +577,10 @@ describe("session", () => {
     const t = createThread({ projectPath: "/proj-quadro", profileId: "p1" }, home);
     await postMessage(t.id, "oi", home);
     const engine = getLive(t.id)?.engine as StubEngine;
-    expect(engine.lastStart?.contextPack).toContain("# Quadro de tarefas");
+    // a regra do quadro mora no bloco `# Cérebro` (linha do nexo_tarefa_listar)
+    expect(engine.lastStart?.contextPack).toContain("# Cérebro");
     expect(engine.lastStart?.contextPack).toContain("MAIS DE UM pedido");
-    expect(engine.lastStart?.contextPack).toContain("UM card por pedido");
+    expect(engine.lastStart?.contextPack).toContain("um card por pedido");
     expect(engine.lastStart?.contextPack).not.toContain("Antes de começar qualquer trabalho");
   });
 
@@ -590,7 +591,8 @@ describe("session", () => {
     const t = createThread({ projectPath: "/proj-sem-quadro", profileId: "p1" }, home);
     await postMessage(t.id, "oi", home);
     const engine = getLive(t.id)?.engine as StubEngine;
-    expect(engine.lastStart?.contextPack).not.toContain("# Quadro de tarefas");
+    expect(engine.lastStart?.contextPack).not.toContain("nexo_tarefa_listar");
+    expect(engine.lastStart?.contextPack).not.toContain("MAIS DE UM pedido");
   });
 
   it("sessionId do motor grava no live, no disco, e /clear apaga", async () => {

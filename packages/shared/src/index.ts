@@ -223,7 +223,7 @@ export const AGENT_DESC_MAX = 200;
 export const AGENT_INSTRUCTIONS_MAX = 8000;
 export const AGENTS_MAX = 100;
 /** Agentes ligados como subagente ao mesmo tempo: mais que isso vira ruído na escolha do modelo. */
-export const SUBAGENTES_MAX = 6;
+export const SUBAGENTES_MAX = 4;
 export const AGENT_PROJETOS_MAX = 20;
 
 /** Quantas vezes o `Agent` das conversas chamou cada subagente do Nexos (`GET /v1/agents/subagentes/uso`). */
@@ -952,6 +952,12 @@ export type StartOpts = {
    * argv nem por arquivo, só pelo ambiente do processo.
    */
   mcpHttp?: { url: string; token: string };
+  /**
+   * Flags extras de MCP pro motor que não lê arquivo de config (`codex`): os MCP externos do
+   * projeto (`-c mcp_servers.<nome>=…`, cerebro-mcp-externos.ts). No `claude` eles já vão dentro
+   * do arquivo de `mcpConfig`.
+   */
+  mcpFlagsExtras?: string[];
   /**
    * Conversa que não pode alterar o projeto (Agent Manager da Tela de Planejamento): só leitura,
    * web e as ferramentas MCP dela. Ganha de conta e de agente — ver `somenteLeitura` em engines/cli.ts.

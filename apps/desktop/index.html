@@ -925,6 +925,25 @@
         </div>
         <div class="tr-corpo" id="tr-corpo"></div>
       </section>
+
+      <section class="pane" id="pane-cerebro" aria-label="Cérebro">
+        <header class="mod-head cb-head">
+          <div class="cb-titulo">
+            <h1>Cérebro</h1>
+            <p class="cb-sub">o que o agente sabe usar neste projeto</p>
+          </div>
+          <label class="cb-escopo-l" for="cb-escopo"><span class="cb-sr">Escopo</span>
+            <select id="cb-escopo" aria-label="Projeto do Cérebro (ou Global)"></select>
+          </label>
+          <div class="ax-tabs cb-modos" role="tablist" aria-label="Modo">
+            <button type="button" id="cb-modo-painel" class="ax-tab" role="tab" data-on="1" aria-selected="true">Painel</button>
+            <button type="button" id="cb-modo-mapa" class="ax-tab" role="tab" data-on="0" aria-selected="false">Mapa</button>
+          </div>
+          <button type="button" id="btn-cb-adicionar" class="ghost" title="Nova capacidade (n)">+ Adicionar capacidade</button>
+          <button type="button" id="btn-close-cerebro" class="ghost mod-close" title="Fechar (volta só pro chat)">✕</button>
+        </header>
+        <div class="cb-corpo" id="cb-corpo"></div>
+      </section>
       <section class="pane" id="pane-planejamento">
         <header class="mod-head pl-head" role="toolbar" aria-label="Plano">
           <button type="button" id="btn-pl-voltar" class="ghost pl-voltar" title="Volta pra conversa que estava aberta">← Voltar</button>
