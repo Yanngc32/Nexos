@@ -10,6 +10,14 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Alterado
 
+## [0.20.0] - 2026-11-19
+
+### Adicionado
+
+- O agente enxerga as skills pessoais do `~/.claude/skills`: antes cada conta via só as skills do Nexos e as do projeto. Elas entram no perfil por link (sem copiar), e uma skill do Nexos ou do perfil com o mesmo nome continua valendo.
+- Gate de plano: no Claude, a primeira edição de arquivo de cada turno é recusada até o agente declarar os passos (TaskCreate/TodoWrite). Desliga com `gatePlano: false` na config.
+- O agente recebe um índice dos documentos do projeto (`.md` da raiz e `docs/`, com o título de cada um) para saber o que existe antes de procurar no código.
+
 ## [0.19.1] - 2026-11-19
 
 ### Corrigido
