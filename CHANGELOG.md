@@ -10,6 +10,13 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Alterado
 
+## [0.19.1] - 2026-11-19
+
+### Corrigido
+
+- "Relogar" num perfil que já estava logado não funcionava: o app dava o login como pronto na hora, fechava o processo e o navegador mostrava `ERR_CONNECTION_REFUSED` depois do "Autorizar", deixando o perfil na conta antiga. Agora o login só conclui quando a credencial nova é gravada.
+- A tela de contas marca "mesma conta" quando dois perfis estão logados na mesma conta (mesmo e-mail e organização), porque eles dividem o mesmo limite e trocar entre eles por quota não adianta.
+
 ## [0.19.0] - 2026-10-13
 
 ### Adicionado
