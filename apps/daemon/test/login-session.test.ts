@@ -1,7 +1,8 @@
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { afterEach, describe, it, expect } from "vitest";
-import { addProfile, getProfile } from "../src/profiles.ts";
+import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { addProfile, engineEnv, getProfile, markReady } from "../src/profiles.ts";
 import {
   cancelAllLogins,
   cancelLogin,
@@ -49,6 +50,29 @@ describe("login in-app", () => {
     // status consome a sessão e mata o processo pendurado no prompt
     expect(loginSessionCount()).toBe(0);
     expect(() => loginStatus(loginId, home)).toThrow(/expirou/);
+  });
+
+  it("relogar perfil já logado espera credencial nova e não mata o CLI antes do callback", async () => {
+    const home = tempHome();
+    const p = addProfile({ id: "rl", engine: "claude" }, home, { skipBinCheck: true });
+    const dir = engineEnv(p, home).CLAUDE_CONFIG_DIR!;
+    mkdirSync(dir, { recursive: true });
+    const cred = join(dir, ".credentials.json");
+    writeFileSync(
+      cred,
+      JSON.stringify({ accessToken: "velho", refreshToken: "velho", expiresAt: Date.now() + 3_600_000 }),
+      "utf8",
+    );
+    const antigo = new Date(Date.now() - 60_000);
+    utimesSync(cred, antigo, antigo);
+    markReady("rl", home);
+    process.env.NEXOS_CLAUDE_BIN = fake;
+    process.env.FAKE_LOGIN_CALLBACK = "1";
+    const { loginId } = await startLogin("rl", home);
+    // credencial antiga já "pronta": antes disso o login fechava aqui e matava o callback
+    expect(loginStatus(loginId, home).state).toBe("waiting");
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(loginStatus(loginId, home).state).toBe("done");
   });
 
   it("código recusado não deixa o perfil ready", async () => {

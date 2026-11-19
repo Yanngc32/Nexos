@@ -452,6 +452,15 @@ function credDir(profile: Profile, home: string): string {
 }
 
 /**
+ * mtime (ms inteiro) do arquivo de credencial mais novo do perfil; 0 sem credencial.
+ * O login compara com o valor do início: perfil que JÁ estava logado (relogar)
+ * parece "pronto" desde o primeiro segundo, e só gravar de novo prova login novo.
+ */
+export function credMtime(profile: Profile, home: string): number {
+  return Math.floor(scanCreds(credDir(profile, home)).newest);
+}
+
+/**
  * Credencial gravada depois da recusa do servidor = login novo, pode reabilitar.
  * O mtime tem fração de milissegundo e o `authFailedAt` é ISO (milissegundo
  * cheio): sem truncar, um arquivo escrito no mesmo milissegundo da recusa —
@@ -462,7 +471,7 @@ function credRenewedAfterFailure(profile: Profile, home: string): boolean {
   if (!profile.authFailedAt) return true;
   const failedAt = Date.parse(profile.authFailedAt);
   if (Number.isNaN(failedAt)) return true;
-  return Math.floor(scanCreds(credDir(profile, home)).newest) > failedAt;
+  return credMtime(profile, home) > failedAt;
 }
 
 function copyCredTree(src: string, dest: string, depth = 0): number {
@@ -524,6 +533,32 @@ function isoOrUndefined(v: unknown): string | undefined {
   return ms > 0 ? new Date(ms).toISOString() : undefined;
 }
 
+/**
+ * Quem está de fato logado no perfil: e-mail + organização do `.claude.json`.
+ * Dois perfis com a mesma chave são a MESMA conta e dividem o mesmo limite de
+ * 5h/7d — trocar de um pro outro por quota só bate no mesmo muro. Acontece
+ * quando um perfil é criado importando o login global (`~/.claude`) em vez de
+ * `nexo login`. Só Claude: o Codex não grava essa identidade num arquivo legível.
+ */
+export function chaveDaConta(profile: Profile, home: string): string | undefined {
+  if (profile.engine !== "claude") return undefined;
+  const account = readJson(join(credDir(profile, home), ".claude.json"))?.oauthAccount as
+    | Record<string, unknown>
+    | undefined;
+  const email = str(account?.emailAddress).trim().toLowerCase();
+  if (!email) return undefined;
+  return `${email}|${str(account?.organizationUuid).trim()}`;
+}
+
+/** Outros perfis logados na mesma conta que `profile` (ver `chaveDaConta`). */
+export function perfisDaMesmaConta(profile: Profile, home: string): string[] {
+  const chave = chaveDaConta(profile, home);
+  if (!chave) return [];
+  return listProfiles(home)
+    .filter((p) => p.id !== profile.id && chaveDaConta(p, home) === chave)
+    .map((p) => p.id);
+}
+
 /** Só campos de identificação/validade — accessToken e refreshToken nunca saem daqui. */
 export function accountInfo(profile: Profile, home: string): AccountInfo {
   const info: AccountInfo = {
@@ -571,6 +606,8 @@ export function accountInfo(profile: Profile, home: string): AccountInfo {
       if (tier) info.rateLimitTier = tier;
     }
   }
+  const mesma = perfisDaMesmaConta(profile, home);
+  if (mesma.length) info.mesmaContaQue = mesma;
   return info;
 }
 

@@ -4554,6 +4554,16 @@ button:disabled {
   white-space: nowrap;
 }
 
+.accounts-manage-dup {
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  color: var(--danger);
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  cursor: help;
+}
+
 .accounts-manage-engine {
   flex: 0 0 auto;
   font-size: var(--fs-xs);

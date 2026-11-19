@@ -41,6 +41,7 @@ import {
   IMPORT_WARNING,
   listProfiles,
   markReady,
+  perfisDaMesmaConta,
   removeProfile,
   updateProfile,
   type AddProfileInput,
@@ -610,7 +611,15 @@ export function createApp(home: string, token: string): Hono {
     return c.json({ ok: true });
   });
 
-  app.get("/v1/profiles", (c) => c.json(listProfiles(home)));
+  // `mesmaContaQue` é calculado (não fica no profile.json): a tela de contas avisa perfil duplicado.
+  app.get("/v1/profiles", (c) =>
+    c.json(
+      listProfiles(home).map((p) => {
+        const mesma = perfisDaMesmaConta(p, home);
+        return mesma.length ? { ...p, mesmaContaQue: mesma } : p;
+      }),
+    ),
+  );
 
   app.get("/v1/accounts", (c) => c.json(listProfiles(home).map((p) => accountInfo(p, home))));
 

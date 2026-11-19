@@ -3416,6 +3416,15 @@ function renderAccountsManage() {
 
     row.append(id, engine, nick);
 
+    // Mesmo e-mail/organização = mesmo limite: a troca por quota pula esses, então avisa pra relogar.
+    if (p.mesmaContaQue?.length) {
+      const dup = document.createElement("span");
+      dup.className = "accounts-manage-dup";
+      dup.textContent = "mesma conta";
+      dup.title = `Logada na mesma conta que ${p.mesmaContaQue.join(", ")} — divide o mesmo limite. Use "Relogar" com a outra conta.`;
+      row.append(dup);
+    }
+
     if (p.engine === "claude" || p.engine === "codex") {
       const relogar = document.createElement("button");
       relogar.type = "button";
@@ -9264,6 +9273,7 @@ function accountRows(a) {
   if (a.fullName) rows.push(["nome", a.fullName]);
   if (a.organization) rows.push(["organização", a.organization]);
   if (a.seatTier) rows.push(["assento", a.seatTier]);
+  if (a.mesmaContaQue?.length) rows.push(["mesma conta que", a.mesmaContaQue.join(", "), "bad"]);
   if (a.subscription) rows.push(["plano", a.subscription]);
   if (a.rateLimitTier) rows.push(["tier de limite", a.rateLimitTier]);
   if (a.provider) rows.push(["provider", a.provider]);

@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import type { Profile } from "@nexos/shared";
 import { cliAuthStatusDetalhado } from "./auth-status.ts";
 import { killTree } from "./kill-tree.ts";
-import { applyLoginResult, engineEnv, engineSpawnEnv, getProfile } from "./profiles.ts";
+import { applyLoginResult, credMtime, engineEnv, engineSpawnEnv, getProfile } from "./profiles.ts";
 import { spawnBin } from "./spawn-bin.ts";
 
 /** Só a URL de autorização sai daqui: o stdout cru pode conter token. */
@@ -27,6 +27,8 @@ type Session = {
   home: string;
   url: string;
   child: ChildProcess;
+  /** `credMtime` antes do CLI subir: relogar perfil já logado só conta com credencial regravada. */
+  credAntes: number;
   closed: boolean;
   state: LoginState;
   message?: string;
@@ -55,6 +57,18 @@ function requireClaude(profileId: string, home: string): Profile {
   }
   if (p.engine !== "claude") throw badRequest(`login no app só vale pra engine claude (${profileId} é ${p.engine})`);
   return p;
+}
+
+/**
+ * Login novo de verdade: credencial usável E gravada depois do início. Sem a
+ * segunda parte, "Relogar" num perfil que já tinha credencial (mesmo da conta
+ * errada) era dado como pronto no primeiro segundo — o daemon matava o CLI, o
+ * servidor de callback em localhost morria e o navegador, depois do "Autorizar",
+ * caía em ERR_CONNECTION_REFUSED. O perfil ficava com o login antigo.
+ */
+function logou(session: Session): boolean {
+  const profile = applyLoginResult(session.profileId, session.home);
+  return profile.status === "ready" && credMtime(profile, session.home) > session.credAntes;
 }
 
 function stopWatch(session: Session): void {
@@ -101,8 +115,7 @@ export function loginStatus(loginId: string, home: string): LoginStatus {
   const session = sessions.get(loginId);
   if (!session) throw badRequest("sessão de login expirou — comece de novo");
   if (session.state === "waiting") {
-    const profile = applyLoginResult(session.profileId, home);
-    if (profile.status === "ready") settle(session, "done");
+    if (logou(session)) settle(session, "done");
     else return { state: "waiting" };
   }
   const out: LoginStatus = { state: session.state, ...(session.message ? { message: session.message } : {}) };
@@ -125,6 +138,7 @@ export async function startLogin(
   const extra = engineEnv(profile, home);
   if (extra.CLAUDE_CONFIG_DIR) mkdirSync(extra.CLAUDE_CONFIG_DIR, { recursive: true });
 
+  const credAntes = credMtime(profile, home);
   const args = ["auth", "login", "--claudeai", ...(opts.email ? ["--email", opts.email] : [])];
   const child = spawnBin(claudeBin(), args, {
     env: engineSpawnEnv(profile, home),
@@ -139,6 +153,7 @@ export async function startLogin(
     home,
     url: "",
     child,
+    credAntes,
     closed: false,
     state: "waiting",
     watch: null,
@@ -177,7 +192,7 @@ export async function startLogin(
         return;
       }
       if (session.state !== "waiting") return;
-      const ready = applyLoginResult(session.profileId, session.home).status === "ready";
+      const ready = logou(session);
       settle(session, ready ? "done" : "failed", ready ? undefined : `login terminou sem credencial (exit ${code})`);
     });
   });
@@ -185,7 +200,7 @@ export async function startLogin(
   session.url = url;
   session.watch = setInterval(() => {
     if (session.state !== "waiting") return;
-    if (applyLoginResult(session.profileId, session.home).status === "ready") settle(session, "done");
+    if (logou(session)) settle(session, "done");
   }, WATCH_INTERVAL);
   sessions.set(id, session);
   return { loginId: id, url };
@@ -208,9 +223,10 @@ export async function submitCode(
     return { ok: true, profile };
   }
   if (session.closed) {
+    const ok = logou(session);
     const profile = applyLoginResult(session.profileId, home);
     drop(loginId, false);
-    if (profile.status === "ready") return { ok: true, profile };
+    if (ok) return { ok: true, profile };
     throw badRequest("o login já tinha terminado — comece de novo");
   }
 
@@ -223,10 +239,11 @@ export async function submitCode(
   });
   session.child.stdin?.write(`${trimmed}\n`);
   const exit = await done;
+  const ok = logou(session);
   const profile = applyLoginResult(session.profileId, home);
   drop(loginId, exit === null);
 
-  if (profile.status === "ready") return { ok: true, profile };
+  if (ok) return { ok: true, profile };
 
   const { status, falha } = cliAuthStatusDetalhado(profile, home);
   // sem resposta do `auth status` não dá pra dizer que o código foi recusado: mostra o motivo real

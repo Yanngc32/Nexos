@@ -810,6 +810,8 @@ export type AccountInfo = {
   fullName?: string;
   organization?: string;
   seatTier?: string;
+  /** Outros perfis logados na MESMA conta (mesmo limite): trocar pra eles por quota não adianta. */
+  mesmaContaQue?: string[];
   subscription?: string;
   rateLimitTier?: string;
   scopes?: string[];
