@@ -12,6 +12,7 @@ import { loadConfig } from "./config.ts";
 import { globalChatDir, projectKey, tokenPath } from "./home.ts";
 import { configDeMcpAutoria, MCP_TOOLS_AUTORIA, urlDeMcpAutoria, urlDeMcpDeRun } from "./mcp.ts";
 import { indiceDisponivel, lerIndice } from "./repo-map-indice.ts";
+import { blocoDeDocs } from "./docs-indice.ts";
 import { MCP_TOOLS_REPO_MAP } from "./repo-map-simbolos.ts";
 import { MCP_TOOLS_VEREDITO } from "./veredito.ts";
 import { MCP_TOOLS_PERGUNTAR, perguntaPendente, temPerguntaPendente, type PerguntaPendente } from "./perguntas.ts";
@@ -596,6 +597,12 @@ function instrucoesDoPack(
     const indice = lerIndice(projectPath, home);
     if (indice) blocos.push(`# Repo map — árvore de arquivos deste projeto\n${indice}`);
     // (o nudge "Símbolos sob demanda" mora no `# Cérebro`, linha do `nexo_mapa_simbolos`)
+  }
+  // Índice dos docs (*.md da raiz + docs/): o modelo sabe que a documentação existe antes de
+  // grepar o código. Sessão retomada recebe a mudança pelo `atualizacaoDasRegras`.
+  if (projectPath) {
+    const docs = blocoDeDocs(projectPath);
+    if (docs) blocos.push(docs);
   }
   return blocos.join("\n\n");
 }

@@ -20,8 +20,9 @@ import { spawnCwd } from "../project-cwd.ts";
 import { agentOverrides, definicoesDeSubagentes, subagentesDaConversa } from "../agents.ts";
 import { log } from "../log.ts";
 import { loadConfig } from "../config.ts";
+import { prepararGatePlano } from "../gate-plano.ts";
 import { engineEnv, engineSpawnEnv, getProfile } from "../profiles.ts";
-import { skillsDesligadasNoProjeto, syncGlobalSkills } from "../skills.ts";
+import { linkClaudeSkills, skillsDesligadasNoProjeto, syncGlobalSkills } from "../skills.ts";
 import { syncRtkHook } from "../modules.ts";
 import { isNodeScript, spawnBin } from "../spawn-bin.ts";
 import { ENV_TOKEN_MCP, flagsDeMcpCodex, MCP_TOOLS } from "../mcp.ts";
@@ -384,6 +385,7 @@ export class CliEngine implements Engine {
       ];
       if (off.length) this.args.push("--disallowed-tools", ...off);
       this.args.push(...this.subagentesFlags());
+      this.args.push(...this.gatePlanoFlags());
     }
     this.lastArgs = this.args;
     // Skill de `~/.nexos/skills` só chega no motor se estiver dentro do CLAUDE_CONFIG_DIR
@@ -392,6 +394,7 @@ export class CliEngine implements Engine {
       const dir = engineEnv(profile, this.home).CLAUDE_CONFIG_DIR;
       if (dir) {
         syncGlobalSkills(join(dir, "skills"), globalSkillsDir(this.home));
+        linkClaudeSkills(join(dir, "skills"));
         // Fire-and-forget: `jaTemHookRtk` (modules.ts) já deixa isso quase grátis depois da
         // primeira vez, mas não vale esperar nem a primeira tentativa — não pode atrasar o envio.
         if (loadConfig(this.home).modulos.rtk) void syncRtkHook(dir);
@@ -421,6 +424,21 @@ export class CliEngine implements Engine {
       return [];
     }
     return ["--agents", arquivo];
+  }
+
+  /**
+   * Gate de plano (ver gate-plano.ts): hook que nega a primeira escrita do turno sem TodoWrite.
+   * `subagentesDoNexos` é exatamente "nem Manager nem conversa oculta/interna" (session.ts), e
+   * somente leitura nem escreve — nos dois casos o gate fica de fora.
+   */
+  private gatePlanoFlags(): string[] {
+    if (!this.subagentesDoNexos || this.somenteLeitura || !loadConfig(this.home).gatePlano) return [];
+    try {
+      return ["--settings", prepararGatePlano(this.home)];
+    } catch (err) {
+      log.avisoUmaVez("gate-plano-arquivo", "hook", "não consegui gravar o hook do gate de plano", { erro: String(err) });
+      return [];
+    }
   }
 
   /**

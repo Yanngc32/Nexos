@@ -1,4 +1,16 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { loadConfig, saveConfig } from "./config.ts";
 import { globalSkillsDir, profileDir, projectKey } from "./home.ts";
@@ -111,7 +123,11 @@ export function syncGlobalSkills(destSkillsDir: string, globalDir: string): void
     if (!existsSync(join(src, "SKILL.md"))) continue;
     try {
       mkdirSync(destSkillsDir, { recursive: true });
-      cpSync(src, join(destSkillsDir, entrada), { recursive: true, force: true });
+      const dest = join(destSkillsDir, entrada);
+      // Mesmo nome que uma skill ligada do `~/.claude` (ver `linkClaudeSkills`): a do Nexos ganha,
+      // mas o link sai antes — copiar por cima dele escreveria DENTRO da skill do usuário.
+      if (ehLink(dest)) unlinkSync(dest);
+      cpSync(src, dest, { recursive: true, force: true });
     } catch (e) {
       // pasta do perfil pode estar ocupada com o motor de pé; não vale travar o turno por isso. Mas
       // roda todo turno: se nunca copia, a skill global nunca chega no motor — uma linha por motivo.
@@ -120,6 +136,68 @@ export function syncGlobalSkills(destSkillsDir: string, globalDir: string): void
         erro: (e as Error).message,
       });
     }
+  }
+}
+
+export function ehLink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/** Skills pessoais do usuário no Claude Code (`~/.claude/skills`). */
+export function claudeSkillsDir(): string {
+  return process.env.NEXOS_CLAUDE_SKILLS_DIR || join(homedir(), ".claude", "skills");
+}
+
+/**
+ * Liga cada skill de `~/.claude/skills` dentro da pasta de skills do perfil (junction no Windows,
+ * não pede admin). O `CLAUDE_CONFIG_DIR` isolado por conta escondia do motor TODAS as skills
+ * pessoais do usuário — ele só enxergava as do Nexos e as do projeto. Link e não cópia: são dezenas
+ * de MB, muitas vezes num Drive, e roda a cada turno. Nunca troca pasta de verdade: skill do perfil
+ * ou copiada do Nexos (mesmo nome) ganha. Link quebrado (skill apagada, Drive fora) sai; volta
+ * sozinho quando a origem voltar. Melhor esforço: falha aqui não pode atrasar o turno.
+ */
+export function linkClaudeSkills(destSkillsDir: string, origem = claudeSkillsDir()): void {
+  if (existsSync(destSkillsDir)) {
+    for (const entrada of readdirSafe(destSkillsDir)) {
+      const dest = join(destSkillsDir, entrada);
+      if (ehLink(dest) && !existsSync(dest)) unlinkQuieto(dest);
+    }
+  }
+  if (!existsSync(origem)) return;
+  for (const entrada of readdirSafe(origem)) {
+    const src = join(origem, entrada);
+    const dest = join(destSkillsDir, entrada);
+    if (!existsSync(join(src, "SKILL.md")) || existsSync(dest) || ehLink(dest)) continue;
+    try {
+      mkdirSync(destSkillsDir, { recursive: true });
+      symlinkSync(realpathSync(src), dest, process.platform === "win32" ? "junction" : "dir");
+    } catch (e) {
+      log.avisoUmaVez(`skills-link:${destSkillsDir}:${codigoDoErro(e)}`, "skill", `não consegui ligar as skills de ${origem} ao perfil — o motor não as enxerga`, {
+        skill: entrada,
+        erro: (e as Error).message,
+      });
+    }
+  }
+}
+
+function readdirSafe(dir: string): string[] {
+  try {
+    return readdirSync(dir);
+  } catch (e) {
+    log.avisoUmaVez(`skills-dir:${dir}:${codigoDoErro(e)}`, "skill", `não consegui listar ${dir}`, { erro: (e as Error).message });
+    return [];
+  }
+}
+
+function unlinkQuieto(path: string): void {
+  try {
+    unlinkSync(path);
+  } catch {
+    // link preso por outro processo: tenta de novo no próximo turno
   }
 }
 

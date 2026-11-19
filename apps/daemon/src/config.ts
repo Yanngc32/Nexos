@@ -113,6 +113,7 @@ function lerConfig(path: string): NexoConfig {
     typesafe: { modo: isTypesafeModo(raw.typesafe?.modo) ? raw.typesafe.modo : DEFAULT_CONFIG.typesafe.modo },
     ...(isLogNivel(raw.logNivel) ? { logNivel: raw.logNivel } : {}),
     lixeiraAposDias: isDiasLixeira(raw.lixeiraAposDias) ? raw.lixeiraAposDias : DEFAULT_CONFIG.lixeiraAposDias,
+    gatePlano: raw.gatePlano === undefined ? DEFAULT_CONFIG.gatePlano : Boolean(raw.gatePlano),
   };
 }
 
@@ -304,6 +305,7 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
         ? { logNivel: current.logNivel }
         : {}),
     lixeiraAposDias: isDiasLixeira(patch.lixeiraAposDias) ? patch.lixeiraAposDias : current.lixeiraAposDias,
+    gatePlano: patch.gatePlano === undefined ? current.gatePlano : Boolean(patch.gatePlano),
   };
   writeJsonAtomico(configPath(home), next);
   cacheConfig.delete(configPath(home));

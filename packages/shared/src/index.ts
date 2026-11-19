@@ -479,6 +479,11 @@ export type NexoConfig = {
    * `LIXEIRA_DIAS` e depois é apagada de vez. `0` = desligado. Ver `lixeira.ts`.
    */
   lixeiraAposDias: number;
+  /**
+   * Gate de plano do motor `claude`: nega a primeira escrita (Write/Edit/…) do turno se o modelo
+   * ainda não declarou o plano com TodoWrite/TaskCreate. Uma vez por turno. Ver `gate-plano.ts`.
+   */
+  gatePlano: boolean;
 };
 
 /** Dias que uma conversa fica na lixeira (dá pra restaurar) antes de ser apagada de vez. */
@@ -535,6 +540,7 @@ export const DEFAULT_CONFIG: NexoConfig = {
   paineisDoAgente: { modo: "sempre", paineis: [...PAINEIS_DO_AGENTE], trazerPraFrente: true },
   typesafe: { modo: "desligado" },
   lixeiraAposDias: 7,
+  gatePlano: true,
 };
 
 export type ThreadEvent =

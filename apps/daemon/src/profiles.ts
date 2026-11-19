@@ -1,11 +1,13 @@
 import {
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -687,6 +689,19 @@ export function importGlobalCredentials(id: string, home: string): Profile {
 export function removeProfile(id: string, home: string): void {
   const slug = assertSlug(id);
   if (!existsSync(profileJsonPath(slug, home))) throw new Error(`perfil não existe: ${slug}`);
+  // As skills do `~/.claude` entram no perfil por link (`linkClaudeSkills`): desfaz os links ANTES,
+  // senão a remoção recursiva poderia seguir a junction e apagar as skills do usuário.
+  const skills = join(profileDir(slug, home), "claude", "skills");
+  if (existsSync(skills)) {
+    for (const entrada of readdirSync(skills)) {
+      const p = join(skills, entrada);
+      try {
+        if (lstatSync(p).isSymbolicLink()) unlinkSync(p);
+      } catch {
+        // link já sumiu
+      }
+    }
+  }
   rmSync(profileDir(slug, home), { recursive: true, force: true });
   const cfg = loadConfig(home);
   saveConfig(home, { fallbackOrder: cfg.fallbackOrder.filter((x) => x !== slug) });
