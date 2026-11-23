@@ -1124,6 +1124,8 @@ describe("http teams e runs", () => {
 describe("http mcp", () => {
   const hdr = { authorization: `Bearer ${token}`, "content-type": "application/json" };
   const listar = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+  // memória do usuário vem ligada por padrão: as quatro entram logo depois da autoria
+  const MEMORIA = ["memory_list", "memory_propose", "memory_status", "memory_secret_get"];
 
   async function nomesDasFerramentas(app: ReturnType<typeof createApp>, path: string) {
     const res = await app.request(path, { method: "POST", headers: hdr, body: JSON.stringify(listar) });
@@ -1141,6 +1143,7 @@ describe("http mcp", () => {
       "nexo_hook_salvar",
       "nexo_hook_listar",
       "nexo_skill_instalar",
+      ...MEMORIA,
     ]);
   });
 
@@ -1155,6 +1158,7 @@ describe("http mcp", () => {
       "nexo_hook_salvar",
       "nexo_hook_listar",
       "nexo_skill_instalar",
+      ...MEMORIA,
       "nexo_repomap_resumo_salvar",
       "nexo_tarefa_listar",
       "nexo_tarefa_salvar",
@@ -1199,6 +1203,7 @@ describe("http mcp", () => {
       "nexo_hook_salvar",
       "nexo_hook_listar",
       "nexo_skill_instalar",
+      ...MEMORIA,
       "nexo_mapa_simbolos",
       "nexo_repomap_resumo_salvar",
       "nexo_tarefa_listar",
@@ -1219,6 +1224,7 @@ describe("http mcp", () => {
       "nexo_hook_salvar",
       "nexo_hook_listar",
       "nexo_skill_instalar",
+      ...MEMORIA,
       "nexo_veredito",
     ]);
   });

@@ -6,9 +6,14 @@ import { globalMemoriaDir, projectKey } from "./home.ts";
 import { projectDir, projectDirSemCriar } from "./projeto-dir.ts";
 
 /**
- * Memória de projeto: fatos duráveis que o agente "memória" escreve depois de
- * cada commit/push (ver hooks.ts), pra qualquer conversa/run futuro no mesmo
- * projeto não remapear o código do zero.
+ * LEGADO — o MEMORIA.md corrido por projeto (e o global do chat geral).
+ *
+ * Era escrito pelo agente "memória" depois de cada commit/push, via regra de
+ * hook. Esse agente foi aposentado (ver `regraDesligada` em hooks.ts): a memória
+ * agora mora em `<home>/memorias/<projeto>/` (`geral/` pro chat geral), um `.md`
+ * por fato (ver `memorias/`), e `memorias/migracao.ts` converte o MEMORIA.md
+ * existente e o renomeia para `MEMORIA.md.migrado`. Este módulo segue de pé
+ * para a migração achar os arquivos e para quem ainda lê o pack, até sair.
  *
  * Fica FORA da pasta do projeto de propósito — projeto pode ser open-source, e
  * memória (decisão interna, causa-raiz, convenção) não pode arriscar ir num
@@ -61,6 +66,7 @@ function projectMemoriaDirSemCriar(projectPath: string, home: string): string {
     : join(projectDirSemCriar(projectPath, home), "memoria");
 }
 
+/** @deprecated MEMORIA.md legado (cria a pasta): a memória nova é por fato, em `memorias/`. */
 export function memoriaPath(projectPath: string, home: string): string {
   return join(projectMemoriaDir(projectPath, home), "MEMORIA.md");
 }
@@ -88,6 +94,7 @@ export function statusDaMemoria(
   }
 }
 
+/** @deprecated Lê o MEMORIA.md legado; depois da migração ele vira `.migrado` e isto devolve "". */
 export function readMemoria(projectPath: string, home: string): string {
   const path = join(projectMemoriaDirSemCriar(projectPath, home), "MEMORIA.md");
   if (!existsSync(path)) return "";
@@ -102,7 +109,10 @@ export function globalMemoriaPath(home: string): string {
   return join(globalMemoriaDir(home), "MEMORIA.md");
 }
 
-/** Memória das conversas sem projeto (chat geral): única, global, mesmo padrão de `readMemoria`. */
+/**
+ * Memória das conversas sem projeto (chat geral): única, global, mesmo padrão de `readMemoria`.
+ * @deprecated MEMORIA.md global legado; a memória nova do chat geral fica em `memorias/geral/`.
+ */
 export function readMemoriaGlobal(home: string): string {
   const path = globalMemoriaPath(home);
   if (!existsSync(path)) return "";

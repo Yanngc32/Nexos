@@ -453,6 +453,14 @@ export type NexoConfig = {
      * `quadroTarefas`. Opcional no tipo; ausente = ligado (ver `DEFAULT_CONFIG`).
      */
     auditorPO?: boolean;
+    /**
+     * Memória do usuário (`<home>/memorias`, ver `apps/daemon/src/memorias`): catálogo no pack,
+     * excertos escolhidos por turno, ferramentas `memory_*` e recusa de escrita direta na pasta.
+     * Opcional no tipo; ausente = ligado.
+     */
+    memoriaUsuario?: boolean;
+    /** Memorista: fim de turno lateral que propõe memória nova pelo que a pessoa disse. Ausente = ligado. */
+    memorista?: boolean;
   };
   /**
    * Dá ao agente ferramentas `nexo_windows_*`: ver janelas/apps abertos, capturar
@@ -492,6 +500,10 @@ export type NexoConfig = {
   gatePlano: boolean;
   /** Modelo do auditor PO (alias do CLI: "sonnet", "haiku"…). Ausente = "sonnet". Ver `po/motor.ts`. */
   poModelo?: string;
+  /** Modelo que escolhe as memórias de cada mensagem (alias do CLI). Ausente = "haiku". */
+  memoriaSelecaoModelo?: string;
+  /** Modelo do memorista e do curador (alias do CLI). Ausente = "sonnet". */
+  memoristaModelo?: string;
 };
 
 /** Dias que uma conversa fica na lixeira (dá pra restaurar) antes de ser apagada de vez. */
@@ -544,6 +556,8 @@ export const DEFAULT_CONFIG: NexoConfig = {
     quadroTarefas: true,
     coletaDesign: true,
     auditorPO: true,
+    memoriaUsuario: true,
+    memorista: true,
   },
   windowsControlEnabled: false,
   paineisDoAgente: { modo: "sempre", paineis: [...PAINEIS_DO_AGENTE], trazerPraFrente: true },
@@ -551,6 +565,8 @@ export const DEFAULT_CONFIG: NexoConfig = {
   lixeiraAposDias: 7,
   gatePlano: true,
   poModelo: "sonnet",
+  memoriaSelecaoModelo: "haiku",
+  memoristaModelo: "sonnet",
 };
 
 export type ThreadEvent =

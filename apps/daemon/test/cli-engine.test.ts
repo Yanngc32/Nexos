@@ -15,10 +15,17 @@ const fake = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-cla
 /** Espera do fim do turno — abaixo do testTimeout (vitest.config.ts) pra falhar com mensagem clara. */
 const ESPERA_MS = 12_000;
 
-/** argv sem o par --add-dir <caminho>: o caminho varia por home/thread. */
+/**
+ * argv sem os pares --add-dir <caminho> e --settings <arquivo>: os dois caminhos variam por
+ * home/thread. O --settings (hooks do motor: recusa de escrita na pasta de memórias) tem teste próprio.
+ */
 function semAddDir(args: string[]): string[] {
-  const i = args.indexOf("--add-dir");
-  return i === -1 ? args : [...args.slice(0, i), ...args.slice(i + 2)];
+  let out = args;
+  for (const flag of ["--add-dir", "--settings"]) {
+    const i = out.indexOf(flag);
+    if (i !== -1) out = [...out.slice(0, i), ...out.slice(i + 2)];
+  }
+  return out;
 }
 
 function waitDone(events: EngineEvent[]): Promise<void> {
@@ -133,6 +140,10 @@ describe("CliEngine", () => {
     );
     expect(engine.lastEnv.CLAUDE_CONFIG_DIR).toContain("c1");
     expect(engine.lastCwd).toBe(project);
+    // hooks do motor sempre vão: a recusa de escrita na pasta de memórias vale mesmo sem gate de plano
+    const iSettings = engine.lastArgs.indexOf("--settings");
+    expect(iSettings).toBeGreaterThan(-1);
+    expect(engine.lastArgs[iSettings + 1]).toMatch(/hooks-do-motor-settings\.json$/);
     expect(semAddDir(engine.lastArgs)).toEqual([
       "--print",
       "--verbose",

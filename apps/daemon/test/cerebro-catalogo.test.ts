@@ -6,7 +6,7 @@ import { saveAgent } from "../src/agents.ts";
 import { ajustarCapacidade, catalogoDoCerebro, conteudoDaCapacidade, esquecerCatalogo, kpisDoCatalogo, removerAjuste } from "../src/cerebro-catalogo.ts";
 import { esquecerUsoDoCerebro, varrerConversas } from "../src/cerebro-uso.ts";
 import { globalSkillsDir } from "../src/home.ts";
-import { memoriaPath } from "../src/memoria.ts";
+import { proporMemoria } from "../src/memorias/index.ts";
 import { addProfile } from "../src/profiles.ts";
 import { projectDir } from "../src/projeto-dir.ts";
 import { saveTeam } from "../src/teams.ts";
@@ -38,8 +38,7 @@ describe("catálogo do Cérebro", () => {
     saveAgent({ id: "explorador", name: "Explorador", description: "Varre código e devolve conclusão.", profileId: "p", subagente: true }, home);
     saveAgent({ id: "redator", name: "Redator", description: "Escreve textos.", profileId: "p" }, home);
     saveTeam({ id: "qa", name: "QA", description: "Revisa e testa.", topology: "pipeline", members: [{ agentId: "explorador" }, { agentId: "redator" }] }, home);
-    mkdirSync(join(projectDir(projeto, home), "memoria"), { recursive: true });
-    writeFileSync(memoriaPath(projeto, home), "# Memória\n\nEstado atual do projeto.\n", "utf8");
+    proporMemoria(home, { op: "create", relPath: "estado-do-projeto.md", titulo: "Estado", gancho: "ao retomar", corpo: "Estado atual do projeto.", origem: "usuario" });
 
     const itens = catalogoDoCerebro(projeto, home);
     const por = (id: string) => itens.find((i) => i.id === id);
@@ -62,7 +61,8 @@ describe("catálogo do Cérebro", () => {
     expect(por("time:qa")).toMatchObject({ tipo: "time", nome: "QA", descricao: "Revisa e testa." });
     expect(por("time:qa")!.comoUsar).toContain("teamId=`qa`");
 
-    expect(por("memoria:projeto")).toMatchObject({ tipo: "memoria", descricao: "Estado atual do projeto.", escopo: "projeto" });
+    expect(por("memoria:usuario")).toMatchObject({ tipo: "memoria", escopo: "global" });
+    expect(por("memoria:usuario")!.comoUsar).toContain("memory_propose");
     expect(por("doc:DOC_TEC.md")).toMatchObject({ tipo: "doc", descricao: "Como o motor funciona por dentro.", comoUsar: "Read DOC_TEC.md" });
     expect(por("doc:docs/specs/a.md")).toMatchObject({ descricao: "Desenho da feature A." });
     expect(por("doc:CHANGELOG.md")).toBeUndefined();

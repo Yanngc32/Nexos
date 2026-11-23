@@ -33,7 +33,7 @@ const ICO_ALERTA = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" 
 const ACAO_DO_ANDAR = {
   mana: { rotulo: "Abrir Configurações › Contas", acao: "contas" },
   observatorio: { rotulo: "Abrir o Planejamento", acao: "plano" },
-  biblioteca: { rotulo: "Abrir a Memória do Projeto", acao: "memoria" },
+  biblioteca: { rotulo: "Abrir a Memória", acao: "memoria" },
   atelie: { rotulo: "Abrir o Canvas", acao: "canvas" },
 };
 

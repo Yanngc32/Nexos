@@ -5,7 +5,6 @@ import { newHookRuleId } from "./ids.ts";
 import { ensureHome, hooksPath, projectKey } from "./home.ts";
 import { getAgent } from "./agents.ts";
 import { GIT_HOOK_FILES, installGitHookScript, uninstallGitHookScript } from "./git-hooks.ts";
-import { memoriaPath } from "./memoria.ts";
 import { criarRun, executarRun } from "./runs.ts";
 import { projetosConhecidos } from "./threads.ts";
 import { getTeam, upsertTimeDeHook } from "./teams.ts";
@@ -188,10 +187,49 @@ function limparColunaId(v: unknown, evento: string): string | undefined {
   return v;
 }
 
+/**
+ * O antigo agente "memória" escrevia o MEMORIA.md do projeto depois de cada commit. A memória
+ * agora mora em `<home>/memorias` (um `.md` por fato, ver `memorias/`), e o MEMORIA.md legado é
+ * migrado por `memorias/migracao.ts` — o agente foi aposentado.
+ *
+ * Reconhecido pelo CONTEÚDO, não pelo id: é o agente cujas instruções (ou descrição) falam em
+ * escrever o MEMORIA.md. Um agente qualquer que por acaso se chame "memoria" segue valendo.
+ */
+const ASSINATURA_AGENTE_DE_MEMORIA = /MEMORIA\.md/;
+
+export function ehAgenteDeMemoria(agentId: string, home: string): boolean {
+  const a = getAgent(agentId, home);
+  if (!a) return false;
+  return ASSINATURA_AGENTE_DE_MEMORIA.test(a.instructions ?? "") || ASSINATURA_AGENTE_DE_MEMORIA.test(a.description ?? "");
+}
+
+function timeSoDeMemoria(teamId: string, home: string): boolean {
+  const membros = (getTeam(teamId, home)?.members ?? []).map((m) => m.agentId).filter((id): id is string => Boolean(id));
+  return membros.length > 0 && membros.every((id) => ehAgenteDeMemoria(id, home));
+}
+
+/**
+ * Regra que aponta pro agente de memória aposentado (direto, ou por um time feito só dele).
+ * Fica no hooks.json — a regra é da pessoa, não some —, mas não dispara nem pede script de git.
+ */
+export function regraDesligada(regra: RegraHook, home: string): boolean {
+  try {
+    if (regra.agentId) return ehAgenteDeMemoria(regra.agentId, home);
+    if (regra.teamId) return timeSoDeMemoria(regra.teamId, home);
+  } catch {
+    // agents.json/teams.json ilegível: não é motivo pra calar a regra
+  }
+  return false;
+}
+
+const MOTIVO_MEMORIA_APOSENTADA =
+  "o agente de memória foi aposentado: a memória agora é guardada pelo próprio Nexos (memórias por fato), sem regra de hook";
+
 function limparAgentId(v: unknown, home: string): string {
   if (typeof v !== "string" || !v.trim()) throw badRequest("agentId obrigatório");
   const agentId = v.trim();
   if (!getAgent(agentId, home)) throw badRequest(`agente não existe: ${agentId}`);
+  if (ehAgenteDeMemoria(agentId, home)) throw badRequest(MOTIVO_MEMORIA_APOSENTADA);
   return agentId;
 }
 
@@ -199,6 +237,7 @@ function limparTeamId(v: unknown, home: string): string {
   if (typeof v !== "string" || !v.trim()) throw badRequest("teamId obrigatório");
   const teamId = v.trim();
   if (!getTeam(teamId, home)) throw badRequest(`time não existe: ${teamId}`);
+  if (timeSoDeMemoria(teamId, home)) throw badRequest(MOTIVO_MEMORIA_APOSENTADA);
   return teamId;
 }
 
@@ -279,12 +318,21 @@ function regrasCasando(
   event: string,
   branch: string,
   colunaId: string,
+  home: string,
 ): RegraHook[] {
-  return semRepetidas(
-    regrasDoEscopo(regras, projectPath).filter(
-      (r) => r.evento === event && (!r.branch || r.branch === branch) && (!r.colunaId || r.colunaId === colunaId),
-    ),
+  const casando = regrasDoEscopo(regras, projectPath).filter(
+    (r) => r.evento === event && (!r.branch || r.branch === branch) && (!r.colunaId || r.colunaId === colunaId),
   );
+  return semRepetidas(semDesligadas(casando, home, event));
+}
+
+/** Tira as regras do agente de memória aposentado (ver `regraDesligada`) — as outras seguem. */
+function semDesligadas(regras: RegraHook[], home: string, event?: string): RegraHook[] {
+  return regras.filter((r) => {
+    if (!regraDesligada(r, home)) return true;
+    if (event) log.avisoUmaVez(`hook-memoria-aposentada:${r.id}`, "hook", "regra do agente de memória aposentado ignorada", { regra: r.id, evento: event });
+    return false;
+  });
 }
 
 /**
@@ -316,7 +364,7 @@ function semRepetidas(regras: RegraHook[]): RegraHook[] {
  */
 export function sincronizarHooksDoProjeto(projectPath: string, home: string): void {
   if (!existsSync(join(projectPath, ".git"))) return;
-  const necessarios = new Set(regrasDoEscopo(readAll(home), projectPath).map((r) => r.evento));
+  const necessarios = new Set(semDesligadas(regrasDoEscopo(readAll(home), projectPath), home).map((r) => r.evento));
   necessarios.add("git.post-commit");
   for (const event of Object.keys(GIT_HOOK_FILES)) {
     if (necessarios.has(event)) installGitHookScript(projectPath, event);
@@ -370,16 +418,12 @@ function sincronizarAposMudanca(novo: EscopoHook | undefined, antigo: EscopoHook
 
 /**
  * Meta (o "pedido") que o run de uma regra recebe. Genérica de propósito — uma regra pode apontar
- * pra QUALQUER agente, não só o de memória, e o `goal` não pode presumir o papel de quem vai ler.
- * O caminho de memória entra como dica condicional ("se você for..."), não como ordem: é o único
- * fato que só o daemon sabe (fora do projeto, varia por instalação — `memoriaDir` configurável) e
- * que faz sentido pra um agente de memória, mas é ruído inofensivo pra qualquer outro.
+ * pra QUALQUER agente, e o `goal` não pode presumir o papel de quem vai ler. Já não leva a dica do
+ * caminho do MEMORIA.md: o agente de memória foi aposentado (ver `regraDesligada`).
  */
-function metaDoEvento(event: string, projectPath: string, branch: string, home: string, contexto?: string): string {
+function metaDoEvento(event: string, projectPath: string, branch: string, _home: string, contexto?: string): string {
   const base = `Evento \`${event}\` disparado no projeto ${projectPath}${branch ? ` (branch \`${branch}\`)` : ""}.`;
-  const extra = contexto ? `\n\n${contexto}` : "";
-  const dica = `Se você for o agente de memória de projeto: escreva/atualize ${memoriaPath(projectPath, home)} (crie o arquivo se não existir).`;
-  return `${base}${extra}\n\n${dica}`;
+  return contexto ? `${base}\n\n${contexto}` : base;
 }
 
 /** Mesma meta do evento, com a instrução de veredito obrigatória — só pra regra BLOQUEANTE de pre-push. */
@@ -390,22 +434,6 @@ Ao terminar sua análise, chame OBRIGATORIAMENTE a ferramenta \`nexo_veredito\` 
 \`{ aprovado: boolean, motivo: string }\` — é como você decide se o \`git push\` é liberado ou
 barrado. Sem essa chamada, o push é reprovado por padrão.`;
 }
-
-/**
- * Instruções do agente "memória" — usadas quando a UI cria esse agente pela
- * primeira vez ao configurar uma regra. Mesmo critério de "o que vale
- * memorizar" que orienta a própria memória do Claude Code.
- */
-export const MEMORIA_AGENT_INSTRUCTIONS = `Leia o \`git diff\` desde o último commit que você já registrou (o hash fica
-numa linha \`<!-- commit: <hash> -->\` no fim do MEMORIA.md atual, se existir).
-
-Escreva ou atualize o MEMORIA.md só com fatos NOVOS ou DIFERENTES do que já
-está lá: arquitetura, convenção do projeto, decisão não-óbvia, causa-raiz de
-bug corrigido. Não resuma o diff linha a linha — isso é o que \`git log\` já
-mostra. Mantenha o arquivo abaixo de ~7000 caracteres: consolide e apague o que ficou
-obsoleto em vez de só acrescentar — o que passar disso não chega nas conversas.
-Termine o arquivo com uma linha \`<!-- commit: <hash> -->\` marcando até
-onde você leu.`;
 
 /** Chave de coalescência: por projeto+evento, não por regra — várias regras do mesmo par disparam juntas. */
 function chaveDe(projectPath: string, event: string): string {
@@ -495,7 +523,7 @@ export type FireHookOpts = { branch?: string; colunaId?: string; contexto?: stri
 export function fireHook(event: string, projectPath: string, home: string, opts: FireHookOpts = {}): { disparado: boolean } {
   if (!HOOK_EVENT_RE.test(event)) throw badRequest(`evento inválido: ${event}`);
   const branch = opts.branch ?? "";
-  const regras = regrasCasando(readAll(home), projectPath, event, branch, opts.colunaId ?? "");
+  const regras = regrasCasando(readAll(home), projectPath, event, branch, opts.colunaId ?? "", home);
   return { disparado: dispararFireAndForget(regras, projectPath, event, branch, home, opts.contexto) };
 }
 
@@ -509,7 +537,7 @@ export async function dispararPrePush(
   branch: string,
   home: string,
 ): Promise<{ aprovado: boolean; motivo: string }> {
-  const casando = regrasCasando(readAll(home), projectPath, "git.pre-push", branch, "");
+  const casando = regrasCasando(readAll(home), projectPath, "git.pre-push", branch, "", home);
   const bloqueantes = casando.filter((r) => r.bloqueante);
   const naoBloqueantes = casando.filter((r) => !r.bloqueante);
 

@@ -314,7 +314,7 @@
       </section>
       <section class="pane" id="pane-graph">
         <header class="mod-head">
-          <h1>Memória do Projeto</h1>
+          <h1>Memória</h1>
           <button type="button" id="btn-close-graph" class="ghost mod-close" title="Fechar (volta só pro chat)">✕</button>
         </header>
         <div class="ag-edit">
@@ -333,9 +333,31 @@
             </div>
             <p class="ag-err hidden" id="slug-manual-err"></p>
           </section>
-          <section class="ag-sec">
-            <h2>Memória <span id="mem-status" class="mod-meta" data-on="0">verificando…</span></h2>
-            <p class="ag-hint" id="mem-detalhe"></p>
+          <section class="ag-sec mem-sec" id="mem-sec" aria-labelledby="mem-h">
+            <h2 id="mem-h" tabindex="-1">Memórias <span id="mem-contador" class="mod-meta" data-on="0">carregando…</span></h2>
+            <p class="ag-hint">O que o agente lembra entre conversas: instruções, preferências, decisões e o que aprendeu sobre o projeto. Aqui é só leitura.</p>
+            <div class="mem-busca">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+              <input id="mem-busca" type="search" placeholder="Buscar nas memórias…" aria-label="Buscar nas memórias" aria-controls="mem-lista" autocomplete="off" spellcheck="false" />
+            </div>
+            <div id="mem-erro" class="aprend-erro hidden" role="alert"><p class="ag-err" id="mem-erro-msg"></p><button type="button" id="btn-mem-tentar" class="ghost">Tentar de novo</button></div>
+            <div id="mem-corpo" class="mem-corpo" data-aberto="0">
+              <div id="mem-lista" class="mem-lista" aria-busy="false"></div>
+              <article id="mem-leitor" class="mem-leitor hidden" aria-labelledby="mem-leitor-h">
+                <header class="mem-leitor-topo">
+                  <div class="mem-leitor-tit">
+                    <p class="aprend-eyebrow" id="mem-leitor-pasta"></p>
+                    <h3 id="mem-leitor-h" tabindex="-1"></h3>
+                  </div>
+                  <button type="button" id="btn-mem-fechar" class="ghost mem-fechar">Fechar</button>
+                </header>
+                <p class="mem-leitor-gancho hidden" id="mem-leitor-gancho"></p>
+                <div class="mem-leitor-meta" id="mem-leitor-meta"></div>
+                <p class="ag-err hidden" id="mem-leitor-erro" role="alert"></p>
+                <div class="mem-md" id="mem-leitor-corpo" aria-busy="false"></div>
+                <p class="mem-leitor-caminho"><code id="mem-leitor-caminho"></code></p>
+              </article>
+            </div>
           </section>
           <section class="ag-sec" id="aprend-sec" aria-labelledby="aprend-h">
             <h2 id="aprend-h" tabindex="-1">Aprendizados <span id="aprend-contador" class="agents-badge aprend-contador hidden" aria-label="0 aprendizados pra revisar">0</span> <span id="aprend-status" class="mod-meta" data-on="0">carregando…</span></h2>
@@ -1172,6 +1194,8 @@
           <button type="button" id="btn-update-parar" class="ghost danger hidden">Parar agentes e reiniciar</button>
           <button type="button" id="btn-update-cancelar" class="ghost hidden">Cancelar</button>
         </div>
+        <!-- aviso de memória salva (memorias.js · createAvisoDeMemoria): some sozinho; a região fica pro leitor de tela -->
+        <div class="mem-aviso-ancora"><div id="mem-aviso" class="mem-aviso-zona" role="status" aria-live="polite" aria-atomic="true"></div></div>
         <!-- área de chats (area-de-chats.js): até 3 <section class="chat">; os ids de dentro são por chat (IDS_DO_CHAT) -->
         <div id="chat-cols" class="chat-cols">
           <section class="chat" role="region" aria-label="Conversa">

@@ -26,6 +26,11 @@ import { MCP_TOOLS_ENTREGAR } from "./entregar-arquivo.ts";
 import { MCP_TOOLS_SERVICOS } from "./servicos-ferramentas.ts";
 import { MCP_TOOLS_WINDOWS_CONTROL } from "./windows-control.ts";
 import { MCP_TOOLS_TAREFA } from "./tarefas.ts";
+import { MCP_TOOLS_MEMORIA } from "./memorias/ferramentas.ts";
+import { blocoCatalogo } from "./memorias/injecao.ts";
+import { escolherMemoriasDoTurno, TETO_SELECAO_MS, zerarLedgerMemorias } from "./memorias/selecao.ts";
+import { criarMemorista, type Memorista } from "./memorias/memorista.ts";
+import { rodarModeloLateral, type EventoMemoriaSalva, type RodarModelo } from "./memorias/motor.ts";
 import {
   aoUsarFerramentaDeTarefa,
   FERRAMENTAS_DE_TAREFA,
@@ -101,6 +106,18 @@ export type SessionEvent =
    * gira pra sempre.
    */
   | { type: "compacting"; threadId: string; on: boolean; tokens?: number; motivo?: string }
+  /**
+   * Memória do usuário gravada (memory_propose do agente, memorista ou curador). Só aviso de tela:
+   * o acervo mora em `<home>/memorias`. `threadId` vazio quando não veio de conversa (curador).
+   */
+  | {
+      type: "memoria.salva";
+      threadId: string;
+      relPath: string;
+      titulo: string;
+      op: "create" | "update" | "retire";
+      origem: string;
+    }
   /** `nexo_perguntar` pausou o turno — ver perguntas.ts. NÃO passa por `onEngineEvent`: quem emite é a própria ferramenta, fora do laço do motor. */
   | { type: "pergunta"; threadId: string; id: string; texto: string; opcoes?: string[]; multiSelect?: boolean }
   | { type: "pergunta_resposta"; threadId: string; id: string; resposta: string }
@@ -198,6 +215,8 @@ type Live = {
    * decide se o turno é parcial (retomar com "continue") e alimenta o `tail` do agente.
    */
   textoDoTurno?: string;
+  /** relPaths das memórias do usuário que entraram como excerto neste turno (vão pro memorista no `done`). */
+  memoriasDoTurno?: string[];
   /** Últimas ferramentas deste turno (a mais nova no fim) — o "o que está fazendo agora" do painel de borda. */
   passos?: PassoDoTurno[];
   pendingTurn: PendingTurn | null;
@@ -430,6 +449,75 @@ function emit(threadId: string, ev: SessionEvent): void {
   sessionBus.emit("*", ev);
 }
 
+/**
+ * Aviso de memória gravada (`memory_propose`, memorista, curador) como SSE `memoria.salva`: vai pro
+ * stream da conversa quando há uma e sempre pro global (`*`). Nunca lança.
+ */
+export function emitirMemoriaSalva(ev: {
+  relPath: string;
+  titulo: string;
+  op: "create" | "update" | "retire";
+  origem: string;
+  threadId?: string;
+}): void {
+  try {
+    const evento: SessionEvent = {
+      type: "memoria.salva",
+      threadId: ev.threadId ?? "",
+      relPath: ev.relPath,
+      titulo: ev.titulo,
+      op: ev.op,
+      origem: ev.origem,
+    };
+    if (ev.threadId) sessionBus.emit(ev.threadId, evento);
+    sessionBus.emit("*", evento);
+  } catch {
+    /* aviso de tela não derruba nada */
+  }
+}
+
+/** Modelo lateral das memórias (seleção e memorista). Teste troca; `null` = só léxico, memorista parado. */
+let rodarDasMemorias: RodarModelo | null = rodarModeloLateral;
+export function definirRodarDasMemorias(r: RodarModelo | null): void {
+  rodarDasMemorias = r;
+  memoristas.clear();
+}
+
+/** Última fala do agente na conversa (contexto curto para a seleção de memórias). */
+function ultimaRespostaDoAgente(eventos: readonly { type: string; text?: unknown }[]): string | undefined {
+  for (let i = eventos.length - 1; i >= 0; i--) {
+    const e = eventos[i];
+    if (e?.type === "assistant" && typeof e.text === "string" && e.text.trim()) return e.text.slice(-4_000);
+  }
+  return undefined;
+}
+
+function memoriaDoUsuarioLigada(home: string): boolean {
+  return loadConfig(home).modulos.memoriaUsuario !== false;
+}
+
+const memoristas = new Map<string, Memorista>();
+/** Memorista de fim de turno, um por home (guarda falas e cooldown por conversa). */
+function memoristaDe(home: string): Memorista | undefined {
+  const rodar = rodarDasMemorias;
+  if (!rodar) return undefined;
+  let m = memoristas.get(home);
+  if (!m) {
+    m = criarMemorista({
+      home,
+      rodar,
+      modelo: () => loadConfig(home).memoristaModelo ?? "sonnet",
+      ligado: () => {
+        const mod = loadConfig(home).modulos;
+        return mod.memoriaUsuario !== false && mod.memorista !== false;
+      },
+      aoSalvar: (ev: EventoMemoriaSalva) => emitirMemoriaSalva(ev),
+    });
+    memoristas.set(home, m);
+  }
+  return m;
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -547,8 +635,13 @@ function instrucoesDoPack(
 ): string {
   const def = agentId ? getAgent(agentId, home) : undefined;
   const instrucoes = def?.instructions?.trim();
-  const memoria = memoriaDoPack((projectPath ? readMemoria(projectPath, home) : readMemoriaGlobal(home)).trim());
   const modulos = loadConfig(home).modulos;
+  // Memória do usuário ligada: o catálogo (memorias/injecao.ts) substitui o MEMORIA.md legado,
+  // que a migração (cli.ts) já levou para o acervo novo. Desligada, vale o bloco antigo.
+  const memoriaUsuario = modulos.memoriaUsuario !== false;
+  // MEMORIA.md legado ainda no lugar = migração não concluiu (cli.ts renomeia pra .migrado quando
+  // todos os fatos gravam): continua no pack pra o agente não perder esses fatos no meio do caminho
+  const memoria = memoriaDoPack((projectPath ? readMemoria(projectPath, home) : readMemoriaGlobal(home)).trim());
   const blocos: string[] = [];
   // Módulo, não agente: vale pra TODA conversa (agente ou conta pura), por isso entra antes —
   // é a instrução mais geral do bloco, igual o usuário fraseia no próprio CLAUDE.md pessoal.
@@ -593,6 +686,13 @@ function instrucoesDoPack(
   if (projectPath && opts.handoff) blocos.push(blocoDoHandoff(opts.handoff, pastaDoPlano(projectPath, home, opts.handoff)));
   if (instrucoes) blocos.push(`# Agente: ${def?.name ?? agentId}\n${instrucoes}`);
   if (memoria) blocos.push(`# Memória ${projectPath ? "do projeto" : "geral"}\n${memoria}`);
+  if (memoriaUsuario && !opts.oculta) {
+    try {
+      blocos.push(blocoCatalogo(home));
+    } catch (err) {
+      log.avisoUmaVez("memorias-catalogo", "turno","não consegui montar o catálogo de memórias", { erro: String(err) });
+    }
+  }
   // Preferências aprendidas (aprovadas pela pessoa): logo depois da memória, com teto próprio e
   // lidas do cache em memória (instintos.ts) — o pack é refeito a cada turno e a pasta mora no Drive
   if (projectPath) {
@@ -767,6 +867,9 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
   );
   const gravadaNova = lerSessaoClaude(threadId, home);
   if (gravadaNova?.profileId === p.id) engine.updateResume(gravadaNova.sessionId);
+  // Motor novo sem retomar a sessão: os excertos de memória já enviados não estão no contexto dele
+  // (não vão pro histórico), então podem voltar
+  else zerarLedgerMemorias(threadId);
   return live;
 }
 
@@ -845,6 +948,8 @@ function mcpDaConversa(
     // implementação de um plano: marca andamento e ajusta o plano (http.ts monta o mesmo recorte)
     ...(meta.handoff && !meta.runId ? MCP_TOOLS_PLANO_NA_IMPLEMENTACAO : []),
     ...MCP_TOOLS_AUTORIA,
+    // memória do usuário (memorias/ferramentas.ts): a única porta de escrita na pasta de memórias
+    ...(loadConfig(home).modulos.memoriaUsuario !== false ? MCP_TOOLS_MEMORIA : []),
     ...(meta.projectPath && indiceDisponivel(meta.projectPath, home) ? MCP_TOOLS_REPO_MAP : []),
     // `runId` só existe quando esta conversa é o passo de um run de PIPELINE (ver `executarPasso`
     // em runs.ts) — é o que dá ao agente do hook de pre-push como declarar `{ aprovado, motivo }`.
@@ -1000,6 +1105,8 @@ async function talvezCompactar(threadId: string, home: string): Promise<void> {
     }
     appendEvent(r.evento, home);
     emit(threadId, r.evento);
+    // o resumo apagou os excertos do contexto: memória já injetada pode voltar
+    zerarLedgerMemorias(threadId);
   } catch (e) {
     /*
      * Falhou: registra e NÃO tenta de novo nesta conversa. Recompactar em loop
@@ -1381,12 +1488,26 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     if (live.assistantBuf) {
       appendEvent({ ts: nowIso(), type: "assistant", threadId, text: live.assistantBuf }, home);
     }
+    // memorista: o que o agente respondeu no turno todo + as memórias que ele recebeu
+    const respostaDoTurno = (live.textoDoTurno ?? "") + live.assistantBuf;
+    const memoriasUsadas = live.memoriasDoTurno ?? [];
+    live.memoriasDoTurno = undefined;
     live.assistantBuf = "";
     live.textoDoTurno = "";
     live.pendingTurn = null;
     live.retryCount = 0;
     setTerminal(live, "done");
     emit(threadId, { ...ev, threadId });
+    // sem fala observada (conversa oculta, turno automático) o memorista não roda; nunca lança
+    if (memoriaDoUsuarioLigada(home)) {
+      void memoristaDe(home)
+        ?.fimDeTurno(threadId, {
+          ...(live.profileId ? { threadProfileId: live.profileId } : {}),
+          resumoDoTurno: respostaDoTurno,
+          memoriasUsadas,
+        })
+        .catch(() => {});
+    }
     // depois de responder, não antes: compactar leva um turno e a pessoa não
     // deve esperar por ele. Sem await de propósito — falha aqui não é falha do
     // turno que acabou de dar certo.
@@ -1910,7 +2031,27 @@ async function turnoDaMensagem(
     if (retomados && meta?.type === "thread_meta") {
       void retomados.then((ids) => abrirRodadaPO(threadId, meta.projectPath, home, live.profileId, ids));
     }
+    // Memória do usuário: escolhe os excertos do turno junto com os overrides (o Haiku tem teto de
+    // tempo e cai no léxico), e o memorista anota a fala. Conversa oculta (motor interno) fica fora.
+    // turno automático (retomada, aviso do motor) não é fala da pessoa: não paga seleção nem latência
+    const comMemoria = memoriaDoUsuarioLigada(home) && !opts.automatico && !(meta?.type === "thread_meta" && meta.oculta);
+    if (comMemoria && !opts.automatico) memoristaDe(home)?.observarUsuario(threadId, text);
+    const memoriasDoTurno = comMemoria
+      ? escolherMemoriasDoTurno({
+          home,
+          threadId,
+          mensagem: text,
+          resumoRecente: ultimaRespostaDoAgente(eventosAtuais),
+          ...(rodarDasMemorias ? { rodar: rodarDasMemorias } : {}),
+          modelo: loadConfig(home).memoriaSelecaoModelo ?? "haiku",
+          tetoMs: TETO_SELECAO_MS,
+          ...(live.profileId ? { threadProfileId: live.profileId } : {}),
+        }).catch(() => ({ bloco: "", usadas: [] as string[], via: "vazio" as const }))
+      : undefined;
     await aplicarOverridesDoTurno(threadId, text, eventosAtuais, live, home, antecipada);
+    const excertos = memoriasDoTurno ? await memoriasDoTurno : undefined;
+    live.memoriasDoTurno = excertos?.usadas.length ? excertos.usadas : undefined;
+    const prefixoDeMemoria = excertos?.bloco ? `${excertos.bloco}\n\n` : "";
     // Gatilhos do Cérebro: lembrete de 1 linha na frente do pedido quando a mensagem (ou o turno
     // anterior) pede uma capacidade que o modelo costuma esquecer. Depois do `comSkill`, que olha o
     // começo do texto; fora do JSONL, que guarda só o que a pessoa escreveu.
@@ -1918,7 +2059,7 @@ async function turnoDaMensagem(
       quadroTarefas: loadConfig(home).modulos.quadroTarefas,
       arquivos: attachments.map((a) => a.name),
     });
-    await dispatch(threadId, home, live, promptWithAttachments(resultados + lembrete + comSkill(textoComElementos(text, opts.elementos), live, home, meta), attachments));
+    await dispatch(threadId, home, live, promptWithAttachments(resultados + prefixoDeMemoria + lembrete + comSkill(textoComElementos(text, opts.elementos), live, home, meta), attachments));
   }).finally(saiDaEsperaDoPO);
 }
 

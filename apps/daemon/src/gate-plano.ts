@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, posix, win32 } from "node:path";
+import { memoriasDir } from "./memorias/caminho.ts";
 
 /**
  * Gate de plano do motor `claude`: hook PreToolUse (via `--settings`) que nega a PRIMEIRA escrita
@@ -117,6 +118,9 @@ function gravarSeMudou(arquivo: string, conteudo: string): void {
   writeFileSync(arquivo, conteudo, "utf8");
 }
 
+// barra normal: o hook roda num shell, e `\` dentro de aspas vira escape em bash
+const barraNormal = (p: string) => p.replace(/\\/g, "/");
+
 /**
  * Prepara script + settings do hook em `<home>/run` e devolve o caminho do settings pro
  * `--settings`. `--settings` SOMA hooks aos do perfil (ex.: o do rtk), não substitui.
@@ -127,13 +131,107 @@ export function prepararGatePlano(home: string): string {
   const script = join(dir, "gate-plano.cjs");
   const settings = join(dir, "gate-plano-settings.json");
   gravarSeMudou(script, SCRIPT_DO_GATE);
-  // barra normal: o hook roda num shell, e `\` dentro de aspas vira escape em bash
-  const comando = `node "${script.replace(/\\/g, "/")}"`;
+  const comando = `node "${barraNormal(script)}"`;
   const conteudo = JSON.stringify(
     { hooks: { PreToolUse: [{ matcher: ESCRITAS.join("|"), hooks: [{ type: "command", command: comando }] }] } },
     null,
     2,
   );
   gravarSeMudou(settings, conteudo);
+  return settings;
+}
+
+/**
+ * Recusa de escrita direta na pasta de memórias do usuário (`<home>/memorias`): a única porta de
+ * escrita é a ferramenta `memory_propose`. Vale com ou sem gate de plano, e também dentro de
+ * subagente. Mesmo esquema do gate: lógica numa string JS, gravada em `run/memoria-escrita.cjs`
+ * e avaliada aqui para teste. A pasta chega ao script como argumento.
+ */
+export function motivoDaEscritaEmMemoria(dir: string): string {
+  return (
+    `Escrita recusada: a pasta de memórias (${dir}) não aceita escrita direta. Use a ferramenta ` +
+    "memory_propose (mcp__nexo__memory_propose); rode memory_list antes para pegar a revisão atual."
+  );
+}
+
+const LOGICA_DA_MEMORIA = `
+var ESCRITAS_MEMORIA = ${JSON.stringify(ESCRITAS)};
+
+function dentroDaPasta(path, win, dir, alvo, cwd) {
+  var base = path.resolve(dir);
+  var abs = path.resolve(cwd || base, alvo);
+  if (win) { base = base.toLowerCase(); abs = abs.toLowerCase(); }
+  var rel = path.relative(base, abs);
+  return rel === "" || (rel.slice(0, 2) !== ".." && !path.isAbsolute(rel));
+}
+
+function decidirMemoria(path, win, dir, entrada) {
+  entrada = entrada || {};
+  if (!dir || ESCRITAS_MEMORIA.indexOf(entrada.tool_name) === -1) return "allow";
+  var ti = entrada.tool_input || {};
+  var alvo = ti.file_path || ti.notebook_path || ti.path;
+  if (typeof alvo !== "string" || !alvo) return "allow";
+  return dentroDaPasta(path, win, dir, alvo, entrada.cwd) ? "deny" : "allow";
+}
+`;
+
+export type EntradaDaMemoria = { tool_name?: string; tool_input?: Record<string, unknown>; cwd?: string };
+
+const decidirMemoriaBruto = new Function(`${LOGICA_DA_MEMORIA}\nreturn decidirMemoria;`)() as (
+  path: unknown,
+  win: boolean,
+  dir: string,
+  entrada?: EntradaDaMemoria,
+) => DecisaoDoGate;
+
+/** Decisão pura do hook de memória — a mesma lógica que roda no script. */
+export function decisaoDaMemoria(dir: string, entrada?: EntradaDaMemoria, plataforma: NodeJS.Platform = process.platform): DecisaoDoGate {
+  const win = plataforma === "win32";
+  return decidirMemoriaBruto(win ? win32 : posix, win, dir, entrada);
+}
+
+export const SCRIPT_DA_MEMORIA = `// Gerado pelo Nexos (gate-plano.ts) — não editar, é regravado quando muda.
+"use strict";
+${LOGICA_DA_MEMORIA}
+var DIR = process.argv[2] || "";
+var dados = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", function (c) { dados += c; });
+process.stdin.on("end", function () {
+  try {
+    var entrada = JSON.parse(dados);
+    if (decidirMemoria(require("path"), process.platform === "win32", DIR, entrada) === "deny") {
+      var motivo = ${JSON.stringify(motivoDaEscritaEmMemoria("__DIR__"))}.replace("__DIR__", function () { return DIR; });
+      process.stdout.write(JSON.stringify({
+        hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: motivo }
+      }));
+    }
+  } catch (e) {}
+  process.exit(0);
+});
+`;
+
+/**
+ * Settings único com os hooks do motor (só um `--settings` é seguro por chamada): o gate de plano
+ * quando `gatePlano`, a recusa de escrita em memória quando `memorias`. `undefined` sem nenhum.
+ */
+export function prepararHooksDoMotor(home: string, o: { gatePlano: boolean; memorias: boolean }): string | undefined {
+  if (!o.gatePlano && !o.memorias) return undefined;
+  const dir = join(home, "run");
+  mkdirSync(dir, { recursive: true });
+  const entradas: { matcher: string; hooks: { type: "command"; command: string }[] }[] = [];
+  if (o.gatePlano) {
+    const script = join(dir, "gate-plano.cjs");
+    gravarSeMudou(script, SCRIPT_DO_GATE);
+    entradas.push({ matcher: ESCRITAS.join("|"), hooks: [{ type: "command", command: `node "${barraNormal(script)}"` }] });
+  }
+  if (o.memorias) {
+    const script = join(dir, "memoria-escrita.cjs");
+    gravarSeMudou(script, SCRIPT_DA_MEMORIA);
+    const pasta = barraNormal(memoriasDir(home));
+    entradas.push({ matcher: ESCRITAS.join("|"), hooks: [{ type: "command", command: `node "${barraNormal(script)}" "${pasta}"` }] });
+  }
+  const settings = join(dir, "hooks-do-motor-settings.json");
+  gravarSeMudou(settings, JSON.stringify({ hooks: { PreToolUse: entradas } }, null, 2));
   return settings;
 }

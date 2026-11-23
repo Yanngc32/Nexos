@@ -33,6 +33,7 @@ import { escapeHtml, renderMd } from "./markdown.js";
 import { secaoDaVersao } from "./changelog.js";
 import { aplicarEventoNaPonte, ponteDosEventos, textoDaPonte } from "./ponte-plano.js";
 import { createAprendizados } from "./aprendizados.js";
+import { createMemorias, createAvisoDeMemoria } from "./memorias.js";
 import {
   ago,
   clip,
@@ -116,7 +117,7 @@ const MODULES = [
   { id: "terminal", name: "Terminal", keys: "Ctrl+J", ico: ">_" },
   { id: "browser", name: "Browser", keys: "Ctrl+Shift+B", ico: "🌐" },
   { id: "canvas", name: "Canvas", keys: "", ico: "▦" },
-  { id: "graph", name: "Memória do Projeto", keys: "", ico: "◈" },
+  { id: "graph", name: "Memória", keys: "", ico: "◈" },
   { id: "agentes", name: "Agentes, Times e Hooks", keys: "", ico: "🤖" },
   { id: "tarefas", name: "Tarefas", keys: "", ico: "🗂" },
   { id: "ds", name: "Design System", keys: "", ico: "◧" },
@@ -2246,6 +2247,7 @@ function aoMostrarPainel(view) {
   if (view === "graph") {
     void loadGraphStatus();
     void aprendizados.carregar();
+    void memorias.carregar();
   }
   if (view === "agentes") {
     toggleAgents(false);
@@ -6800,12 +6802,6 @@ async function loadGraphStatus() {
   forcarSlugManualNaProximaAbertura = false;
   $("slug-atual").textContent = status.slug || "";
 
-  const mem = status.memoria;
-  $("mem-status").textContent = mem.existe ? "escrita" : "vazia";
-  $("mem-status").dataset.on = mem.existe ? "1" : "0";
-  $("mem-detalhe").textContent =
-    (mem.compartilhado ? `${mem.caminho} · pasta compartilhada` : mem.caminho) + fmtQuando(mem.atualizadoEm);
-
   const rm = status.repoMap;
   $("repomap-status").textContent = rm.existe ? (rm.truncado ? "disponível (truncado)" : "disponível") : "ausente";
   $("repomap-status").dataset.on = rm.existe ? "1" : "0";
@@ -6923,6 +6919,20 @@ async function abrirAprendizados(path) {
   await abrirModuloEmRepo(path, "graph");
   requestAnimationFrame(() => $("aprend-sec")?.scrollIntoView({ block: "start", behavior: "smooth" }));
 }
+
+/* ---------- Memórias (seção da tela Memória; memorias.js) ---------- */
+
+const memorias = createMemorias({ req, el: $ });
+
+/** Aviso no chat quando o agente salva uma memória: o clique abre a tela Memória já na memória salva. */
+const avisoMemoria = createAvisoDeMemoria({
+  el: $,
+  aoAbrir: (ev) => {
+    setView("graph");
+    if (ev.op !== "retire" && ev.relPath) void memorias.abrir(ev.relPath);
+    requestAnimationFrame(() => $("mem-sec")?.scrollIntoView({ block: "start", behavior: "smooth" }));
+  },
+});
 
 /** Só o número, pra cada repositório da barra lateral (o motor responde do cache em memória). Motor fora do ar ou pasta indisponível: sem contador agora; a seção mostra o motivo. */
 async function atualizarPendentes() {
@@ -7845,6 +7855,12 @@ async function tratarAbrirPainel(ev) {
 }
 
 function applyAgentEvent(ev) {
+  // memória salva/atualizada/aposentada: aviso discreto no chat (vem com ou sem threadId)
+  if ((ev.type ?? ev.tipo) === "memoria.salva") {
+    avisoMemoria.mostrar(ev);
+    if (state.view === "graph") void memorias.carregar();
+    return;
+  }
   const id = ev.threadId;
   if (!id) return;
   torreView?.aoEventoAgente(ev);

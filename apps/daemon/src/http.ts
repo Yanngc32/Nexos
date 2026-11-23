@@ -113,6 +113,10 @@ import {
   threadHead,
 } from "./threads.ts";
 import { listarLixeira } from "./lixeira.ts";
+import { ferramentasDeMemoria } from "./memorias/ferramentas.ts";
+import { corpoParaPrompt, indiceMemorias, lerMemoria, listarMemorias } from "./memorias/nucleo.ts";
+import { lerSecoesIndice } from "./memorias/indice.ts";
+import { memoriasDir } from "./memorias/caminho.ts";
 import {
   abortThread,
   pararTurno,
@@ -124,6 +128,7 @@ import {
   tarefasEmEspera,
   clearThread,
   dropThread,
+  emitirMemoriaSalva,
   estaSoEsperando,
   injetarMensagem,
   postMessage,
@@ -1245,6 +1250,39 @@ export function createApp(home: string, token: string): Hono {
 
   /** Conversas na lixeira (de todos os projetos), com `apagaEm` = quando somem de vez. */
   app.get("/v1/lixeira", (c) => c.json(listarLixeira(home)));
+
+  /**
+   * Memória do usuário (memorias/): lista com metadados e as seções do índice. `?consulta=` filtra
+   * e ordena por relevância. Sem corpo aqui — o corpo vai por /v1/memorias/arquivo, já mascarado.
+   */
+  app.get("/v1/memorias", (c) => {
+    try {
+      const consulta = (c.req.query("consulta") ?? "").trim();
+      const itens = listarMemorias(home, consulta ? { consulta } : {}).map((m) => ({
+        relPath: m.relPath,
+        pasta: m.pasta,
+        titulo: m.titulo,
+        gancho: m.gancho,
+        tipo: m.tipo,
+        revisao: m.revisao,
+        origem: m.origem,
+        atualizadaEm: m.atualizadaEm,
+      }));
+      return c.json({ dir: memoriasDir(home), itens, secoes: Object.fromEntries(lerSecoesIndice(indiceMemorias(home))) });
+    } catch (e) {
+      return c.json({ error: String(e) }, 500);
+    }
+  });
+
+  /** Uma memória pelo relPath, com o corpo passado por `corpoParaPrompt` (segredo nunca sai em claro). */
+  app.get("/v1/memorias/arquivo", (c) => {
+    const rel = (c.req.query("path") ?? "").trim();
+    if (!rel) return c.json({ error: 'faltou "path"' }, 400);
+    const m = lerMemoria(home, rel);
+    if (!m) return c.json({ error: "memória não encontrada" }, 404);
+    const { corpo: _corpo, ...meta } = m;
+    return c.json({ ...meta, corpo: corpoParaPrompt(m) });
+  });
 
   /** Manda pra lixeira ou restaura. Body: { naLixeira: boolean }. */
   app.post("/v1/threads/:id/lixeira", async (c) => {
@@ -2996,6 +3034,10 @@ export function createApp(home: string, token: string): Hono {
     const conjunto: Conjunto = () => [
       ...(impl?.handoff && impl.projectPath ? ferramentasDePlanejamento(impl.projectPath, impl.handoff.slug, home, "implementacao")() : []),
       ...ferramentasDeAutoria(home)(),
+      // memória do usuário (memorias/ferramentas.ts): mesma regra do --allowed-tools em session.ts
+      ...(loadConfig(home).modulos.memoriaUsuario !== false
+        ? ferramentasDeMemoria(home, threadId || undefined, (ev) => emitirMemoriaSalva(ev))()
+        : []),
       ...(projectPath ? ferramentasDeRepoMap(projectPath, home)() : []),
       ...(projectPath ? ferramentaDeResumo(projectPath, home)() : []),
       ...(projectPath && loadConfig(home).modulos.quadroTarefas ? ferramentasDeTarefas(projectPath, home)() : []),

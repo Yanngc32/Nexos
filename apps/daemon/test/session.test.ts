@@ -38,6 +38,10 @@ import { construirIndice } from "../src/repo-map-indice.ts";
 import { deadCred, liveCred, tempHome } from "./helpers.ts";
 import { loadConfig, saveConfig } from "../src/config.ts";
 
+// MEMORIA.md legado só entra no pack com o módulo de memória do usuário desligado (memorias/)
+const semMemoriaDoUsuario = (home: string) =>
+  saveConfig(home, { modulos: { memoriaUsuario: false } } as unknown as Parameters<typeof saveConfig>[1]);
+
 describe("session", () => {
   it("grava user antes da resposta e não vaza key", () => {
     const home = tempHome();
@@ -742,6 +746,7 @@ describe("session", () => {
 
   it("MEMORIA.md do projeto abre o pack de QUALQUER conversa dele, mesmo sem agente", async () => {
     const home = tempHome();
+    semMemoriaDoUsuario(home);
     addProfile({ id: "p1", engine: "stub" }, home);
     writeFileSync(memoriaPath("/proj-com-memoria", home), "usa RTK pra CLI", "utf8");
     const t = createThread({ projectPath: "/proj-com-memoria", profileId: "p1" }, home);
@@ -752,6 +757,7 @@ describe("session", () => {
 
   it("MEMORIA.md grande entra cortado no pack, num fim de parágrafo e com aviso", async () => {
     const home = tempHome();
+    semMemoriaDoUsuario(home);
     addProfile({ id: "p1", engine: "stub" }, home);
     const paragrafo = "fato ".repeat(100).trim();
     const grande = Array.from({ length: 40 }, (_, i) => `${i}: ${paragrafo}`).join("\n\n") + "\n\nFIM-DA-MEMORIA";
@@ -776,6 +782,7 @@ describe("session", () => {
 
   it("agente E memória juntos: instrução do agente vem primeiro, memória depois", async () => {
     const home = tempHome();
+    semMemoriaDoUsuario(home);
     addProfile({ id: "p1", engine: "stub" }, home);
     saveAgent({ id: "rev", name: "Revisor", profileId: "p1", instructions: "só português" }, home);
     writeFileSync(memoriaPath("/proj-dos-dois", home), "usa RTK pra CLI", "utf8");
@@ -788,6 +795,7 @@ describe("session", () => {
 
   it("MEMORIA.md atualizado pelo hook entre commit e commit vale já na próxima mensagem, sem trocar de conta", async () => {
     const home = tempHome();
+    semMemoriaDoUsuario(home);
     addProfile({ id: "p1", engine: "stub" }, home);
     const t = createThread({ projectPath: "/proj-vivo", profileId: "p1" }, home);
     await postMessage(t.id, "primeira", home);
@@ -814,6 +822,7 @@ describe("session", () => {
 
   it("conversa sem projeto lê MEMORIA.md global, com o rótulo 'Memória geral', sem repo map", async () => {
     const home = tempHome();
+    semMemoriaDoUsuario(home);
     addProfile({ id: "p1", engine: "stub" }, home);
     writeFileSync(globalMemoriaPath(home), "fato global", "utf8");
     const t = createThread({ profileId: "p1" }, home);

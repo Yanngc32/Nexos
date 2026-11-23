@@ -20,7 +20,11 @@ import { googleAccount } from "./google-auth.ts";
 import { migrarProjeto, resgatarDaPastaDeRepos } from "./projeto-dir.ts";
 import { sincronizarRepoMapResumos } from "./repo-map-auto.ts";
 import { createThread, importarConversas, listThreads, projetosConhecidos, readThread, retentarEspelhosApagados } from "./threads.ts";
-import { pingUsoDeTodasAsContas, postMessage, sessionBus, switchThread } from "./session.ts";
+import { emitirMemoriaSalva, pingUsoDeTodasAsContas, postMessage, sessionBus, switchThread } from "./session.ts";
+import { reconciliarMemorias } from "./memorias/nucleo.ts";
+import { migrarMemoriaLegada } from "./memorias/migracao.ts";
+import { iniciarCurador } from "./memorias/curador.ts";
+import { rodarModeloLateral } from "./memorias/motor.ts";
 import { loginProfile } from "./login.ts";
 import { varrerLixeira } from "./lixeira.ts";
 import { VARREDURA_MS, varrerAprendizado } from "./aprendizado-analise.ts";
@@ -150,6 +154,34 @@ async function cmdUp(): Promise<void> {
     void medirAtividade("varredura de aprendizados", () => varrerAprendizado(home)).catch((e) => log.aviso("aprendizado", "varredura de aprendizados falhou", { erro: (e as Error).message }));
   };
   const timerAprendizado = setInterval(analisar, VARREDURA_MS);
+  /*
+   * Memória do usuário (memorias/): reconcilia o diário com o disco, migra o MEMORIA.md legado em
+   * segundo plano (haiku, best-effort) e liga o curador periódico. O curador relê a config a cada
+   * rodada, então desligar o módulo/memorista no app vale sem reiniciar.
+   */
+  let pararCurador: (() => void) | undefined;
+  if (modulos.memoriaUsuario !== false) {
+    try {
+      medirAtividade("subida: reconciliar memórias", () => reconciliarMemorias(home));
+    } catch (e) {
+      log.aviso("motor", "subida: reconciliar memórias falhou", { erro: (e as Error).message });
+    }
+    void migrarMemoriaLegada(home, { rodar: (p, c) => rodarModeloLateral(p, c), modelo: "haiku" })
+      .then((r) => {
+        if (r.migrados.length || r.erros.length) log.info("motor", "migração da memória legada", { migrados: r.migrados.length, erros: r.erros.slice(0, 3) });
+      })
+      .catch((e) => log.aviso("motor", "migração da memória legada falhou", { erro: (e as Error).message }));
+    pararCurador = iniciarCurador({
+      home,
+      rodar: rodarModeloLateral,
+      modelo: () => loadConfig(home).memoristaModelo ?? "sonnet",
+      ligado: () => {
+        const m = loadConfig(home).modulos;
+        return m.memoriaUsuario !== false && m.memorista !== false;
+      },
+      aoSalvar: emitirMemoriaSalva,
+    });
+  }
   for (const f of started.falhas) {
     // túnel fora do ar é normal e ele volta sozinho; dizer o motivo evita que
     // "o celular não conecta" vire caça ao tesouro
@@ -168,6 +200,7 @@ async function cmdUp(): Promise<void> {
     clearInterval(timerDrive);
     clearInterval(timerLixeira);
     clearInterval(timerAprendizado);
+    pararCurador?.();
     stopAllServices();
     // os sockets extras seguram o event loop vivo: fechar só o principal
     // deixaria o processo pendurado pra sempre

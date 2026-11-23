@@ -164,7 +164,7 @@ describe("aba Torre: torre de um projeto", () => {
     for (const [rotulo, esperado] of [
       ["Abrir Configurações › Contas", ["contas"]],
       ["Abrir o Planejamento", ["plano", "C:/p/nexos"]],
-      ["Abrir a Memória do Projeto", ["memoria", "C:/p/nexos"]],
+      ["Abrir a Memória",["memoria", "C:/p/nexos"]],
       ["Abrir o Canvas", ["canvas", "C:/p/nexos"]],
     ]) {
       document.querySelector(`.tr-area[aria-label="${rotulo}"]`).click();

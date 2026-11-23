@@ -426,3 +426,92 @@ describe("sincronizarHooksDoProjeto", () => {
     }
   });
 });
+
+describe("agente de memória aposentado", () => {
+  /** O agente "memória" de verdade: reconhecido pelas instruções que mandam escrever o MEMORIA.md. */
+  function comAgenteDeMemoria(): string {
+    const home = base();
+    saveAgent(
+      { id: "memoria-projeto", name: "Memória", profileId: "p1", instructions: "Depois do commit, atualize o MEMORIA.md do projeto." },
+      home,
+    );
+    return home;
+  }
+
+  function regrasNoArquivo(home: string, rules: unknown[]): void {
+    writeFileSync(join(home, "hooks.json"), JSON.stringify({ rules }), "utf8");
+  }
+
+  it("saveRegra recusa regra nova pro agente de memória (400), mas aceita agente qualquer chamado 'memoria'", () => {
+    const home = comAgenteDeMemoria();
+    expect(() =>
+      saveRegra({ escopo: { tipo: "global" }, evento: "git.post-commit", agentId: "memoria-projeto" }, home),
+    ).toThrow(/agente de memória foi aposentado/);
+    try {
+      saveRegra({ escopo: { tipo: "global" }, evento: "git.post-commit", agentId: "memoria-projeto" }, home);
+    } catch (e) {
+      expect((e as { status?: number }).status).toBe(400);
+    }
+    expect(listarRegras(home)).toEqual([]);
+    expect(() => saveRegra({ escopo: { tipo: "global" }, evento: "git.post-commit", agentId: "memoria" }, home)).not.toThrow();
+  });
+
+  it("time feito só do agente de memória é recusado; time misto segue valendo", () => {
+    const home = comAgenteDeMemoria();
+    saveTeam({ id: "so-memoria", name: "Só memória", topology: "pipeline", members: [{ agentId: "memoria-projeto" }] }, home);
+    saveTeam({ id: "misto", name: "Misto", topology: "pipeline", members: [{ agentId: "memoria-projeto" }, { agentId: "seguranca" }] }, home);
+    expect(() =>
+      saveRegra({ escopo: { tipo: "global" }, evento: "git.post-commit", teamId: "so-memoria" }, home),
+    ).toThrow(/aposentado/);
+    expect(() => saveRegra({ escopo: { tipo: "global" }, evento: "git.post-commit", teamId: "misto" }, home)).not.toThrow();
+  });
+
+  it("regra já gravada pro agente de memória fica no hooks.json mas não dispara; as outras do mesmo evento disparam", async () => {
+    const home = comAgenteDeMemoria();
+    regrasNoArquivo(home, [
+      { id: "hr-mem", escopo: { tipo: "global" }, evento: "git.post-commit", agentId: "memoria-projeto" },
+      { id: "hr-seg", escopo: { tipo: "global" }, evento: "git.post-commit", agentId: "seguranca" },
+    ]);
+    const aviso = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      expect(fireHook("git.post-commit", "/proj-mem", home)).toEqual({ disparado: true });
+      await tick(30);
+    } finally {
+      aviso.mockRestore();
+    }
+    expect(getTeam("hook-memoria-projeto", home)).toBeUndefined();
+    expect(getTeam("hook-seguranca", home)).toBeTruthy();
+    expect(listRuns(home, "/proj-mem")).toHaveLength(1);
+    expect(listarRegras(home).map((r) => r.id).sort()).toEqual(["hr-mem", "hr-seg"]);
+  });
+
+  it("só a regra de memória no evento: nada dispara", () => {
+    const home = comAgenteDeMemoria();
+    regrasNoArquivo(home, [{ id: "hr-mem", escopo: { tipo: "global" }, evento: "git.post-push", agentId: "memoria-projeto" }]);
+    const aviso = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      expect(fireHook("git.post-push", "/proj-mem", home)).toEqual({ disparado: false });
+    } finally {
+      aviso.mockRestore();
+    }
+    expect(listRuns(home, "/proj-mem")).toEqual([]);
+  });
+
+  it("regra desligada não pede script de git", () => {
+    const home = comAgenteDeMemoria();
+    const dir = repo();
+    regrasNoArquivo(home, [{ id: "hr-mem", escopo: { tipo: "projeto", projectPath: dir }, evento: "git.post-push", agentId: "memoria-projeto" }]);
+    sincronizarHooksDoProjeto(dir, home);
+    expect(existsSync(join(dir, ".git", "hooks", "post-push"))).toBe(false);
+  });
+
+  it("meta do run já não manda escrever o MEMORIA.md", async () => {
+    const home = base();
+    saveRegra({ escopo: { tipo: "global" }, evento: "git.post-commit", agentId: "memoria" }, home);
+    fireHook("git.post-commit", "/proj-meta", home);
+    await tick(30);
+    const [run] = listRuns(home, "/proj-meta");
+    expect(run!.goal).toContain("Evento `git.post-commit` disparado no projeto /proj-meta");
+    expect(run!.goal).not.toMatch(/MEMORIA\.md|agente de memória/);
+  });
+});

@@ -12,7 +12,7 @@ import { ferramentaDePrintDoDs } from "./ds-print.ts";
 import { ferramentaDeEntregar } from "./entregar-arquivo.ts";
 import { log } from "./log.ts";
 import type { Ferramenta } from "./mcp.ts";
-import { globalMemoriaPath, memoriaPath, readMemoria, readMemoriaGlobal } from "./memoria.ts";
+import { statusMemorias } from "./memorias/index.ts";
 import { ferramentasDeNavegador } from "./navegador.ts";
 import { ferramentaDePainel, ferramentaDePlanejar } from "./paineis.ts";
 import { ferramentaDePerguntar } from "./perguntas.ts";
@@ -322,21 +322,20 @@ function parteAuto(projectPath: string | undefined, home: string, agora = Date.n
   }
   for (const a of listAgents(home)) itens.push(itemDeAgente(a, projectPath));
   for (const t of listTeams(home)) if (!t.origem) itens.push(itemDeTime(t));
-  if (projectPath) {
-    const memoria = readMemoria(projectPath, home).trim();
-    if (memoria) {
-      itens.push({
-        id: "memoria:projeto",
-        tipo: "memoria",
-        nome: "Memória do projeto",
-        descricao: umaLinha(primeiraLinhaDeTexto(memoria) || "MEMORIA.md do projeto: decisões, estado e aprendizados acumulados"),
-        comoUsar: "Já entra no pack (teto 8 KB); o arquivo inteiro: Read do MEMORIA.md",
-        escopo: "projeto",
-        caminho: memoriaPath(projectPath, home),
-      });
-    }
-    itens.push(...docsDoProjeto(projectPath));
+  // Memórias do usuário (memorias/): o catálogo inteiro já entra no pack; o MEMORIA.md legado foi migrado.
+  const mem = statusMemorias(home);
+  if (mem.ativas > 0) {
+    itens.push({
+      id: "memoria:usuario",
+      tipo: "memoria",
+      nome: "Memórias do usuário",
+      descricao: umaLinha(`${mem.ativas} memória(s): preferências, decisões e fatos que valem entre conversas`),
+      comoUsar: "Índice já no pack; o arquivo inteiro: Read no diretório; salvar só via memory_propose",
+      escopo: "global",
+      caminho: join(mem.dir, "MEMORY.md"),
+    });
   }
+  if (projectPath) itens.push(...docsDoProjeto(projectPath));
   // MCP externos do projeto: cada ferramenta descoberta vira capacidade (cerebro-mcp-externos.ts)
   if (projectPath) {
     const cache = ferramentasExternasEmCache(projectPath, home);
@@ -364,18 +363,6 @@ function parteAuto(projectPath: string | undefined, home: string, agora = Date.n
         });
       }
     }
-  }
-  const global = readMemoriaGlobal(home).trim();
-  if (global) {
-    itens.push({
-      id: "memoria:global",
-      tipo: "memoria",
-      nome: "Memória geral",
-      descricao: umaLinha(primeiraLinhaDeTexto(global) || "Memória das conversas sem projeto"),
-      comoUsar: "Entra no pack do chat geral; o arquivo inteiro: Read do MEMORIA.md global",
-      escopo: "global",
-      caminho: globalMemoriaPath(home),
-    });
   }
   for (const i of itens) {
     const g = GATILHOS_CURADOS[i.id];

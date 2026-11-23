@@ -20,7 +20,7 @@ import { spawnCwd } from "../project-cwd.ts";
 import { agentOverrides, definicoesDeSubagentes, subagentesDaConversa } from "../agents.ts";
 import { log } from "../log.ts";
 import { loadConfig } from "../config.ts";
-import { prepararGatePlano } from "../gate-plano.ts";
+import { prepararHooksDoMotor } from "../gate-plano.ts";
 import { engineEnv, engineSpawnEnv, getProfile } from "../profiles.ts";
 import { linkClaudeSkills, skillsDesligadasNoProjeto, syncGlobalSkills } from "../skills.ts";
 import { syncRtkHook } from "../modules.ts";
@@ -430,13 +430,19 @@ export class CliEngine implements Engine {
    * Gate de plano (ver gate-plano.ts): hook que nega a primeira escrita do turno sem TodoWrite.
    * `subagentesDoNexos` é exatamente "nem Manager nem conversa oculta/interna" (session.ts), e
    * somente leitura nem escreve — nos dois casos o gate fica de fora.
+   * No mesmo `--settings` vai a recusa de escrita direta na pasta de memórias (memorias/), que
+   * vale em toda conversa com `modulos.memoriaUsuario` ligado, com ou sem gate de plano.
    */
   private gatePlanoFlags(): string[] {
-    if (!this.subagentesDoNexos || this.somenteLeitura || !loadConfig(this.home).gatePlano) return [];
+    const cfg = loadConfig(this.home);
+    const gatePlano = Boolean(this.subagentesDoNexos && !this.somenteLeitura && cfg.gatePlano);
+    const memorias = cfg.modulos.memoriaUsuario !== false;
+    if (!gatePlano && !memorias) return [];
     try {
-      return ["--settings", prepararGatePlano(this.home)];
+      const settings = prepararHooksDoMotor(this.home, { gatePlano, memorias });
+      return settings ? ["--settings", settings] : [];
     } catch (err) {
-      log.avisoUmaVez("gate-plano-arquivo", "hook", "não consegui gravar o hook do gate de plano", { erro: String(err) });
+      log.avisoUmaVez("gate-plano-arquivo", "hook", "não consegui gravar os hooks do motor (gate de plano/memórias)", { erro: String(err) });
       return [];
     }
   }

@@ -115,7 +115,14 @@ function lerConfig(path: string): NexoConfig {
     lixeiraAposDias: isDiasLixeira(raw.lixeiraAposDias) ? raw.lixeiraAposDias : DEFAULT_CONFIG.lixeiraAposDias,
     gatePlano: raw.gatePlano === undefined ? DEFAULT_CONFIG.gatePlano : Boolean(raw.gatePlano),
     poModelo: typeof raw.poModelo === "string" && raw.poModelo.trim() ? raw.poModelo.trim() : DEFAULT_CONFIG.poModelo,
+    memoriaSelecaoModelo: modeloOu(raw.memoriaSelecaoModelo, DEFAULT_CONFIG.memoriaSelecaoModelo),
+    memoristaModelo: modeloOu(raw.memoristaModelo, DEFAULT_CONFIG.memoristaModelo),
   };
+}
+
+/** Alias de modelo do CLI ("haiku", "sonnet"…): string não vazia, senão `padrao`. */
+function modeloOu(value: unknown, padrao: string | undefined): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : padrao;
 }
 
 /** Inteiro de 0 (desligado) a 3650 dias. */
@@ -166,6 +173,8 @@ function cleanModulos(value: unknown): NexoConfig["modulos"] {
     quadroTarefas: o.quadroTarefas === undefined ? DEFAULT_CONFIG.modulos.quadroTarefas : Boolean(o.quadroTarefas),
     coletaDesign: o.coletaDesign === undefined ? DEFAULT_CONFIG.modulos.coletaDesign : Boolean(o.coletaDesign),
     auditorPO: o.auditorPO === undefined ? DEFAULT_CONFIG.modulos.auditorPO : Boolean(o.auditorPO),
+    memoriaUsuario: o.memoriaUsuario === undefined ? DEFAULT_CONFIG.modulos.memoriaUsuario : Boolean(o.memoriaUsuario),
+    memorista: o.memorista === undefined ? DEFAULT_CONFIG.modulos.memorista : Boolean(o.memorista),
   };
 }
 
@@ -297,6 +306,9 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
       coletaDesign:
         patch.modulos?.coletaDesign === undefined ? current.modulos.coletaDesign : Boolean(patch.modulos.coletaDesign),
       auditorPO: patch.modulos?.auditorPO === undefined ? current.modulos.auditorPO : Boolean(patch.modulos.auditorPO),
+      memoriaUsuario:
+        patch.modulos?.memoriaUsuario === undefined ? current.modulos.memoriaUsuario : Boolean(patch.modulos.memoriaUsuario),
+      memorista: patch.modulos?.memorista === undefined ? current.modulos.memorista : Boolean(patch.modulos.memorista),
     },
     windowsControlEnabled:
       patch.windowsControlEnabled === undefined ? current.windowsControlEnabled : Boolean(patch.windowsControlEnabled),
@@ -311,6 +323,8 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
     gatePlano: patch.gatePlano === undefined ? current.gatePlano : Boolean(patch.gatePlano),
     poModelo:
       typeof patch.poModelo === "string" && patch.poModelo.trim() ? patch.poModelo.trim() : current.poModelo,
+    memoriaSelecaoModelo: modeloOu(patch.memoriaSelecaoModelo, current.memoriaSelecaoModelo),
+    memoristaModelo: modeloOu(patch.memoristaModelo, current.memoristaModelo),
   };
   writeJsonAtomico(configPath(home), next);
   cacheConfig.delete(configPath(home));
