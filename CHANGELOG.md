@@ -10,6 +10,19 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Alterado
 
+## [0.22.0] - 2026-11-23
+
+### Adicionado
+
+- Memória do usuário: o Nexos guarda o que vale entre conversas (preferências, decisões, fatos de infraestrutura, correções) em `~/.nexos/memorias`, um arquivo por memória. A cada mensagem ele escolhe só as memórias que importam para aquele pedido e as entrega ao agente.
+- O agente salva memória quando você pede ("lembra disso") e, sozinho, no fim de cada conversa, quando aparece algo que vale lembrar daqui a um mês. Uma revisão diária recupera as correções que você fez.
+- Senhas citadas numa memória vão para um cofre cifrado; o texto guarda só uma referência.
+- Tela Memória: lista por pasta, busca e leitura de cada memória, sem mostrar senha. No chat, um aviso discreto mostra quando uma memória foi salva.
+
+### Alterado
+
+- O `MEMORIA.md` de cada projeto é convertido em memórias separadas na primeira vez que o Nexos sobe (o original fica como `MEMORIA.md.migrado`). O agente de memória disparado por hook foi aposentado.
+
 ## [0.21.0] - 2026-11-23
 
 ### Adicionado
