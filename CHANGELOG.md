@@ -10,6 +10,13 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ### Alterado
 
+## [0.21.0] - 2026-11-23
+
+### Adicionado
+
+- Auditor PO no quadro de tarefas: ao abrir e ao fechar cada turno, um agente à parte (Sonnet, só leitura) lê o que aconteceu na conversa e cria, move ou anota os cards sozinho. A decisão dele fica numa camada própria do card e prevalece sobre o status que o agente marcou. Vem ligado; desliga em `modulos.auditorPO`, e o modelo muda em `poModelo`.
+- O quadro mostra se o PO está rodando e as anotações que ele deixou em cada card.
+
 ## [0.20.0] - 2026-11-19
 
 ### Adicionado
