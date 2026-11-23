@@ -7684,6 +7684,230 @@ body[data-compactando="1"] .ctx-dot::after {
   color: var(--danger);
 }
 
+/* ---------- Camada do PO (selo, "Aguardando você", resposta, linha de status, detalhe) ---------- */
+
+.kanban-card:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.kanban-card-resumo {
+  margin: -2px 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.kanban-card-po {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.tk-po-selo,
+.tk-po-aguardando {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-2xs);
+  line-height: 1.5;
+  cursor: default;
+}
+
+.tk-po-selo {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+}
+
+.tk-po-selo.po-corrigiu {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+}
+
+.tk-po-selo.po-revisou {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+}
+
+.tk-po-sigla {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.tk-po-selo svg {
+  flex: none;
+}
+
+.tk-po-aguardando {
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--info) 40%, transparent);
+  font-weight: 600;
+}
+
+.tk-po-resposta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px;
+  cursor: default;
+}
+
+.tk-po-resposta .tk-po-texto {
+  flex: 1 1 140px;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--fs-xs);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 4px 6px;
+  resize: vertical;
+}
+
+.tk-po-resposta .tk-po-texto:focus-visible,
+.tk-po-resposta button:focus-visible,
+.tk-po-mae:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.tk-po-resposta button {
+  font-size: var(--fs-xs);
+  padding: 3px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  cursor: pointer;
+}
+
+.tk-po-resposta button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.tk-po-resposta button:disabled,
+.tk-po-resposta .tk-po-texto:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.tk-po-enviado {
+  font-size: var(--fs-xs);
+  color: var(--ok);
+}
+
+.tk-po-resposta-erro {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--fs-2xs);
+  color: var(--danger);
+}
+
+.tk-po-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 14px 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.tk-po-status-estado {
+  color: var(--faint);
+}
+
+.tk-po-status.is-erro .tk-po-status-estado {
+  color: var(--danger);
+}
+
+.tk-po {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+}
+
+.tk-po-secao {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tk-po-rotulo {
+  margin: 0;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.tk-po-texto-secao,
+.tk-po-dica {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.tk-po-dica {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.tk-po-secao.is-acao .tk-po-texto-secao {
+  color: var(--info);
+}
+
+.tk-po-mae {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--accent-text);
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.tk-comentario-item {
+  border-left: 3px solid var(--line);
+}
+
+.tk-comentario-item.autor-po {
+  border-left-color: var(--accent);
+}
+
+.tk-comentario-item.autor-agente {
+  border-left-color: var(--secondary);
+}
+
+.tk-comentario-item.autor-sistema {
+  border-left-color: var(--faint);
+}
+
+.tk-comentario-autor {
+  font-weight: 600;
+  color: var(--text);
+}
+
 /* ---------- Lista (tabela filtrável) ---------- */
 
 .tk-lista {

@@ -33,8 +33,8 @@ import { commitsRelacionados } from "./tarefas-git.ts";
 /**
  * Uma mudança no Quadro, pro SSE `/v1/tarefas/events` (a torre anima o mural com isso). `de`/`para`
  * são colunas: sem o "de", ninguém sabe de qual coluna a tarefa saiu. `via` diz quem mexeu quando o
- * motor sabe — `agente` = ferramenta `nexo_tarefa_*`, `plano` = andamento de etapa; sem `via` = a
- * pessoa, pela tela.
+ * motor sabe — `agente` = ferramenta `nexo_tarefa_*` ou lista de tarefas do motor, `plano` = andamento
+ * de etapa, `po` = o PO (camada `po` do card, ver tarefas-agente.ts); sem `via` = a pessoa, pela tela.
  */
 export type EventoQuadro = {
   projectPath: string;
@@ -43,7 +43,7 @@ export type EventoQuadro = {
   de?: string;
   para?: string;
   titulo?: string;
-  via?: "agente" | "plano";
+  via?: "agente" | "plano" | "po";
   em: string;
 };
 
@@ -84,6 +84,39 @@ export type Prioridade = (typeof PRIORIDADES)[number];
 export const TIPOS_TAREFA = ["bug", "feature", "chore", "spike"] as const;
 export type TipoTarefa = (typeof TIPOS_TAREFA)[number];
 
+/** Status de um card no vocabulário da lista de tarefas do motor (TaskCreate/TodoWrite do CLI). */
+export const STATUS_FONTE = ["pending", "in_progress", "completed"] as const;
+export type StatusFonte = (typeof STATUS_FONTE)[number];
+
+/**
+ * Camada do AGENTE: o item da lista de tarefas do motor que gerou o card, como o motor o deixou.
+ * Só o sync (tarefas-agente.ts) escreve aqui — a tela e o PO nunca mexem.
+ */
+export type FonteAgente = {
+  conversa: string;
+  sessaoId?: string;
+  /** Id do item NA LISTA do motor ("1", "2"… ou o índice do TodoWrite) — não o id do card. */
+  id: string;
+  status: StatusFonte;
+  titulo: string;
+  em: string;
+};
+
+/**
+ * Camada do PO por cima da do agente: título/resumo que ele reescreveu, e um status que vale MAIS
+ * que o do agente até o agente mudar o dele (aí o do PO cai — ver `sincronizarTarefasDoAgente`).
+ */
+export type CamadaPO = {
+  titulo?: string;
+  resumo?: string;
+  status?: StatusFonte;
+  motivo?: string;
+  /** O que a pessoa precisa fazer pra destravar o card, quando depende dela. */
+  acaoVoce?: string;
+  tipoResposta?: "botao" | "responder";
+  em: string;
+};
+
 export type Tarefa = {
   id: string;
   projectPath: string;
@@ -102,8 +135,15 @@ export type Tarefa = {
   prazo?: string;
   ordem: number;
   threadId?: string;
-  /** Ausente = pessoa. Só um badge visual — não muda validação nem permissão. */
-  criadoPor?: "agente";
+  /**
+   * Ausente = pessoa. Fora o sync da lista do motor (que só apaga card `agente` da própria conversa),
+   * é só um badge visual — não muda validação nem permissão.
+   */
+  criadoPor?: "agente" | "po";
+  /** Item da lista de tarefas do motor que gerou este card (ver `FonteAgente`). */
+  fonte?: FonteAgente;
+  /** O que o PO pôs por cima (ver `CamadaPO`). */
+  po?: CamadaPO;
   tipo?: TipoTarefa;
   /** Tarefa-mãe, se esta for uma subtarefa. Precisa existir no MESMO projeto (ver `salvarTarefa`). */
   parentId?: string;
@@ -252,7 +292,11 @@ function corpoDaTarefa(t: Tarefa, quadro: Quadro): string {
   }
   if (t.parentId) linhas.push(`- Subtarefa de: ${t.parentId}`);
   if (t.dependeDe?.length) linhas.push(`- Bloqueada por: ${t.dependeDe.join(", ")}`);
+  if (t.fonte) linhas.push(`- Lista do agente: item ${t.fonte.id} (${t.fonte.status})`);
+  if (t.po?.status) linhas.push(`- PO: ${t.po.status}${t.po.motivo ? ` — ${t.po.motivo}` : ""}`);
+  if (t.po?.acaoVoce) linhas.push(`- Precisa de você: ${t.po.acaoVoce}`);
   linhas.push("");
+  if (t.po?.resumo) linhas.push(t.po.resumo, "");
   if (t.descricao) linhas.push(t.descricao, "");
   if (t.checklist.length) {
     linhas.push("## Checklist");
@@ -669,6 +713,33 @@ function colunaFinalId(quadro: Quadro): string | undefined {
 }
 
 /**
+ * Coluna de cada status: `pending` = a de menor `ordem`, `completed` = a de maior, `in_progress` =
+ * a segunda. Quadro com 2 colunas não tem "do meio" — andamento fica na primeira (a segunda já é
+ * a de feito); com 1 coluna tudo cai nela. `undefined` só em quadro sem coluna nenhuma.
+ */
+export function colunaDoStatus(quadro: Quadro, status: StatusFonte): string | undefined {
+  const cols = [...quadro.colunas].sort((a, b) => a.ordem - b.ordem);
+  if (!cols.length) return undefined;
+  if (status === "completed") return cols[cols.length - 1].id;
+  if (status === "in_progress" && cols.length >= 3) return cols[1].id;
+  return cols[0].id;
+}
+
+/**
+ * Status que vale pro card: o do PO, senão o do agente, senão o que a coluna diz (card da pessoa).
+ * Sem `quadro` não dá pra ler a coluna — card sem camada nenhuma conta como `pending`.
+ */
+export function statusEfetivo(t: Pick<Tarefa, "colunaId" | "fonte" | "po">, quadro?: Quadro): StatusFonte {
+  const camada = t.po?.status ?? t.fonte?.status;
+  if (camada) return camada;
+  if (!quadro?.colunas.length) return "pending";
+  const cols = [...quadro.colunas].sort((a, b) => a.ordem - b.ordem);
+  if (t.colunaId === cols[cols.length - 1].id && cols.length > 1) return "completed";
+  if (t.colunaId === cols[0].id) return "pending";
+  return "in_progress";
+}
+
+/**
  * Ids de tarefas que bloqueiam esta — cada um precisa existir no mesmo projeto; sem duplicado,
  * sem o próprio id. Depender de uma tarefa já feita é permitido (fica satisfeita na hora — é o
  * cliente/UI que evita oferecer tarefas feitas como bloqueadora NOVA, ver `preencherParentEDependencias`
@@ -711,13 +782,28 @@ function limparOrigem(v: unknown): Tarefa["origem"] {
  * Cria (sem `id`) ou atualiza (com `id`) — upsert campo-a-campo, mesmo idioma de `saveRegra`.
  * Sempre precisa de `projectPath` (mesmo em update): a tarefa mora num arquivo dentro da pasta
  * DAQUELE projeto, não tem índice global por id pra descobrir sozinho onde procurar.
+ *
+ * `camadas` é só pra quem é do daemon (sync da lista do agente e PO, tarefas-agente.ts) — a rota
+ * HTTP manda o corpo como `input` e nunca alcança isto, então a tela não forja `fonte`/`po`.
+ * `idNovo` = criar com id fixo (o do sync é derivado da conversa); `null` apaga a camada.
  */
-export function salvarTarefa(input: TarefaInput, home: string, criadoPor?: "agente"): Tarefa {
+export function salvarTarefa(
+  input: TarefaInput,
+  home: string,
+  criadoPor?: "agente" | "po",
+  camadas: { idNovo?: string; fonte?: FonteAgente | null; po?: CamadaPO | null } = {},
+): Tarefa {
   const projectPath = input.projectPath;
   if (!projectPath) throw badRequest("projectPath obrigatório");
   const quadro = getQuadro(projectPath, home);
-  const atual = input.id ? lerTarefaDoDisco(projectPath, home, input.id) : undefined;
+  const atual = input.id
+    ? lerTarefaDoDisco(projectPath, home, input.id)
+    : camadas.idNovo
+      ? lerTarefaDoDisco(projectPath, home, camadas.idNovo)
+      : undefined;
   if (input.id && !atual) throw notFound(`tarefa não existe: ${input.id}`);
+  const fonte = camadas.fonte === undefined ? atual?.fonte : (camadas.fonte ?? undefined);
+  const po = camadas.po === undefined ? atual?.po : (camadas.po ?? undefined);
 
   const titulo = input.titulo === undefined ? atual?.titulo : limparNome(input.titulo, "título", TITULO_MAX);
   if (!titulo) throw badRequest("título obrigatório");
@@ -774,7 +860,7 @@ export function salvarTarefa(input: TarefaInput, home: string, criadoPor?: "agen
 
   const ts = agora();
   const def: Tarefa = {
-    id: atual?.id ?? newTarefaId(),
+    id: atual?.id ?? camadas.idNovo ?? newTarefaId(),
     projectPath,
     titulo,
     ...(descricao ? { descricao } : {}),
@@ -791,7 +877,9 @@ export function salvarTarefa(input: TarefaInput, home: string, criadoPor?: "agen
     ...(threadId ? { threadId } : {}),
     // Quem CRIOU, não quem tocou por último — editar uma tarefa da pessoa por MCP não deve
     // retroativamente virar "criada por agente".
-    ...((atual ? atual.criadoPor : criadoPor) ? { criadoPor: (atual ? atual.criadoPor : criadoPor) as "agente" } : {}),
+    ...((atual ? atual.criadoPor : criadoPor) ? { criadoPor: (atual ? atual.criadoPor : criadoPor) as "agente" | "po" } : {}),
+    ...(fonte ? { fonte } : {}),
+    ...(po ? { po } : {}),
     ...(tipo ? { tipo } : {}),
     ...(parentId ? { parentId } : {}),
     ...(dependeDe.length ? { dependeDe } : {}),

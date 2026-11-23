@@ -44,7 +44,7 @@ export function filtrarTabela(tarefas, filtros = {}) {
     if (prioridade && t.prioridade !== prioridade) return false;
     if (etiquetaId && !(t.etiquetaIds ?? []).includes(etiquetaId)) return false;
     if (buscaNorm) {
-      const alvo = `${t.titulo ?? ""} ${t.descricao ?? ""}`.toLowerCase();
+      const alvo = `${t.titulo ?? ""} ${t.po?.titulo ?? ""} ${t.po?.resumo ?? ""} ${t.descricao ?? ""}`.toLowerCase();
       if (!alvo.includes(buscaNorm)) return false;
     }
     return true;
@@ -118,6 +118,226 @@ function nomeDoProjeto(path) {
   return partes.at(-1) || path;
 }
 
+// ---------- camada do PO (po/fonte/criadoPor vindos de tarefas.ts) ----------
+
+const STATUS_PT = { pending: "a fazer", in_progress: "em andamento", completed: "feito" };
+
+/** Texto do botão de autorizar — é também o corpo da mensagem que ele manda. */
+export const MENSAGEM_AUTORIZAR = "Pode fazer.";
+
+/** Título que vale no cartão: o reescrito pelo PO, senão o original. */
+export function tituloEfetivo(t) {
+  return t?.po?.titulo?.trim() || t?.titulo || "";
+}
+
+/**
+ * Linha sob o título: o resumo do PO; se ele reescreveu o título e não deu resumo, o título
+ * original do agente (senão o que o agente escreveu some do cartão).
+ */
+export function resumoDoCard(t) {
+  const resumo = t?.po?.resumo?.trim();
+  if (resumo) return resumo;
+  if (t?.po?.titulo?.trim() && t.po.titulo.trim() !== t.titulo) return t.titulo;
+  return "";
+}
+
+/**
+ * Coluna "do meio" (a de andamento) — mesma regra de `colunaDoStatus` no daemon: a segunda por
+ * `ordem`, só com 3+ colunas (com 2, a segunda já é a de feito). `undefined` quando não há.
+ */
+export function colunaDoMeio(colunas) {
+  const cols = ordenarPorOrdem((colunas ?? []).map((c, i) => ({ ...c, ordem: c.ordem ?? i })));
+  return cols.length >= 3 ? cols[1].id : undefined;
+}
+
+/** Status que a COLUNA do cartão diz (sem camada): primeira = a fazer, última = feito, resto = andamento. */
+function statusDaColuna(t, colunas) {
+  const cols = ordenarPorOrdem((colunas ?? []).map((c, i) => ({ ...c, ordem: c.ordem ?? i })));
+  if (!cols.length) return "pending";
+  if (cols.length > 1 && t.colunaId === cols[cols.length - 1].id) return "completed";
+  if (t.colunaId === cols[0].id) return "pending";
+  return "in_progress";
+}
+
+/** O PO marcou um status diferente do que o agente (ou a coluna, em cartão sem agente) diz. */
+export function poCorrigiu(t, colunas) {
+  const s = t?.po?.status;
+  if (!s) return false;
+  return s !== (t.fonte?.status ?? statusDaColuna(t, colunas));
+}
+
+/** O cartão espera algo da pessoa: o PO pediu uma ação e não deu o cartão como feito. */
+export function aguardaVoce(t) {
+  return Boolean(t?.po?.acaoVoce?.trim()) && t.po.status !== "completed";
+}
+
+/**
+ * O que o PO fez no cartão, pro selo: "adicionou" (cartão dele), "corrigiu" (status diferente),
+ * "reescreveu" (título novo) ou "revisou" (passou e concordou). `null` = o PO não tocou.
+ * Esperando a pessoa, "corrigiu/revisou" saem: o chip "Aguardando você" já diz o fato.
+ */
+export function acaoDoPo(t, colunas) {
+  if (t?.criadoPor === "po") return "adicionou";
+  if (!t?.po) return null;
+  const aguarda = aguardaVoce(t);
+  const corrigiu = poCorrigiu(t, colunas);
+  if (!aguarda && corrigiu) return "corrigiu";
+  const tituloNovo = t.po.titulo?.trim() && t.po.titulo.trim() !== t.titulo;
+  if (tituloNovo && !corrigiu) return "reescreveu";
+  if (!aguarda && !corrigiu && (t.po.status || t.po.resumo?.trim() || t.po.titulo?.trim())) return "revisou";
+  return null;
+}
+
+export const ROTULO_ACAO_PO = {
+  adicionou: "PO adicionou",
+  corrigiu: "PO corrigiu",
+  reescreveu: "PO reescreveu",
+  revisou: "PO revisou",
+};
+
+/** Tooltip do selo: o fato e, quando há, o motivo. */
+export function dicaDoSeloPo(acao, motivo) {
+  const rotulo = ROTULO_ACAO_PO[acao] ?? "PO";
+  return motivo?.trim() ? `${rotulo}\nMotivo: ${motivo.trim()}` : rotulo;
+}
+
+/** Tooltip do chip "Aguardando você": a ação e o motivo. */
+export function dicaDoAguardando(t) {
+  const acao = t?.po?.acaoVoce?.trim() ?? "";
+  const motivo = t?.po?.motivo?.trim();
+  return motivo ? `O que você precisa fazer: ${acao}\nMotivo: ${motivo}` : `O que você precisa fazer: ${acao}`;
+}
+
+/** "botao" (Pode fazer) ou "responder" (caixa de texto). Sem o campo, pedido de autorizar/aprovar vira botão. */
+export function tipoDeResposta(t) {
+  const tipo = t?.po?.tipoResposta;
+  if (tipo === "botao" || tipo === "responder") return tipo;
+  return /^(autorizar|aprovar)\b/i.test(t?.po?.acaoVoce?.trim() ?? "") ? "botao" : "responder";
+}
+
+/** A mensagem que a resposta do cartão manda pra conversa dele (o agente sabe de qual cartão veio). */
+export function mensagemDeResposta(t, corpo) {
+  const acao = t?.po?.acaoVoce?.trim();
+  const sufixo = acao ? ` (pedido: ${acao})` : "";
+  return `${corpo}\n\nCartão do quadro: "${tituloEfetivo(t)}"${sufixo}`;
+}
+
+/** Texto do "Motivo atual": com status corrigido, diz pra onde o PO mandou o cartão. */
+export function textoDoMotivo(t, colunas) {
+  const motivo = t?.po?.motivo?.trim() ?? "";
+  if (poCorrigiu(t, colunas)) {
+    const status = STATUS_PT[t.po.status] ?? t.po.status;
+    return motivo ? `marcou como ${status}: ${motivo}` : `marcou como ${status}`;
+  }
+  return motivo;
+}
+
+/** Rótulo do autor de um comentário: PO / Agente / Sistema; ausente ou "voce" = a pessoa. */
+export function rotuloDoAutor(autor) {
+  const a = (autor ?? "").trim();
+  if (!a || a.toLowerCase() === "voce" || a.toLowerCase() === "você") return "Você";
+  if (a.toLowerCase() === "po") return "PO";
+  if (a.toLowerCase() === "agente") return "Agente";
+  if (a.toLowerCase() === "sistema") return "Sistema";
+  return a; // nome livre de comentário antigo — mostra como veio
+}
+
+/** Classe do autor pra timeline (cor da marca lateral). */
+function classeDoAutor(autor) {
+  const r = rotuloDoAutor(autor);
+  return { PO: "po", Agente: "agente", Sistema: "sistema" }[r] ?? "voce";
+}
+
+/** "agora" / "há N min" / "há N h" / "há N d". `null` em data inválida. */
+export function tempoAtras(iso, agora = Date.now()) {
+  const ms = agora - new Date(iso).getTime();
+  if (!Number.isFinite(ms)) return null;
+  const min = Math.floor(Math.max(0, ms) / 60000);
+  if (min < 1) return "agora";
+  if (min < 60) return `há ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `há ${h} h`;
+  return `há ${Math.floor(h / 24)} d`;
+}
+
+const RESULTADO_PT = { ok: "ok", erro: "falhou", falhou: "falhou", falha: "falhou", "sem-mudanca": "sem mudança", nada: "sem mudança" };
+
+/**
+ * Linha de status do PO a partir de `GET /v1/po/status` (`{ligado, ultima?}`). `null` = esconder
+ * (sem rodada ainda, resposta vazia ou rota ausente).
+ */
+export function linhaDoPo(status, agora = Date.now()) {
+  const u = status?.ultima;
+  if (!u?.em) return null;
+  const quando = tempoAtras(u.em, agora);
+  if (!quando) return null;
+  const fase = u.fase === "abertura" ? "abertura" : u.fase === "fechamento" ? "fechamento" : "";
+  const partes = [];
+  if (fase) partes.push(`rodada de ${fase}`);
+  if (u.resultado != null && u.resultado !== "") {
+    const r = typeof u.resultado === "string" ? RESULTADO_PT[u.resultado] ?? u.resultado : String(u.resultado);
+    partes.push(r);
+  }
+  const nCards = Array.isArray(u.cards) ? u.cards.length : typeof u.cards === "number" ? u.cards : null;
+  if (nCards != null) partes.push(nCards === 1 ? "1 cartão" : `${nCards} cartões`);
+  if (status.ligado === false) partes.push("PO desligado");
+  const texto = `O PO atualizou o quadro ${quando}`;
+  return { texto, estado: partes.join(" · "), erro: RESULTADO_PT[u.resultado] === "falhou" };
+}
+
+/**
+ * Assina um SSE com religação (1,5 s → 30 s), no molde de `abrirStream` da torre-dados.js.
+ * Devolve a função que cancela. Sem `fetchStream`/`lerEventos`, não assina nada.
+ */
+export function assinarSse({ fetchStream, lerEventos, api = (r) => r, headers = () => ({}), rota, aoEvento, agendar = setTimeout }) {
+  if (!fetchStream || !lerEventos) return () => {};
+  const ac = new AbortController();
+  let atraso = 1500;
+  const religar = () => {
+    if (ac.signal.aborted) return;
+    agendar(() => !ac.signal.aborted && conectar(), atraso);
+    atraso = Math.min(30000, atraso * 2);
+  };
+  const conectar = () => {
+    Promise.resolve()
+      .then(() => fetchStream(api(rota), { headers: headers(), signal: ac.signal }))
+      .then(async (res) => {
+        if (!res?.ok || !res.body) throw new Error(`tarefas sse ${res?.status}`);
+        atraso = 1500;
+        await lerEventos(res, (ev) => aoEvento(ev));
+        religar();
+      })
+      .catch((e) => {
+        if (e?.name === "AbortError" || ac.signal.aborted) return;
+        religar();
+      });
+  };
+  conectar();
+  return () => ac.abort();
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+/** Traços do ícone de cada ação do PO (viewBox 24, stroke=currentColor). */
+const GLIFO_PO = {
+  adicionou: [["rect", { x: "4", y: "4", width: "16", height: "16", rx: "3.5" }], ["path", { d: "M12 8.5v7M8.5 12h7" }]],
+  corrigiu: [["path", { d: "M14.7 6.3a4 4 0 0 0-5.4 5.2L3.5 17.3a1.8 1.8 0 0 0 2.5 2.5l5.8-5.8a4 4 0 0 0 5.2-5.4l-2.6 2.6-2.4-.6-.6-2.4z" }]],
+  reescreveu: [["path", { d: "M15.5 4.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z" }], ["path", { d: "M13 21h8" }]],
+  revisou: [["path", { d: "m2.5 12.5 4 4 8-9M11.5 15.5l1 1 8-9" }]],
+};
+
+function glifoPo(acao) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", width: "12", height: "12", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) {
+    svg.setAttribute(k, v);
+  }
+  for (const [tag, attrs] of GLIFO_PO[acao] ?? []) {
+    const n = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    svg.append(n);
+  }
+  return svg;
+}
+
 export function createTarefasBoard({
   req,
   el,
@@ -127,8 +347,26 @@ export function createTarefasBoard({
   aoAbrirPlano = () => {},
   confirmar = (msg) => Promise.resolve(window.confirm(msg)),
   avisar = (msg) => Promise.resolve(window.alert(msg)),
+  /**
+   * Manda `texto` pra conversa `threadId` pelo caminho de envio do renderer. Resolve "sent",
+   * "missing" (a conversa não existe mais) ou "failed". Sem ele, o cartão não mostra resposta.
+   */
+  enviarParaConversa = null,
+  /** SSE do quadro (`/v1/tarefas/events`): sem `fetchStream`/`lerEventos`, o quadro não se escuta. */
+  fetchStream = null,
+  lerEventos = null,
+  api = (r) => r,
+  headers = () => ({}),
+  agora = () => Date.now(),
 }) {
   let quadro = { colunas: [], marcos: [], etiquetas: [] };
+  /** Último `GET /v1/po/status` (ou payload do `po.rodada`) — `null` = linha escondida. */
+  let statusPo = null;
+  /** Projeto cujo SSE está assinado agora, e a função que cancela. */
+  let sseProjeto = null;
+  let cancelarSse = () => {};
+  let recargaAgendada = null;
+  let relogioPo = null;
   let tarefas = [];
   let filtroMarco = "";
   /** id em edição no modal; "" = tarefa nova; null = modal fechado. */
@@ -199,11 +437,27 @@ export function createTarefasBoard({
       arrastando = null;
     });
     div.addEventListener("click", () => abrirModal(t.id));
+    // cartão alcançável por teclado: Tab chega nele, Enter/Espaço abre o detalhe
+    div.tabIndex = 0;
+    div.addEventListener("keydown", (e) => {
+      if (e.target !== div || (e.key !== "Enter" && e.key !== " ")) return;
+      e.preventDefault();
+      abrirModal(t.id);
+    });
 
     const titulo = document.createElement("p");
     titulo.className = "kanban-card-title";
-    titulo.textContent = t.titulo;
+    titulo.textContent = tituloEfetivo(t);
     div.append(titulo);
+    const resumo = resumoDoCard(t);
+    if (resumo) {
+      const p = document.createElement("p");
+      p.className = "kanban-card-resumo";
+      p.textContent = resumo;
+      div.append(p);
+    }
+    const selos = selosDoPoEl(t);
+    if (selos) div.append(selos);
 
     if (t.etiquetaIds?.length) {
       const chips = document.createElement("div");
@@ -225,7 +479,7 @@ export function createTarefasBoard({
     if (t.tipo) partes.push({ cls: "kanban-card-tipo", txt: ROTULO_TIPO[t.tipo] ?? t.tipo });
     if (t.parentId) {
       const mae = tarefas.find((x) => x.id === t.parentId);
-      partes.push({ cls: "kanban-card-sub", txt: `↳ ${mae ? mae.titulo : "tarefa-mãe"}` });
+      partes.push({ cls: "kanban-card-sub", txt: `↳ ${mae ? tituloEfetivo(mae) : "tarefa-mãe"}` });
     }
     if (t.dependeDe?.length) partes.push({ cls: "kanban-card-bloqueada", txt: `🔒 bloqueada por ${t.dependeDe.length}` });
     if (t.prioridade) partes.push({ cls: "kanban-card-prioridade", txt: ROTULO_PRIORIDADE[t.prioridade] ?? t.prioridade, dataP: t.prioridade });
@@ -252,7 +506,142 @@ export function createTarefasBoard({
       }
       div.append(meta);
     }
+    if (aguardaVoce(t)) {
+      const resp = respostaEl(t, div);
+      if (resp) div.append(resp);
+    }
     return div;
+  }
+
+  /** Selo do PO (ícone + "PO", fato e motivo no tooltip) e o chip "Aguardando você". `null` se nenhum. */
+  function selosDoPoEl(t) {
+    const acao = acaoDoPo(t, quadro.colunas);
+    const aguarda = aguardaVoce(t);
+    if (!acao && !aguarda) return null;
+    const linha = document.createElement("div");
+    linha.className = "kanban-card-po";
+    if (acao) {
+      const selo = document.createElement("span");
+      selo.className = `tk-po-selo po-${acao}`;
+      const dica = dicaDoSeloPo(acao, t.po?.motivo);
+      selo.title = dica;
+      selo.setAttribute("aria-label", dica);
+      selo.dataset.acao = acao;
+      const sigla = document.createElement("span");
+      sigla.className = "tk-po-sigla";
+      sigla.textContent = "PO";
+      selo.append(sigla, glifoPo(acao));
+      linha.append(selo);
+    }
+    if (aguarda) {
+      const chip = document.createElement("span");
+      chip.className = "tk-po-aguardando";
+      const dica = dicaDoAguardando(t);
+      chip.title = dica;
+      chip.setAttribute("aria-label", dica);
+      chip.textContent = "Aguardando você";
+      linha.append(chip);
+    }
+    return linha;
+  }
+
+  /** Respostas já mandadas, por cartão + versão da camada do PO: o "Enviado" sobrevive à recarga. */
+  const respondidos = new Set();
+  const chaveDaResposta = (t) => `${t.id}:${t.po?.em ?? ""}`;
+
+  /**
+   * Controle de resposta do cartão que espera a pessoa: "Pode fazer" (tipo botão) ou caixa de texto
+   * + Enviar (tipo responder). Vai pra conversa do cartão. `cartao` = o card arrastável que o
+   * contém (o drag fica desligado enquanto se mexe aqui dentro). `null` sem conversa ou sem envio.
+   */
+  function respostaEl(t, cartao = null) {
+    if (!t.threadId || !enviarParaConversa) return null;
+    const wrap = document.createElement("div");
+    wrap.className = "tk-po-resposta";
+    // clique/drag aqui dentro não abrem o detalhe nem arrastam o cartão (tecla: o card já filtra o alvo)
+    for (const tipo of ["click", "dragstart", "mousedown"]) wrap.addEventListener(tipo, (e) => e.stopPropagation());
+    if (cartao) {
+      wrap.addEventListener("pointerdown", () => (cartao.draggable = false));
+      const religar = () => (cartao.draggable = true);
+      wrap.addEventListener("pointerup", religar);
+      wrap.addEventListener("pointerleave", religar);
+      wrap.addEventListener("focusout", religar);
+    }
+
+    const aviso = document.createElement("p");
+    aviso.className = "tk-po-resposta-erro hidden";
+    aviso.setAttribute("role", "alert");
+
+    const enviado = () => {
+      const ok = document.createElement("span");
+      ok.className = "tk-po-enviado";
+      ok.textContent = "Enviado";
+      wrap.replaceChildren(ok);
+    };
+    if (respondidos.has(chaveDaResposta(t))) {
+      enviado();
+      return wrap;
+    }
+
+    const controles = [];
+    async function enviar(corpo) {
+      if (!corpo) return;
+      aviso.classList.add("hidden");
+      for (const c of controles) c.disabled = true;
+      let r;
+      try {
+        r = await enviarParaConversa(t.threadId, mensagemDeResposta(t, corpo));
+      } catch {
+        r = "failed";
+      }
+      if (r === "sent") {
+        respondidos.add(chaveDaResposta(t));
+        enviado();
+        return;
+      }
+      for (const c of controles) c.disabled = false;
+      aviso.textContent = r === "missing" ? "A conversa deste cartão não está mais aqui." : "Não deu para enviar. Tente de novo.";
+      aviso.classList.remove("hidden");
+    }
+
+    if (tipoDeResposta(t) === "botao") {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "tk-po-autorizar";
+      btn.textContent = "Pode fazer";
+      const dica = `Responder "${MENSAGEM_AUTORIZAR}" na conversa deste cartão`;
+      btn.title = dica;
+      btn.setAttribute("aria-label", dica);
+      btn.addEventListener("click", () => void enviar(MENSAGEM_AUTORIZAR));
+      controles.push(btn);
+      wrap.append(btn);
+    } else {
+      const caixa = document.createElement("textarea");
+      caixa.className = "tk-po-texto";
+      caixa.rows = 2;
+      const acao = t.po?.acaoVoce?.trim() ?? "";
+      caixa.placeholder = acao ? (acao.length > 60 ? `${acao.slice(0, 59)}…` : acao) : "Responder ao agente…";
+      caixa.setAttribute("aria-label", "Resposta ao agente");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "tk-po-enviar";
+      btn.textContent = "Enviar";
+      btn.title = "Enviar a resposta pra conversa deste cartão";
+      btn.setAttribute("aria-label", btn.title);
+      const mandar = () => void enviar(caixa.value.trim());
+      btn.addEventListener("click", mandar);
+      // Enter manda, Shift+Enter quebra linha
+      caixa.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+          e.preventDefault();
+          mandar();
+        }
+      });
+      controles.push(caixa, btn);
+      wrap.append(caixa, btn);
+    }
+    wrap.append(aviso);
+    return wrap;
   }
 
   function colEl(coluna) {
@@ -384,7 +773,19 @@ export function createTarefasBoard({
       }),
     );
     await carregar();
-    if (erroMove) await avisar(erroMove.message || "Não deu pra mover.");
+    if (erroMove) {
+      await avisar(erroMove.message || "Não deu pra mover.");
+      return;
+    }
+    // Cartão com conversa solto na coluna de andamento: o agente dela é avisado pra começar.
+    const entrouNoMeio = movida.colunaId !== colunaDestinoId && colunaDestinoId === colunaDoMeio(quadro.colunas);
+    if (entrouNoMeio && movida.threadId && enviarParaConversa) {
+      try {
+        await enviarParaConversa(movida.threadId, `Comece a trabalhar nesta tarefa: "${tituloEfetivo(movida)}"`);
+      } catch {
+        // o cartão já mudou de coluna; a conversa só não ficou sabendo
+      }
+    }
   }
 
   async function renomearColuna(coluna, input) {
@@ -583,7 +984,7 @@ export function createTarefasBoard({
         .filter(Boolean)
         .join(", ");
       const valores = [
-        t.titulo,
+        tituloEfetivo(t),
         coluna,
         t.tipo ? (ROTULO_TIPO[t.tipo] ?? t.tipo) : "",
         t.prioridade ? (ROTULO_PRIORIDADE[t.prioridade] ?? t.prioridade) : "",
@@ -636,8 +1037,8 @@ export function createTarefasBoard({
       for (const t of porDia.get(isoLocal(dia)) ?? []) {
         const chip = document.createElement("div");
         chip.className = "tk-cal-chip";
-        chip.textContent = t.titulo;
-        chip.title = t.titulo;
+        chip.textContent = tituloEfetivo(t);
+        chip.title = tituloEfetivo(t);
         chip.addEventListener("click", () => abrirModal(t.id));
         div.append(chip);
       }
@@ -671,7 +1072,7 @@ export function createTarefasBoard({
       if (tarefasDoMarco.length) {
         for (const t of tarefasDoMarco) {
           const li = document.createElement("li");
-          li.textContent = t.titulo;
+          li.textContent = tituloEfetivo(t);
           li.addEventListener("click", () => abrirModal(t.id));
           lista.append(li);
         }
@@ -687,6 +1088,48 @@ export function createTarefasBoard({
     }
   }
 
+  /** "O PO atualizou o quadro há X" + estado da última rodada; some sem rodada/rota. */
+  function renderStatusPo() {
+    const p = el("tk-po-status");
+    if (!p) return;
+    const linha = getProjectPath() ? linhaDoPo(statusPo, agora()) : null;
+    p.classList.toggle("hidden", !linha);
+    if (!linha) {
+      p.replaceChildren();
+      return;
+    }
+    const quando = document.createElement("span");
+    quando.className = "tk-po-status-quando";
+    quando.textContent = linha.texto;
+    p.replaceChildren(quando);
+    if (linha.estado) {
+      const estado = document.createElement("span");
+      estado.className = "tk-po-status-estado";
+      estado.textContent = linha.estado;
+      p.append(estado);
+    }
+    p.classList.toggle("is-erro", linha.erro);
+    p.title = statusPo?.ultima?.em ? `Última rodada do PO: ${new Date(statusPo.ultima.em).toLocaleString("pt-BR")}` : "";
+  }
+
+  /** Busca `GET /v1/po/status`; 404/sem rota/erro = linha escondida, sem aviso. */
+  async function carregarStatusPo() {
+    const projectPath = getProjectPath();
+    if (!projectPath) {
+      statusPo = null;
+      renderStatusPo();
+      return;
+    }
+    try {
+      const r = await req(`/v1/po/status?${qs()}`);
+      if (getProjectPath() !== projectPath) return; // trocou de projeto no meio
+      statusPo = r && typeof r === "object" ? r : null;
+    } catch {
+      statusPo = null;
+    }
+    renderStatusPo();
+  }
+
   function render() {
     mostrarErro("");
     const projLabel = el("tk-projeto");
@@ -695,6 +1138,7 @@ export function createTarefasBoard({
       projLabel.textContent = nomeDoProjeto(path);
       projLabel.title = path || "";
     }
+    renderStatusPo();
     renderToolbar();
     renderMarcosLista();
     renderEtiquetasLista();
@@ -762,7 +1206,7 @@ export function createTarefasBoard({
     selParent.replaceChildren(opcao("Nenhuma — é uma tarefa de topo", ""));
     for (const t of outras) {
       if (t.parentId === id) continue; // já é filha desta — vira ciclo direto se virar mãe
-      selParent.append(opcao(t.titulo, t.id));
+      selParent.append(opcao(tituloEfetivo(t), t.id));
     }
     selParent.value = parentIdAtual ?? "";
 
@@ -771,7 +1215,7 @@ export function createTarefasBoard({
     selDep.replaceChildren();
     for (const t of outras) {
       if (t.colunaId === finalId) continue; // já feita — não vira bloqueadora nova
-      selDep.append(opcao(t.titulo, t.id));
+      selDep.append(opcao(tituloEfetivo(t), t.id));
     }
     const marcadas = new Set(dependeDeAtual ?? []);
     for (const o of selDep.options) o.selected = marcadas.has(o.value);
@@ -868,7 +1312,7 @@ export function createTarefasBoard({
   function preencherComentarios(t) {
     const ul = el("tk-f-comentarios");
     ul.replaceChildren();
-    if (!t.comentarios.length) {
+    if (!t.comentarios?.length) {
       const li = document.createElement("li");
       li.className = "tk-marco-vazio";
       li.textContent = "Nenhum comentário ainda.";
@@ -877,16 +1321,83 @@ export function createTarefasBoard({
     }
     for (const c of t.comentarios) {
       const li = document.createElement("li");
-      li.className = "tk-comentario-item";
+      const classe = classeDoAutor(c.autor);
+      li.className = `tk-comentario-item autor-${classe}`;
+      li.dataset.autor = classe;
       const texto = document.createElement("div");
       texto.textContent = c.texto;
       const meta = document.createElement("div");
       meta.className = "tk-comentario-meta";
+      const autor = document.createElement("span");
+      autor.className = "tk-comentario-autor";
+      autor.textContent = rotuloDoAutor(c.autor);
       const quando = new Date(c.criadoEm).toLocaleString("pt-BR");
-      meta.textContent = c.autor ? `${c.autor} · ${quando}` : quando;
+      meta.append(autor, ` · ${quando}`);
       li.append(texto, meta);
       ul.append(li);
     }
+  }
+
+  /**
+   * Bloco do PO no detalhe: resumo, título do agente (quando o PO reescreveu), "O que você precisa
+   * fazer", "Motivo atual", "Pendência de" (a mãe, clicável) e a resposta. Some sem nada disso.
+   */
+  function preencherPo(t) {
+    const wrap = el("tk-po-wrap");
+    if (!wrap) return;
+    const secoes = [];
+    const secao = (rotulo, conteudo, cls = "") => {
+      const div = document.createElement("div");
+      div.className = `tk-po-secao ${cls}`.trim();
+      const h = document.createElement("h4");
+      h.className = "tk-po-rotulo";
+      h.textContent = rotulo;
+      div.append(h);
+      if (typeof conteudo === "string") {
+        const p = document.createElement("p");
+        p.className = "tk-po-texto-secao";
+        p.textContent = conteudo;
+        div.append(p);
+      } else {
+        div.append(conteudo);
+      }
+      secoes.push(div);
+      return div;
+    };
+    if (t) {
+      const selos = selosDoPoEl(t);
+      if (selos) secoes.push(selos);
+      if (t.po?.resumo?.trim()) secao("Resumo do PO", t.po.resumo.trim());
+      if (t.po?.titulo?.trim() && t.po.titulo.trim() !== t.titulo) secao("Título do agente", t.titulo);
+      if (aguardaVoce(t)) {
+        const s = secao("O que você precisa fazer", t.po.acaoVoce.trim(), "is-acao");
+        const resp = respostaEl(t);
+        if (resp) s.append(resp);
+        else if (!t.threadId) {
+          const p = document.createElement("p");
+          p.className = "tk-po-dica";
+          p.textContent = "Este cartão não tem conversa — responda abrindo uma.";
+          s.append(p);
+        }
+      }
+      const motivo = textoDoMotivo(t, quadro.colunas);
+      if (motivo) secao("Motivo atual", motivo);
+      if (t.parentId) {
+        const mae = tarefas.find((x) => x.id === t.parentId);
+        if (mae) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "linklike tk-po-mae";
+          btn.textContent = tituloEfetivo(mae);
+          btn.title = `Abrir o cartão "${tituloEfetivo(mae)}"`;
+          btn.setAttribute("aria-label", btn.title);
+          btn.addEventListener("click", () => abrirModal(mae.id));
+          secao("Pendência de", btn);
+        }
+      }
+    }
+    wrap.replaceChildren(...secoes);
+    wrap.classList.toggle("hidden", !secoes.length);
   }
 
   /** Releva só a tarefa em edição (checklist/comentário mudou) — sem fechar o modal. */
@@ -896,6 +1407,7 @@ export function createTarefasBoard({
     tarefas = tarefas.map((x) => (x.id === t.id ? t : x));
     preencherChecklist(t);
     preencherComentarios(t);
+    preencherPo(t);
     render();
   }
 
@@ -973,6 +1485,7 @@ export function createTarefasBoard({
       preencherChecklist(t);
       preencherComentarios(t);
     }
+    preencherPo(t);
     void preencherCommits(t?.id);
     erro("");
     el("tarefa-modal").classList.remove("hidden");
@@ -1136,7 +1649,56 @@ export function createTarefasBoard({
     });
   }
 
+  /** Qualquer evento de tarefa (criou, moveu, comentou, checklist, …) recarrega o quadro — juntando rajadas. */
+  function agendarRecarga() {
+    if (recargaAgendada) clearTimeout(recargaAgendada);
+    recargaAgendada = setTimeout(() => {
+      recargaAgendada = null;
+      void carregar().then(() => {
+        if (editando) return recarregarTarefaAtual().catch(() => {});
+      });
+    }, 150);
+  }
+
+  function aoEventoDoQuadro(ev, projeto) {
+    if (!ev || typeof ev !== "object") return;
+    if (ev.projectPath && ev.projectPath !== projeto) return;
+    if (getProjectPath() !== projeto) return;
+    const tipo = ev.tipo ?? ev.type;
+    if (tipo === "po.rodada") {
+      const ultima = ev.ultima ?? (ev.fase || ev.em ? ev : null);
+      if (ultima?.em) {
+        statusPo = { ...(statusPo ?? {}), ligado: ev.ligado ?? statusPo?.ligado ?? true, ultima };
+        renderStatusPo();
+      } else {
+        void carregarStatusPo();
+      }
+    }
+    agendarRecarga();
+  }
+
+  /** Assina o SSE do projeto atual (troca de assinatura quando troca o projeto). */
+  function assinarQuadro() {
+    const projeto = getProjectPath();
+    if (projeto === sseProjeto) return;
+    cancelarSse();
+    cancelarSse = () => {};
+    sseProjeto = projeto || null;
+    if (!projeto || !fetchStream || !lerEventos) return;
+    cancelarSse = assinarSse({
+      fetchStream,
+      lerEventos,
+      api,
+      headers,
+      rota: `/v1/tarefas/events?${qs()}`,
+      aoEvento: (ev) => aoEventoDoQuadro(ev, projeto),
+    });
+  }
+
   function abrir() {
+    assinarQuadro();
+    if (!relogioPo) relogioPo = setInterval(renderStatusPo, 60_000);
+    void carregarStatusPo();
     return carregar();
   }
 

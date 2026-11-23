@@ -26,6 +26,15 @@ import { MCP_TOOLS_ENTREGAR } from "./entregar-arquivo.ts";
 import { MCP_TOOLS_SERVICOS } from "./servicos-ferramentas.ts";
 import { MCP_TOOLS_WINDOWS_CONTROL } from "./windows-control.ts";
 import { MCP_TOOLS_TAREFA } from "./tarefas.ts";
+import {
+  aoUsarFerramentaDeTarefa,
+  FERRAMENTAS_DE_TAREFA,
+  fecharTurno,
+  retomarTurno,
+  sincronizarNoFimDoTurno,
+  type ContextoDoTurno,
+} from "./tarefas-agente.ts";
+import { abrirRodadaPO, entrarNaEsperaDoPO, fecharRodadaPO } from "./po/index.ts";
 import { expandirSkill } from "./skills.ts";
 import { apagarSessaoClaude, gravarSessaoClaude, lerSessaoClaude } from "./claude-session.ts";
 import { ApiEngine } from "./engines/api.ts";
@@ -36,6 +45,7 @@ import type { Engine } from "./engines/types.ts";
 import {
   applyLoginResult,
   credentialVerdict,
+  engineEnv,
   getProfile,
   listProfiles,
   markAuthFailed,
@@ -700,6 +710,7 @@ async function ensureLive(threadId: string, home: string, profile?: Profile): Pr
     );
   }
 
+  quadroDaConversa.set(threadId, { projectPath: meta.projectPath, elegivel: entraNoQuadro(meta) });
   const existing = lives.get(threadId);
   // virou Manager: o motor velho subiu sem o "só leitura", precisa de um novo
   if (existing && existing.planejamento !== planejamento?.slug) {
@@ -1011,6 +1022,35 @@ const titulados = new Set<string>();
  * claude), com a regra sem IA de reserva (`titulo-auto.ts`). Só pra conversa da pessoa sem nome
  * ainda — passo de time, plano, DS e conversa já renomeada ficam como estão. Nunca lança.
  */
+/**
+ * Projeto e elegibilidade de cada conversa pro Quadro (o `Live` não guarda o projeto): gravado no
+ * `ensureLive`, lido no evento de ferramenta e no `done`. Mesmo filtro do `talvezTitular` — plano,
+ * passo de time/run e conversa interna não viram card.
+ */
+const quadroDaConversa = new Map<string, { projectPath?: string; elegivel: boolean }>();
+
+function entraNoQuadro(meta: { planejamento?: unknown; handoff?: unknown; oculta?: unknown; semRoteamento?: unknown; runId?: unknown }): boolean {
+  return !(meta.planejamento || meta.handoff || meta.oculta || meta.semRoteamento || meta.runId);
+}
+
+/** O que tarefas-agente.ts precisa pra achar a lista do motor. `null` = conversa fora do Quadro. */
+function contextoDoQuadro(threadId: string, live: Live, home: string): ContextoDoTurno | null {
+  try {
+    const q = quadroDaConversa.get(threadId);
+    if (!q?.elegivel || !q.projectPath) return null;
+    const p = getProfile(live.profileId, home);
+    const sessionId = live.session?.sessionId;
+    return {
+      threadId,
+      projectPath: q.projectPath,
+      ...(p?.engine === "claude" && sessionId ? { configDir: engineEnv(p, home).CLAUDE_CONFIG_DIR, sessionId } : {}),
+    };
+  } catch (e) {
+    log.avisoUmaVez(`tarefas-agente:ctx:${threadId}`, "turno", "não montei o contexto do quadro", { threadId, erro: (e as Error).message });
+    return null;
+  }
+}
+
 async function talvezTitular(threadId: string, home: string): Promise<void> {
   if (titulados.has(threadId)) return;
   titulados.add(threadId);
@@ -1049,7 +1089,8 @@ export function turnoDeResumo(
   projectPath: string | undefined,
   home: string,
   pedido: string,
-  opts: { overrides?: EngineOverrides; tetoMs?: number } = {},
+  /** `somenteLeitura`: o motor sobe só com ferramentas de leitura (o PO usa — juiz não edita). */
+  opts: { overrides?: EngineOverrides; tetoMs?: number; somenteLeitura?: boolean } = {},
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const engine = createEngine(p, projectPath, home);
@@ -1072,7 +1113,13 @@ export function turnoDeResumo(
        * Windows. No Linux passaria, o que é exatamente o tipo de bug que só
        * aparece na máquina de outra pessoa.
        */
-      .start({ threadId: `compact-${Date.now()}`, projectPath, profileId: p.id, contextPack: "" }, (ev) => {
+      .start({
+        threadId: `compact-${Date.now()}`,
+        projectPath,
+        profileId: p.id,
+        contextPack: "",
+        ...(opts.somenteLeitura ? { somenteLeitura: true } : {}),
+      }, (ev) => {
         if (ev.type === "text") buf += ev.text;
         else if (ev.type === "done") fim();
         else if (ev.type === "quota") fim("a quota da conta acabou");
@@ -1312,6 +1359,11 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
       { ts: nowIso(), type: "tool", threadId, name: ev.name, summary: ev.summary, ...(ev.id ? { id: ev.id } : {}), ...(input !== undefined ? { input } : {}) },
       home,
     );
+    // lista de tarefas do motor → cards do Quadro (agendado; erro fica no log, nunca no turno)
+    if (FERRAMENTAS_DE_TAREFA.has(ev.name)) {
+      const ctx = contextoDoQuadro(threadId, live, home);
+      if (ctx) aoUsarFerramentaDeTarefa(home, ctx, ev.name, ev.input);
+    }
     emit(threadId, { ...ev, threadId });
     return;
   }
@@ -1340,6 +1392,18 @@ function onEngineEvent(threadId: string, home: string, ev: EngineEvent): void {
     // turno que acabou de dar certo.
     void talvezCompactar(threadId, home);
     void talvezTitular(threadId, home);
+    // Quadro: sync final da lista do motor e, se o turno acabou sozinho (não foi o Parar), o card
+    // que ficou "em andamento" volta pra "a fazer". Os dois só logam erro.
+    const ctx = contextoDoQuadro(threadId, live, home);
+    if (ctx) {
+      sincronizarNoFimDoTurno(home, ctx);
+      // Auditor PO julga o turno antes do rebaixamento (o fim espera por ele até 30 s; nunca rejeita).
+      if (!live.paradoEm) {
+        void fecharTurno(threadId, ctx.projectPath, home, {
+          aguardar: fecharRodadaPO(threadId, ctx.projectPath, home, live.profileId),
+        });
+      }
+    }
     return;
   }
   if (ev.type === "quota") {
@@ -1791,7 +1855,10 @@ async function turnoDaMensagem(
   opts: { automatico?: boolean; elementos?: ElementoDoPreview[] },
 ): Promise<void> {
   if ((await liberarEspera(threadId, text, home, images)) === "injetada") return;
+  // Auditor PO: enquanto espera a trava, esta mensagem é o "próximo da fila" do fechamento anterior.
+  const saiDaEsperaDoPO = entrarNaEsperaDoPO(threadId, text);
   await withLocked(threadId, async () => {
+    saiDaEsperaDoPO();
     // Teto de `nexo_delegar` é POR TURNO: mensagem nova reabre a cota.
     resetContadorDeDelegacao(threadId);
     /*
@@ -1835,7 +1902,14 @@ async function turnoDaMensagem(
      * Quem retoma é `retomarTurnoPendente`, chamado pelo endpoint de decisão.
      */
     if (roteamento.pendente) return;
+    // Quadro: o que o fim do turno anterior devolveu pra "a fazer" volta pra "em andamento"
+    const retomados =
+      meta?.type === "thread_meta" && entraNoQuadro(meta) ? retomarTurno(threadId, meta.projectPath, home) : undefined;
     const live = await ensureLive(threadId, home);
+    // Auditor PO (abertura): depois do retomar, solto — o turno não espera por ele.
+    if (retomados && meta?.type === "thread_meta") {
+      void retomados.then((ids) => abrirRodadaPO(threadId, meta.projectPath, home, live.profileId, ids));
+    }
     await aplicarOverridesDoTurno(threadId, text, eventosAtuais, live, home, antecipada);
     // Gatilhos do Cérebro: lembrete de 1 linha na frente do pedido quando a mensagem (ou o turno
     // anterior) pede uma capacidade que o modelo costuma esquecer. Depois do `comSkill`, que olha o
@@ -1845,7 +1919,7 @@ async function turnoDaMensagem(
       arquivos: attachments.map((a) => a.name),
     });
     await dispatch(threadId, home, live, promptWithAttachments(resultados + lembrete + comSkill(textoComElementos(text, opts.elementos), live, home, meta), attachments));
-  });
+  }).finally(saiDaEsperaDoPO);
 }
 
 /**

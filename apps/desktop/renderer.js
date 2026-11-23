@@ -4725,11 +4725,13 @@ async function iniciarSubchat(li, runId) {
   pintar();
 
   const ac = new AbortController();
+  abortDoSubchat.set(li, ac);
   fetchSse(api(`/v1/runs/${runId}/events`), { headers: headers(), signal: ac.signal })
     .then((res) => lerEventos(res, (ev) => {
       if (aplicarEventoDeRun(run, ev)) pintar();
       if (ev.type === "run_end") ac.abort();
     }))
+    .finally(() => abortDoSubchat.delete(li))
     .catch(() => {}); // stream cortado (run terminou, ou daemon reiniciou) — a bolha já tem o resultado final pelo tool_result
 }
 
@@ -7067,7 +7069,38 @@ const tarefasBoard = createTarefasBoard({
   aoAbrirPlano: (slug) => void abrirPlanoExistente(state.projectPath, slug),
   confirmar: (msg) => dialogo.confirmar(msg),
   avisar: (msg) => dialogo.avisar(msg),
+  // SSE do quadro: qualquer evento de tarefa (e o po.rodada) recarrega a tela
+  fetchStream: fetchSse,
+  lerEventos,
+  api,
+  headers,
+  enviarParaConversa: enviarDoQuadro,
 });
+
+/**
+ * Resposta de um cartão do Quadro (e o "comece a trabalhar" do arrasto) pelo mesmo caminho do
+ * composer: conversa aberta na tela → `sendChatMessage` nela (fila se estiver falando); fechada →
+ * fila de fundo, que respeita agente ocupado. "missing" = a conversa não existe mais.
+ */
+async function enviarDoQuadro(threadId, texto) {
+  const chat = areaDeChats.doThread(threadId);
+  if (chat) {
+    try {
+      await areaDeChats.comChat(chat, () => sendChatMessage(texto, []));
+      return "sent";
+    } catch {
+      return "failed";
+    }
+  }
+  try {
+    await req(`/v1/threads/${encodeURIComponent(threadId)}`);
+  } catch (e) {
+    return e?.status === 404 ? "missing" : "failed";
+  }
+  filaDa(threadId).push({ text: texto, images: [] });
+  void drenarFilasDeFundo();
+  return "sent";
+}
 
 /* ---------- Torre de magia: uma torre por projeto, com zoom (torre-view.js) ---------- */
 

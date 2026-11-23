@@ -447,6 +447,12 @@ export type NexoConfig = {
     quadroTarefas: boolean;
     /** Botão no painel Browser que captura a página aberta como referência do design system. */
     coletaDesign: boolean;
+    /**
+     * Auditor PO: um turno lateral (sem ferramentas, sem MCP) na abertura e no fechamento de cada
+     * turno da conversa, que acerta os cards do Quadro pelo que o agente fez. Só vale com
+     * `quadroTarefas`. Opcional no tipo; ausente = ligado (ver `DEFAULT_CONFIG`).
+     */
+    auditorPO?: boolean;
   };
   /**
    * Dá ao agente ferramentas `nexo_windows_*`: ver janelas/apps abertos, capturar
@@ -484,6 +490,8 @@ export type NexoConfig = {
    * ainda não declarou o plano com TodoWrite/TaskCreate. Uma vez por turno. Ver `gate-plano.ts`.
    */
   gatePlano: boolean;
+  /** Modelo do auditor PO (alias do CLI: "sonnet", "haiku"…). Ausente = "sonnet". Ver `po/motor.ts`. */
+  poModelo?: string;
 };
 
 /** Dias que uma conversa fica na lixeira (dá pra restaurar) antes de ser apagada de vez. */
@@ -535,12 +543,14 @@ export const DEFAULT_CONFIG: NexoConfig = {
     repoMapProfileId: "",
     quadroTarefas: true,
     coletaDesign: true,
+    auditorPO: true,
   },
   windowsControlEnabled: false,
   paineisDoAgente: { modo: "sempre", paineis: [...PAINEIS_DO_AGENTE], trazerPraFrente: true },
   typesafe: { modo: "desligado" },
   lixeiraAposDias: 7,
   gatePlano: true,
+  poModelo: "sonnet",
 };
 
 export type ThreadEvent =

@@ -114,6 +114,7 @@ function lerConfig(path: string): NexoConfig {
     ...(isLogNivel(raw.logNivel) ? { logNivel: raw.logNivel } : {}),
     lixeiraAposDias: isDiasLixeira(raw.lixeiraAposDias) ? raw.lixeiraAposDias : DEFAULT_CONFIG.lixeiraAposDias,
     gatePlano: raw.gatePlano === undefined ? DEFAULT_CONFIG.gatePlano : Boolean(raw.gatePlano),
+    poModelo: typeof raw.poModelo === "string" && raw.poModelo.trim() ? raw.poModelo.trim() : DEFAULT_CONFIG.poModelo,
   };
 }
 
@@ -164,6 +165,7 @@ function cleanModulos(value: unknown): NexoConfig["modulos"] {
     repoMapProfileId: str(o.repoMapProfileId),
     quadroTarefas: o.quadroTarefas === undefined ? DEFAULT_CONFIG.modulos.quadroTarefas : Boolean(o.quadroTarefas),
     coletaDesign: o.coletaDesign === undefined ? DEFAULT_CONFIG.modulos.coletaDesign : Boolean(o.coletaDesign),
+    auditorPO: o.auditorPO === undefined ? DEFAULT_CONFIG.modulos.auditorPO : Boolean(o.auditorPO),
   };
 }
 
@@ -294,6 +296,7 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
         patch.modulos?.quadroTarefas === undefined ? current.modulos.quadroTarefas : Boolean(patch.modulos.quadroTarefas),
       coletaDesign:
         patch.modulos?.coletaDesign === undefined ? current.modulos.coletaDesign : Boolean(patch.modulos.coletaDesign),
+      auditorPO: patch.modulos?.auditorPO === undefined ? current.modulos.auditorPO : Boolean(patch.modulos.auditorPO),
     },
     windowsControlEnabled:
       patch.windowsControlEnabled === undefined ? current.windowsControlEnabled : Boolean(patch.windowsControlEnabled),
@@ -306,6 +309,8 @@ export function saveConfig(home: string, patch: Partial<NexoConfig>): NexoConfig
         : {}),
     lixeiraAposDias: isDiasLixeira(patch.lixeiraAposDias) ? patch.lixeiraAposDias : current.lixeiraAposDias,
     gatePlano: patch.gatePlano === undefined ? current.gatePlano : Boolean(patch.gatePlano),
+    poModelo:
+      typeof patch.poModelo === "string" && patch.poModelo.trim() ? patch.poModelo.trim() : current.poModelo,
   };
   writeJsonAtomico(configPath(home), next);
   cacheConfig.delete(configPath(home));

@@ -199,6 +199,7 @@ import {
   type TarefaInput,
 } from "./tarefas.ts";
 import { commitsRelacionados } from "./tarefas-git.ts";
+import { statusDoPO } from "./po/index.ts";
 import {
   aplicarControles,
   apagarCard,
@@ -1917,7 +1918,16 @@ export function createApp(home: string, token: string): Hono {
     return c.json(getQuadro(projectPath, home));
   });
 
-  /** SSE: uma linha por mudança no Quadro deste projeto, com a coluna de antes e a de depois (torre). */
+  /** Auditor PO: ligado? e a última rodada neste projeto (a mesma coisa vem no SSE como `po.rodada`). */
+  app.get("/v1/po/status", (c) => {
+    const projectPath = c.req.query("projectPath") || undefined;
+    return c.json(statusDoPO(projectPath, home));
+  });
+
+  /**
+   * SSE: uma linha por mudança no Quadro deste projeto, com a coluna de antes e a de depois (torre).
+   * Também passa `{ tipo: "po.rodada", ultima }` a cada rodada do auditor PO.
+   */
   app.get("/v1/tarefas/events", (c) => {
     const projectPath = c.req.query("projectPath") || "";
     if (!projectPath) return c.json({ error: "projectPath obrigatório" }, 400);

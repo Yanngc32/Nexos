@@ -731,6 +731,9 @@ export function engineSpawnEnv(profile: Profile, home: string): NodeJS.ProcessEn
   const env: NodeJS.ProcessEnv = { ...process.env, ...engineEnv(profile, home) };
   if (profile.engine !== "claude") delete env.CLAUDE_CONFIG_DIR;
   if (profile.engine !== "codex") delete env.CODEX_HOME;
+  // Modelo novo some com TaskCreate/TodoWrite sem isto — e a lista de tarefas do motor é o que
+  // vira card no Quadro (ver tarefas-agente.ts).
+  if (profile.engine === "claude") env.CLAUDE_CODE_ENABLE_TODO_TOOLS = "true";
 
   // Conta de GitHub é global (Configurações, não por perfil — ver github-auth.ts):
   // todo agente de todo perfil enxerga o mesmo token, sem precisar logar de novo.
